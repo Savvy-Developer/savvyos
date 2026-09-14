@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   format,
   isValid,
@@ -45,6 +45,7 @@ import {
   ExternalLink,
   Loader2,
   Plus,
+  Pencil,
   RefreshCw,
   Settings2,
   ShieldAlert,
@@ -60,8 +61,39 @@ const TIER_OPTIONS = [
   ["1", "Tier 1: Executed"],
   ["2", "Tier 2: Managed"],
   ["3", "Tier 3: Attended or sponsored"],
-  ["4", "Tier 4: Under evaluation"],
+  ["4", "Under evaluation"],
 ] as const;
+
+const TIER_DETAILS: Record<
+  number,
+  { label: string; description: string; badgeClass: string; barClass: string }
+> = {
+  1: {
+    label: "Tier 1 · Executed",
+    description: "Savvy runs and manages the event.",
+    badgeClass: "border-cyan-200 bg-cyan-100 text-cyan-950",
+    barClass: "bg-cyan-500 text-slate-950",
+  },
+  2: {
+    label: "Tier 2 · Managed",
+    description: "Savvy oversees it while an external party runs it.",
+    badgeClass: "border-blue-200 bg-blue-950 text-white",
+    barClass: "bg-blue-900 text-white",
+  },
+  3: {
+    label: "Tier 3 · Attended or sponsored",
+    description: "An external event where Savvy participates.",
+    badgeClass: "border-violet-200 bg-violet-100 text-violet-950",
+    barClass: "bg-violet-600 text-white",
+  },
+  4: {
+    label: "Under evaluation",
+    description:
+      "A prospective event with no confirmed commitment or timeline.",
+    badgeClass: "border-amber-200 bg-amber-100 text-amber-950",
+    barClass: "bg-amber-400 text-amber-950",
+  },
+};
 const STATUS_OPTIONS = [
   "Idea",
   "Approved",
@@ -160,16 +192,7 @@ function stageClass(stage: string | null | undefined) {
 }
 
 function tierClass(tier: number) {
-  return (
-    (
-      {
-        1: "bg-cyan-400 text-slate-950",
-        2: "bg-slate-900 text-white",
-        3: "bg-violet-600 text-white",
-        4: "border border-dashed border-slate-400 bg-white text-slate-500",
-      } as Record<number, string>
-    )[tier] ?? "bg-slate-100 text-slate-700"
-  );
+  return TIER_DETAILS[tier]?.barClass ?? "bg-slate-100 text-slate-700";
 }
 
 function deadlineTone(value: unknown) {
@@ -620,12 +643,579 @@ function HeadcountCard({
   );
 }
 
+type EventDraft = {
+  name: string;
+  tier: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+  counterpart: string;
+  ownerName: string;
+  city: string;
+  venue: string;
+  workingHeadcount: string;
+  notes: string;
+};
+
+function eventToDraft(event?: EventRecord | null): EventDraft {
+  return {
+    name: event?.name ?? "",
+    tier: String(event?.tier ?? 2),
+    status: event?.status ?? "Idea",
+    startDate: event?.startDate ? String(event.startDate).slice(0, 10) : "",
+    endDate: event?.endDate ? String(event.endDate).slice(0, 10) : "",
+    counterpart: event?.counterpart ?? "",
+    ownerName: event?.ownerName ?? "",
+    city: event?.city ?? "",
+    venue: event?.venue ?? "",
+    workingHeadcount:
+      event?.workingHeadcount === null || event?.workingHeadcount === undefined
+        ? ""
+        : String(event.workingHeadcount),
+    notes: event?.notes ?? "",
+  };
+}
+
+function EventEditorDialog({
+  open,
+  onOpenChange,
+  event,
+  onSave,
+  isSaving,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  event: EventRecord | null;
+  onSave: (event: EventRecord | null, patch: any) => void;
+  isSaving: boolean;
+}) {
+  const [draft, setDraft] = useState<EventDraft>(() => eventToDraft(event));
+
+  useEffect(() => {
+    if (open) setDraft(eventToDraft(event));
+  }, [open, event?.id, event?.version]);
+
+  const updateDraft = <Key extends keyof EventDraft>(
+    key: Key,
+    value: EventDraft[Key]
+  ) => setDraft(current => ({ ...current, [key]: value }));
+
+  const submit = (submission: React.FormEvent<HTMLFormElement>) => {
+    submission.preventDefault();
+    if (!draft.name.trim()) {
+      toast.error("Give this event a name before saving it.");
+      return;
+    }
+    if (draft.startDate && draft.endDate && draft.endDate < draft.startDate) {
+      toast.error("The end date cannot be before the start date.");
+      return;
+    }
+    const parsedHeadcount = draft.workingHeadcount.trim()
+      ? Number(draft.workingHeadcount)
+      : null;
+    if (
+      parsedHeadcount !== null &&
+      (!Number.isInteger(parsedHeadcount) || parsedHeadcount < 0)
+    ) {
+      toast.error("Headcount must be a whole, non-negative number.");
+      return;
+    }
+    onSave(event, {
+      name: draft.name.trim(),
+      tier: Number(draft.tier),
+      status: draft.status,
+      startDate: draft.startDate || null,
+      endDate: draft.endDate || null,
+      counterpart: draft.counterpart.trim() || null,
+      ownerName: draft.ownerName.trim() || null,
+      city: draft.city.trim() || null,
+      venue: draft.venue.trim() || null,
+      workingHeadcount: parsedHeadcount,
+      notes: draft.notes.trim() || null,
+    });
+  };
+
+  const fieldClass = "h-9 bg-background";
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{event ? "Edit event" : "Add event"}</DialogTitle>
+          <DialogDescription>
+            Keep the operating record tight. The timeline, profile, obligations,
+            headcount, and sponsor activity all reference this event.
+          </DialogDescription>
+        </DialogHeader>
+        <form className="space-y-5" onSubmit={submit}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-1.5 sm:col-span-2">
+              <span className="text-sm font-medium">Event name</span>
+              <Input
+                value={draft.name}
+                onChange={item => updateDraft("name", item.target.value)}
+                placeholder="e.g. STR Summit 2027"
+                className={fieldClass}
+                autoFocus
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">Operating tier</span>
+              <Select
+                value={draft.tier}
+                onValueChange={value => updateDraft("tier", value)}
+              >
+                <SelectTrigger className={fieldClass}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIER_OPTIONS.map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">Status</span>
+              <Select
+                value={draft.status}
+                onValueChange={value => updateDraft("status", value)}
+              >
+                <SelectTrigger className={fieldClass}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map(status => (
+                    <SelectItem key={status} value={status}>
+                      {status}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">Start date</span>
+              <Input
+                type="date"
+                value={draft.startDate}
+                onChange={item => updateDraft("startDate", item.target.value)}
+                className={fieldClass}
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">End date</span>
+              <Input
+                type="date"
+                value={draft.endDate}
+                onChange={item => updateDraft("endDate", item.target.value)}
+                className={fieldClass}
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">Point of contact</span>
+              <Input
+                value={draft.counterpart}
+                onChange={item => updateDraft("counterpart", item.target.value)}
+                placeholder="External organizer or main contact"
+                className={fieldClass}
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">Savvy owner</span>
+              <Input
+                value={draft.ownerName}
+                onChange={item => updateDraft("ownerName", item.target.value)}
+                placeholder="Internal owner"
+                className={fieldClass}
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">Current headcount</span>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={draft.workingHeadcount}
+                onChange={item =>
+                  updateDraft("workingHeadcount", item.target.value)
+                }
+                placeholder="Not set"
+                className={fieldClass}
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">City / market</span>
+              <Input
+                value={draft.city}
+                onChange={item => updateDraft("city", item.target.value)}
+                placeholder="City, State"
+                className={fieldClass}
+              />
+            </label>
+            <label className="space-y-1.5 sm:col-span-2">
+              <span className="text-sm font-medium">Venue</span>
+              <Input
+                value={draft.venue}
+                onChange={item => updateDraft("venue", item.target.value)}
+                placeholder="Venue or location detail"
+                className={fieldClass}
+              />
+            </label>
+            <label className="space-y-1.5 sm:col-span-2">
+              <span className="text-sm font-medium">Operational notes</span>
+              <Textarea
+                value={draft.notes}
+                onChange={item => updateDraft("notes", item.target.value)}
+                placeholder="What the team needs to know"
+                className="min-h-24 bg-background"
+              />
+            </label>
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={isSaving}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSaving}>
+              {isSaving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              {event ? "Save changes" : "Add event"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ProfileDatum({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string | number;
+  detail?: string;
+}) {
+  return (
+    <div className="rounded-lg border bg-slate-50/70 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-slate-950">{value}</p>
+      {detail && <p className="mt-1 text-xs text-muted-foreground">{detail}</p>}
+    </div>
+  );
+}
+
+function EventProfileDialog({
+  event,
+  sponsors,
+  claims,
+  onOpenChange,
+  onEdit,
+}: {
+  event: EventRecord | null;
+  sponsors: SponsorRecord[];
+  claims: any[];
+  onOpenChange: (open: boolean) => void;
+  onEdit: (event: EventRecord) => void;
+}) {
+  if (!event) return null;
+  const tier = Number(event.tier);
+  const tierDetail = TIER_DETAILS[tier] ?? TIER_DETAILS[4];
+  const components = event.components ?? [];
+  const completeComponentCount = components.every(
+    (component: any) => asNumber(component.count) !== null
+  );
+  const componentTotal =
+    components.length && completeComponentCount
+      ? components.reduce(
+          (sum: number, component: any) =>
+            sum + (asNumber(component.count) ?? 0),
+          0
+        )
+      : null;
+  const headcount = asNumber(event.workingHeadcount) ?? componentTotal;
+  const relatedAsks = sponsors.flatMap(sponsor =>
+    (sponsor.asks ?? [])
+      .filter((ask: any) => Number(ask.eventId) === Number(event.id))
+      .map((ask: any) => ({ sponsor, ask }))
+  );
+  const relatedClaims = claims.filter(
+    claim => Number(claim.eventId) === Number(event.id)
+  );
+  const eventDate = dateValue(event.startDate)
+    ? event.endDate &&
+      String(event.endDate).slice(0, 10) !==
+        String(event.startDate).slice(0, 10)
+      ? `${dateLabel(event.startDate)} – ${dateLabel(event.endDate)}`
+      : dateLabel(event.startDate)
+    : "No confirmed timeline";
+
+  return (
+    <Dialog open={Boolean(event)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+        <DialogHeader className="border-b pb-4">
+          <div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className={tierDetail.badgeClass}>
+                  {tierDetail.label}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="border-slate-200 bg-slate-50 text-slate-700"
+                >
+                  {event.status}
+                </Badge>
+              </div>
+              <DialogTitle className="text-2xl tracking-tight">
+                {event.name}
+              </DialogTitle>
+              <DialogDescription className="mt-1">
+                {tierDetail.description}
+              </DialogDescription>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => onEdit(event)}>
+              <Pencil className="mr-1.5 h-4 w-4" />
+              Edit event
+            </Button>
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-6 pt-1">
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <ProfileDatum label="Dates" value={eventDate} />
+            <ProfileDatum
+              label="Point of contact"
+              value={event.counterpart || "Not assigned"}
+            />
+            <ProfileDatum
+              label="Headcount"
+              value={headcount === null ? "Not set" : headcount}
+              detail={
+                event.workingHeadcount !== null &&
+                event.workingHeadcount !== undefined
+                  ? "Current working headcount"
+                  : componentTotal !== null
+                    ? "Calculated from components"
+                    : undefined
+              }
+            />
+            <ProfileDatum
+              label="Savvy owner"
+              value={event.ownerName || "Not assigned"}
+            />
+            <ProfileDatum
+              label="Location"
+              value={event.city || "Not set"}
+              detail={event.venue || undefined}
+            />
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardHeader className="border-b pb-3">
+                <CardTitle className="text-base">Event record</CardTitle>
+                <CardDescription>
+                  Commercial and operating context attached to this event.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 p-4 sm:grid-cols-3">
+                <ProfileDatum
+                  label="Revenue target"
+                  value={money(event.revenueTarget)}
+                />
+                <ProfileDatum
+                  label="Revenue booked"
+                  value={money(event.revenueBooked)}
+                />
+                <ProfileDatum
+                  label="Committed cost"
+                  value={money(event.committedCost)}
+                />
+                <ProfileDatum
+                  label="Revenue share"
+                  value={
+                    asNumber(event.savvyRevenueShare) === null
+                      ? "Not set"
+                      : `${asNumber(event.savvyRevenueShare)}%`
+                  }
+                  detail={event.shareStatus || undefined}
+                />
+                <ProfileDatum
+                  label="Registration"
+                  value={event.registrationPlatform || "Not set"}
+                  detail={
+                    event.swoogoEventId
+                      ? `Swoogo: ${event.swoogoEventId}`
+                      : undefined
+                  }
+                />
+                <ProfileDatum
+                  label="Headcount guarantee"
+                  value={
+                    asNumber(event.headcountGuarantee) === null
+                      ? "Not set"
+                      : asNumber(event.headcountGuarantee)!
+                  }
+                  detail={event.headcountGuaranteeVendor || undefined}
+                />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="border-b pb-3">
+                <CardTitle className="text-base">Notes</CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 text-sm leading-relaxed text-muted-foreground">
+                {event.notes || "No operating notes have been added."}
+              </CardContent>
+            </Card>
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-3">
+            <Card>
+              <CardHeader className="border-b pb-3">
+                <CardTitle className="text-base">
+                  Headcount components ({components.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="divide-y p-0">
+                {components.length ? (
+                  components.map((component: any) => (
+                    <div
+                      key={component.id}
+                      className="flex items-center justify-between gap-3 p-3 text-sm"
+                    >
+                      <div>
+                        <p className="font-medium">{component.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {component.sourceType}
+                        </p>
+                      </div>
+                      <p className="font-semibold tabular-nums">
+                        {asNumber(component.count) === null
+                          ? "Not counted"
+                          : component.count}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="p-4 text-sm text-muted-foreground">
+                    No source-level headcount components.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="border-b pb-3">
+                <CardTitle className="text-base">
+                  Obligations ({(event.obligations ?? []).length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="divide-y p-0">
+                {(event.obligations ?? []).length ? (
+                  event.obligations.map((obligation: any) => (
+                    <div key={obligation.id} className="p-3 text-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="font-medium leading-tight">
+                          {obligation.title}
+                        </p>
+                        <p className="shrink-0 text-xs font-semibold">
+                          {money(obligation.amountAtRisk)}
+                        </p>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {dateLabel(obligation.dueDate)}
+                        {obligation.amountNote
+                          ? ` · ${obligation.amountNote}`
+                          : ""}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="p-4 text-sm text-muted-foreground">
+                    No obligations linked to this event.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="border-b pb-3">
+                <CardTitle className="text-base">
+                  Sponsor activity ({relatedAsks.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="divide-y p-0">
+                {relatedAsks.length || relatedClaims.length ? (
+                  <>
+                    {relatedAsks.map(({ sponsor, ask }) => (
+                      <div
+                        key={`${sponsor.id}-${ask.id}`}
+                        className="flex items-center justify-between gap-3 p-3 text-sm"
+                      >
+                        <div>
+                          <p className="font-medium">{sponsor.companyName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {sponsor.category || "Uncategorized"}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold">{money(ask.amount)}</p>
+                          <Badge
+                            variant="outline"
+                            className={`mt-1 ${stageClass(ask.stage)}`}
+                          >
+                            {ask.stage}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                    {relatedClaims.map(claim => (
+                      <div key={`claim-${claim.id}`} className="p-3 text-sm">
+                        <p className="font-medium">
+                          {claim.category} exclusivity
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {claim.sponsor?.companyName ||
+                            claim.holderName ||
+                            "Unclaimed"}
+                          {claim.isWritten ? " · Written" : " · Not written"}
+                        </p>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <p className="p-4 text-sm text-muted-foreground">
+                    No sponsor asks or exclusivity records.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Timeline({
   events,
+  onCreate,
+  onEdit,
   onDelete,
+  onOpen,
 }: {
   events: EventRecord[];
+  onCreate: () => void;
+  onEdit: (event: EventRecord) => void;
   onDelete: (event: EventRecord) => void;
+  onOpen: (event: EventRecord) => void;
 }) {
   const first = useMemo(
     () =>
@@ -633,15 +1223,6 @@ function Timeline({
         .filter(event => dateValue(event.startDate))
         .map(event => dateValue(event.startDate)!)
         .sort((a, b) => a.getTime() - b.getTime())[0] ?? new Date(),
-    [events]
-  );
-  const last = useMemo(
-    () =>
-      events
-        .filter(event => dateValue(event.endDate ?? event.startDate))
-        .map(event => dateValue(event.endDate ?? event.startDate)!)
-        .sort((a, b) => b.getTime() - a.getTime())[0] ??
-      addMonths(new Date(), 6),
     [events]
   );
   const [anchor, setAnchor] = useState(startOfMonth(first));
@@ -662,6 +1243,7 @@ function Timeline({
   });
   const undated = events.filter(event => !dateValue(event.startDate));
   const rangeLabel = `${format(windowStart, "MMMM yyyy")} to ${format(addMonths(windowEnd, -1), "MMMM yyyy")}`;
+
   return (
     <div className="space-y-5">
       <Card className="overflow-hidden">
@@ -669,11 +1251,15 @@ function Timeline({
           <div>
             <CardTitle className="text-base">Portfolio timeline</CardTitle>
             <CardDescription>
-              Grouped by operating tier. Click directly in the Events table to
-              edit a record.
+              Click an event to open its profile. Add, edit, or delete an event
+              from this timeline without leaving the operating view.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={onCreate}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Add event
+            </Button>
             <Button
               variant="outline"
               size="icon"
@@ -722,8 +1308,32 @@ function Timeline({
             </Select>
           </div>
         </CardHeader>
-        <CardContent className="overflow-x-auto p-5">
-          <div className="min-w-[860px]">
+        <CardContent className="space-y-5 overflow-x-auto p-5">
+          <div
+            className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"
+            aria-label="Event tier legend"
+          >
+            {[1, 2, 3, 4].map(tier => {
+              const detail = TIER_DETAILS[tier];
+              return (
+                <div
+                  key={tier}
+                  className="flex items-start gap-2 rounded-lg border bg-card p-3"
+                >
+                  <span
+                    className={`mt-1 h-3 w-3 shrink-0 rounded-sm ${tierClass(tier)}`}
+                  />
+                  <div>
+                    <p className="text-sm font-semibold">{detail.label}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                      {detail.description}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="min-w-[960px]">
             <div
               className="mb-3 grid border-b pb-2 text-xs text-muted-foreground"
               style={{
@@ -739,50 +1349,105 @@ function Timeline({
                 </div>
               ))}
             </div>
-            <p className="mb-3 text-sm font-medium">{rangeLabel}</p>
+            <p className="mb-4 text-sm font-medium">{rangeLabel}</p>
             {[1, 2, 3, 4].map(tier => {
               const tierEvents = inWindow.filter(
                 event => Number(event.tier) === tier
               );
-              if (!tierEvents.length) return null;
+              const detail = TIER_DETAILS[tier];
               return (
-                <div key={tier} className="mb-5">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {tierLabel(tier)}
-                  </p>
-                  {tierEvents.map(event => {
-                    const start = dateValue(event.startDate)!;
-                    const end = dateValue(event.endDate ?? event.startDate)!;
-                    const rawLeft =
-                      (differenceInCalendarDays(start, windowStart) /
-                        rangeDays) *
-                      100;
-                    const rawRight =
-                      (differenceInCalendarDays(end, windowStart) / rangeDays) *
-                      100;
-                    const left = Math.max(0, rawLeft);
-                    const width = Math.max(1.5, Math.min(100, rawRight) - left);
-                    return (
-                      <div
-                        key={event.id}
-                        className="relative mb-2 h-9 rounded bg-slate-50"
-                      >
+                <div key={tier} className="mb-5 rounded-lg border p-3">
+                  <div className="mb-2 flex items-center gap-2">
+                    <span
+                      className={`h-2.5 w-2.5 rounded-sm ${tierClass(tier)}`}
+                    />
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+                      {detail.label}
+                    </p>
+                    <span className="text-xs text-muted-foreground">
+                      {tierEvents.length
+                        ? `${tierEvents.length} scheduled`
+                        : "No dates in this view"}
+                    </span>
+                  </div>
+                  {tierEvents.length ? (
+                    tierEvents.map(event => {
+                      const start = dateValue(event.startDate)!;
+                      const end = dateValue(event.endDate ?? event.startDate)!;
+                      const rawLeft =
+                        (differenceInCalendarDays(start, windowStart) /
+                          rangeDays) *
+                        100;
+                      const rawRight =
+                        ((differenceInCalendarDays(end, windowStart) + 1) /
+                          rangeDays) *
+                        100;
+                      const left = Math.max(0, rawLeft);
+                      const width = Math.max(
+                        2.2,
+                        Math.min(100, rawRight) - left
+                      );
+                      const actionLeft = Math.min(83, left + width + 1);
+                      return (
                         <div
-                          className={`absolute top-1.5 flex h-6 items-center rounded px-2 text-xs font-semibold ${tierClass(tier)}`}
-                          style={{ left: `${left}%`, width: `${width}%` }}
-                          title={`${event.name}: ${dateLabel(event.startDate)} to ${dateLabel(event.endDate ?? event.startDate)}`}
+                          key={event.id}
+                          className="relative mb-2 h-10 rounded bg-slate-50/80 last:mb-0"
                         >
-                          {width > 10 ? event.name : ""}
+                          <button
+                            type="button"
+                            onClick={() => onOpen(event)}
+                            className={`absolute top-1 flex h-8 items-center rounded px-2 text-left text-xs font-semibold shadow-sm transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${tierClass(tier)}`}
+                            style={{ left: `${left}%`, width: `${width}%` }}
+                            title={`Open ${event.name}: ${dateLabel(event.startDate)} to ${dateLabel(event.endDate ?? event.startDate)}`}
+                            aria-label={`Open ${event.name}`}
+                          >
+                            <span className="truncate">
+                              {width > 11 ? event.name : ""}
+                            </span>
+                          </button>
+                          <div
+                            className="absolute top-1 flex h-8 max-w-[280px] items-center gap-1"
+                            style={{ left: `${actionLeft}%` }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => onOpen(event)}
+                              className="truncate rounded px-1 text-left text-xs font-medium hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+                              title={`Open ${event.name}`}
+                            >
+                              {event.name}
+                            </button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0 text-slate-600 hover:bg-cyan-100 hover:text-cyan-800"
+                              onClick={() => onEdit(event)}
+                              aria-label={`Edit ${event.name}`}
+                              title={`Edit ${event.name}`}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                              onClick={() => onDelete(event)}
+                              aria-label={`Delete ${event.name}`}
+                              title={`Delete ${event.name}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </div>
-                        <span
-                          className="absolute top-2 text-xs font-medium"
-                          style={{ left: `${Math.min(92, left + width + 1)}%` }}
-                        >
-                          {event.name}
-                        </span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  ) : (
+                    <p className="py-2 text-sm text-muted-foreground">
+                      No {detail.label.toLowerCase()} events in this date range.
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -790,33 +1455,70 @@ function Timeline({
         </CardContent>
       </Card>
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Not on the timeline yet</CardTitle>
-          <CardDescription>
-            These records remain visible without pretending their dates are
-            known.
-          </CardDescription>
+        <CardHeader className="flex-row flex-wrap items-end justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">No confirmed timeline</CardTitle>
+            <CardDescription>
+              These events stay visible without inventing dates. Under
+              evaluation records belong here until a timeline is confirmed.
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={onCreate}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add event
+          </Button>
         </CardHeader>
         <CardContent>
           {undated.length ? (
             <ul className="space-y-3">
-              {undated.map(event => (
-                <li
-                  key={event.id}
-                  className="flex items-start justify-between gap-3 rounded-lg border p-3"
-                >
-                  <div>
-                    <p className="font-medium">{event.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {event.status} · {event.city || "Location not set"}
-                    </p>
-                  </div>
-                  <DeleteButton
-                    label={event.name}
-                    onDelete={() => onDelete(event)}
-                  />
-                </li>
-              ))}
+              {undated.map(event => {
+                const detail =
+                  TIER_DETAILS[Number(event.tier)] ?? TIER_DETAILS[4];
+                return (
+                  <li
+                    key={event.id}
+                    className="flex items-start justify-between gap-3 rounded-lg border p-3"
+                  >
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+                      onClick={() => onOpen(event)}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`h-2.5 w-2.5 rounded-sm ${tierClass(Number(event.tier))}`}
+                        />
+                        <p className="font-medium hover:underline">
+                          {event.name}
+                        </p>
+                        <Badge variant="outline" className={detail.badgeClass}>
+                          {detail.label}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {event.status} · {event.city || "Location not set"}
+                      </p>
+                    </button>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => onEdit(event)}
+                        aria-label={`Edit ${event.name}`}
+                        title={`Edit ${event.name}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <DeleteButton
+                        label={event.name}
+                        onDelete={() => onDelete(event)}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="text-sm text-muted-foreground">
@@ -1965,6 +2667,9 @@ export default function EventsPage() {
     { staleTime: 15_000 }
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileEventId, setProfileEventId] = useState<number | null>(null);
+  const [editingEventId, setEditingEventId] = useState<number | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const refresh = () => void utils.events.overview.invalidate();
   const mutationOptions = {
     onSuccess: refresh,
@@ -1973,13 +2678,7 @@ export default function EventsPage() {
         error.message ?? "Unable to save this Events Console change."
       ),
   };
-  const createEvent = trpc.events.createEvent.useMutation({
-    ...mutationOptions,
-    onSuccess: () => {
-      toast.success("Event added. Click its values to continue editing.");
-      refresh();
-    },
-  });
+  const createEvent = trpc.events.createEvent.useMutation(mutationOptions);
   const updateEventMutation =
     trpc.events.updateEvent.useMutation(mutationOptions);
   const deleteEventMutation = trpc.events.deleteEvent.useMutation({
@@ -2077,13 +2776,46 @@ export default function EventsPage() {
 
   const updateEvent = (event: any, patch: any) =>
     updateEventMutation.mutate({ id: event.id, version: event.version, patch });
+  const openCreateEvent = () => {
+    setEditingEventId(null);
+    setEditorOpen(true);
+  };
+  const openEditEvent = (event: EventRecord) => {
+    setEditingEventId(event.id);
+    setEditorOpen(true);
+  };
+  const saveEventFromTimeline = (event: EventRecord | null, patch: any) => {
+    if (event) {
+      updateEventMutation.mutate(
+        { id: event.id, version: event.version, patch },
+        {
+          onSuccess: () => {
+            toast.success("Event updated.");
+            setEditorOpen(false);
+            refresh();
+          },
+        }
+      );
+      return;
+    }
+    createEvent.mutate(patch, {
+      onSuccess: () => {
+        toast.success("Event added to the timeline.");
+        setEditorOpen(false);
+        refresh();
+      },
+    });
+  };
   const deleteEvent = (event: any) => {
     if (
       window.confirm(
         `Delete ${event.name}? Its obligations, headcount, claims, and asks will be removed too.`
       )
-    )
+    ) {
+      if (profileEventId === event.id) setProfileEventId(null);
+      if (editingEventId === event.id) setEditorOpen(false);
       deleteEventMutation.mutate({ id: event.id, version: event.version });
+    }
   };
   const updateComponent = (component: any, patch: any) =>
     updateComponentMutation.mutate({
@@ -2258,7 +2990,13 @@ export default function EventsPage() {
           />
         </TabsContent>
         <TabsContent value="timeline">
-          <Timeline events={events} onDelete={deleteEvent} />
+          <Timeline
+            events={events}
+            onCreate={openCreateEvent}
+            onEdit={openEditEvent}
+            onDelete={deleteEvent}
+            onOpen={event => setProfileEventId(event.id)}
+          />
         </TabsContent>
         <TabsContent value="sponsors">
           <SponsorGrid
@@ -2372,9 +3110,7 @@ export default function EventsPage() {
             events={events}
             updateEvent={updateEvent}
             deleteEvent={deleteEvent}
-            createEvent={() =>
-              createEvent.mutate({ name: "New event", tier: 2, status: "Idea" })
-            }
+            createEvent={openCreateEvent}
           />
         </TabsContent>
         <TabsContent value="model">
@@ -2386,6 +3122,34 @@ export default function EventsPage() {
         onOpenChange={setSettingsOpen}
         integration={overview?.integration}
         syncActivity={overview?.syncActivity ?? []}
+      />
+      <EventProfileDialog
+        event={
+          events.find((event: EventRecord) => event.id === profileEventId) ??
+          null
+        }
+        sponsors={overview?.sponsors ?? []}
+        claims={overview?.claims ?? []}
+        onOpenChange={open => {
+          if (!open) setProfileEventId(null);
+        }}
+        onEdit={event => {
+          setProfileEventId(null);
+          openEditEvent(event);
+        }}
+      />
+      <EventEditorDialog
+        open={editorOpen}
+        onOpenChange={open => {
+          setEditorOpen(open);
+          if (!open) setEditingEventId(null);
+        }}
+        event={
+          events.find((event: EventRecord) => event.id === editingEventId) ??
+          null
+        }
+        onSave={saveEventFromTimeline}
+        isSaving={createEvent.isPending || updateEventMutation.isPending}
       />
     </div>
   );
