@@ -481,12 +481,23 @@ export default function ProjectDetailPage() {
       rockQuarter: project.rockQuarter ?? `Q${Math.floor(new Date().getMonth() / 3) + 1} ${new Date().getFullYear()}`,
       definitionOfDone: project.definitionOfDone ?? "",
       rockStatus: project.rockStatus ?? "on_track",
+      rockMilestones: [""],
     });
     setEditingProject(true);
   }
 
   function handleSaveProject() {
-    if (!editForm) return;
+    if (!editForm || !project) return;
+    const rockMilestones = (editForm.rockMilestones ?? []).map((title: string) => title.trim()).filter(Boolean);
+    const becomingRock = editForm.isRock && !project.isRock;
+    if (becomingRock && (!editForm.rockQuarter || !editForm.definitionOfDone.trim() || rockMilestones.length === 0)) {
+      toast.error("Every Rock needs a quarter, a definition of done, and at least one milestone");
+      return;
+    }
+    if (becomingRock && new Set(rockMilestones.map((title: string) => title.toLocaleLowerCase())).size !== rockMilestones.length) {
+      toast.error("Rock milestones must have unique titles");
+      return;
+    }
     updateProject.mutate({
       id: projectId,
       title: editForm.title,
@@ -501,6 +512,7 @@ export default function ProjectDetailPage() {
       rockQuarter: editForm.isRock ? editForm.rockQuarter : null,
       definitionOfDone: editForm.isRock ? editForm.definitionOfDone : null,
       rockStatus: editForm.isRock ? editForm.rockStatus : undefined,
+      rockMilestones: becomingRock ? rockMilestones : undefined,
     });
   }
 
@@ -642,8 +654,8 @@ export default function ProjectDetailPage() {
                 </Select>
               </div>
               <div className="sm:col-span-2 rounded-lg border border-primary/20 bg-primary/[0.025] p-3">
-                <div className="flex items-center gap-2"><Checkbox id="edit-project-rock" checked={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isRock: checked === true }))} /><Label htmlFor="edit-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label></div>
-                {editForm.isRock ? <div className="mt-3 grid gap-3 sm:grid-cols-3"><div><Label>Quarter *</Label><Input value={editForm.rockQuarter} onChange={event => setEditForm((f: any) => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label>Rock Status</Label><Select value={editForm.rockStatus} onValueChange={value => setEditForm((f: any) => ({ ...f, rockStatus: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="on_track">On Track</SelectItem><SelectItem value="at_risk">At Risk</SelectItem><SelectItem value="off_track">Off Track</SelectItem><SelectItem value="done">Done</SelectItem><SelectItem value="dropped">Dropped</SelectItem></SelectContent></Select></div><div className="sm:col-span-1"><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div> : null}
+                <div className="flex items-center gap-2"><Checkbox id="edit-project-rock" checked={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isRock: checked === true, rockMilestones: checked === true && !f.rockMilestones?.length ? [""] : f.rockMilestones }))} /><Label htmlFor="edit-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label></div>
+                {editForm.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-3"><div><Label>Quarter *</Label><Input value={editForm.rockQuarter} onChange={event => setEditForm((f: any) => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label>Rock Status</Label><Select value={editForm.rockStatus} onValueChange={value => setEditForm((f: any) => ({ ...f, rockStatus: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="on_track">On Track</SelectItem><SelectItem value="at_risk">At Risk</SelectItem><SelectItem value="off_track">Off Track</SelectItem><SelectItem value="done">Done</SelectItem><SelectItem value="dropped">Dropped</SelectItem></SelectContent></Select></div><div className="sm:col-span-1"><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div>{!project.isRock ? <div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each milestone becomes a project section after you save, ready for to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: [...(f.rockMilestones ?? []), ""] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{(editForm.rockMilestones ?? []).map((milestone: string, index: number) => <div key={`rock-milestone-${index}`} className="flex gap-2"><Input value={milestone} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: string, position: number) => position === index ? event.target.value : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={(editForm.rockMilestones ?? []).length === 1} onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).filter((_: string, position: number) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div> : <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">Rock milestones are managed as project sections below, where their to-dos live.</p>}</div> : null}
               </div>
               <div>
                 <Label>Owner</Label>

@@ -31,6 +31,13 @@ import { collectTaskFamilyIds, normalizeProjectTodoLayout, type ProjectTodoLayou
 import { visible_meeting_ids } from "../pulse/access";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
+const ROCK_MILESTONE_LIMIT = 20;
+const rockMilestoneSchema = z.string().trim().min(1, "A milestone needs a title.").max(128, "Milestone titles can be at most 128 characters.");
+
+function hasDuplicateMilestoneTitles(milestones: string[]) {
+  const titles = milestones.map((title) => title.trim().toLocaleLowerCase());
+  return new Set(titles).size !== titles.length;
+}
 const FULL_PROJECT_VISIBILITY_EMAILS = new Set([
   "tyler@savvy.realty",
   "dyl@savvy.realty",
@@ -342,6 +349,7 @@ export const pmRouter = router({
         rockQuarter: z.string().trim().regex(/^Q[1-4]\s\d{4}$/, "Use a quarter such as Q3 2026.").optional().nullable(),
         definitionOfDone: z.string().trim().max(8_000).optional().nullable(),
         rockStatus: z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]).default("on_track"),
+        rockMilestones: z.array(rockMilestoneSchema).max(ROCK_MILESTONE_LIMIT).optional().default([]),
         collaboratorIds: z.array(z.number()).optional().default([]),
       }).superRefine((input, refinement) => {
         if (!input.isOngoing && !input.dueDate) {
@@ -356,31 +364,47 @@ export const pmRouter = router({
         if (input.isRock && !input.definitionOfDone?.trim()) {
           refinement.addIssue({ code: "custom", path: ["definitionOfDone"], message: "Every Rock needs a definition of done." });
         }
+        if (input.isRock && input.rockMilestones.length === 0) {
+          refinement.addIssue({ code: "custom", path: ["rockMilestones"], message: "Every Rock needs at least one milestone." });
+        }
+        if (input.isRock && hasDuplicateMilestoneTitles(input.rockMilestones)) {
+          refinement.addIssue({ code: "custom", path: ["rockMilestones"], message: "Rock milestones must have unique titles." });
+        }
       }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-        const [result] = await db.insert(pmProjects).values({
-          title: input.title,
-          description: input.description,
-          department: input.department,
-          ownerId: input.ownerId,
-          dueDate: input.isOngoing ? null : input.dueDate,
-          isOngoing: input.isOngoing,
-          priority: input.priority,
-          status: "not_started",
-          isRock: input.isRock,
-          rockQuarter: input.isRock ? input.rockQuarter ?? null : null,
-          definitionOfDone: input.isRock ? input.definitionOfDone?.trim() ?? null : null,
-          rockStatus: input.isRock ? input.rockStatus : "on_track",
+        const projectId = await db.transaction(async (transaction) => {
+          const [result] = await transaction.insert(pmProjects).values({
+            title: input.title,
+            description: input.description,
+            department: input.department,
+            ownerId: input.ownerId,
+            dueDate: input.isOngoing ? null : input.dueDate,
+            isOngoing: input.isOngoing,
+            priority: input.priority,
+            status: "not_started",
+            isRock: input.isRock,
+            rockQuarter: input.isRock ? input.rockQuarter ?? null : null,
+            definitionOfDone: input.isRock ? input.definitionOfDone?.trim() ?? null : null,
+            rockStatus: input.isRock ? input.rockStatus : "on_track",
+          });
+          const newProjectId = result.insertId;
+          const collaboratorIds = Array.from(new Set([...input.collaboratorIds, input.ownerId, ctx.user.id]));
+          await transaction.insert(pmProjectCollaborators).values(
+            collaboratorIds.map(userId => ({ projectId: newProjectId, userId }))
+          );
+          if (input.isRock) {
+            await transaction.insert(pmTodoSections).values(input.rockMilestones.map((title, sortOrder) => ({
+              projectId: newProjectId,
+              title: title.trim(),
+              sortOrder,
+            })));
+          }
+          return newProjectId;
         });
-        const projectId = result.insertId;
-        const collaboratorIds = Array.from(new Set([...input.collaboratorIds, input.ownerId, ctx.user.id]));
-        await db.insert(pmProjectCollaborators).values(
-          collaboratorIds.map(userId => ({ projectId, userId }))
-        );
         await logActivity(projectId, ctx.user.id, "project_created", `Created project "${input.title}"`);
         return { id: projectId };
       }),
@@ -400,6 +424,7 @@ export const pmRouter = router({
         rockQuarter: z.string().trim().regex(/^Q[1-4]\s\d{4}$/, "Use a quarter such as Q3 2026.").nullable().optional(),
         definitionOfDone: z.string().trim().max(8_000).nullable().optional(),
         rockStatus: z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]).optional(),
+        rockMilestones: z.array(rockMilestoneSchema).max(ROCK_MILESTONE_LIMIT).optional(),
         collaboratorIds: z.array(z.number()).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -434,8 +459,16 @@ export const pmRouter = router({
         if (finalIsRock && !finalDefinitionOfDone?.trim()) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock needs a definition of done." });
         }
+        const becomingRock = finalIsRock && !existingProject.isRock;
+        const rockMilestones = input.rockMilestones ?? [];
+        if (becomingRock && rockMilestones.length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock needs at least one milestone." });
+        }
+        if (becomingRock && hasDuplicateMilestoneTitles(rockMilestones)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Rock milestones must have unique titles." });
+        }
 
-        const { id, collaboratorIds, ...fields } = input;
+        const { id, collaboratorIds, rockMilestones: _rockMilestones, ...fields } = input;
         const updateFields = { ...fields };
         if (input.isOngoing === true) updateFields.dueDate = null;
         if (input.dueDate !== undefined && input.dueDate !== null) updateFields.isOngoing = false;
@@ -444,8 +477,22 @@ export const pmRouter = router({
           updateFields.definitionOfDone = null;
           updateFields.rockStatus = "on_track";
         }
-        if (Object.keys(updateFields).length > 0) {
-          await db.update(pmProjects).set(updateFields).where(eq(pmProjects.id, id));
+        if (Object.keys(updateFields).length > 0 || becomingRock) {
+          await db.transaction(async (transaction) => {
+            if (Object.keys(updateFields).length > 0) {
+              await transaction.update(pmProjects).set(updateFields).where(eq(pmProjects.id, id));
+            }
+            if (becomingRock) {
+              const [sectionOrder] = await transaction.select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
+                .from(pmTodoSections)
+                .where(eq(pmTodoSections.projectId, id));
+              await transaction.insert(pmTodoSections).values(rockMilestones.map((title, index) => ({
+                projectId: id,
+                title: title.trim(),
+                sortOrder: Number(sectionOrder?.maxSortOrder ?? -1) + index + 1,
+              })));
+            }
+          });
         }
 
         const finalOwnerId = input.ownerId ?? existingProject.ownerId;
@@ -465,6 +512,7 @@ export const pmRouter = router({
           }
         }
 
+        if (becomingRock) await logActivity(id, ctx.user.id, "section_created", `Created ${rockMilestones.length} Rock milestone section${rockMilestones.length === 1 ? "" : "s"}`);
         await logActivity(id, ctx.user.id, "project_updated", "Updated project fields");
         return { success: true };
       }),

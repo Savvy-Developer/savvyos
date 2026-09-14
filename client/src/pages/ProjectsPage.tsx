@@ -16,7 +16,7 @@ import { format, isPast, isToday, addDays } from "date-fns";
 import {
   Plus, LayoutList, LayoutGrid, Search,
   CheckCircle2, Clock, TrendingUp, AlertTriangle, ChevronRight, Calendar,
-  User, Layers, MoreHorizontal, Archive, Trash2, Flag, ClipboardList,
+  User, Layers, MoreHorizontal, Archive, Trash2, Flag, ClipboardList, X,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -328,6 +328,7 @@ function CreateProjectDialog({
     isRock: false,
     rockQuarter: `Q${Math.floor(new Date().getMonth() / 3) + 1} ${new Date().getFullYear()}`,
     definitionOfDone: "",
+    rockMilestones: [""],
   });
 
   function handleSubmit(e: React.FormEvent) {
@@ -336,8 +337,13 @@ function CreateProjectDialog({
       toast.error("Please fill in all required fields, including a due date unless the project is ongoing");
       return;
     }
-    if (form.isRock && (!form.rockQuarter || !form.definitionOfDone.trim())) {
-      toast.error("Every Rock needs a quarter and a definition of done");
+    const rockMilestones = form.rockMilestones.map((title) => title.trim()).filter(Boolean);
+    if (form.isRock && (!form.rockQuarter || !form.definitionOfDone.trim() || rockMilestones.length === 0)) {
+      toast.error("Every Rock needs a quarter, a definition of done, and at least one milestone");
+      return;
+    }
+    if (form.isRock && new Set(rockMilestones.map((title) => title.toLocaleLowerCase())).size !== rockMilestones.length) {
+      toast.error("Rock milestones must have unique titles");
       return;
     }
     create.mutate({
@@ -351,6 +357,7 @@ function CreateProjectDialog({
       isRock: form.isRock,
       rockQuarter: form.isRock ? form.rockQuarter : null,
       definitionOfDone: form.isRock ? form.definitionOfDone.trim() : null,
+      rockMilestones: form.isRock ? rockMilestones : [],
     });
   }
 
@@ -371,11 +378,11 @@ function CreateProjectDialog({
           </div>
           <div className="rounded-lg border border-primary/20 bg-primary/[0.025] p-3">
             <div className="flex items-center gap-2">
-              <Checkbox id="create-project-rock" checked={form.isRock} onCheckedChange={checked => setForm(f => ({ ...f, isRock: checked === true }))} />
+              <Checkbox id="create-project-rock" checked={form.isRock} onCheckedChange={checked => setForm(f => ({ ...f, isRock: checked === true, rockMilestones: checked === true && !f.rockMilestones.length ? [""] : f.rockMilestones }))} />
               <Label htmlFor="create-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">Rocks are quarterly priorities. They use this same project, its todos, updates, and activity.</p>
-            {form.isRock ? <div className="mt-3 grid gap-3 sm:grid-cols-2"><div><Label htmlFor="rock-quarter">Quarter *</Label><Input id="rock-quarter" value={form.rockQuarter} onChange={event => setForm(f => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label htmlFor="rock-done">Definition of Done *</Label><Input id="rock-done" value={form.definitionOfDone} onChange={event => setForm(f => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div> : null}
+            {form.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="rock-quarter">Quarter *</Label><Input id="rock-quarter" value={form.rockQuarter} onChange={event => setForm(f => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label htmlFor="rock-done">Definition of Done *</Label><Input id="rock-done" value={form.definitionOfDone} onChange={event => setForm(f => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div><div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each milestone becomes a project section after creation, ready for its to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setForm(f => ({ ...f, rockMilestones: [...f.rockMilestones, ""] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{form.rockMilestones.map((milestone, index) => <div key={`rock-milestone-${index}`} className="flex gap-2"><Input value={milestone} onChange={event => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.map((value, position) => position === index ? event.target.value : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={form.rockMilestones.length === 1} onClick={() => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.filter((_, position) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div></div> : null}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
