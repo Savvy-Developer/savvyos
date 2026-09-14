@@ -133,10 +133,17 @@ const EXPENSE_STATUS_OPTIONS = [
   ["void", "Void"],
 ] as const;
 const DELIVERABLE_STATUS_OPTIONS = [
-  ["promised", "Promised"],
-  ["in_progress", "In progress"],
+  ["not_started", "Not started"],
+  ["booked", "Booked"],
   ["delivered", "Delivered"],
-  ["waived", "Waived"],
+] as const;
+const DELIVERABLE_TYPE_OPTIONS = [
+  ["contractual", "Contractual"],
+  ["courtesy", "Courtesy"],
+] as const;
+const DELIVERABLE_CHANGE_OPTIONS = [
+  ["dropped", "Dropped"],
+  ["substituted", "Substituted"],
 ] as const;
 const PAYMENT_METHOD_OPTIONS = [
   ["ach", "ACH"],
@@ -2082,12 +2089,17 @@ function expenseStatusClass(status: string | null | undefined) {
 
 function deliverableStatusClass(status: string | null | undefined) {
   const classes: Record<string, string> = {
-    promised: "border-slate-200 bg-slate-50 text-slate-700",
-    in_progress: "border-amber-200 bg-amber-50 text-amber-700",
+    not_started: "border-slate-200 bg-slate-50 text-slate-700",
+    booked: "border-cyan-200 bg-cyan-50 text-cyan-800",
     delivered: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    waived: "border-violet-200 bg-violet-50 text-violet-700",
   };
-  return classes[status ?? ""] ?? classes.promised;
+  return classes[status ?? ""] ?? classes.not_started;
+}
+
+function deliverableTypeClass(type: string | null | undefined) {
+  return type === "contractual"
+    ? "border-rose-200 bg-rose-50 text-rose-800"
+    : "border-violet-200 bg-violet-50 text-violet-800";
 }
 
 function paymentStatusClass(status: string | null | undefined) {
@@ -2234,23 +2246,170 @@ function PaymentTracker({
   );
 }
 
+function DeliverableChangeRecord({
+  deliverable,
+  recordChange,
+}: {
+  deliverable: any;
+  recordChange: (deliverable: any, input: any) => void;
+}) {
+  const [changeType, setChangeType] = useState(deliverable.changeType ?? "");
+  const [writtenNotice, setWrittenNotice] = useState(
+    deliverable.changeNotice ?? ""
+  );
+  const [noticeSentAt, setNoticeSentAt] = useState(
+    dateKey(deliverable.changeNoticeSentAt) ?? ""
+  );
+  useEffect(() => {
+    setChangeType(deliverable.changeType ?? "");
+    setWrittenNotice(deliverable.changeNotice ?? "");
+    setNoticeSentAt(dateKey(deliverable.changeNoticeSentAt) ?? "");
+  }, [
+    deliverable.id,
+    deliverable.version,
+    deliverable.changeType,
+    deliverable.changeNotice,
+    deliverable.changeNoticeSentAt,
+  ]);
+  const changed = Boolean(changeType);
+  const contractual = deliverable.deliverableType === "contractual";
+  const requiresNotice = changed && contractual;
+  const missingNotice =
+    requiresNotice && (!writtenNotice.trim() || !noticeSentAt);
+  return (
+    <div
+      className={`mt-3 rounded-md border p-3 ${changed && contractual ? "border-rose-200 bg-rose-50/60" : "border-slate-200 bg-slate-50/70"}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+            Change record
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {contractual
+              ? "A dropped or substituted contractual promise requires written notice and the date it was sent."
+              : "Courtesy changes are retained here for operating history; written notice is optional."}
+          </p>
+        </div>
+        {changed ? (
+          <Badge
+            variant="outline"
+            className={
+              missingNotice
+                ? "border-rose-300 bg-rose-100 text-rose-800"
+                : "border-amber-200 bg-amber-100 text-amber-800"
+            }
+          >
+            {missingNotice
+              ? "Written notice missing"
+              : contractual
+                ? "Change recorded"
+                : "Courtesy change logged"}
+          </Badge>
+        ) : (
+          <Badge
+            variant="outline"
+            className="border-slate-200 bg-white text-slate-600"
+          >
+            No change recorded
+          </Badge>
+        )}
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-[minmax(150px,0.45fr)_minmax(0,1fr)_150px_auto] md:items-end">
+        <label className="space-y-1">
+          <span className="text-xs font-medium">Change</span>
+          <Select
+            value={changeType || "__none"}
+            onValueChange={value =>
+              setChangeType(value === "__none" ? "" : value)
+            }
+          >
+            <SelectTrigger className="h-8 w-full bg-white text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none">No change</SelectItem>
+              {DELIVERABLE_CHANGE_OPTIONS.map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="space-y-1">
+          <span className="text-xs font-medium">Written notice sent</span>
+          <Textarea
+            value={writtenNotice}
+            onChange={event => setWrittenNotice(event.target.value)}
+            placeholder={
+              changed
+                ? "State what was sent to the sponsor"
+                : "No notice needed while unchanged"
+            }
+            disabled={!changed}
+            className="min-h-8 resize-y bg-white py-1.5 text-sm"
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-xs font-medium">Sent date</span>
+          <Input
+            type="date"
+            value={noticeSentAt}
+            onChange={event => setNoticeSentAt(event.target.value)}
+            disabled={!changed}
+            className="h-8 bg-white text-sm"
+          />
+        </label>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={changed ? "default" : "outline"}
+            disabled={changed && missingNotice}
+            onClick={() =>
+              recordChange(deliverable, {
+                changeType: changeType || null,
+                writtenNotice: writtenNotice.trim() || null,
+                noticeSentAt: noticeSentAt || null,
+              })
+            }
+          >
+            {changed ? "Save record" : "Confirm none"}
+          </Button>
+        </div>
+      </div>
+      {changed && missingNotice ? (
+        <p className="mt-2 text-xs font-medium text-rose-700">
+          {contractual
+            ? "This contractual change cannot be saved until the written notice and sent date are captured."
+            : ""}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function DeliverableTracker({
   ask,
   createDeliverable,
   updateDeliverable,
   deleteDeliverable,
+  recordDeliverableChange,
 }: {
   ask: any;
   createDeliverable: (input: any) => void;
   updateDeliverable: (deliverable: any, patch: any) => void;
   deleteDeliverable: (deliverable: any) => void;
+  recordDeliverableChange: (deliverable: any, input: any) => void;
 }) {
   const deliverables = ask.deliverables ?? [];
   const delivered = deliverables.filter(
     (deliverable: any) => deliverable.status === "delivered"
   ).length;
-  const outstanding = deliverables.filter(
-    (deliverable: any) => !["delivered", "waived"].includes(deliverable.status)
+  const open = deliverables.length - delivered;
+  const changed = deliverables.filter((deliverable: any) =>
+    Boolean(deliverable.changeType)
   ).length;
   return (
     <div className="mt-4 rounded-lg border border-slate-200 bg-white">
@@ -2259,8 +2418,8 @@ function DeliverableTracker({
           <p className="text-sm font-semibold">Sponsor deliverables</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {deliverables.length
-              ? `${delivered} delivered · ${outstanding} outstanding`
-              : "Add what was promised to this sponsor for this event."}
+              ? `${delivered} delivered · ${open} open · ${changed} change record${changed === 1 ? "" : "s"}`
+              : "Track every sponsor promise by status, type, and change record."}
           </p>
         </div>
         <Button
@@ -2271,7 +2430,8 @@ function DeliverableTracker({
             createDeliverable({
               sponsorAskId: ask.id,
               title: "New deliverable",
-              status: "promised",
+              status: "not_started",
+              deliverableType: "contractual",
             })
           }
         >
@@ -2282,54 +2442,90 @@ function DeliverableTracker({
       {deliverables.length ? (
         <div className="divide-y">
           {deliverables.map((deliverable: any) => (
-            <div
-              key={deliverable.id}
-              className="grid min-w-0 gap-3 p-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(120px,0.65fr)_minmax(110px,0.55fr)_minmax(0,0.7fr)_auto] lg:items-center"
-            >
-              <div className="min-w-0">
-                <InlineText
-                  value={deliverable.title}
-                  onSave={title => {
-                    if (title) updateDeliverable(deliverable, { title });
-                  }}
-                  ariaLabel="deliverable title"
-                  className="block max-w-full font-medium not-italic"
-                />
-                <InlineText
-                  value={deliverable.description}
-                  onSave={description =>
-                    updateDeliverable(deliverable, { description })
-                  }
-                  placeholder="Add details"
-                  ariaLabel={`${deliverable.title} details`}
-                  className="mt-1 block max-w-full text-xs not-italic"
+            <div key={deliverable.id} className="min-w-0 p-3">
+              <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(140px,0.68fr)_minmax(145px,0.68fr)_minmax(110px,0.55fr)_minmax(0,0.65fr)_auto] lg:items-center">
+                <div className="min-w-0">
+                  <InlineText
+                    value={deliverable.title}
+                    onSave={title => {
+                      if (title) updateDeliverable(deliverable, { title });
+                    }}
+                    ariaLabel="deliverable title"
+                    className="block max-w-full font-medium not-italic"
+                  />
+                  <InlineText
+                    value={deliverable.description}
+                    onSave={description =>
+                      updateDeliverable(deliverable, { description })
+                    }
+                    placeholder="Add details"
+                    ariaLabel={`${deliverable.title} details`}
+                    className="mt-1 block max-w-full text-xs not-italic"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Status
+                  </p>
+                  <InlineSelect
+                    value={deliverable.status}
+                    options={DELIVERABLE_STATUS_OPTIONS}
+                    onSave={status =>
+                      updateDeliverable(deliverable, { status })
+                    }
+                    ariaLabel={`${deliverable.title} status`}
+                    className={`w-full border px-2 ${deliverableStatusClass(deliverable.status)}`}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Type
+                  </p>
+                  <InlineSelect
+                    value={deliverable.deliverableType}
+                    options={DELIVERABLE_TYPE_OPTIONS}
+                    onSave={deliverableType =>
+                      updateDeliverable(deliverable, { deliverableType })
+                    }
+                    ariaLabel={`${deliverable.title} type`}
+                    className={`w-full border px-2 ${deliverableTypeClass(deliverable.deliverableType)}`}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Due
+                  </p>
+                  <InlineDate
+                    value={deliverable.dueDate}
+                    onSave={dueDate =>
+                      updateDeliverable(deliverable, { dueDate })
+                    }
+                    placeholder="No due date"
+                    ariaLabel={`${deliverable.title} due date`}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Owner
+                  </p>
+                  <InlineText
+                    value={deliverable.ownerName}
+                    onSave={ownerName =>
+                      updateDeliverable(deliverable, { ownerName })
+                    }
+                    placeholder="Assign owner"
+                    ariaLabel={`${deliverable.title} owner`}
+                    className="block max-w-full not-italic"
+                  />
+                </div>
+                <DeleteButton
+                  label={deliverable.title}
+                  onDelete={() => deleteDeliverable(deliverable)}
                 />
               </div>
-              <InlineSelect
-                value={deliverable.status}
-                options={DELIVERABLE_STATUS_OPTIONS}
-                onSave={status => updateDeliverable(deliverable, { status })}
-                ariaLabel={`${deliverable.title} status`}
-                className={`w-full border px-2 ${deliverableStatusClass(deliverable.status)}`}
-              />
-              <InlineDate
-                value={deliverable.dueDate}
-                onSave={dueDate => updateDeliverable(deliverable, { dueDate })}
-                placeholder="No due date"
-                ariaLabel={`${deliverable.title} due date`}
-              />
-              <InlineText
-                value={deliverable.ownerName}
-                onSave={ownerName =>
-                  updateDeliverable(deliverable, { ownerName })
-                }
-                placeholder="Assign owner"
-                ariaLabel={`${deliverable.title} owner`}
-                className="block max-w-full not-italic"
-              />
-              <DeleteButton
-                label={deliverable.title}
-                onDelete={() => deleteDeliverable(deliverable)}
+              <DeliverableChangeRecord
+                deliverable={deliverable}
+                recordChange={recordDeliverableChange}
               />
             </div>
           ))}
@@ -2668,6 +2864,7 @@ function SponsorProfileWorkspace({
   createDeliverable,
   updateDeliverable,
   deleteDeliverable,
+  recordDeliverableChange,
   createPayment,
   updatePayment,
   deletePayment,
@@ -2686,6 +2883,7 @@ function SponsorProfileWorkspace({
   createDeliverable: (input: any) => void;
   updateDeliverable: (deliverable: any, patch: any) => void;
   deleteDeliverable: (deliverable: any) => void;
+  recordDeliverableChange: (deliverable: any, input: any) => void;
   createPayment: (input: any) => void;
   updatePayment: (payment: any, patch: any) => void;
   deletePayment: (payment: any) => void;
@@ -2832,6 +3030,7 @@ function SponsorProfileWorkspace({
           createDeliverable={createDeliverable}
           updateDeliverable={updateDeliverable}
           deleteDeliverable={deleteDeliverable}
+          recordDeliverableChange={recordDeliverableChange}
         />
         <PaymentTracker
           ask={ask}
@@ -3162,6 +3361,7 @@ function SponsorGrid({
   createDeliverable,
   updateDeliverable,
   deleteDeliverable,
+  recordDeliverableChange,
   createPayment,
   updatePayment,
   deletePayment,
@@ -3184,6 +3384,7 @@ function SponsorGrid({
   createDeliverable: (input: any) => void;
   updateDeliverable: (deliverable: any, patch: any) => void;
   deleteDeliverable: (deliverable: any) => void;
+  recordDeliverableChange: (deliverable: any, input: any) => void;
   createPayment: (input: any) => void;
   updatePayment: (payment: any, patch: any) => void;
   deletePayment: (payment: any) => void;
@@ -3290,6 +3491,7 @@ function SponsorGrid({
                 createDeliverable={createDeliverable}
                 updateDeliverable={updateDeliverable}
                 deleteDeliverable={deleteDeliverable}
+                recordDeliverableChange={recordDeliverableChange}
                 createPayment={createPayment}
                 updatePayment={updatePayment}
                 deletePayment={deletePayment}
@@ -4397,6 +4599,8 @@ export default function EventsPage() {
     trpc.events.updateDeliverable.useMutation(mutationOptions);
   const deleteDeliverableMutation =
     trpc.events.deleteDeliverable.useMutation(mutationOptions);
+  const recordDeliverableChangeMutation =
+    trpc.events.recordDeliverableChange.useMutation(mutationOptions);
   const createSponsorPaymentMutation =
     trpc.events.createSponsorPayment.useMutation(mutationOptions);
   const updateSponsorPaymentMutation =
@@ -4560,6 +4764,12 @@ export default function EventsPage() {
     deleteDeliverableMutation.mutate({
       id: deliverable.id,
       version: deliverable.version,
+    });
+  const recordDeliverableChange = (deliverable: any, input: any) =>
+    recordDeliverableChangeMutation.mutate({
+      id: deliverable.id,
+      version: deliverable.version,
+      ...input,
     });
   const updatePayment = (payment: any, patch: any) =>
     updateSponsorPaymentMutation.mutate({
@@ -4787,6 +4997,7 @@ export default function EventsPage() {
             createDeliverable={input => createDeliverableMutation.mutate(input)}
             updateDeliverable={updateDeliverable}
             deleteDeliverable={deleteDeliverable}
+            recordDeliverableChange={recordDeliverableChange}
             createPayment={input => createSponsorPaymentMutation.mutate(input)}
             updatePayment={updatePayment}
             deletePayment={deletePayment}

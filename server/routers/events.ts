@@ -80,6 +80,9 @@ const paymentStatuses = [
   "refunded",
 ] as const;
 const invoiceStatuses = ["draft", "issued", "not_required", "void"] as const;
+const deliverableStatuses = ["not_started", "booked", "delivered"] as const;
+const deliverableTypes = ["contractual", "courtesy"] as const;
+const deliverableChangeTypes = ["dropped", "substituted"] as const;
 const shareStatuses = ["written", "verbal", "not_agreed"] as const;
 const sourceType = z.string().trim().min(1).max(255);
 const bookedSponsorStages = new Set(["signed", "invoiced"]);
@@ -1978,9 +1981,8 @@ export const eventsRouter = router({
         sponsorAskId: z.number().int().positive(),
         title: z.string().trim().min(1).max(500),
         description: nullableText(20_000).default(null),
-        status: z
-          .enum(["promised", "in_progress", "delivered", "waived"])
-          .default("promised"),
+        status: z.enum(deliverableStatuses).default("not_started"),
+        deliverableType: z.enum(deliverableTypes).default("courtesy"),
         dueDate: isoDate.nullable().default(null),
         ownerName: nullableText(255).default(null),
       })
@@ -2004,9 +2006,8 @@ export const eventsRouter = router({
         patch: z.object({
           title: z.string().trim().min(1).max(500).optional(),
           description: nullableText(20_000).optional(),
-          status: z
-            .enum(["promised", "in_progress", "delivered", "waived"])
-            .optional(),
+          status: z.enum(deliverableStatuses).optional(),
+          deliverableType: z.enum(deliverableTypes).optional(),
           dueDate: isoDate.nullable().optional(),
           ownerName: nullableText(255).optional(),
         }),
@@ -2015,6 +2016,33 @@ export const eventsRouter = router({
     .mutation(async ({ input, ctx }) => {
       await requireEventsAccess(ctx.user);
       const db = await database();
+      const [current] = await db
+        .select({
+          deliverableType: eventSponsorDeliverables.deliverableType,
+          changeType: eventSponsorDeliverables.changeType,
+          changeNotice: eventSponsorDeliverables.changeNotice,
+          changeNoticeSentAt: eventSponsorDeliverables.changeNoticeSentAt,
+        })
+        .from(eventSponsorDeliverables)
+        .where(eq(eventSponsorDeliverables.id, input.id))
+        .limit(1);
+      if (!current)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Deliverable not found.",
+        });
+      const nextType = input.patch.deliverableType ?? current.deliverableType;
+      if (
+        nextType === "contractual" &&
+        current.changeType &&
+        (!current.changeNotice || !current.changeNoticeSentAt)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Capture the written notice and its sent date before classifying a changed deliverable as contractual.",
+        });
+      }
       const patch: Record<string, any> = { ...input.patch };
       if (input.patch.dueDate !== undefined)
         patch.dueDate = sqlDate(input.patch.dueDate);
@@ -2023,6 +2051,60 @@ export const eventsRouter = router({
         .update(eventSponsorDeliverables)
         .set({
           ...patch,
+          version: sql`${eventSponsorDeliverables.version} + 1`,
+        })
+        .where(
+          and(
+            eq(eventSponsorDeliverables.id, input.id),
+            eq(eventSponsorDeliverables.version, input.version)
+          )
+        );
+      versionedUpdate(result);
+      return { version: input.version + 1 };
+    }),
+
+  recordDeliverableChange: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        version: z.number().int().positive(),
+        changeType: z.enum(deliverableChangeTypes).nullable(),
+        writtenNotice: nullableText(20_000).default(null),
+        noticeSentAt: isoDate.nullable().default(null),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const [current] = await db
+        .select({ deliverableType: eventSponsorDeliverables.deliverableType })
+        .from(eventSponsorDeliverables)
+        .where(eq(eventSponsorDeliverables.id, input.id))
+        .limit(1);
+      if (!current)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Deliverable not found.",
+        });
+      if (
+        current.deliverableType === "contractual" &&
+        input.changeType &&
+        (!input.writtenNotice || !input.noticeSentAt)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "A dropped or substituted contractual deliverable requires the written notice sent and its sent date.",
+        });
+      }
+      const result = await db
+        .update(eventSponsorDeliverables)
+        .set({
+          changeType: input.changeType,
+          changeNotice: input.changeType ? input.writtenNotice : null,
+          changeNoticeSentAt: input.changeType
+            ? sqlDate(input.noticeSentAt)
+            : null,
           version: sql`${eventSponsorDeliverables.version} + 1`,
         })
         .where(

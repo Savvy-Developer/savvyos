@@ -6484,12 +6484,18 @@ export const eventSponsorDeliverables = mysqlTable(
       .references(() => eventSponsorAsks.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 500 }).notNull(),
     description: text("description"),
-    status: mysqlEnum("status", ["promised", "in_progress", "delivered", "waived"])
+    status: mysqlEnum("status", ["not_started", "booked", "delivered"])
       .notNull()
-      .default("promised"),
+      .default("not_started"),
+    deliverableType: mysqlEnum("deliverableType", ["contractual", "courtesy"])
+      .notNull()
+      .default("courtesy"),
+    changeType: mysqlEnum("changeType", ["dropped", "substituted"]),
     dueDate: date("dueDate"),
     deliveredAt: timestamp("deliveredAt"),
     ownerName: varchar("ownerName", { length: 255 }),
+    changeNotice: text("changeNotice"),
+    changeNoticeSentAt: date("changeNoticeSentAt"),
     version: int("version").notNull().default(1),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
