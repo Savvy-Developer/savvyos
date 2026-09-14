@@ -902,12 +902,18 @@ function ProfileDatum({
   detail?: string;
 }) {
   return (
-    <div className="rounded-lg border bg-slate-50/70 p-3">
+    <div className="min-w-0 rounded-lg border bg-slate-50/70 p-3">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <p className="mt-1 text-sm font-semibold text-slate-950">{value}</p>
-      {detail && <p className="mt-1 text-xs text-muted-foreground">{detail}</p>}
+      <p className="mt-1 break-words text-sm font-semibold text-slate-950">
+        {value}
+      </p>
+      {detail && (
+        <p className="mt-1 break-words text-xs text-muted-foreground">
+          {detail}
+        </p>
+      )}
     </div>
   );
 }
@@ -959,10 +965,10 @@ function EventProfileDialog({
 
   return (
     <Dialog open={Boolean(event)} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
-        <DialogHeader className="border-b pb-4">
-          <div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+      <DialogContent className="max-h-[92vh] w-[min(96vw,1440px)] max-w-[calc(100%-2rem)] overflow-x-hidden overflow-y-auto p-4 sm:p-7">
+        <DialogHeader className="border-b pb-5 pr-10 sm:pr-12">
+          <div className="grid min-w-0 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+            <div className="min-w-0">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className={tierDetail.badgeClass}>
                   {tierDetail.label}
@@ -974,14 +980,19 @@ function EventProfileDialog({
                   {event.status}
                 </Badge>
               </div>
-              <DialogTitle className="text-2xl tracking-tight">
+              <DialogTitle className="break-words text-2xl leading-tight tracking-tight sm:text-3xl">
                 {event.name}
               </DialogTitle>
-              <DialogDescription className="mt-1">
+              <DialogDescription className="mt-2 break-words leading-relaxed">
                 {tierDetail.description}
               </DialogDescription>
             </div>
-            <Button size="sm" variant="outline" onClick={() => onEdit(event)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => onEdit(event)}
+            >
               <Pencil className="mr-1.5 h-4 w-4" />
               Edit event
             </Button>
@@ -1019,7 +1030,7 @@ function EventProfileDialog({
           </section>
 
           <section className="grid gap-4 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
+            <Card className="min-w-0 lg:col-span-2">
               <CardHeader className="border-b pb-3">
                 <CardTitle className="text-base">Event record</CardTitle>
                 <CardDescription>
@@ -1068,18 +1079,18 @@ function EventProfileDialog({
                 />
               </CardContent>
             </Card>
-            <Card>
+            <Card className="min-w-0">
               <CardHeader className="border-b pb-3">
                 <CardTitle className="text-base">Notes</CardTitle>
               </CardHeader>
-              <CardContent className="p-4 text-sm leading-relaxed text-muted-foreground">
+              <CardContent className="break-words p-4 text-sm leading-relaxed text-muted-foreground">
                 {event.notes || "No operating notes have been added."}
               </CardContent>
             </Card>
           </section>
 
           <section className="grid gap-4 lg:grid-cols-3">
-            <Card>
+            <Card className="min-w-0">
               <CardHeader className="border-b pb-3">
                 <CardTitle className="text-base">
                   Headcount components ({components.length})
@@ -1092,9 +1103,11 @@ function EventProfileDialog({
                       key={component.id}
                       className="flex items-center justify-between gap-3 p-3 text-sm"
                     >
-                      <div>
-                        <p className="font-medium">{component.label}</p>
-                        <p className="text-xs text-muted-foreground">
+                      <div className="min-w-0">
+                        <p className="break-words font-medium">
+                          {component.label}
+                        </p>
+                        <p className="break-words text-xs text-muted-foreground">
                           {component.sourceType}
                         </p>
                       </div>
@@ -1112,7 +1125,7 @@ function EventProfileDialog({
                 )}
               </CardContent>
             </Card>
-            <Card>
+            <Card className="min-w-0">
               <CardHeader className="border-b pb-3">
                 <CardTitle className="text-base">
                   Obligations ({(event.obligations ?? []).length})
@@ -1123,7 +1136,7 @@ function EventProfileDialog({
                   event.obligations.map((obligation: any) => (
                     <div key={obligation.id} className="p-3 text-sm">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="font-medium leading-tight">
+                        <p className="min-w-0 break-words font-medium leading-tight">
                           {obligation.title}
                         </p>
                         <p className="shrink-0 text-xs font-semibold">
@@ -1145,7 +1158,7 @@ function EventProfileDialog({
                 )}
               </CardContent>
             </Card>
-            <Card>
+            <Card className="min-w-0">
               <CardHeader className="border-b pb-3">
                 <CardTitle className="text-base">
                   Sponsor activity ({relatedAsks.length})
@@ -1159,9 +1172,11 @@ function EventProfileDialog({
                         key={`${sponsor.id}-${ask.id}`}
                         className="flex items-center justify-between gap-3 p-3 text-sm"
                       >
-                        <div>
-                          <p className="font-medium">{sponsor.companyName}</p>
-                          <p className="text-xs text-muted-foreground">
+                        <div className="min-w-0">
+                          <p className="break-words font-medium">
+                            {sponsor.companyName}
+                          </p>
+                          <p className="break-words text-xs text-muted-foreground">
                             {sponsor.category || "Uncategorized"}
                           </p>
                         </div>
@@ -1178,10 +1193,10 @@ function EventProfileDialog({
                     ))}
                     {relatedClaims.map(claim => (
                       <div key={`claim-${claim.id}`} className="p-3 text-sm">
-                        <p className="font-medium">
+                        <p className="break-words font-medium">
                           {claim.category} exclusivity
                         </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
+                        <p className="mt-1 break-words text-xs text-muted-foreground">
                           {claim.sponsor?.companyName ||
                             claim.holderName ||
                             "Unclaimed"}
