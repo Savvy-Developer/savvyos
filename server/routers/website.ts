@@ -1914,6 +1914,8 @@ export const websiteRouter = router({
         .select({
           id: proformas.id,
           title: proformas.title,
+          status: proformas.status,
+          formData: proformas.formData,
           grossRevenue: proformas.grossRevenue,
           cashOnCash: proformas.cashOnCash,
           capRate: proformas.capRate,
@@ -1926,7 +1928,30 @@ export const websiteRouter = router({
         .from(users)
         .where(and(eq(users.role, "agent"), eq(users.isActive, true)))
         .orderBy(users.name);
-      return { canEdit, website: website ?? null, proformas: proformaRows, agents: agentRows };
+      // Say what each pro-forma would actually put on the public page, worked
+      // out here with the same functions the public endpoint uses. Three
+      // different reasons produce an empty listing section, and without this
+      // they are indistinguishable to the person doing the publishing: the
+      // pro-forma is still a draft, its scenarios are empty, or it was never
+      // linked. The raw formData is deliberately not returned; only the
+      // verdict, since the rest of a pro-forma is internal.
+      const proformaSummaries = proformaRows.map((row: any) => {
+        const range = publicRevenueRange(row.formData);
+        const comps = publicComps(row.formData);
+        return {
+          id: row.id,
+          title: row.title,
+          status: row.status,
+          grossRevenue: row.grossRevenue,
+          cashOnCash: row.cashOnCash,
+          capRate: row.capRate,
+          publishes: row.status === "final" && (range != null || comps.length > 0),
+          blockedByDraft: row.status !== "final",
+          revenue: range,
+          compCount: comps.length,
+        };
+      });
+      return { canEdit, website: website ?? null, proformas: proformaSummaries, agents: agentRows };
     }),
 
   /**

@@ -31,6 +31,11 @@ import {
   slugify,
   splitLines,
 } from "./websiteFormBits";
+import {
+  AMENITY_TAGS,
+  STRATEGY_TAGS,
+  splitTags,
+} from "./propertyTagOptions";
 
 const PUBLIC_PROPERTY_PATH = "/newsite/properties/";
 
@@ -109,6 +114,183 @@ function draftFrom(website: any, fallbackSlug: string): Draft {
     isFeatured: !!website.isFeatured,
     sortOrder: String(website.sortOrder ?? 0),
   };
+}
+
+/**
+ * Pick the property's tags from a fixed list instead of typing them.
+ *
+ * Free text is how the same idea ends up on the site as "Hot tub", "hot-tub"
+ * and "Hottub", which quietly breaks filtering: a visitor looking for one of
+ * those sees a third of the properties that have it. The list is stored in the
+ * same featureTags field as before, so nothing about the data changes.
+ *
+ * Tags written before this existed are matched to the list where they can be,
+ * ignoring case and hyphens, and kept as they are where they cannot. Dropping
+ * someone's tags on first save would be a nasty surprise.
+ */
+function TagPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { known, custom } = splitTags(splitLines(value));
+  const selected = new Set<string>(known);
+
+  const write = (next: Set<string>, nextCustom: string[]) =>
+    onChange([...Array.from(next), ...nextCustom].join("\n"));
+
+  const toggle = (tag: string) => {
+    const next = new Set(selected);
+    if (next.has(tag)) next.delete(tag);
+    else next.add(tag);
+    write(next, custom);
+  };
+
+  const group = (label: string, tags: readonly string[]) => (
+    <div>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {tags.map(tag => {
+          const on = selected.has(tag);
+          return (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => toggle(tag)}
+              aria-pressed={on}
+              className={
+                on
+                  ? "rounded-full border border-cyan-600 bg-cyan-600 px-2.5 py-1 text-xs font-medium text-white"
+                  : "rounded-full border border-input bg-background px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent"
+              }
+            >
+              {tag}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      <Label>Feature tags</Label>
+      {group("Strategy", STRATEGY_TAGS)}
+      {group("Amenities", AMENITY_TAGS)}
+      {custom.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">
+            Not in the standard list
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {custom.map(tag => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() =>
+                  write(selected, custom.filter(item => item !== tag))
+                }
+                title="Remove this tag"
+                className="rounded-full border border-dashed border-input bg-background px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent"
+              >
+                {tag} &times;
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            These were typed in before the standard list existed. They still
+            show on the listing. Click one to remove it.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Says, in one line, exactly what the linked pro-forma will put on the public
+ * listing.
+ *
+ * Without this the feature has a silent failure mode. An empty section on the
+ * public page has three possible causes that look identical from here: the
+ * pro-forma is still a draft, its revenue scenarios were never filled in, or
+ * nothing is linked at all. The first person to hit that reasonably concludes
+ * the feature is broken. The verdict shown here is computed on the server with
+ * the same functions the public page uses, so it cannot drift from what a
+ * visitor actually sees.
+ */
+function ProformaPublishState({
+  proforma,
+  listingPublished,
+}: {
+  proforma: any;
+  listingPublished: boolean;
+}) {
+  if (!proforma) {
+    return (
+      <p className="mt-2 text-xs text-muted-foreground">
+        No pro-forma linked, so the public listing shows no revenue range and no
+        comparable properties.
+      </p>
+    );
+  }
+
+  if (proforma.blockedByDraft) {
+    return (
+      <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+        This pro-forma is a <strong>draft</strong>, so nothing from it reaches
+        the public listing. Mark it final in the pro-forma to publish its
+        revenue range and comparable properties.
+      </p>
+    );
+  }
+
+  if (!proforma.revenue && proforma.compCount === 0) {
+    return (
+      <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+        This pro-forma is final but has no revenue scenarios and no comparable
+        properties filled in, so there is nothing to publish yet.
+      </p>
+    );
+  }
+
+  const money = (value: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(value);
+
+  const parts: string[] = [];
+  if (proforma.revenue) {
+    parts.push(
+      proforma.revenue.single
+        ? `a projected ${money(proforma.revenue.low)} a year`
+        : `a range of ${money(proforma.revenue.low)} to ${money(proforma.revenue.high)} a year`
+    );
+  }
+  if (proforma.compCount > 0) {
+    parts.push(
+      proforma.compCount === 1
+        ? "1 comparable property"
+        : `${proforma.compCount} comparable properties`
+    );
+  }
+
+  return (
+    <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-900">
+      The public listing will show {parts.join(" and ")}, read live from this
+      pro-forma rather than copied.
+      {!listingPublished && (
+        <>
+          {" "}
+          It appears once this listing itself is set to published.
+        </>
+      )}
+    </p>
+  );
 }
 
 /**
@@ -333,11 +515,9 @@ export default function PropertyWebsiteTab({
             rows={5}
             hint="One per line."
           />
-          <Area
-            label="Feature tags"
+          <TagPicker
             value={draft.featureTags}
             onChange={value => set("featureTags", value)}
-            hint="One per line. Shown as small labels on the listing."
           />
           <Area
             label="Investment highlights"
@@ -381,14 +561,12 @@ export default function PropertyWebsiteTab({
               <p className="mt-1 text-xs text-muted-foreground">
                 Blank fields below are filled from the pro-forma on save. Anything you type wins.
               </p>
-              {draft.sourceProformaId && (
-                <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-                  The public listing will also show this pro-forma's revenue
-                  range and its comparable properties, read live rather than
-                  copied. Only a pro-forma marked <strong>final</strong> is
-                  published; a draft shows nothing.
-                </p>
-              )}
+              <ProformaPublishState
+                proforma={proformaOptions.find(
+                  (item: any) => String(item.id) === draft.sourceProformaId
+                )}
+                listingPublished={draft.status === "published"}
+              />
             </div>
           )}
           <div className="grid gap-4 md:grid-cols-5">
