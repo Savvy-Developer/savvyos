@@ -10,6 +10,7 @@ import {
   eventPortfolio,
   eventSponsorAsks,
   eventSponsorDeliverables,
+  eventSponsorPayments,
   eventSponsors,
   eventSwoogoSyncActivity,
   eventUnaffiliatedContacts,
@@ -18,6 +19,10 @@ import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getSwoogoConfigurationStatus, swoogoGet } from "../swoogoEvents";
 import { normalizeSwoogoType } from "../eventsLogic";
+import {
+  extractSwoogoPaymentIntake,
+  normalizePaymentIdentity,
+} from "../eventsPaymentIntake";
 import {
   ensureEventExpenseOpeningBalances,
   recalculateEventCommittedExpense,
@@ -58,6 +63,23 @@ const sponsorStages = [
   "partner",
   "speaker",
 ] as const;
+const paymentMethods = [
+  "ach",
+  "wire",
+  "check",
+  "card",
+  "cash",
+  "other",
+  "unknown",
+] as const;
+const paymentStatuses = [
+  "awaiting_payment",
+  "received",
+  "failed",
+  "waived",
+  "refunded",
+] as const;
+const invoiceStatuses = ["draft", "issued", "not_required", "void"] as const;
 const shareStatuses = ["written", "verbal", "not_agreed"] as const;
 const sourceType = z.string().trim().min(1).max(255);
 const bookedSponsorStages = new Set(["signed", "invoiced"]);
@@ -844,6 +866,7 @@ async function overviewData(db: any) {
     obligations,
     sponsors,
     asks,
+    payments,
     expenses,
     deliverables,
     claims,
@@ -865,6 +888,10 @@ async function overviewData(db: any) {
       .orderBy(asc(eventObligations.dueDate), asc(eventObligations.id)),
     db.select().from(eventSponsors).orderBy(asc(eventSponsors.companyName)),
     db.select().from(eventSponsorAsks),
+    db
+      .select()
+      .from(eventSponsorPayments)
+      .orderBy(desc(eventSponsorPayments.createdAt)),
     db
       .select()
       .from(eventExpenses)
@@ -913,6 +940,19 @@ async function overviewData(db: any) {
       ...(asksBySponsor.get(ask.sponsorId) ?? []),
       ask,
     ]);
+  const paymentsByEvent = new Map<number, any[]>();
+  const paymentsByAsk = new Map<number, any[]>();
+  for (const payment of payments) {
+    paymentsByEvent.set(payment.eventId, [
+      ...(paymentsByEvent.get(payment.eventId) ?? []),
+      payment,
+    ]);
+    if (payment.sponsorAskId)
+      paymentsByAsk.set(payment.sponsorAskId, [
+        ...(paymentsByAsk.get(payment.sponsorAskId) ?? []),
+        payment,
+      ]);
+  }
   const expensesByEvent = new Map<number, any[]>();
   for (const expense of expenses)
     expensesByEvent.set(expense.eventId, [
@@ -935,12 +975,14 @@ async function overviewData(db: any) {
       components: componentsByEvent.get(event.id) ?? [],
       obligations: obligationsByEvent.get(event.id) ?? [],
       expenses: expensesByEvent.get(event.id) ?? [],
+      payments: paymentsByEvent.get(event.id) ?? [],
     })),
     sponsors: sponsors.map((sponsor: any) => ({
       ...sponsor,
       asks: (asksBySponsor.get(sponsor.id) ?? []).map((ask: any) => ({
         ...ask,
         deliverables: deliverablesByAsk.get(ask.id) ?? [],
+        payments: paymentsByAsk.get(ask.id) ?? [],
       })),
     })),
     claims: claims.map((claim: any) => ({
@@ -1090,6 +1132,106 @@ export async function queueSwoogoRecountVerification(input: {
       });
     }, RECOUNT_DEBOUNCE_MS)
   );
+}
+
+/**
+ * Creates an auditable, non-paid payment record for an ACH or wire registration.
+ * Re-delivered webhooks refresh provider details but never overwrite a finance
+ * user's payment or invoice status decision.
+ */
+export async function recordSwoogoOfflinePayment(input: {
+  providerEventId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+}) {
+  const intake = extractSwoogoPaymentIntake(input.payload);
+  const paymentMethod = intake?.paymentMethod;
+  if (!intake?.registrantId || !paymentMethod)
+    return { recorded: false, reason: "No ACH/wire registrant." };
+  if (
+    intake.providerEventId &&
+    intake.providerEventId !== input.providerEventId
+  )
+    return { recorded: false, reason: "Webhook event ID mismatch." };
+
+  const db = await database();
+  const [event] = await db
+    .select()
+    .from(eventPortfolio)
+    .where(eq(eventPortfolio.swoogoEventId, input.providerEventId))
+    .limit(1);
+  if (!event) return { recorded: false, reason: "Event mapping not found." };
+
+  const [sponsors, asks] = await Promise.all([
+    db.select().from(eventSponsors),
+    db
+      .select()
+      .from(eventSponsorAsks)
+      .where(eq(eventSponsorAsks.eventId, event.id)),
+  ]);
+  const candidateNames = new Set(
+    intake.sponsorCandidates
+      .map(value => normalizePaymentIdentity(value))
+      .filter(Boolean)
+  );
+  const sponsor = sponsors.find(item =>
+    candidateNames.has(normalizePaymentIdentity(item.companyName))
+  );
+  const ask = sponsor
+    ? (asks.find(item => item.sponsorId === sponsor.id) ?? null)
+    : null;
+  const [existing] = await db
+    .select()
+    .from(eventSponsorPayments)
+    .where(
+      and(
+        eq(eventSponsorPayments.eventId, event.id),
+        eq(eventSponsorPayments.swoogoRegistrantId, intake.registrantId)
+      )
+    )
+    .limit(1);
+
+  const providerFields = {
+    sponsorId: sponsor?.id ?? null,
+    sponsorAskId: ask?.id ?? null,
+    swoogoTransactionId: intake.transactionId,
+    paymentMethod,
+    amount: intake.amount === null ? null : String(intake.amount),
+    registrantName: intake.registrantName,
+    registrantEmail: intake.registrantEmail,
+    rawPayload: input.payload,
+  };
+  if (existing) {
+    await db
+      .update(eventSponsorPayments)
+      .set({
+        ...providerFields,
+        version: sql`${eventSponsorPayments.version} + 1`,
+      })
+      .where(eq(eventSponsorPayments.id, existing.id));
+    return {
+      recorded: true,
+      updated: true,
+      eventId: event.id,
+      paymentId: existing.id,
+    };
+  }
+
+  const [result] = await db.insert(eventSponsorPayments).values({
+    eventId: event.id,
+    source: "swoogo_webhook",
+    swoogoRegistrantId: intake.registrantId,
+    paymentStatus: "awaiting_payment",
+    invoiceStatus: "draft",
+    ...providerFields,
+    notes: `${paymentMethod.toUpperCase()} selected in Swoogo. Confirm receipt in the bank before marking paid.`,
+  });
+  return {
+    recorded: true,
+    updated: false,
+    eventId: event.id,
+    paymentId: Number(result.insertId),
+  };
 }
 
 function swoogoComponentType(sourceType: string | null | undefined) {
@@ -1904,6 +2046,117 @@ export const eventsRouter = router({
           and(
             eq(eventSponsorDeliverables.id, input.id),
             eq(eventSponsorDeliverables.version, input.version)
+          )
+        );
+      versionedUpdate(result);
+      return { success: true };
+    }),
+
+  createSponsorPayment: protectedProcedure
+    .input(
+      z.object({
+        eventId: z.number().int().positive(),
+        sponsorId: z.number().int().positive().nullable().default(null),
+        sponsorAskId: z.number().int().positive().nullable().default(null),
+        paymentMethod: z.enum(paymentMethods).default("unknown"),
+        paymentStatus: z.enum(paymentStatuses).default("awaiting_payment"),
+        invoiceStatus: z.enum(invoiceStatuses).default("draft"),
+        amount: nullableMoney.default(null),
+        registrantName: nullableText(255).default(null),
+        registrantEmail: nullableText(320).default(null),
+        dueDate: isoDate.nullable().default(null),
+        notes: nullableText(20_000).default(null),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      let sponsorId = input.sponsorId;
+      if (input.sponsorAskId) {
+        const [ask] = await db
+          .select({
+            eventId: eventSponsorAsks.eventId,
+            sponsorId: eventSponsorAsks.sponsorId,
+          })
+          .from(eventSponsorAsks)
+          .where(eq(eventSponsorAsks.id, input.sponsorAskId))
+          .limit(1);
+        if (!ask || ask.eventId !== input.eventId)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The selected commitment does not belong to this event.",
+          });
+        sponsorId = ask.sponsorId;
+      }
+      const [result] = await db.insert(eventSponsorPayments).values({
+        ...input,
+        sponsorId,
+        amount: input.amount === null ? null : String(input.amount),
+        dueDate: sqlDate(input.dueDate),
+        receivedAt: input.paymentStatus === "received" ? new Date() : null,
+        source: "manual",
+      });
+      return { id: Number(result.insertId), version: 1 };
+    }),
+
+  updateSponsorPayment: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        version: z.number().int().positive(),
+        patch: z.object({
+          paymentMethod: z.enum(paymentMethods).optional(),
+          paymentStatus: z.enum(paymentStatuses).optional(),
+          invoiceStatus: z.enum(invoiceStatuses).optional(),
+          amount: nullableMoney.optional(),
+          registrantName: nullableText(255).optional(),
+          registrantEmail: nullableText(320).optional(),
+          dueDate: isoDate.nullable().optional(),
+          notes: nullableText(20_000).optional(),
+        }),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const patch: Record<string, any> = { ...input.patch };
+      if (input.patch.amount !== undefined)
+        patch.amount =
+          input.patch.amount === null ? null : String(input.patch.amount);
+      if (input.patch.dueDate !== undefined)
+        patch.dueDate = sqlDate(input.patch.dueDate);
+      if (input.patch.paymentStatus !== undefined)
+        patch.receivedAt =
+          input.patch.paymentStatus === "received" ? new Date() : null;
+      const result = await db
+        .update(eventSponsorPayments)
+        .set({ ...patch, version: sql`${eventSponsorPayments.version} + 1` })
+        .where(
+          and(
+            eq(eventSponsorPayments.id, input.id),
+            eq(eventSponsorPayments.version, input.version)
+          )
+        );
+      versionedUpdate(result);
+      return { version: input.version + 1 };
+    }),
+
+  deleteSponsorPayment: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        version: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const result = await db
+        .delete(eventSponsorPayments)
+        .where(
+          and(
+            eq(eventSponsorPayments.id, input.id),
+            eq(eventSponsorPayments.version, input.version)
           )
         );
       versionedUpdate(result);

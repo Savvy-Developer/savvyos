@@ -6369,6 +6369,79 @@ export const eventSponsorAsks = mysqlTable(
 export type EventSponsorAsk = typeof eventSponsorAsks.$inferSelect;
 export type InsertEventSponsorAsk = typeof eventSponsorAsks.$inferInsert;
 
+export const eventSponsorPayments = mysqlTable(
+  "event_sponsor_payments",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    eventId: int("eventId")
+      .notNull()
+      .references(() => eventPortfolio.id, { onDelete: "cascade" }),
+    sponsorId: int("sponsorId").references(() => eventSponsors.id, {
+      onDelete: "set null",
+    }),
+    sponsorAskId: int("sponsorAskId").references(() => eventSponsorAsks.id, {
+      onDelete: "set null",
+    }),
+    source: mysqlEnum("source", ["manual", "swoogo_webhook"])
+      .notNull()
+      .default("manual"),
+    swoogoRegistrantId: varchar("swoogoRegistrantId", { length: 128 }),
+    swoogoTransactionId: varchar("swoogoTransactionId", { length: 128 }),
+    paymentMethod: mysqlEnum("paymentMethod", [
+      "ach",
+      "wire",
+      "check",
+      "card",
+      "cash",
+      "other",
+      "unknown",
+    ])
+      .notNull()
+      .default("unknown"),
+    paymentStatus: mysqlEnum("paymentStatus", [
+      "awaiting_payment",
+      "received",
+      "failed",
+      "waived",
+      "refunded",
+    ])
+      .notNull()
+      .default("awaiting_payment"),
+    invoiceStatus: mysqlEnum("invoiceStatus", [
+      "draft",
+      "issued",
+      "not_required",
+      "void",
+    ])
+      .notNull()
+      .default("draft"),
+    amount: decimal("amount", { precision: 15, scale: 2 }),
+    registrantName: varchar("registrantName", { length: 255 }),
+    registrantEmail: varchar("registrantEmail", { length: 320 }),
+    dueDate: date("dueDate"),
+    receivedAt: timestamp("receivedAt"),
+    notes: text("notes"),
+    rawPayload: json("rawPayload").$type<Record<string, unknown>>(),
+    version: int("version").notNull().default(1),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("event_sponsor_payments_provider_registrant_unique").on(
+      table.eventId,
+      table.swoogoRegistrantId
+    ),
+    index("event_sponsor_payments_event_idx").on(
+      table.eventId,
+      table.paymentStatus
+    ),
+    index("event_sponsor_payments_ask_idx").on(table.sponsorAskId),
+    index("event_sponsor_payments_sponsor_idx").on(table.sponsorId),
+  ]
+);
+export type EventSponsorPayment = typeof eventSponsorPayments.$inferSelect;
+export type InsertEventSponsorPayment = typeof eventSponsorPayments.$inferInsert;
+
 export const eventExpenses = mysqlTable(
   "event_expenses",
   {

@@ -140,6 +140,28 @@ const DELIVERABLE_STATUS_OPTIONS = [
   ["delivered", "Delivered"],
   ["waived", "Waived"],
 ] as const;
+const PAYMENT_METHOD_OPTIONS = [
+  ["ach", "ACH"],
+  ["wire", "Wire"],
+  ["check", "Check"],
+  ["card", "Card"],
+  ["cash", "Cash"],
+  ["other", "Other"],
+  ["unknown", "Not specified"],
+] as const;
+const PAYMENT_STATUS_OPTIONS = [
+  ["awaiting_payment", "Awaiting payment"],
+  ["received", "Received"],
+  ["failed", "Failed"],
+  ["waived", "Waived"],
+  ["refunded", "Refunded"],
+] as const;
+const INVOICE_STATUS_OPTIONS = [
+  ["draft", "Draft invoice"],
+  ["issued", "Invoice issued"],
+  ["not_required", "No invoice needed"],
+  ["void", "Void"],
+] as const;
 
 function asNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -1035,6 +1057,9 @@ function EventProfileDialog({
   const relatedClaims = claims.filter(
     claim => Number(claim.eventId) === Number(event.id)
   );
+  const relatedPayments = event.payments ?? [];
+  const sponsorForPayment = (payment: any) =>
+    sponsors.find(sponsor => Number(sponsor.id) === Number(payment.sponsorId));
   const eventDate = dateValue(event.startDate)
     ? event.endDate &&
       String(event.endDate).slice(0, 10) !==
@@ -1242,6 +1267,61 @@ function EventProfileDialog({
                   ) : (
                     <p className="p-4 text-sm text-muted-foreground">
                       No obligations linked to this event.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+              <Card className="min-w-0">
+                <CardHeader className="border-b pb-3">
+                  <CardTitle className="text-base">
+                    Payment tracker ({relatedPayments.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="divide-y p-0">
+                  {relatedPayments.length ? (
+                    relatedPayments.map((payment: any) => {
+                      const paymentSponsor = sponsorForPayment(payment);
+                      return (
+                        <div key={payment.id} className="p-3 text-sm">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="break-words font-medium">
+                                {paymentSponsor?.companyName ||
+                                  payment.registrantName ||
+                                  "Unmatched Swoogo registration"}
+                              </p>
+                              <p className="mt-1 break-words text-xs text-muted-foreground">
+                                {String(
+                                  payment.paymentMethod || "unknown"
+                                ).toUpperCase()}{" "}
+                                ·{" "}
+                                {payment.invoiceStatus === "draft"
+                                  ? "Draft invoice"
+                                  : String(
+                                      payment.invoiceStatus || "draft"
+                                    ).replaceAll("_", " ")}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="font-semibold">
+                                {money(payment.amount)}
+                              </p>
+                              <Badge
+                                variant="outline"
+                                className={`mt-1 ${paymentStatusClass(payment.paymentStatus)}`}
+                              >
+                                {String(
+                                  payment.paymentStatus || "awaiting_payment"
+                                ).replaceAll("_", " ")}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="p-4 text-sm text-muted-foreground">
+                      No ACH, wire, or manual payment records for this event.
                     </p>
                   )}
                 </CardContent>
@@ -1919,6 +1999,150 @@ function deliverableStatusClass(status: string | null | undefined) {
   return classes[status ?? ""] ?? classes.promised;
 }
 
+function paymentStatusClass(status: string | null | undefined) {
+  const classes: Record<string, string> = {
+    awaiting_payment: "border-amber-200 bg-amber-50 text-amber-800",
+    received: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    failed: "border-rose-200 bg-rose-50 text-rose-800",
+    waived: "border-violet-200 bg-violet-50 text-violet-800",
+    refunded: "border-slate-200 bg-slate-100 text-slate-700",
+  };
+  return classes[status ?? ""] ?? classes.awaiting_payment;
+}
+
+function PaymentTracker({
+  ask,
+  sponsor,
+  event,
+  createPayment,
+  updatePayment,
+  deletePayment,
+}: {
+  ask: any;
+  sponsor: SponsorRecord;
+  event: EventRecord;
+  createPayment: (input: any) => void;
+  updatePayment: (payment: any, patch: any) => void;
+  deletePayment: (payment: any) => void;
+}) {
+  const payments = ask.payments ?? [];
+  const received = payments.filter(
+    (payment: any) => payment.paymentStatus === "received"
+  ).length;
+  const awaiting = payments.filter(
+    (payment: any) => payment.paymentStatus === "awaiting_payment"
+  ).length;
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-3 py-3">
+        <div>
+          <p className="text-sm font-semibold">Payment tracking</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {payments.length
+              ? `${received} received · ${awaiting} awaiting bank confirmation`
+              : "Create the draft invoice or payment record for this commitment."}
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            createPayment({
+              eventId: event.id,
+              sponsorId: sponsor.id,
+              sponsorAskId: ask.id,
+              paymentMethod: "unknown",
+              paymentStatus: "awaiting_payment",
+              invoiceStatus: "draft",
+              amount: asNumber(ask.amount),
+              notes: "Manual payment-tracking record.",
+            })
+          }
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Add payment record
+        </Button>
+      </div>
+      {payments.length ? (
+        <div className="divide-y">
+          {payments.map((payment: any) => (
+            <div key={payment.id} className="min-w-0 p-3">
+              <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(130px,0.75fr)_minmax(150px,0.95fr)_minmax(140px,0.85fr)_minmax(112px,0.65fr)_auto] lg:items-center">
+                <div className="min-w-0">
+                  <p className="break-words text-sm font-medium">
+                    {payment.registrantName || sponsor.companyName}
+                  </p>
+                  <p className="mt-1 break-all text-xs text-muted-foreground">
+                    {payment.registrantEmail ||
+                      (payment.source === "swoogo_webhook"
+                        ? "Captured from Swoogo registration"
+                        : "Manual finance record")}
+                  </p>
+                </div>
+                <InlineSelect
+                  value={payment.paymentMethod}
+                  options={PAYMENT_METHOD_OPTIONS}
+                  onSave={paymentMethod =>
+                    updatePayment(payment, { paymentMethod })
+                  }
+                  ariaLabel={`${sponsor.companyName} payment method`}
+                  className="w-full border px-2"
+                />
+                <InlineSelect
+                  value={payment.paymentStatus}
+                  options={PAYMENT_STATUS_OPTIONS}
+                  onSave={paymentStatus =>
+                    updatePayment(payment, { paymentStatus })
+                  }
+                  ariaLabel={`${sponsor.companyName} payment status`}
+                  className={`w-full border px-2 ${paymentStatusClass(payment.paymentStatus)}`}
+                />
+                <InlineSelect
+                  value={payment.invoiceStatus}
+                  options={INVOICE_STATUS_OPTIONS}
+                  onSave={invoiceStatus =>
+                    updatePayment(payment, { invoiceStatus })
+                  }
+                  ariaLabel={`${sponsor.companyName} invoice status`}
+                  className="w-full border px-2"
+                />
+                <div className="space-y-1 text-right">
+                  <InlineNumber
+                    value={payment.amount}
+                    onSave={amount => updatePayment(payment, { amount })}
+                    prefix="$"
+                    placeholder="Set amount"
+                    ariaLabel={`${sponsor.companyName} payment amount`}
+                  />
+                  <InlineDate
+                    value={payment.dueDate}
+                    onSave={dueDate => updatePayment(payment, { dueDate })}
+                    placeholder="No due date"
+                    ariaLabel={`${sponsor.companyName} payment due date`}
+                  />
+                </div>
+                <DeleteButton
+                  label={`${sponsor.companyName} payment record`}
+                  onDelete={() => deletePayment(payment)}
+                />
+              </div>
+              <InlineText
+                value={payment.notes}
+                onSave={notes => updatePayment(payment, { notes })}
+                placeholder="Add payment note or bank-reference detail"
+                multiline
+                ariaLabel={`${sponsor.companyName} payment notes`}
+                className="mt-3 block max-w-full text-xs not-italic"
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function DeliverableTracker({
   ask,
   createDeliverable,
@@ -2353,6 +2577,9 @@ function SponsorProfileWorkspace({
   createDeliverable,
   updateDeliverable,
   deleteDeliverable,
+  createPayment,
+  updatePayment,
+  deletePayment,
 }: {
   sponsor: SponsorRecord | null;
   events: EventRecord[];
@@ -2368,6 +2595,9 @@ function SponsorProfileWorkspace({
   createDeliverable: (input: any) => void;
   updateDeliverable: (deliverable: any, patch: any) => void;
   deleteDeliverable: (deliverable: any) => void;
+  createPayment: (input: any) => void;
+  updatePayment: (payment: any, patch: any) => void;
+  deletePayment: (payment: any) => void;
 }) {
   const [statusTab, setStatusTab] = useState("all");
   const [cart, setCart] = useState<SponsorCartItem[]>([]);
@@ -2512,6 +2742,14 @@ function SponsorProfileWorkspace({
           updateDeliverable={updateDeliverable}
           deleteDeliverable={deleteDeliverable}
         />
+        <PaymentTracker
+          ask={ask}
+          sponsor={sponsor}
+          event={event}
+          createPayment={createPayment}
+          updatePayment={updatePayment}
+          deletePayment={deletePayment}
+        />
       </div>
     );
   };
@@ -2522,6 +2760,14 @@ function SponsorProfileWorkspace({
       (ask.deliverables ?? []).filter(
         (deliverable: any) =>
           !["delivered", "waived"].includes(deliverable.status)
+      ).length,
+    0
+  );
+  const awaitingPayments = asks.reduce(
+    (total: number, ask: any) =>
+      total +
+      (ask.payments ?? []).filter(
+        (payment: any) => payment.paymentStatus === "awaiting_payment"
       ).length,
     0
   );
@@ -2575,9 +2821,9 @@ function SponsorProfileWorkspace({
             detail="Across all events"
           />
           <ProfileDatum
-            label="Outstanding deliverables"
-            value={String(outstandingDeliverables)}
-            detail="Not delivered or waived"
+            label="Awaiting payment"
+            value={String(awaitingPayments)}
+            detail={`${outstandingDeliverables} deliverable${outstandingDeliverables === 1 ? "" : "s"} still open`}
           />
         </section>
         <section className="grid gap-3 sm:grid-cols-2">
@@ -2825,6 +3071,9 @@ function SponsorGrid({
   createDeliverable,
   updateDeliverable,
   deleteDeliverable,
+  createPayment,
+  updatePayment,
+  deletePayment,
   createSponsor,
   updateClaim,
   deleteClaim,
@@ -2844,6 +3093,9 @@ function SponsorGrid({
   createDeliverable: (input: any) => void;
   updateDeliverable: (deliverable: any, patch: any) => void;
   deleteDeliverable: (deliverable: any) => void;
+  createPayment: (input: any) => void;
+  updatePayment: (payment: any, patch: any) => void;
+  deletePayment: (payment: any) => void;
   createSponsor: () => void;
   updateClaim: (claim: any, patch: any) => void;
   deleteClaim: (claim: any) => void;
@@ -2947,6 +3199,9 @@ function SponsorGrid({
                 createDeliverable={createDeliverable}
                 updateDeliverable={updateDeliverable}
                 deleteDeliverable={deleteDeliverable}
+                createPayment={createPayment}
+                updatePayment={updatePayment}
+                deletePayment={deletePayment}
               />
             ) : (
               <Card className="p-10 text-center text-sm text-muted-foreground">
@@ -3869,6 +4124,12 @@ function IntegrationSettings({
             goodText="Ready for mapped components"
             waitingText="Requires both Swoogo API credentials and a webhook token"
           />
+          <StatusItem
+            label="ACH and wire payment intake"
+            good={integration?.webhookConfigured}
+            goodText="Ready for registrant webhooks"
+            waitingText="Requires the Swoogo webhook header and token"
+          />
         </div>
         <Card className="border-cyan-200 bg-cyan-50">
           <CardContent className="flex gap-3 p-4">
@@ -3944,9 +4205,12 @@ function IntegrationSettings({
         <p className="text-xs text-muted-foreground">
           Required environment variables: <code>SWOOGO_CREDENTIALS_B64</code>{" "}
           (or consumer key/secret), <code>SWOOGO_WEBHOOK_TOKEN</code>, and
-          optionally <code>SWOOGO_WEBHOOK_HEADER</code>. Configure Swoogo to
-          deliver JSON POSTs to{" "}
-          <code>https://os.savvy-agents.com/api/webhooks/swoogo</code>.
+          optionally <code>SWOOGO_WEBHOOK_HEADER</code>. Configure a JSON
+          registrant create/update webhook to deliver POSTs to{" "}
+          <code>https://os.savvy-agents.com/api/webhooks/swoogo</code> and
+          enable transaction details. Clear ACH and wire selections create an
+          Awaiting payment record with a draft invoice; bank receipt remains a
+          manual finance decision.
         </p>
       </DialogContent>
     </Dialog>
@@ -4042,6 +4306,12 @@ export default function EventsPage() {
     trpc.events.updateDeliverable.useMutation(mutationOptions);
   const deleteDeliverableMutation =
     trpc.events.deleteDeliverable.useMutation(mutationOptions);
+  const createSponsorPaymentMutation =
+    trpc.events.createSponsorPayment.useMutation(mutationOptions);
+  const updateSponsorPaymentMutation =
+    trpc.events.updateSponsorPayment.useMutation(mutationOptions);
+  const deleteSponsorPaymentMutation =
+    trpc.events.deleteSponsorPayment.useMutation(mutationOptions);
   const createClaimMutation =
     trpc.events.createClaim.useMutation(mutationOptions);
   const updateClaimMutation =
@@ -4196,6 +4466,17 @@ export default function EventsPage() {
     deleteDeliverableMutation.mutate({
       id: deliverable.id,
       version: deliverable.version,
+    });
+  const updatePayment = (payment: any, patch: any) =>
+    updateSponsorPaymentMutation.mutate({
+      id: payment.id,
+      version: payment.version,
+      patch,
+    });
+  const deletePayment = (payment: any) =>
+    deleteSponsorPaymentMutation.mutate({
+      id: payment.id,
+      version: payment.version,
     });
   const uploadEventInvoice = async (eventId: number, file: File) => {
     const form = new FormData();
@@ -4412,6 +4693,9 @@ export default function EventsPage() {
             createDeliverable={input => createDeliverableMutation.mutate(input)}
             updateDeliverable={updateDeliverable}
             deleteDeliverable={deleteDeliverable}
+            createPayment={input => createSponsorPaymentMutation.mutate(input)}
+            updatePayment={updatePayment}
+            deletePayment={deletePayment}
             createSponsor={() =>
               createSponsorMutation.mutate({ companyName: "New sponsor" })
             }
