@@ -1030,254 +1030,256 @@ function EventProfileDialog({
 
   return (
     <Dialog open={Boolean(event)} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] w-[min(96vw,1440px)] max-w-[calc(100%-2rem)] overflow-x-hidden overflow-y-auto p-4 sm:p-7">
-        <DialogHeader className="border-b pb-5 pr-10 sm:pr-12">
-          <div className="grid min-w-0 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-            <div className="min-w-0">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className={tierDetail.badgeClass}>
-                  {tierDetail.label}
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className="border-slate-200 bg-slate-50 text-slate-700"
-                >
-                  {event.status}
-                </Badge>
+      <DialogContent className="h-[min(92vw,92vh,1000px)] w-[min(92vw,92vh,1000px)] max-w-[calc(100%-2rem)] overflow-hidden p-0 sm:!max-w-none">
+        <div className="flex h-full min-h-0 flex-col">
+          <DialogHeader className="shrink-0 border-b px-5 pt-5 pb-4 pr-12 sm:px-7 sm:pt-7 sm:pb-5 sm:pr-14">
+            <div className="grid min-w-0 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className={tierDetail.badgeClass}>
+                    {tierDetail.label}
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className="border-slate-200 bg-slate-50 text-slate-700"
+                  >
+                    {event.status}
+                  </Badge>
+                </div>
+                <DialogTitle className="break-words text-2xl leading-tight tracking-tight sm:text-3xl">
+                  {event.name}
+                </DialogTitle>
+                <DialogDescription className="mt-2 break-words leading-relaxed">
+                  {tierDetail.description}
+                </DialogDescription>
               </div>
-              <DialogTitle className="break-words text-2xl leading-tight tracking-tight sm:text-3xl">
-                {event.name}
-              </DialogTitle>
-              <DialogDescription className="mt-2 break-words leading-relaxed">
-                {tierDetail.description}
-              </DialogDescription>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => onEdit(event)}
+              >
+                <Pencil className="mr-1.5 h-4 w-4" />
+                Edit event
+              </Button>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="shrink-0"
-              onClick={() => onEdit(event)}
-            >
-              <Pencil className="mr-1.5 h-4 w-4" />
-              Edit event
-            </Button>
-          </div>
-        </DialogHeader>
+          </DialogHeader>
 
-        <div className="space-y-6 pt-1">
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <ProfileDatum label="Dates" value={eventDate} />
-            <ProfileDatum
-              label="Point of contact"
-              value={event.counterpart || "Not assigned"}
-            />
-            <ProfileDatum
-              label="Headcount"
-              value={headcount === null ? "Not set" : headcount}
-              detail={
-                event.workingHeadcount !== null &&
-                event.workingHeadcount !== undefined
-                  ? "Current working headcount"
-                  : componentTotal !== null
-                    ? "Calculated from components"
-                    : undefined
-              }
-            />
-            <ProfileDatum
-              label="Savvy owner"
-              value={event.ownerName || "Not assigned"}
-            />
-            <ProfileDatum
-              label="Location"
-              value={event.city || "Not set"}
-              detail={event.venue || undefined}
-            />
-          </section>
-
-          <section className="grid gap-4 lg:grid-cols-3">
-            <Card className="min-w-0 lg:col-span-2">
-              <CardHeader className="border-b pb-3">
-                <CardTitle className="text-base">Event record</CardTitle>
-                <CardDescription>
-                  Commercial and operating context attached to this event.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4 p-4 sm:grid-cols-3">
-                <ProfileDatum
-                  label="Revenue target"
-                  value={money(event.revenueTarget)}
-                />
-                <ProfileDatum
-                  label="Revenue booked"
-                  value={money(event.revenueBooked)}
-                />
-                <ProfileDatum
-                  label="Committed cost"
-                  value={money(event.committedCost)}
-                />
-                <ProfileDatum
-                  label="Revenue share"
-                  value={
-                    asNumber(event.savvyRevenueShare) === null
-                      ? "Not set"
-                      : `${asNumber(event.savvyRevenueShare)}%`
-                  }
-                  detail={event.shareStatus || undefined}
-                />
-                <ProfileDatum
-                  label="Registration"
-                  value={event.registrationPlatform || "Not set"}
-                  detail={
-                    event.swoogoEventId
-                      ? `Swoogo: ${event.swoogoEventId}`
+          <div className="min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <ProfileDatum label="Dates" value={eventDate} />
+              <ProfileDatum
+                label="Point of contact"
+                value={event.counterpart || "Not assigned"}
+              />
+              <ProfileDatum
+                label="Headcount"
+                value={headcount === null ? "Not set" : headcount}
+                detail={
+                  event.workingHeadcount !== null &&
+                  event.workingHeadcount !== undefined
+                    ? "Current working headcount"
+                    : componentTotal !== null
+                      ? "Calculated from components"
                       : undefined
-                  }
-                />
-                <ProfileDatum
-                  label="Headcount guarantee"
-                  value={
-                    asNumber(event.headcountGuarantee) === null
-                      ? "Not set"
-                      : asNumber(event.headcountGuarantee)!
-                  }
-                  detail={event.headcountGuaranteeVendor || undefined}
-                />
-              </CardContent>
-            </Card>
-            <Card className="min-w-0">
-              <CardHeader className="border-b pb-3">
-                <CardTitle className="text-base">Notes</CardTitle>
-              </CardHeader>
-              <CardContent className="break-words p-4 text-sm leading-relaxed text-muted-foreground">
-                {event.notes || "No operating notes have been added."}
-              </CardContent>
-            </Card>
-          </section>
+                }
+              />
+              <ProfileDatum
+                label="Savvy owner"
+                value={event.ownerName || "Not assigned"}
+              />
+              <ProfileDatum
+                label="Location"
+                value={event.city || "Not set"}
+                detail={event.venue || undefined}
+              />
+            </section>
 
-          <section className="grid gap-4 lg:grid-cols-3">
-            <Card className="min-w-0">
-              <CardHeader className="border-b pb-3">
-                <CardTitle className="text-base">
-                  Headcount components ({components.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="divide-y p-0">
-                {components.length ? (
-                  components.map((component: any) => (
-                    <div
-                      key={component.id}
-                      className="flex items-center justify-between gap-3 p-3 text-sm"
-                    >
-                      <div className="min-w-0">
-                        <p className="break-words font-medium">
-                          {component.label}
-                        </p>
-                        <p className="break-words text-xs text-muted-foreground">
-                          {component.sourceType}
-                        </p>
-                      </div>
-                      <p className="font-semibold tabular-nums">
-                        {asNumber(component.count) === null
-                          ? "Not counted"
-                          : component.count}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="p-4 text-sm text-muted-foreground">
-                    No source-level headcount components.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-            <Card className="min-w-0">
-              <CardHeader className="border-b pb-3">
-                <CardTitle className="text-base">
-                  Obligations ({(event.obligations ?? []).length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="divide-y p-0">
-                {(event.obligations ?? []).length ? (
-                  event.obligations.map((obligation: any) => (
-                    <div key={obligation.id} className="p-3 text-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="min-w-0 break-words font-medium leading-tight">
-                          {obligation.title}
-                        </p>
-                        <p className="shrink-0 text-xs font-semibold">
-                          {money(obligation.amountAtRisk)}
-                        </p>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {dateLabel(obligation.dueDate)}
-                        {obligation.amountNote
-                          ? ` · ${obligation.amountNote}`
-                          : ""}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="p-4 text-sm text-muted-foreground">
-                    No obligations linked to this event.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-            <Card className="min-w-0">
-              <CardHeader className="border-b pb-3">
-                <CardTitle className="text-base">
-                  Sponsor activity ({relatedAsks.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="divide-y p-0">
-                {relatedAsks.length || relatedClaims.length ? (
-                  <>
-                    {relatedAsks.map(({ sponsor, ask }) => (
+            <section className="grid gap-4 lg:grid-cols-2">
+              <Card className="min-w-0">
+                <CardHeader className="border-b pb-3">
+                  <CardTitle className="text-base">Event record</CardTitle>
+                  <CardDescription>
+                    Commercial and operating context attached to this event.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3 p-4 sm:grid-cols-2">
+                  <ProfileDatum
+                    label="Revenue target"
+                    value={money(event.revenueTarget)}
+                  />
+                  <ProfileDatum
+                    label="Revenue booked"
+                    value={money(event.revenueBooked)}
+                  />
+                  <ProfileDatum
+                    label="Committed cost"
+                    value={money(event.committedCost)}
+                  />
+                  <ProfileDatum
+                    label="Revenue share"
+                    value={
+                      asNumber(event.savvyRevenueShare) === null
+                        ? "Not set"
+                        : `${asNumber(event.savvyRevenueShare)}%`
+                    }
+                    detail={event.shareStatus || undefined}
+                  />
+                  <ProfileDatum
+                    label="Registration"
+                    value={event.registrationPlatform || "Not set"}
+                    detail={
+                      event.swoogoEventId
+                        ? `Swoogo: ${event.swoogoEventId}`
+                        : undefined
+                    }
+                  />
+                  <ProfileDatum
+                    label="Headcount guarantee"
+                    value={
+                      asNumber(event.headcountGuarantee) === null
+                        ? "Not set"
+                        : asNumber(event.headcountGuarantee)!
+                    }
+                    detail={event.headcountGuaranteeVendor || undefined}
+                  />
+                </CardContent>
+              </Card>
+              <Card className="min-w-0">
+                <CardHeader className="border-b pb-3">
+                  <CardTitle className="text-base">Notes</CardTitle>
+                </CardHeader>
+                <CardContent className="break-words p-4 text-sm leading-relaxed text-muted-foreground">
+                  {event.notes || "No operating notes have been added."}
+                </CardContent>
+              </Card>
+            </section>
+
+            <section className="grid gap-4 lg:grid-cols-2">
+              <Card className="min-w-0">
+                <CardHeader className="border-b pb-3">
+                  <CardTitle className="text-base">
+                    Headcount components ({components.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="divide-y p-0">
+                  {components.length ? (
+                    components.map((component: any) => (
                       <div
-                        key={`${sponsor.id}-${ask.id}`}
+                        key={component.id}
                         className="flex items-center justify-between gap-3 p-3 text-sm"
                       >
                         <div className="min-w-0">
                           <p className="break-words font-medium">
-                            {sponsor.companyName}
+                            {component.label}
                           </p>
                           <p className="break-words text-xs text-muted-foreground">
-                            {sponsor.category || "Uncategorized"}
+                            {component.sourceType}
                           </p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-semibold">{money(ask.amount)}</p>
-                          <Badge
-                            variant="outline"
-                            className={`mt-1 ${stageClass(ask.stage)}`}
-                          >
-                            {ask.stage}
-                          </Badge>
+                        <p className="font-semibold tabular-nums">
+                          {asNumber(component.count) === null
+                            ? "Not counted"
+                            : component.count}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="p-4 text-sm text-muted-foreground">
+                      No source-level headcount components.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+              <Card className="min-w-0">
+                <CardHeader className="border-b pb-3">
+                  <CardTitle className="text-base">
+                    Obligations ({(event.obligations ?? []).length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="divide-y p-0">
+                  {(event.obligations ?? []).length ? (
+                    event.obligations.map((obligation: any) => (
+                      <div key={obligation.id} className="p-3 text-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="min-w-0 break-words font-medium leading-tight">
+                            {obligation.title}
+                          </p>
+                          <p className="shrink-0 text-xs font-semibold">
+                            {money(obligation.amountAtRisk)}
+                          </p>
                         </div>
-                      </div>
-                    ))}
-                    {relatedClaims.map(claim => (
-                      <div key={`claim-${claim.id}`} className="p-3 text-sm">
-                        <p className="break-words font-medium">
-                          {claim.category} exclusivity
-                        </p>
-                        <p className="mt-1 break-words text-xs text-muted-foreground">
-                          {claim.sponsor?.companyName ||
-                            claim.holderName ||
-                            "Unclaimed"}
-                          {claim.isWritten ? " · Written" : " · Not written"}
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {dateLabel(obligation.dueDate)}
+                          {obligation.amountNote
+                            ? ` · ${obligation.amountNote}`
+                            : ""}
                         </p>
                       </div>
-                    ))}
-                  </>
-                ) : (
-                  <p className="p-4 text-sm text-muted-foreground">
-                    No sponsor asks or exclusivity records.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </section>
+                    ))
+                  ) : (
+                    <p className="p-4 text-sm text-muted-foreground">
+                      No obligations linked to this event.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+              <Card className="min-w-0">
+                <CardHeader className="border-b pb-3">
+                  <CardTitle className="text-base">
+                    Sponsor activity ({relatedAsks.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="divide-y p-0">
+                  {relatedAsks.length || relatedClaims.length ? (
+                    <>
+                      {relatedAsks.map(({ sponsor, ask }) => (
+                        <div
+                          key={`${sponsor.id}-${ask.id}`}
+                          className="flex items-center justify-between gap-3 p-3 text-sm"
+                        >
+                          <div className="min-w-0">
+                            <p className="break-words font-medium">
+                              {sponsor.companyName}
+                            </p>
+                            <p className="break-words text-xs text-muted-foreground">
+                              {sponsor.category || "Uncategorized"}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-semibold">{money(ask.amount)}</p>
+                            <Badge
+                              variant="outline"
+                              className={`mt-1 ${stageClass(ask.stage)}`}
+                            >
+                              {ask.stage}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                      {relatedClaims.map(claim => (
+                        <div key={`claim-${claim.id}`} className="p-3 text-sm">
+                          <p className="break-words font-medium">
+                            {claim.category} exclusivity
+                          </p>
+                          <p className="mt-1 break-words text-xs text-muted-foreground">
+                            {claim.sponsor?.companyName ||
+                              claim.holderName ||
+                              "Unclaimed"}
+                            {claim.isWritten ? " · Written" : " · Not written"}
+                          </p>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <p className="p-4 text-sm text-muted-foreground">
+                      No sponsor asks or exclusivity records.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </section>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
