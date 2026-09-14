@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   closestCenter,
   DndContext,
@@ -502,26 +502,29 @@ function RootTodoContainer({
 
 function RootDropSlot({
   index,
+  position,
   activeDrag,
 }: {
   index: number;
+  position: "before" | "after";
   activeDrag: ProjectTodoDragData | null;
 }) {
   const droppable = useDroppable({
     id: `root-slot-${index}`,
     data: { type: "root-slot", index } satisfies ProjectTodoDragData,
-    disabled: !activeDrag || activeDrag.type !== "section",
+    disabled: !activeDrag || activeDrag.type === "container" || activeDrag.type === "section-header",
   });
 
-  if (!activeDrag || activeDrag.type !== "section") return null;
+  if (!activeDrag || activeDrag.type === "container" || activeDrag.type === "section-header") return null;
   return (
     <div
       ref={droppable.setNodeRef}
       className={cn(
-        "h-2 rounded-full border border-dashed border-transparent transition-all",
-        droppable.isOver && "h-5 border-primary bg-primary/10"
+        "absolute left-2 right-2 z-10 h-3 rounded-full border border-dashed border-transparent transition-colors",
+        position === "before" ? "top-0 -translate-y-1/2" : "bottom-0 translate-y-1/2",
+        droppable.isOver && "border-primary bg-primary/10"
       )}
-      aria-label={`Drop at position ${index + 1}`}
+      aria-label={`Place To-Do at main-list position ${index + 1}`}
     />
   );
 }
@@ -723,12 +726,12 @@ export function ProjectTodoBoard({
       <SortableContext items={visibleRootIds} strategy={rectSortingStrategy}>
         <RootTodoContainer activeDrag={activeDrag}>
           {layout.map((item, rootIndex) => (
-            <Fragment key={`${item.type}-${item.id}`}>
-              <RootDropSlot index={rootIndex} activeDrag={activeDrag} />
+            <div className="relative" key={`${item.type}-${item.id}`}>
+              <RootDropSlot index={rootIndex} position="before" activeDrag={activeDrag} />
               {renderRootItem(item)}
-            </Fragment>
+              {rootIndex === layout.length - 1 ? <RootDropSlot index={layout.length} position="after" activeDrag={activeDrag} /> : null}
+            </div>
           ))}
-          <RootDropSlot index={layout.length} activeDrag={activeDrag} />
           {visibleRootIds.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-sm text-muted-foreground">
               No open todos. Turn on Show completed to view completed todos.
