@@ -20,6 +20,11 @@ import {
   pulseWorkItemComments,
   pulseWorkItemAttachments,
   pulseIssueResultingTodos,
+  pmProjectActivity,
+  pmProjectRockMeetings,
+  pmProjects,
+  pmTasks,
+  pmTodoSections,
   pulseWorkItems,
   rrMetricValues,
   rrScorecardMetrics,
@@ -200,22 +205,51 @@ async function getScorecard(db: any, targetMeetingId: string, historyWeeks: numb
 }
 
 async function getRocks(db: any, targetMeetingId: string) {
-  const homeRocks = await db.select({ item: pulseWorkItems, ownerName: users.name, homeName: pulseMeetings.name })
-    .from(pulseWorkItems)
-    .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
-    .leftJoin(pulseMeetings, eq(pulseMeetings.id, pulseWorkItems.meetingId))
-    .where(and(eq(pulseWorkItems.type, "rock"), eq(pulseWorkItems.meetingId, targetMeetingId), isNull(pulseWorkItems.deletedAt)));
-  const visibleRocks = await db.select({ item: pulseWorkItems, ownerName: users.name, homeName: pulseMeetings.name })
-    .from(pulseMeetingRocks)
-    .innerJoin(pulseWorkItems, eq(pulseWorkItems.id, pulseMeetingRocks.workItemId))
-    .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
-    .leftJoin(pulseMeetings, eq(pulseMeetings.id, pulseWorkItems.meetingId))
-    .where(and(eq(pulseMeetingRocks.meetingId, targetMeetingId), eq(pulseWorkItems.type, "rock"), isNull(pulseWorkItems.deletedAt)))
-    .orderBy(asc(pulseMeetingRocks.sortOrder));
+  const [homeRocks, visibleRocks, projectRockRows] = await Promise.all([
+    db.select({ item: pulseWorkItems, ownerName: users.name, homeName: pulseMeetings.name })
+      .from(pulseWorkItems)
+      .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
+      .leftJoin(pulseMeetings, eq(pulseMeetings.id, pulseWorkItems.meetingId))
+      .where(and(eq(pulseWorkItems.type, "rock"), eq(pulseWorkItems.meetingId, targetMeetingId), isNull(pulseWorkItems.deletedAt))),
+    db.select({ item: pulseWorkItems, ownerName: users.name, homeName: pulseMeetings.name })
+      .from(pulseMeetingRocks)
+      .innerJoin(pulseWorkItems, eq(pulseWorkItems.id, pulseMeetingRocks.workItemId))
+      .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
+      .leftJoin(pulseMeetings, eq(pulseMeetings.id, pulseWorkItems.meetingId))
+      .where(and(eq(pulseMeetingRocks.meetingId, targetMeetingId), eq(pulseWorkItems.type, "rock"), isNull(pulseWorkItems.deletedAt)))
+      .orderBy(asc(pulseMeetingRocks.sortOrder)),
+    db.select({ project: pmProjects, ownerName: users.name, sortOrder: pmProjectRockMeetings.sortOrder })
+      .from(pmProjectRockMeetings)
+      .innerJoin(pmProjects, eq(pmProjects.id, pmProjectRockMeetings.projectId))
+      .leftJoin(users, eq(users.id, pmProjects.ownerId))
+      .where(and(eq(pmProjectRockMeetings.meetingId, targetMeetingId), eq(pmProjects.isRock, true), isNull(pmProjects.archivedAt)))
+      .orderBy(asc(pmProjectRockMeetings.sortOrder), asc(pmProjects.title)),
+  ]);
+  const projectIds = projectRockRows.map((row: any) => row.project.id);
+  const [milestoneRows, taskCounts] = projectIds.length ? await Promise.all([
+    db.select({ id: pmTodoSections.id, projectId: pmTodoSections.projectId, title: pmTodoSections.title, sortOrder: pmTodoSections.sortOrder })
+      .from(pmTodoSections)
+      .where(inArray(pmTodoSections.projectId, projectIds))
+      .orderBy(asc(pmTodoSections.sortOrder), asc(pmTodoSections.id)),
+    db.select({ projectId: pmTasks.projectId, sectionId: pmTasks.sectionId, total: sql<number>`count(*)`, completed: sql<number>`sum(case when ${pmTasks.completed} = 1 then 1 else 0 end)` })
+      .from(pmTasks)
+      .where(inArray(pmTasks.projectId, projectIds))
+      .groupBy(pmTasks.projectId, pmTasks.sectionId),
+  ]) : [[], []];
+  const countsBySection = new Map<string, { total: number; completed: number }>((taskCounts as any[]).map((row: any) => [`${row.projectId}:${row.sectionId ?? "none"}`, { total: Number(row.total ?? 0), completed: Number(row.completed ?? 0) }]));
+  const milestonesByProject = new Map<number, any[]>();
+  (milestoneRows as any[]).forEach((section: any) => {
+    const count = countsBySection.get(`${section.projectId}:${section.id}`);
+    const milestone = { id: section.id, title: section.title, total: Number(count?.total ?? 0), completed: Number(count?.completed ?? 0) };
+    milestonesByProject.set(section.projectId, [...(milestonesByProject.get(section.projectId) ?? []), milestone]);
+  });
   const seen = new Set<string>();
-  return [...homeRocks, ...visibleRocks].filter((row: any) => !seen.has(row.item.id) && Boolean(seen.add(row.item.id))).map((row: any) => ({
+  const pulseRocks = [...homeRocks, ...visibleRocks].filter((row: any) => !seen.has(row.item.id) && Boolean(seen.add(row.item.id))).map((row: any) => ({
     id: row.item.id,
+    source: "pulse" as const,
+    projectId: null,
     title: row.item.title,
+    description: row.item.description,
     status: row.item.status,
     percentComplete: row.item.percentComplete,
     quarter: row.item.quarter,
@@ -226,6 +260,29 @@ async function getRocks(db: any, targetMeetingId: string) {
     homeMeetingName: row.homeName ?? "Another L10",
     reviewedHere: true,
   }));
+  const projectRocks = projectRockRows.map((row: any) => {
+    const milestones = milestonesByProject.get(row.project.id) ?? [];
+    const total = milestones.reduce((sum, milestone) => sum + milestone.total, 0);
+    const completed = milestones.reduce((sum, milestone) => sum + milestone.completed, 0);
+    return {
+      id: `project-${row.project.id}`,
+      source: "project" as const,
+      projectId: row.project.id,
+      title: row.project.title,
+      description: row.project.description,
+      status: row.project.rockStatus,
+      percentComplete: total ? Math.round((completed / total) * 100) : 0,
+      quarter: row.project.rockQuarter,
+      ownerId: row.project.ownerId,
+      ownerName: row.ownerName ?? "Unassigned",
+      definitionOfDone: row.project.definitionOfDone,
+      homeMeetingId: null,
+      homeMeetingName: "Projects",
+      milestones,
+      reviewedHere: true,
+    };
+  });
+  return [...pulseRocks, ...projectRocks];
 }
 
 async function getTodos(db: any, targetMeetingId: string) {
@@ -420,6 +477,23 @@ async function requireVisibleRock(db: any, userId: number, targetMeetingId: stri
   return home.item;
 }
 
+async function requireVisibleProjectRock(db: any, userId: number, targetMeetingId: string, projectId: number) {
+  const visibleMeetingIds = await visible_meeting_ids(db, userId);
+  if (!visibleMeetingIds.includes(targetMeetingId)) throw notFound();
+  const [row] = await db.select({ project: pmProjects })
+    .from(pmProjectRockMeetings)
+    .innerJoin(pmProjects, eq(pmProjects.id, pmProjectRockMeetings.projectId))
+    .where(and(
+      eq(pmProjectRockMeetings.meetingId, targetMeetingId),
+      eq(pmProjectRockMeetings.projectId, projectId),
+      eq(pmProjects.isRock, true),
+      isNull(pmProjects.archivedAt),
+    ))
+    .limit(1);
+  if (!row) throw notFound("This Project Rock is not reviewed in this L10.");
+  return row.project;
+}
+
 export const pulseL10Router = router({
   dashboard: pulseMemberProcedure.input(z.object({ meetingId })).query(async ({ ctx, input }) => dashboardPayload(await database(), ctx.user, input.meetingId)),
 
@@ -531,9 +605,21 @@ export const pulseL10Router = router({
     return { success: true };
   }),
 
-  setRockStatus: pulseMemberProcedure.input(z.object({ meetingId, workItemId: z.string().uuid(), status: rockStatus, note: z.string().trim().max(2000).optional() })).mutation(async ({ ctx, input }) => {
+  setRockStatus: pulseMemberProcedure.input(z.object({ meetingId, workItemId: z.string().uuid().optional(), projectId: z.number().int().positive().optional(), status: rockStatus, note: z.string().trim().max(2000).optional() }).superRefine((input, context) => {
+    if (Boolean(input.workItemId) === Boolean(input.projectId)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["projectId"], message: "Choose exactly one Rock source." });
+  })).mutation(async ({ ctx, input }) => {
     const db = await database();
-    const item = await requireVisibleRock(db, ctx.user.id, input.meetingId, input.workItemId);
+    if (input.projectId) {
+      const project = await requireVisibleProjectRock(db, ctx.user.id, input.meetingId, input.projectId);
+      const projectStatus = input.status === "done" ? "completed" : input.status === "at_risk" || input.status === "off_track" ? "at_risk" : input.status === "dropped" ? "not_started" : "in_progress";
+      await db.transaction(async (tx: any) => {
+        await tx.update(pmProjects).set({ rockStatus: input.status, status: projectStatus }).where(eq(pmProjects.id, project.id));
+        await tx.insert(pmProjectActivity).values({ projectId: project.id, actorId: ctx.user.id, action: "project_updated", detail: `Rock status changed to ${input.status.replaceAll("_", " ")} in ${input.meetingId}` });
+        await writeActivity(tx, ctx.user.id, "project_rock", String(project.id), "rock_status_changed", project.rockStatus, { status: input.status, reviewedInMeetingId: input.meetingId, source: "projects" });
+      });
+      return { success: true };
+    }
+    const item = await requireVisibleRock(db, ctx.user.id, input.meetingId, input.workItemId!);
     await db.transaction(async (tx: any) => {
       await tx.update(pulseWorkItems).set({ status: input.status, completedAt: input.status === "done" ? new Date() : null, completedById: input.status === "done" ? ctx.user.id : null }).where(eq(pulseWorkItems.id, item.id));
       await tx.insert(pulseWorkItemStatusNotes).values({ id: id(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.note ?? null, personId: ctx.user.id });

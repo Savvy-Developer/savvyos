@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import { useAppBack } from "@/lib/navigationHistory";
 import { ProjectTodoBoard, type ProjectTodoLayoutItem } from "@/components/ProjectTodoBoard";
+import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelector";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -334,8 +335,9 @@ export default function ProjectDetailPage() {
   const projectId = Number(id);
 
   const { user } = useAuth();
-  const { data: project, refetch } = trpc.pm.projects.getById.useQuery({ id: projectId });
+  const { data: project, refetch } = trpc.pm.projects.getById.useQuery({ id: projectId }, { refetchInterval: 3000 });
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
+  const { data: routingOptions = [] } = trpc.pm.projects.routingOptions.useQuery();
 
   const [showAddTask, setShowAddTask] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);
@@ -482,6 +484,8 @@ export default function ProjectDetailPage() {
       definitionOfDone: project.definitionOfDone ?? "",
       rockStatus: project.rockStatus ?? "on_track",
       rockMilestones: [""],
+      routedMeetingIds: (project.routedMeetings ?? []).map((meeting: any) => meeting.id),
+      routesTouched: false,
     });
     setEditingProject(true);
   }
@@ -513,6 +517,7 @@ export default function ProjectDetailPage() {
       definitionOfDone: editForm.isRock ? editForm.definitionOfDone : null,
       rockStatus: editForm.isRock ? editForm.rockStatus : undefined,
       rockMilestones: becomingRock ? rockMilestones : undefined,
+      routedMeetingIds: editForm.isRock && (becomingRock || editForm.routesTouched) ? editForm.routedMeetingIds ?? [] : undefined,
     });
   }
 
@@ -655,7 +660,7 @@ export default function ProjectDetailPage() {
               </div>
               <div className="sm:col-span-2 rounded-lg border border-primary/20 bg-primary/[0.025] p-3">
                 <div className="flex items-center gap-2"><Checkbox id="edit-project-rock" checked={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isRock: checked === true, rockMilestones: checked === true && !f.rockMilestones?.length ? [""] : f.rockMilestones }))} /><Label htmlFor="edit-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label></div>
-                {editForm.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-3"><div><Label>Quarter *</Label><Input value={editForm.rockQuarter} onChange={event => setEditForm((f: any) => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label>Rock Status</Label><Select value={editForm.rockStatus} onValueChange={value => setEditForm((f: any) => ({ ...f, rockStatus: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="on_track">On Track</SelectItem><SelectItem value="at_risk">At Risk</SelectItem><SelectItem value="off_track">Off Track</SelectItem><SelectItem value="done">Done</SelectItem><SelectItem value="dropped">Dropped</SelectItem></SelectContent></Select></div><div className="sm:col-span-1"><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div>{!project.isRock ? <div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each milestone becomes a project section after you save, ready for to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: [...(f.rockMilestones ?? []), ""] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{(editForm.rockMilestones ?? []).map((milestone: string, index: number) => <div key={`rock-milestone-${index}`} className="flex gap-2"><Input value={milestone} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: string, position: number) => position === index ? event.target.value : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={(editForm.rockMilestones ?? []).length === 1} onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).filter((_: string, position: number) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div> : <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">Rock milestones are managed as project sections below, where their to-dos live.</p>}</div> : null}
+                {editForm.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-3"><div><Label>Quarter *</Label><Input value={editForm.rockQuarter} onChange={event => setEditForm((f: any) => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label>Rock Status</Label><Select value={editForm.rockStatus} onValueChange={value => setEditForm((f: any) => ({ ...f, rockStatus: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="on_track">On Track</SelectItem><SelectItem value="at_risk">At Risk</SelectItem><SelectItem value="off_track">Off Track</SelectItem><SelectItem value="done">Done</SelectItem><SelectItem value="dropped">Dropped</SelectItem></SelectContent></Select></div><div className="sm:col-span-1"><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div>{!project.isRock ? <div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each milestone becomes a project section after you save, ready for to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: [...(f.rockMilestones ?? []), ""] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{(editForm.rockMilestones ?? []).map((milestone: string, index: number) => <div key={`rock-milestone-${index}`} className="flex gap-2"><Input value={milestone} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: string, position: number) => position === index ? event.target.value : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={(editForm.rockMilestones ?? []).length === 1} onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).filter((_: string, position: number) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div> : <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">Rock milestones are managed as project sections below, where their to-dos live.</p>}<RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={editForm.routedMeetingIds ?? []} onChange={(routedMeetingIds) => setEditForm((f: any) => ({ ...f, routedMeetingIds, routesTouched: true }))} /></div> : null}
               </div>
               <div>
                 <Label>Owner</Label>
@@ -746,6 +751,7 @@ export default function ProjectDetailPage() {
             </div>
 
             {project.isRock && project.definitionOfDone ? <div className="mb-4 rounded-md border border-primary/20 bg-primary/[0.025] px-3 py-2"><p className="text-xs font-semibold uppercase tracking-wide text-primary">Definition of Done</p><p className="mt-1 text-sm">{project.definitionOfDone}</p></div> : null}
+            {project.isRock ? <div className="mb-4 rounded-md border border-border bg-muted/20 px-3 py-2"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Routed Pulse meetings</p>{project.routedMeetings?.length ? <div className="mt-2 flex flex-wrap gap-2">{project.routedMeetings.map((meeting: any) => <a key={meeting.id} href={`/pulse/meetings/${meeting.id}`} className="rounded-full border border-primary/25 bg-background px-2 py-1 text-xs font-medium text-primary hover:bg-primary/[0.06]">{meeting.name}</a>)}</div> : <p className="mt-1 text-sm text-muted-foreground">Not currently routed to a Pulse meeting.</p>}</div> : null}
 
             {/* Progress */}
             <div>

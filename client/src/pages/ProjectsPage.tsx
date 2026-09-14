@@ -23,6 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import ProjectNotificationsPanel from "@/components/ProjectNotificationsPanel";
+import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelector";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -312,6 +313,7 @@ function CreateProjectDialog({
 }) {
   const { user } = useAuth();
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
+  const { data: routingOptions = [] } = trpc.pm.projects.routingOptions.useQuery();
   const create = trpc.pm.projects.create.useMutation({
     onSuccess: () => { toast.success("Project created"); onCreated(); onClose(); },
     onError: (e) => toast.error(e.message),
@@ -329,6 +331,7 @@ function CreateProjectDialog({
     rockQuarter: `Q${Math.floor(new Date().getMonth() / 3) + 1} ${new Date().getFullYear()}`,
     definitionOfDone: "",
     rockMilestones: [""],
+    routedMeetingIds: [] as string[],
   });
 
   function handleSubmit(e: React.FormEvent) {
@@ -358,6 +361,7 @@ function CreateProjectDialog({
       rockQuarter: form.isRock ? form.rockQuarter : null,
       definitionOfDone: form.isRock ? form.definitionOfDone.trim() : null,
       rockMilestones: form.isRock ? rockMilestones : [],
+      routedMeetingIds: form.isRock ? form.routedMeetingIds : [],
     });
   }
 
@@ -382,7 +386,7 @@ function CreateProjectDialog({
               <Label htmlFor="create-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">Rocks are quarterly priorities. They use this same project, its todos, updates, and activity.</p>
-            {form.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="rock-quarter">Quarter *</Label><Input id="rock-quarter" value={form.rockQuarter} onChange={event => setForm(f => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label htmlFor="rock-done">Definition of Done *</Label><Input id="rock-done" value={form.definitionOfDone} onChange={event => setForm(f => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div><div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each milestone becomes a project section after creation, ready for its to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setForm(f => ({ ...f, rockMilestones: [...f.rockMilestones, ""] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{form.rockMilestones.map((milestone, index) => <div key={`rock-milestone-${index}`} className="flex gap-2"><Input value={milestone} onChange={event => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.map((value, position) => position === index ? event.target.value : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={form.rockMilestones.length === 1} onClick={() => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.filter((_, position) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div></div> : null}
+            {form.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="rock-quarter">Quarter *</Label><Input id="rock-quarter" value={form.rockQuarter} onChange={event => setForm(f => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label htmlFor="rock-done">Definition of Done *</Label><Input id="rock-done" value={form.definitionOfDone} onChange={event => setForm(f => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div><div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each milestone becomes a project section after creation, ready for its to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setForm(f => ({ ...f, rockMilestones: [...f.rockMilestones, ""] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{form.rockMilestones.map((milestone, index) => <div key={`rock-milestone-${index}`} className="flex gap-2"><Input value={milestone} onChange={event => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.map((value, position) => position === index ? event.target.value : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={form.rockMilestones.length === 1} onClick={() => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.filter((_, position) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div><RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={form.routedMeetingIds} onChange={(routedMeetingIds) => setForm(f => ({ ...f, routedMeetingIds }))} /></div> : null}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -475,7 +479,7 @@ export default function ProjectsPage() {
   const { data: projects = [], refetch } = trpc.pm.projects.list.useQuery({
     includeArchived: showArchived,
     showAll,
-  });
+  }, { refetchInterval: 3000 });
   const { data: departments = [], refetch: refetchDepts } = trpc.pm.departments.list.useQuery();
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
   const { data: personalTodoStats } = trpc.pm.personalTodos.stats.useQuery();

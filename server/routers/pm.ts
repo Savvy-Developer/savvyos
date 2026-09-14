@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import {
   pmProjects,
+  pmProjectRockMeetings,
   pmProjectCollaborators,
   pmTodoSections,
   pmTasks,
@@ -29,6 +30,7 @@ import { sendTransactionalEmail } from "../_core/resendEmail";
 import { invokeLLM } from "../_core/llm";
 import { collectTaskFamilyIds, normalizeProjectTodoLayout, type ProjectTodoLayoutItem } from "../pmTodoSections";
 import { visible_meeting_ids } from "../pulse/access";
+import { hasPulseCapability } from "../pulse/authorization";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
 const ROCK_MILESTONE_LIMIT = 20;
@@ -37,6 +39,26 @@ const rockMilestoneSchema = z.string().trim().min(1, "A milestone needs a title.
 function hasDuplicateMilestoneTitles(milestones: string[]) {
   const titles = milestones.map((title) => title.trim().toLocaleLowerCase());
   return new Set(titles).size !== titles.length;
+}
+
+function uniqueMeetingIds(meetingIds: string[]) {
+  return Array.from(new Set(meetingIds));
+}
+
+async function assertAuthorisedRockRouting(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  user: { id: number; role: string; email?: string | null },
+  meetingIds: string[],
+) {
+  if (!await hasPulseCapability(db, user, "manage_l10s")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Your Pulse permissions do not allow Rock routing changes." });
+  }
+  const requestedMeetingIds = uniqueMeetingIds(meetingIds);
+  const visibleMeetingIds = await visible_meeting_ids(db, user.id);
+  if (requestedMeetingIds.some((meetingId) => !visibleMeetingIds.includes(meetingId))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "You can route this Rock only to meetings you are authorized to access." });
+  }
+  return requestedMeetingIds;
 }
 const FULL_PROJECT_VISIBILITY_EMAILS = new Set([
   "tyler@savvy.realty",
@@ -333,8 +355,30 @@ export const pmRouter = router({
           .orderBy(desc(pmProjectActivity.createdAt))
           .limit(50);
 
-        return { ...project, collaborators, todoSections, tasks, weeklyUpdates, activity };
+        const visibleMeetingIds = await visible_meeting_ids(db, ctx.user.id);
+        const routedMeetings = visibleMeetingIds.length
+          ? await db.select({ id: pulseMeetings.id, name: pulseMeetings.name, label: pulseMeetings.label, isActive: pulseMeetings.isActive, sortOrder: pmProjectRockMeetings.sortOrder })
+            .from(pmProjectRockMeetings)
+            .innerJoin(pulseMeetings, eq(pulseMeetings.id, pmProjectRockMeetings.meetingId))
+            .where(and(eq(pmProjectRockMeetings.projectId, input.id), inArray(pmProjectRockMeetings.meetingId, visibleMeetingIds), isNull(pulseMeetings.deletedAt)))
+            .orderBy(asc(pmProjectRockMeetings.sortOrder), asc(pulseMeetings.name))
+          : [];
+
+        return { ...project, collaborators, todoSections, tasks, weeklyUpdates, activity, routedMeetings };
       }),
+
+    routingOptions: protectedProcedure.query(async ({ ctx }) => {
+      assertPmAccess(ctx);
+      const db = await getDb();
+      if (!db) return [];
+      if (!await hasPulseCapability(db, ctx.user, "manage_l10s")) return [];
+      const visibleMeetingIds = await visible_meeting_ids(db, ctx.user.id);
+      if (!visibleMeetingIds.length) return [];
+      return db.select({ id: pulseMeetings.id, name: pulseMeetings.name, label: pulseMeetings.label, purpose: pulseMeetings.purpose })
+        .from(pulseMeetings)
+        .where(and(inArray(pulseMeetings.id, visibleMeetingIds), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt)))
+        .orderBy(asc(pulseMeetings.name));
+    }),
 
     create: protectedProcedure
       .input(z.object({
@@ -350,6 +394,7 @@ export const pmRouter = router({
         definitionOfDone: z.string().trim().max(8_000).optional().nullable(),
         rockStatus: z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]).default("on_track"),
         rockMilestones: z.array(rockMilestoneSchema).max(ROCK_MILESTONE_LIMIT).optional().default([]),
+        routedMeetingIds: z.array(z.string().uuid()).max(50).optional().default([]),
         collaboratorIds: z.array(z.number()).optional().default([]),
       }).superRefine((input, refinement) => {
         if (!input.isOngoing && !input.dueDate) {
@@ -370,11 +415,17 @@ export const pmRouter = router({
         if (input.isRock && hasDuplicateMilestoneTitles(input.rockMilestones)) {
           refinement.addIssue({ code: "custom", path: ["rockMilestones"], message: "Rock milestones must have unique titles." });
         }
+        if (!input.isRock && input.routedMeetingIds.length) {
+          refinement.addIssue({ code: "custom", path: ["routedMeetingIds"], message: "Only Rocks can be routed to Pulse meetings." });
+        }
       }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const routedMeetingIds = input.isRock && input.routedMeetingIds.length
+          ? await assertAuthorisedRockRouting(db, ctx.user, input.routedMeetingIds)
+          : [];
 
         const projectId = await db.transaction(async (transaction) => {
           const [result] = await transaction.insert(pmProjects).values({
@@ -402,6 +453,15 @@ export const pmRouter = router({
               title: title.trim(),
               sortOrder,
             })));
+            if (routedMeetingIds.length) {
+              await transaction.insert(pmProjectRockMeetings).values(routedMeetingIds.map((meetingId, sortOrder) => ({
+                id: crypto.randomUUID(),
+                projectId: newProjectId,
+                meetingId,
+                sortOrder,
+                createdById: ctx.user.id,
+              })));
+            }
           }
           return newProjectId;
         });
@@ -425,6 +485,7 @@ export const pmRouter = router({
         definitionOfDone: z.string().trim().max(8_000).nullable().optional(),
         rockStatus: z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]).optional(),
         rockMilestones: z.array(rockMilestoneSchema).max(ROCK_MILESTONE_LIMIT).optional(),
+        routedMeetingIds: z.array(z.string().uuid()).max(50).optional(),
         collaboratorIds: z.array(z.number()).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -467,8 +528,15 @@ export const pmRouter = router({
         if (becomingRock && hasDuplicateMilestoneTitles(rockMilestones)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Rock milestones must have unique titles." });
         }
+        if (!finalIsRock && input.routedMeetingIds?.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Only Rocks can be routed to Pulse meetings." });
+        }
+        const routedMeetingIds = input.routedMeetingIds === undefined
+          ? undefined
+          : await assertAuthorisedRockRouting(db, ctx.user, input.routedMeetingIds);
+        const syncRockRoutes = routedMeetingIds !== undefined || input.isRock === false;
 
-        const { id, collaboratorIds, rockMilestones: _rockMilestones, ...fields } = input;
+        const { id, collaboratorIds, rockMilestones: _rockMilestones, routedMeetingIds: _routedMeetingIds, ...fields } = input;
         const updateFields = { ...fields };
         if (input.isOngoing === true) updateFields.dueDate = null;
         if (input.dueDate !== undefined && input.dueDate !== null) updateFields.isOngoing = false;
@@ -477,7 +545,7 @@ export const pmRouter = router({
           updateFields.definitionOfDone = null;
           updateFields.rockStatus = "on_track";
         }
-        if (Object.keys(updateFields).length > 0 || becomingRock) {
+        if (Object.keys(updateFields).length > 0 || becomingRock || syncRockRoutes) {
           await db.transaction(async (transaction) => {
             if (Object.keys(updateFields).length > 0) {
               await transaction.update(pmProjects).set(updateFields).where(eq(pmProjects.id, id));
@@ -491,6 +559,18 @@ export const pmRouter = router({
                 title: title.trim(),
                 sortOrder: Number(sectionOrder?.maxSortOrder ?? -1) + index + 1,
               })));
+            }
+            if (syncRockRoutes) {
+              await transaction.delete(pmProjectRockMeetings).where(eq(pmProjectRockMeetings.projectId, id));
+              if (finalIsRock && routedMeetingIds?.length) {
+                await transaction.insert(pmProjectRockMeetings).values(routedMeetingIds.map((meetingId, sortOrder) => ({
+                  id: crypto.randomUUID(),
+                  projectId: id,
+                  meetingId,
+                  sortOrder,
+                  createdById: ctx.user.id,
+                })));
+              }
             }
           });
         }
@@ -513,6 +593,7 @@ export const pmRouter = router({
         }
 
         if (becomingRock) await logActivity(id, ctx.user.id, "section_created", `Created ${rockMilestones.length} Rock milestone section${rockMilestones.length === 1 ? "" : "s"}`);
+        if (syncRockRoutes) await logActivity(id, ctx.user.id, "project_updated", finalIsRock ? `Updated Rock routing to ${routedMeetingIds?.length ?? 0} meeting${(routedMeetingIds?.length ?? 0) === 1 ? "" : "s"}` : "Removed Rock routing");
         await logActivity(id, ctx.user.id, "project_updated", "Updated project fields");
         return { success: true };
       }),

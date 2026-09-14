@@ -4559,6 +4559,31 @@ export const pmProjects = mysqlTable("pm_projects", {
 export type PmProject = typeof pmProjects.$inferSelect;
 export type InsertPmProject = typeof pmProjects.$inferInsert;
 
+/** A Project Rock can be reviewed in multiple authorized Pulse meetings without duplicating the Rock. */
+export const pmProjectRockMeetings = mysqlTable(
+  "pm_project_rock_meetings",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    projectId: int("projectId")
+      .notNull()
+      .references(() => pmProjects.id, { onDelete: "cascade" }),
+    meetingId: varchar("meetingId", { length: 36 })
+      .notNull()
+      .references(() => pulseMeetings.id, { onDelete: "cascade" }),
+    sortOrder: int("sortOrder").notNull().default(0),
+    createdById: int("createdById")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("pm_project_rock_meeting_unique").on(table.projectId, table.meetingId),
+    index("pm_project_rock_meeting_project_idx").on(table.projectId, table.sortOrder),
+    index("pm_project_rock_meeting_meeting_idx").on(table.meetingId, table.sortOrder),
+  ]
+);
+export type PmProjectRockMeeting = typeof pmProjectRockMeetings.$inferSelect;
+
 export const pmTodoSections = mysqlTable(
   "pm_todo_sections",
   {
