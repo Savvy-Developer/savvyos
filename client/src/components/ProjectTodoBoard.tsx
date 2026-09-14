@@ -348,11 +348,15 @@ function SortableTodoRow({
 
 function SectionTaskContainer({
   sectionId,
+  sectionTitle,
   taskIds,
+  acceptingTask,
   children,
 }: {
   sectionId: number;
+  sectionTitle: string;
   taskIds: number[];
+  acceptingTask: boolean;
   children: ReactNode;
 }) {
   const droppable = useDroppable({
@@ -369,9 +373,10 @@ function SectionTaskContainer({
         ref={droppable.setNodeRef}
         className={cn(
           "min-h-10 space-y-2 rounded-md transition-colors",
-          droppable.isOver && "bg-primary/5 ring-2 ring-primary/30"
+          (droppable.isOver || acceptingTask) && "bg-primary/[0.035] ring-2 ring-primary/25"
         )}
       >
+        {acceptingTask ? <div className="flex min-h-16 items-center justify-center gap-2 rounded-md border-2 border-dashed border-primary/55 bg-primary/[0.07] px-3 py-3 text-sm font-semibold text-primary shadow-sm" role="status" aria-live="polite"><ListChecks className="h-4 w-4 shrink-0" />Drop To-Do here to place it in {sectionTitle}</div> : null}
         {children}
       </div>
     </SortableContext>
@@ -437,7 +442,7 @@ function SortableSectionRow({
         }}
         acceptingTask={acceptingTask}
       >
-        <SectionTaskContainer sectionId={section.id} taskIds={taskIds}>
+        <SectionTaskContainer sectionId={section.id} sectionTitle={section.title} taskIds={taskIds} acceptingTask={acceptingTask}>
           {children}
         </SectionTaskContainer>
       </ProjectTodoSection>
