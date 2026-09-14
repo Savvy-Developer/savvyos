@@ -10173,3 +10173,121 @@ export const PULSE_MEETING_PRESETS: Record<
   one_on_one: ["segue", "todos", "issues", "conclude"],
   other: ["todos", "issues", "conclude"],
 };
+
+// ─── Public Website Investor Accounts ────────────────────────────────────────
+// Deliberately separate from `users`, which holds agents, admins and ISAs. The
+// people here are strangers on the open internet. Keeping them in their own
+// table means a mistake in the public site's permission logic cannot reach a
+// staff account, a commission figure, or anything else in the CRM. The partner
+// portal already establishes this separation in SavvyOS.
+export const websiteAccounts = mysqlTable(
+  "website_accounts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    email: varchar("email", { length: 320 }).notNull().unique(),
+    passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
+    firstName: varchar("firstName", { length: 128 }),
+    lastName: varchar("lastName", { length: 128 }),
+    phone: varchar("phone", { length: 32 }),
+    // The SavvyOS contact this investor became, set when an enquiry creates or
+    // matches one, so an agent sees a single person rather than two records.
+    contactId: int("contactId"),
+    status: mysqlEnum("status", ["active", "suspended"]).default("active").notNull(),
+    emailVerifiedAt: timestamp("emailVerifiedAt"),
+    lastSignInAt: timestamp("lastSignInAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("website_accounts_contact_idx").on(table.contactId)]
+);
+export type WebsiteAccount = typeof websiteAccounts.$inferSelect;
+export type InsertWebsiteAccount = typeof websiteAccounts.$inferInsert;
+
+/** Password reset and email verification tokens: hashed, single use, short lived. */
+export const websiteAccountTokens = mysqlTable(
+  "website_account_tokens",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    accountId: int("accountId")
+      .notNull()
+      .references(() => websiteAccounts.id, { onDelete: "cascade" }),
+    purpose: mysqlEnum("purpose", ["password_reset", "email_verification"]).notNull(),
+    tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    usedAt: timestamp("usedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [index("website_account_tokens_account_idx").on(table.accountId, table.purpose)]
+);
+export type WebsiteAccountToken = typeof websiteAccountTokens.$inferSelect;
+
+/**
+ * Saved properties. Points at the SavvyOS property rather than the website row,
+ * so unpublishing and republishing a listing does not lose anyone's saves.
+ */
+export const websiteAccountSavedProperties = mysqlTable(
+  "website_account_saved_properties",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    accountId: int("accountId")
+      .notNull()
+      .references(() => websiteAccounts.id, { onDelete: "cascade" }),
+    propertyId: int("propertyId").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("website_saved_account_property_unique").on(table.accountId, table.propertyId),
+    index("website_saved_property_idx").on(table.propertyId),
+  ]
+);
+export type WebsiteAccountSavedProperty = typeof websiteAccountSavedProperties.$inferSelect;
+
+/**
+ * What an investor wants emailed to them. This is the control panel for the
+ * daily property email, so that feature reads its criteria from here rather
+ * than inventing its own.
+ */
+export const websiteAccountPreferences = mysqlTable(
+  "website_account_preferences",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    accountId: int("accountId")
+      .notNull()
+      .references(() => websiteAccounts.id, { onDelete: "cascade" }),
+    notificationsEnabled: boolean("notificationsEnabled").default(true).notNull(),
+    emailFrequency: mysqlEnum("emailFrequency", ["daily", "weekly", "never"]).default("daily").notNull(),
+    budgetMin: decimal("budgetMin", { precision: 12, scale: 2 }),
+    budgetMax: decimal("budgetMax", { precision: 12, scale: 2 }),
+    minBedrooms: int("minBedrooms"),
+    investmentTimeline: varchar("investmentTimeline", { length: 64 }),
+    marketProfileIds: json("marketProfileIds").$type<number[]>().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [uniqueIndex("website_preferences_account_unique").on(table.accountId)]
+);
+export type WebsiteAccountPreferences = typeof websiteAccountPreferences.$inferSelect;
+
+/**
+ * Recently viewed properties. One row per account and property with a count,
+ * rather than one row per view, so a single investor refreshing one listing
+ * cannot grow the table without bound.
+ */
+export const websiteAccountPropertyViews = mysqlTable(
+  "website_account_property_views",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    accountId: int("accountId")
+      .notNull()
+      .references(() => websiteAccounts.id, { onDelete: "cascade" }),
+    propertyId: int("propertyId").notNull(),
+    viewCount: int("viewCount").default(1).notNull(),
+    lastViewedAt: timestamp("lastViewedAt").defaultNow().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("website_views_account_property_unique").on(table.accountId, table.propertyId),
+    index("website_views_recent_idx").on(table.accountId, table.lastViewedAt),
+  ]
+);
+export type WebsiteAccountPropertyView = typeof websiteAccountPropertyViews.$inferSelect;
