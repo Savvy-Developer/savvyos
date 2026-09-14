@@ -54,6 +54,7 @@ const sponsorStages = [
 ] as const;
 const shareStatuses = ["written", "verbal", "not_agreed"] as const;
 const sourceType = z.string().trim().min(1).max(255);
+const bookedSponsorStages = new Set(["signed", "invoiced"]);
 
 type EventAccessUser = { id: number; role: string; email?: string | null };
 
@@ -102,6 +103,33 @@ function versionedUpdate(result: unknown) {
         "This record changed since it was opened. Refresh the Events Console and retry your edit.",
     });
   }
+}
+
+/**
+ * Event booked revenue is the live total of signed and invoiced sponsorship
+ * commitments. Proposed, verbal, partner, and speaker arrangements remain in
+ * the sponsorship pipeline but do not affect event P/L until they are booked.
+ */
+async function recalculateEventSponsorRevenue(db: any, eventId: number) {
+  const commitments = await db
+    .select({ amount: eventSponsorAsks.amount, stage: eventSponsorAsks.stage })
+    .from(eventSponsorAsks)
+    .where(eq(eventSponsorAsks.eventId, eventId));
+  const bookedRevenue = commitments.reduce(
+    (total: number, commitment: any) =>
+      bookedSponsorStages.has(commitment.stage)
+        ? total + (Number(commitment.amount) || 0)
+        : total,
+    0
+  );
+  await db
+    .update(eventPortfolio)
+    .set({
+      revenueBooked: String(bookedRevenue),
+      version: sql`${eventPortfolio.version} + 1`,
+    })
+    .where(eq(eventPortfolio.id, eventId));
+  return bookedRevenue;
 }
 
 const SEED_EVENTS = [
@@ -1549,6 +1577,10 @@ export const eventsRouter = router({
     .mutation(async ({ input, ctx }) => {
       await requireEventsAccess(ctx.user);
       const db = await database();
+      const commitments = await db
+        .select({ eventId: eventSponsorAsks.eventId })
+        .from(eventSponsorAsks)
+        .where(eq(eventSponsorAsks.sponsorId, input.id));
       const result = await db
         .delete(eventSponsors)
         .where(
@@ -1558,6 +1590,11 @@ export const eventsRouter = router({
           )
         );
       versionedUpdate(result);
+      await Promise.all(
+        Array.from(
+          new Set(commitments.map((commitment: any) => commitment.eventId))
+        ).map(eventId => recalculateEventSponsorRevenue(db, eventId))
+      );
       return { success: true };
     }),
 
@@ -1566,6 +1603,7 @@ export const eventsRouter = router({
       z.object({
         sponsorId: z.number().int().positive(),
         eventId: z.number().int().positive(),
+        sponsorshipTier: nullableText(255).default(null),
         amount: nullableMoney,
         stage: z.enum(sponsorStages),
       })
@@ -1588,17 +1626,20 @@ export const eventsRouter = router({
         await db
           .update(eventSponsorAsks)
           .set({
+            sponsorshipTier: input.sponsorshipTier,
             amount: input.amount === null ? null : String(input.amount),
             stage: input.stage,
             version: sql`${eventSponsorAsks.version} + 1`,
           })
           .where(eq(eventSponsorAsks.id, existing[0].id));
+        await recalculateEventSponsorRevenue(db, input.eventId);
         return { id: existing[0].id, version: existing[0].version + 1 };
       }
       const [result] = await db.insert(eventSponsorAsks).values({
         ...input,
         amount: input.amount === null ? null : String(input.amount),
       });
+      await recalculateEventSponsorRevenue(db, input.eventId);
       return { id: Number(result.insertId), version: 1 };
     }),
 
@@ -1612,6 +1653,11 @@ export const eventsRouter = router({
     .mutation(async ({ input, ctx }) => {
       await requireEventsAccess(ctx.user);
       const db = await database();
+      const [existing] = await db
+        .select({ eventId: eventSponsorAsks.eventId })
+        .from(eventSponsorAsks)
+        .where(eq(eventSponsorAsks.id, input.id))
+        .limit(1);
       const result = await db
         .delete(eventSponsorAsks)
         .where(
@@ -1621,6 +1667,7 @@ export const eventsRouter = router({
           )
         );
       versionedUpdate(result);
+      if (existing) await recalculateEventSponsorRevenue(db, existing.eventId);
       return { success: true };
     }),
 

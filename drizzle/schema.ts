@@ -6343,6 +6343,7 @@ export const eventSponsorAsks = mysqlTable(
     eventId: int("eventId")
       .notNull()
       .references(() => eventPortfolio.id, { onDelete: "cascade" }),
+    sponsorshipTier: varchar("sponsorshipTier", { length: 255 }),
     amount: decimal("amount", { precision: 15, scale: 2 }),
     stage: mysqlEnum("stage", [
       "signed",

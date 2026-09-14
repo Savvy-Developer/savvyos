@@ -195,13 +195,12 @@ function eventSponsorMetrics(event: EventRecord, sponsors: SponsorRecord[]) {
 
 function eventFinancials(event: EventRecord, sponsors: SponsorRecord[]) {
   const sponsor = eventSponsorMetrics(event, sponsors);
-  // Older event rows stored booked sponsorship as one manual total, while new
-  // records can derive it from the sponsor ledger. Use the higher figure as a
-  // non-additive bridge so the same sponsor dollars are never double counted.
-  const sponsorIncome = Math.max(
-    sponsor.booked,
-    asNumber(event.revenueBooked) ?? 0
-  );
+  // The sponsor ledger is the live source once an event has a booked
+  // commitment. Older event rows with no sponsor commitments retain their
+  // existing manual booked-revenue value as a migration bridge.
+  const sponsorIncome = sponsor.bookedCount
+    ? sponsor.booked
+    : (asNumber(event.revenueBooked) ?? 0);
   const revenue = sponsorIncome;
   const expenses = asNumber(event.committedCost) ?? 0;
   return {
@@ -1012,6 +1011,7 @@ function EventProfileDialog({
         )
       : null;
   const headcount = asNumber(event.workingHeadcount) ?? componentTotal;
+  const financials = eventFinancials(event, sponsors);
   const relatedAsks = sponsors.flatMap(sponsor =>
     (sponsor.asks ?? [])
       .filter((ask: any) => Number(ask.eventId) === Number(event.id))
@@ -1109,8 +1109,9 @@ function EventProfileDialog({
                     value={money(event.revenueTarget)}
                   />
                   <ProfileDatum
-                    label="Revenue booked"
-                    value={money(event.revenueBooked)}
+                    label="Sponsor income"
+                    value={money(financials.sponsorIncome)}
+                    detail="Signed or invoiced commitments"
                   />
                   <ProfileDatum
                     label="Committed cost"
@@ -1142,6 +1143,11 @@ function EventProfileDialog({
                         : asNumber(event.headcountGuarantee)!
                     }
                     detail={event.headcountGuaranteeVendor || undefined}
+                  />
+                  <ProfileDatum
+                    label="Current P/L"
+                    value={money(financials.profitLoss)}
+                    detail="Sponsor income less committed cost"
                   />
                 </CardContent>
               </Card>
@@ -1870,6 +1876,442 @@ function Radar({
   );
 }
 
+type SponsorCartItem = {
+  eventId: number;
+  sponsorshipTier: string;
+  amount: string;
+  stage: string;
+};
+
+function SponsorProfileDialog({
+  sponsor,
+  events,
+  onOpenChange,
+  updateSponsor,
+  deleteSponsor,
+  upsertAsk,
+  deleteAsk,
+}: {
+  sponsor: SponsorRecord | null;
+  events: EventRecord[];
+  onOpenChange: (open: boolean) => void;
+  updateSponsor: (sponsor: SponsorRecord, patch: any) => void;
+  deleteSponsor: (sponsor: SponsorRecord) => void;
+  upsertAsk: (
+    sponsor: SponsorRecord,
+    event: EventRecord,
+    ask: any,
+    patch: any
+  ) => void;
+  deleteAsk: (ask: any) => void;
+}) {
+  const [statusTab, setStatusTab] = useState("proposed");
+  const [cart, setCart] = useState<SponsorCartItem[]>([]);
+
+  useEffect(() => {
+    setStatusTab("proposed");
+    setCart([]);
+  }, [sponsor?.id]);
+
+  if (!sponsor) return null;
+  const asks = sponsor.asks ?? [];
+  const eventFor = (eventId: number) =>
+    events.find(event => Number(event.id) === Number(eventId));
+  const tabAsks = (tab: string) =>
+    asks.filter((ask: any) => {
+      if (tab === "proposed")
+        return ["proposed", "target", "verbal"].includes(ask.stage);
+      if (tab === "invoiced") return ask.stage === "invoiced";
+      if (tab === "signed") return ask.stage === "signed";
+      return ["partner", "speaker"].includes(ask.stage);
+    });
+  const linkedEventIds = new Set(asks.map((ask: any) => Number(ask.eventId)));
+  const availableEvents = events.filter(
+    event =>
+      !linkedEventIds.has(Number(event.id)) &&
+      !cart.some(item => Number(item.eventId) === Number(event.id))
+  );
+  const addToCart = (event: EventRecord) =>
+    setCart(items => [
+      ...items,
+      {
+        eventId: event.id,
+        sponsorshipTier: "",
+        amount: "",
+        stage: "proposed",
+      },
+    ]);
+  const updateCart = (eventId: number, patch: Partial<SponsorCartItem>) =>
+    setCart(items =>
+      items.map(item =>
+        item.eventId === eventId ? { ...item, ...patch } : item
+      )
+    );
+  const saveCart = () => {
+    if (!cart.length) return;
+    for (const item of cart) {
+      const amount = item.amount.trim() === "" ? null : Number(item.amount);
+      if (amount !== null && (!Number.isFinite(amount) || amount < 0)) {
+        return toast.error("Each sponsorship amount must be zero or greater.");
+      }
+      const event = eventFor(item.eventId);
+      if (!event)
+        return toast.error("One event in this cart no longer exists.");
+    }
+    cart.forEach(item => {
+      const event = eventFor(item.eventId)!;
+      upsertAsk(sponsor, event, null, {
+        sponsorshipTier: item.sponsorshipTier.trim() || null,
+        amount: item.amount.trim() === "" ? null : Number(item.amount),
+        stage: item.stage,
+      });
+    });
+    toast.success(
+      `${cart.length} sponsorship commitment${cart.length === 1 ? "" : "s"} added.`
+    );
+    setCart([]);
+  };
+
+  const CommitmentCard = ({ ask }: { ask: any }) => {
+    const event = eventFor(Number(ask.eventId));
+    if (!event) return null;
+    const tier = TIER_DETAILS[Number(event.tier)] ?? TIER_DETAILS[4];
+    return (
+      <div className="min-w-0 rounded-lg border bg-slate-50/70 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`h-2.5 w-2.5 shrink-0 rounded-sm ${tierClass(Number(event.tier))}`}
+              />
+              <p className="break-words font-semibold">{event.name}</p>
+              <Badge variant="outline" className={tier.badgeClass}>
+                {tier.label}
+              </Badge>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {dateValue(event.startDate)
+                ? dateLabel(event.startDate)
+                : "Timeline unconfirmed"}
+            </p>
+          </div>
+          <DeleteButton
+            label={`${sponsor.companyName} commitment for ${event.name}`}
+            onDelete={() => deleteAsk(ask)}
+          />
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <label className="min-w-0 space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">
+              Sponsorship tier
+            </span>
+            <InlineText
+              value={ask.sponsorshipTier}
+              onSave={sponsorshipTier =>
+                upsertAsk(sponsor, event, ask, { sponsorshipTier })
+              }
+              placeholder="Set tier"
+              ariaLabel={`${sponsor.companyName} sponsorship tier for ${event.name}`}
+              className="block w-full border border-slate-200 bg-white px-2 py-1.5 text-sm not-italic"
+            />
+          </label>
+          <label className="min-w-0 space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">
+              Commitment amount
+            </span>
+            <InlineNumber
+              value={ask.amount}
+              onSave={amount => upsertAsk(sponsor, event, ask, { amount })}
+              prefix="$"
+              placeholder="Set amount"
+              ariaLabel={`${sponsor.companyName} commitment amount for ${event.name}`}
+              className="block w-full border border-slate-200 bg-white px-2 py-1.5 text-left not-italic"
+            />
+          </label>
+          <label className="min-w-0 space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">
+              Commitment status
+            </span>
+            <InlineSelect
+              value={ask.stage}
+              options={ASK_STAGE_OPTIONS}
+              onSave={stage => upsertAsk(sponsor, event, ask, { stage })}
+              ariaLabel={`${sponsor.companyName} status for ${event.name}`}
+              className={`w-full border px-2 ${stageClass(ask.stage)}`}
+            />
+          </label>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <Dialog open={Boolean(sponsor)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] w-[min(96vw,1080px)] max-w-[calc(100%-2rem)] overflow-x-hidden overflow-y-auto p-5 sm:!max-w-none sm:p-7">
+        <DialogHeader className="border-b pb-5 pr-10 sm:pr-12">
+          <div className="grid min-w-0 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+            <div className="min-w-0">
+              <DialogTitle className="break-words text-2xl leading-tight tracking-tight sm:text-3xl">
+                {sponsor.companyName}
+              </DialogTitle>
+              <DialogDescription className="mt-2">
+                One company record, with simultaneous commitments across any
+                number of events and sponsorship tiers.
+              </DialogDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 text-rose-700 hover:bg-rose-50 hover:text-rose-700"
+              onClick={() => deleteSponsor(sponsor)}
+            >
+              <Trash2 className="mr-1.5 h-4 w-4" />
+              Delete company
+            </Button>
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-6 pt-1">
+          <section className="grid gap-3 sm:grid-cols-2">
+            <ProfileDatum
+              label="Primary contact"
+              value={sponsor.contactName || "Not assigned"}
+            />
+            <ProfileDatum
+              label="Category"
+              value={sponsor.category || "Not set"}
+            />
+          </section>
+          <section className="grid gap-3 sm:grid-cols-3">
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">Company name</span>
+              <InlineText
+                value={sponsor.companyName}
+                onSave={companyName => {
+                  if (companyName) updateSponsor(sponsor, { companyName });
+                }}
+                ariaLabel={`${sponsor.companyName} company name`}
+                className="block w-full border bg-white px-2 py-2 not-italic"
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">Primary contact</span>
+              <InlineText
+                value={sponsor.contactName}
+                onSave={contactName => updateSponsor(sponsor, { contactName })}
+                placeholder="Add primary contact"
+                ariaLabel={`${sponsor.companyName} primary contact`}
+                className="block w-full border bg-white px-2 py-2 not-italic"
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">Company category</span>
+              <InlineText
+                value={sponsor.category}
+                onSave={category => updateSponsor(sponsor, { category })}
+                placeholder="Add company category"
+                ariaLabel={`${sponsor.companyName} category`}
+                className="block w-full border bg-white px-2 py-2 not-italic"
+              />
+            </label>
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
+            <Card className="min-w-0">
+              <CardHeader className="border-b pb-4">
+                <CardTitle className="text-base">
+                  Commitments by status
+                </CardTitle>
+                <CardDescription>
+                  Each commitment belongs to one event and has its own
+                  sponsorship tier, amount, and commercial status.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-4">
+                <Tabs value={statusTab} onValueChange={setStatusTab}>
+                  <TabsList className="h-auto w-full justify-start overflow-x-auto">
+                    {[
+                      ["proposed", "Proposed"],
+                      ["invoiced", "Invoiced"],
+                      ["signed", "Signed"],
+                      ["other", "Other"],
+                    ].map(([value, label]) => (
+                      <TabsTrigger key={value} value={value}>
+                        {label}{" "}
+                        <span className="ml-1 rounded-full bg-muted px-1.5 text-xs">
+                          {tabAsks(value).length}
+                        </span>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                  {["proposed", "invoiced", "signed", "other"].map(tab => (
+                    <TabsContent
+                      key={tab}
+                      value={tab}
+                      className="mt-4 space-y-3"
+                    >
+                      {tabAsks(tab).length ? (
+                        tabAsks(tab).map((ask: any) => (
+                          <CommitmentCard key={ask.id} ask={ask} />
+                        ))
+                      ) : (
+                        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                          No {tab === "other" ? "other" : tab} commitments yet.
+                        </p>
+                      )}
+                    </TabsContent>
+                  ))}
+                </Tabs>
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0">
+              <CardHeader className="border-b pb-4">
+                <CardTitle className="text-base">Add to event</CardTitle>
+                <CardDescription>
+                  Build commitments here, then add them to the sponsor record.
+                  Signed and invoiced entries immediately update the event P/L.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 p-4">
+                {cart.length ? (
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Commitment cart ({cart.length})
+                    </p>
+                    {cart.map(item => {
+                      const event = eventFor(item.eventId);
+                      if (!event) return null;
+                      return (
+                        <div
+                          key={item.eventId}
+                          className="rounded-lg border p-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="min-w-0 break-words text-sm font-semibold">
+                              {event.name}
+                            </p>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0 text-rose-600"
+                              onClick={() =>
+                                setCart(items =>
+                                  items.filter(
+                                    entry => entry.eventId !== item.eventId
+                                  )
+                                )
+                              }
+                              aria-label={`Remove ${event.name} from commitment cart`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <div className="mt-3 grid gap-2">
+                            <Input
+                              value={item.sponsorshipTier}
+                              onChange={event =>
+                                updateCart(item.eventId, {
+                                  sponsorshipTier: event.target.value,
+                                })
+                              }
+                              placeholder="Sponsorship tier, e.g. Gold"
+                              aria-label={`${event.name} sponsorship tier`}
+                              className="h-9 text-sm"
+                            />
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.amount}
+                              onChange={event =>
+                                updateCart(item.eventId, {
+                                  amount: event.target.value,
+                                })
+                              }
+                              placeholder="Commitment amount"
+                              aria-label={`${event.name} commitment amount`}
+                              className="h-9 text-sm"
+                            />
+                            <Select
+                              value={item.stage}
+                              onValueChange={stage =>
+                                updateCart(item.eventId, { stage })
+                              }
+                            >
+                              <SelectTrigger
+                                className="h-9 w-full text-sm"
+                                aria-label={`${event.name} commitment status`}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ASK_STAGE_OPTIONS.map(([value, label]) => (
+                                  <SelectItem key={value} value={value}>
+                                    {label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <Button className="w-full" onClick={saveCart}>
+                      Add {cart.length} to sponsor record
+                    </Button>
+                  </div>
+                ) : null}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Available events
+                  </p>
+                  {availableEvents.length ? (
+                    availableEvents.map(event => {
+                      const tier =
+                        TIER_DETAILS[Number(event.tier)] ?? TIER_DETAILS[4];
+                      return (
+                        <div
+                          key={event.id}
+                          className="flex min-w-0 items-center justify-between gap-3 rounded-lg border p-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="break-words text-sm font-medium">
+                              {event.name}
+                            </p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {tier.label}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0"
+                            onClick={() => addToCart(event)}
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Add
+                          </Button>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      This sponsor is already tied to every current event.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SponsorGrid({
   events,
   sponsors,
@@ -1903,21 +2345,21 @@ function SponsorGrid({
   deleteUnaffiliated: (contact: any) => void;
   createUnaffiliated: () => void;
 }) {
-  const matrixEvents = events.filter(event => Number(event.tier) < 4);
+  const [profileSponsorId, setProfileSponsorId] = useState<number | null>(null);
   const eventOptions = events.map(
     event => [String(event.id), event.name] as const
   );
+  const profileSponsor =
+    sponsors.find(sponsor => sponsor.id === profileSponsorId) ?? null;
   return (
     <div className="space-y-8">
       <section>
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">
-              Who we are asking, and for how much
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              The annual total is what one company is being asked for across the
-              active portfolio.
+            <h2 className="text-xl font-semibold">Sponsors</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              One company record per sponsor. Open a company to manage its
+              commitments across multiple events and sponsorship tiers.
             </p>
           </div>
           <Button size="sm" onClick={createSponsor}>
@@ -1927,177 +2369,44 @@ function SponsorGrid({
         </div>
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px] text-sm">
+            <table className="w-full min-w-[560px] text-sm">
               <thead className="bg-slate-950 text-left text-xs uppercase tracking-wide text-slate-100">
                 <tr>
-                  <th className="px-3 py-3">Company</th>
-                  <th className="px-3 py-3">Category</th>
-                  {matrixEvents.map(event => (
-                    <th key={event.id} className="px-3 py-3 text-right">
-                      {event.name}
-                    </th>
-                  ))}
-                  <th className="px-3 py-3 text-right">Annual ask</th>
-                  <th className="w-10" />
+                  <th className="px-4 py-3">Company</th>
+                  <th className="px-4 py-3">Primary contact</th>
+                  <th className="w-28 px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
-                {sponsors.map(sponsor => {
-                  const total = (sponsor.asks ?? []).reduce(
-                    (sum: number, ask: any) =>
-                      sum + (asNumber(ask.amount) ?? 0),
-                    0
-                  );
-                  return (
-                    <tr
-                      key={sponsor.id}
-                      className="border-b align-top hover:bg-slate-50"
-                    >
-                      <td className="px-3 py-3 font-medium">
-                        <InlineText
-                          value={sponsor.companyName}
-                          onSave={companyName => {
-                            if (companyName)
-                              updateSponsor(sponsor, { companyName });
-                          }}
-                          ariaLabel="sponsor company"
-                        />
-                        <p className="mt-1 text-xs font-normal text-muted-foreground">
-                          <InlineText
-                            value={sponsor.contactName}
-                            onSave={contactName =>
-                              updateSponsor(sponsor, { contactName })
-                            }
-                            ariaLabel={`${sponsor.companyName} contact`}
-                            placeholder="Add contact"
-                          />
-                        </p>
-                      </td>
-                      <td className="px-3 py-3">
-                        <InlineText
-                          value={sponsor.category}
-                          onSave={category =>
-                            updateSponsor(sponsor, { category })
-                          }
-                          ariaLabel={`${sponsor.companyName} category`}
-                          placeholder="Add category"
-                        />
-                        <p className="mt-1 max-w-48 text-xs text-muted-foreground">
-                          <InlineText
-                            value={sponsor.notes}
-                            onSave={notes => updateSponsor(sponsor, { notes })}
-                            multiline
-                            ariaLabel={`${sponsor.companyName} note`}
-                            placeholder="Add note"
-                          />
-                        </p>
-                      </td>
-                      {matrixEvents.map(event => {
-                        const ask = (sponsor.asks ?? []).find(
-                          (candidate: any) => candidate.eventId === event.id
-                        );
-                        return (
-                          <td key={event.id} className="px-3 py-3 text-right">
-                            <div className="flex flex-col items-end gap-1">
-                              {ask ? (
-                                <>
-                                  <InlineNumber
-                                    value={ask.amount}
-                                    onSave={amount =>
-                                      upsertAsk(sponsor, event, ask, { amount })
-                                    }
-                                    prefix="$"
-                                    ariaLabel={`${sponsor.companyName} ask for ${event.name}`}
-                                  />
-                                  <InlineSelect
-                                    value={ask.stage}
-                                    options={ASK_STAGE_OPTIONS}
-                                    onSave={stage =>
-                                      upsertAsk(sponsor, event, ask, { stage })
-                                    }
-                                    className={`border ${stageClass(ask.stage)}`}
-                                    ariaLabel={`${sponsor.companyName} stage for ${event.name}`}
-                                  />
-                                  <button
-                                    type="button"
-                                    className="text-xs text-rose-600 hover:underline"
-                                    onClick={() => deleteAsk(ask)}
-                                  >
-                                    Remove
-                                  </button>
-                                </>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="text-xs text-cyan-700 hover:underline"
-                                  onClick={() =>
-                                    upsertAsk(sponsor, event, null, {
-                                      amount: null,
-                                      stage: "proposed",
-                                    })
-                                  }
-                                >
-                                  Add
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        );
-                      })}
-                      <td className="px-3 py-3 text-right font-semibold tabular-nums">
-                        {total ? money(total) : "—"}
-                      </td>
-                      <td>
-                        <DeleteButton
-                          label={sponsor.companyName}
-                          onDelete={() => deleteSponsor(sponsor)}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot className="bg-slate-100 font-semibold">
-                <tr>
-                  <td colSpan={2} className="px-3 py-3">
-                    Committed and proposed by event
-                  </td>
-                  {matrixEvents.map(event => (
-                    <td
-                      key={event.id}
-                      className="px-3 py-3 text-right tabular-nums"
-                    >
-                      {money(
-                        sponsors.reduce(
-                          (sum: number, sponsor: any) =>
-                            sum +
-                            (asNumber(
-                              (sponsor.asks ?? []).find(
-                                (ask: any) => ask.eventId === event.id
-                              )?.amount
-                            ) ?? 0),
-                          0
-                        )
-                      )}
+                {sponsors.map(sponsor => (
+                  <tr
+                    key={sponsor.id}
+                    className="border-b last:border-b-0 hover:bg-slate-50"
+                  >
+                    <td className="px-4 py-3 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => setProfileSponsorId(sponsor.id)}
+                        className="text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+                      >
+                        {sponsor.companyName}
+                      </button>
                     </td>
-                  ))}
-                  <td className="px-3 py-3 text-right tabular-nums">
-                    {money(
-                      sponsors.reduce(
-                        (sum: number, sponsor: any) =>
-                          sum +
-                          (sponsor.asks ?? []).reduce(
-                            (row: number, ask: any) =>
-                              row + (asNumber(ask.amount) ?? 0),
-                            0
-                          ),
-                        0
-                      )
-                    )}
-                  </td>
-                  <td />
-                </tr>
-              </tfoot>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {sponsor.contactName || "Not assigned"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setProfileSponsorId(sponsor.id)}
+                      >
+                        Open profile
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </Card>
@@ -2322,6 +2631,17 @@ function SponsorGrid({
           </div>
         </Card>
       </section>
+      <SponsorProfileDialog
+        sponsor={profileSponsor}
+        events={events}
+        onOpenChange={open => {
+          if (!open) setProfileSponsorId(null);
+        }}
+        updateSponsor={updateSponsor}
+        deleteSponsor={deleteSponsor}
+        upsertAsk={upsertAsk}
+        deleteAsk={deleteAsk}
+      />
     </div>
   );
 }
@@ -3303,6 +3623,10 @@ export default function EventsPage() {
     upsertAskMutation.mutate({
       sponsorId: sponsor.id,
       eventId: event.id,
+      sponsorshipTier:
+        patch.sponsorshipTier !== undefined
+          ? patch.sponsorshipTier
+          : (ask?.sponsorshipTier ?? null),
       amount: patch.amount !== undefined ? patch.amount : asNumber(ask?.amount),
       stage: patch.stage ?? ask?.stage ?? "proposed",
     });
