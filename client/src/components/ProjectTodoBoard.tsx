@@ -4,6 +4,7 @@ import {
   DndContext,
   DragOverlay,
   KeyboardSensor,
+  MeasuringStrategy,
   PointerSensor,
   TouchSensor,
   pointerWithin,
@@ -14,6 +15,7 @@ import {
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
+  type Modifier,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -51,6 +53,7 @@ type SectionRow = {
 export type ProjectTodoDragData =
   | { type: "task"; taskId: number }
   | { type: "section"; sectionId: number }
+  | { type: "section-header"; sectionId: number }
   | { type: "container"; sectionId: number | null }
   | { type: "root-slot"; index: number };
 
@@ -61,6 +64,12 @@ const taskSortableId = (taskId: number) => `todo-${taskId}`;
 const sectionSortableId = (sectionId: number) => `section-${sectionId}`;
 const sectionContainerId = (sectionId: number) =>
   `section-container-${sectionId}`;
+
+const keepDragPreviewBelowPointer: Modifier = ({ transform }) => ({
+  ...transform,
+  x: transform.x + 18,
+  y: transform.y + 44,
+});
 
 function compareRows(
   left: { sortOrder: number; createdAt?: Date | string | null; id: number },
@@ -244,8 +253,7 @@ export function moveProjectTodo(
     );
   }
 
-  const destinationSectionId =
-    overData.type === "section" ? overData.sectionId : overData.sectionId;
+  const destinationSectionId = overData.sectionId;
   if (source.sectionId === destinationSectionId) return layout;
   const withoutTask = removeTask(cloneLayout(layout), taskId, source);
   return insertTask(
@@ -263,7 +271,7 @@ function rootIndexForOverData(
   overData: ProjectTodoDragData
 ) {
   if (overData.type === "root-slot") return overData.index;
-  if (overData.type === "section") {
+  if (overData.type === "section" || overData.type === "section-header") {
     return layout.findIndex(
       item => item.type === "section" && item.id === overData.sectionId
     );
@@ -393,9 +401,10 @@ function SortableSectionRow({
   onRename,
   onDelete,
   children,
-  disabled,
-  acceptingTask,
-  freezeDuringTaskDrag,
+    disabled,
+    acceptingTask,
+    freezeDuringTaskDrag,
+    taskDragActive,
 }: {
   section: SectionRow;
   taskIds: number[];
@@ -409,6 +418,7 @@ function SortableSectionRow({
   disabled: boolean;
   acceptingTask: boolean;
   freezeDuringTaskDrag: boolean;
+  taskDragActive: boolean;
 }) {
   const sortable = useSortable({
     id: sectionSortableId(section.id),
@@ -416,7 +426,7 @@ function SortableSectionRow({
       type: "section",
       sectionId: section.id,
     } satisfies ProjectTodoDragData,
-    disabled,
+    disabled: disabled || taskDragActive,
   });
   const style = {
     transform: freezeDuringTaskDrag ? undefined : CSS.Transform.toString(sortable.transform),
@@ -443,6 +453,7 @@ function SortableSectionRow({
           listeners: sortable.listeners,
         }}
         acceptingTask={acceptingTask}
+        taskDragActive={taskDragActive}
       >
         <SectionTaskContainer sectionId={section.id} sectionTitle={section.title} taskIds={taskIds} acceptingTask={acceptingTask}>
           {children}
@@ -572,7 +583,7 @@ export function ProjectTodoBoard({
       const priority = (collision: (typeof pointerCollisions)[number]) => {
         const data = (collision.data?.droppableContainer.data.current ??
           null) as ProjectTodoDragData | null;
-        if (data?.type === "task") return 0;
+        if (data?.type === "task" || data?.type === "section-header") return 0;
         if (data?.type === "root-slot") return 1;
         if (data?.type === "container" && data.sectionId !== null) return 2;
         if (data?.type === "section") return 3;
@@ -623,7 +634,9 @@ export function ProjectTodoBoard({
     const nextLayout =
       activeData.type === "section"
         ? moveProjectTodoSection(layout, activeData.sectionId, overData)
-        : moveProjectTodo(layout, activeData.taskId, overData);
+        : activeData.type === "task"
+          ? moveProjectTodo(layout, activeData.taskId, overData)
+          : layout;
     if (JSON.stringify(nextLayout) === JSON.stringify(layout)) return;
 
     const previousLayout = layout;
@@ -665,6 +678,7 @@ export function ProjectTodoBoard({
       : null;
     const isTaskReadyForSection = activeDrag?.type === "task" && activeTaskSectionId !== item.id && (
       (overDropTarget?.type === "section" && overDropTarget.sectionId === item.id) ||
+      (overDropTarget?.type === "section-header" && overDropTarget.sectionId === item.id) ||
       (overDropTarget?.type === "container" && overDropTarget.sectionId === item.id) ||
       taskOverSectionId === item.id
     );
@@ -681,6 +695,7 @@ export function ProjectTodoBoard({
         disabled={saving}
         acceptingTask={isTaskReadyForSection}
         freezeDuringTaskDrag={activeDrag?.type === "task"}
+        taskDragActive={activeDrag?.type === "task"}
       >
         {visibleTaskIds.map(taskId => {
           const todo = todoById.get(taskId);
@@ -698,6 +713,7 @@ export function ProjectTodoBoard({
   return (
     <DndContext
       sensors={sensors}
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
@@ -722,6 +738,7 @@ export function ProjectTodoBoard({
       </SortableContext>
 
       <DragOverlay
+        modifiers={[keepDragPreviewBelowPointer]}
         dropAnimation={{
           duration: 180,
           easing: "cubic-bezier(0.23, 1, 0.32, 1)",

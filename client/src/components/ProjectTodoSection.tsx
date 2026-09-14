@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useDroppable } from "@dnd-kit/core";
 import {
   Check,
   ChevronDown,
@@ -29,6 +30,7 @@ export function ProjectTodoSection({
   onDelete,
   dragHandle,
   acceptingTask,
+  taskDragActive,
   children,
 }: {
   section: { id: number; title: string };
@@ -40,11 +42,17 @@ export function ProjectTodoSection({
   onDelete: () => void;
   dragHandle: any;
   acceptingTask: boolean;
+  taskDragActive: boolean;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(section.title);
+  const headerDrop = useDroppable({
+    id: `section-header-${section.id}`,
+    data: { type: "section-header", sectionId: section.id },
+    disabled: !taskDragActive,
+  });
 
   useEffect(() => {
     setTitle(section.title);
@@ -72,7 +80,7 @@ export function ProjectTodoSection({
       onOpenChange={setExpanded}
       className="overflow-hidden rounded-lg border border-border bg-card shadow-sm"
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-muted/30 px-3 py-2.5">
+      <div ref={headerDrop.setNodeRef} className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-muted/30 px-3 py-2.5">
 
         <button
           type="button"
