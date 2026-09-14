@@ -12,6 +12,7 @@ import {
   useSensors,
   type CollisionDetection,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
@@ -388,6 +389,7 @@ function SortableSectionRow({
   onDelete,
   children,
   disabled,
+  acceptingTask,
 }: {
   section: SectionRow;
   taskIds: number[];
@@ -399,6 +401,7 @@ function SortableSectionRow({
   onDelete: () => void;
   children: ReactNode;
   disabled: boolean;
+  acceptingTask: boolean;
 }) {
   const sortable = useSortable({
     id: sectionSortableId(section.id),
@@ -432,6 +435,7 @@ function SortableSectionRow({
           attributes: sortable.attributes,
           listeners: sortable.listeners,
         }}
+        acceptingTask={acceptingTask}
       >
         <SectionTaskContainer sectionId={section.id} taskIds={taskIds}>
           {children}
@@ -534,6 +538,9 @@ export function ProjectTodoBoard({
   const [activeDrag, setActiveDrag] = useState<ProjectTodoDragData | null>(
     null
   );
+  const [overDropTarget, setOverDropTarget] = useState<ProjectTodoDragData | null>(
+    null
+  );
   const todoById = useMemo(
     () => new Map(todos.map(todo => [todo.id, todo])),
     [todos]
@@ -580,6 +587,13 @@ export function ProjectTodoBoard({
     setActiveDrag(
       (event.active.data.current as ProjectTodoDragData | undefined) ?? null
     );
+    setOverDropTarget(null);
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    setOverDropTarget(
+      (event.over?.data.current as ProjectTodoDragData | undefined) ?? null
+    );
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -590,6 +604,7 @@ export function ProjectTodoBoard({
       | ProjectTodoDragData
       | undefined;
     setActiveDrag(null);
+    setOverDropTarget(null);
     if (
       !activeData ||
       !overData ||
@@ -635,6 +650,17 @@ export function ProjectTodoBoard({
       .map(taskId => todoById.get(taskId))
       .filter((todo): todo is TodoRow => !!todo);
     const visibleTaskIds = item.taskIds.filter(isVisible);
+    const taskOverSectionId = overDropTarget?.type === "task"
+      ? findTaskLocation(layout, overDropTarget.taskId)?.sectionId ?? null
+      : null;
+    const activeTaskSectionId = activeDrag?.type === "task"
+      ? findTaskLocation(layout, activeDrag.taskId)?.sectionId ?? null
+      : null;
+    const isTaskReadyForSection = activeDrag?.type === "task" && activeTaskSectionId !== item.id && (
+      (overDropTarget?.type === "section" && overDropTarget.sectionId === item.id) ||
+      (overDropTarget?.type === "container" && overDropTarget.sectionId === item.id) ||
+      taskOverSectionId === item.id
+    );
     return (
       <SortableSectionRow
         section={section}
@@ -646,6 +672,7 @@ export function ProjectTodoBoard({
         onRename={title => onRenameSection(section.id, title)}
         onDelete={() => onDeleteSection(section)}
         disabled={saving}
+        acceptingTask={isTaskReadyForSection}
       >
         {visibleTaskIds.map(taskId => {
           const todo = todoById.get(taskId);
@@ -665,7 +692,8 @@ export function ProjectTodoBoard({
       sensors={sensors}
       collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
-      onDragCancel={() => setActiveDrag(null)}
+      onDragOver={handleDragOver}
+      onDragCancel={() => { setActiveDrag(null); setOverDropTarget(null); }}
       onDragEnd={handleDragEnd}
     >
       <SortableContext items={visibleRootIds} strategy={rectSortingStrategy}>

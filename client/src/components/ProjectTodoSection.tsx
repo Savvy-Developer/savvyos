@@ -28,6 +28,7 @@ export function ProjectTodoSection({
   onRename,
   onDelete,
   dragHandle,
+  acceptingTask,
   children,
 }: {
   section: { id: number; title: string };
@@ -38,6 +39,7 @@ export function ProjectTodoSection({
   onRename: (title: string) => void;
   onDelete: () => void;
   dragHandle: any;
+  acceptingTask: boolean;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -47,6 +49,10 @@ export function ProjectTodoSection({
   useEffect(() => {
     setTitle(section.title);
   }, [section.title]);
+
+  useEffect(() => {
+    if (acceptingTask) setExpanded(true);
+  }, [acceptingTask]);
 
   function saveTitle() {
     const normalizedTitle = title.trim();
@@ -62,11 +68,12 @@ export function ProjectTodoSection({
 
   return (
     <Collapsible
-      open={expanded}
+      open={expanded || acceptingTask}
       onOpenChange={setExpanded}
       className="overflow-hidden rounded-lg border border-border bg-card shadow-sm"
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-muted/30 px-3 py-2.5">
+      <div className={cn("flex flex-wrap items-center gap-2 border-b border-border/70 bg-muted/30 px-3 py-2.5 transition-colors", acceptingTask && "border-primary/40 bg-primary/10")}>
+
         <button
           type="button"
           ref={dragHandle.setActivatorNodeRef}
@@ -193,7 +200,8 @@ export function ProjectTodoSection({
       </div>
 
       <CollapsibleContent>
-        {displayCount > 0 ? (
+        {acceptingTask ? <div className="mx-2.5 mt-2.5 flex min-h-14 items-center justify-center gap-2 rounded-md border-2 border-dashed border-primary/55 bg-primary/[0.07] px-3 py-2 text-sm font-semibold text-primary shadow-sm" role="status" aria-live="polite"><ListChecks className="h-4 w-4 shrink-0" />Drop To-Do here to place it in {section.title}</div> : null}
+        {displayCount > 0 || acceptingTask ? (
           <div className="space-y-2 p-2.5">{children}</div>
         ) : (
           <p className="px-3 py-2 text-xs text-muted-foreground">
