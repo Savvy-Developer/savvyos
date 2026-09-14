@@ -82,6 +82,7 @@ import { appointmentsRouter } from "./routers/appointments";
 import { calendarConnectionsRouter } from "./routers/calendarConnections";
 import { eventsRouter } from "./routers/events";
 import { websiteRouter } from "./routers/website";
+import { websiteAccountRouter } from "./routers/websiteAccount";
 import { agentCelebrationsRouter } from "./routers/agentCelebrations";
 import { checklistsRouter } from "./routers/checklists";
 import { recruitingRouter } from "./routers/recruiting";
@@ -307,6 +308,7 @@ export const appRouter = router({
   webinars: webinarsRouter,
   events: eventsRouter,
   website: websiteRouter,
+  websiteAccount: websiteAccountRouter,
   landingPages: landingPagesRouter,
   shortLinks: shortLinksRouter,
   reviews: reviewsRouter,

@@ -3,6 +3,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { auditLogMutation, shouldAuditLog } from "./auditMiddleware";
+import { accountFromRequest } from "./websiteAccountAuth";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -49,6 +50,28 @@ const requireUser = t.middleware(async opts => {
 });
 
 export const protectedProcedure = t.procedure.use(auditMiddleware).use(requireUser);
+
+/**
+ * A procedure for the public website's signed-in investors.
+ *
+ * Deliberately not built on requireUser. `ctx.user` is a member of staff; an
+ * investor is someone else entirely, resolved from their own cookie against
+ * their own table. Keeping the two apart at the procedure level means a
+ * website endpoint cannot accidentally accept a staff session, and a staff
+ * endpoint cannot accidentally accept an investor's.
+ */
+const requireWebsiteAccount = t.middleware(async opts => {
+  const { ctx, next } = opts;
+  const account = await accountFromRequest(ctx.req as any);
+  if (!account) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Please sign in." });
+  }
+  return next({ ctx: { ...ctx, account } });
+});
+
+export const websiteAccountProcedure = t.procedure
+  .use(auditMiddleware)
+  .use(requireWebsiteAccount);
 
 export const adminProcedure = t.procedure.use(auditMiddleware).use(
   t.middleware(async opts => {
