@@ -47,6 +47,14 @@ function hasDuplicateMilestoneTitles(milestones: RockMilestoneInput[]) {
   return new Set(titles).size !== titles.length;
 }
 
+function projectStatusForRockStatus(status: "on_track" | "at_risk" | "off_track" | "done" | "dropped") {
+  return status === "done" ? "completed" : status === "at_risk" || status === "off_track" ? "at_risk" : status === "dropped" ? "not_started" : "in_progress";
+}
+
+function rockStatusForProjectStatus(status: "not_started" | "in_progress" | "at_risk" | "completed") {
+  return status === "completed" ? "done" : status === "at_risk" ? "at_risk" : status === "not_started" ? "dropped" : "on_track";
+}
+
 function uniqueMeetingIds(meetingIds: string[]) {
   return Array.from(new Set(meetingIds));
 }
@@ -559,6 +567,10 @@ export const pmRouter = router({
           updateFields.rockQuarter = null;
           updateFields.definitionOfDone = null;
           updateFields.rockStatus = "on_track";
+        } else if (finalIsRock && input.rockStatus !== undefined) {
+          updateFields.status = projectStatusForRockStatus(input.rockStatus);
+        } else if (finalIsRock && input.status !== undefined) {
+          updateFields.rockStatus = rockStatusForProjectStatus(input.status);
         }
         if (Object.keys(updateFields).length > 0 || becomingRock || syncRockRoutes) {
           await db.transaction(async (transaction) => {

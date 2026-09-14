@@ -283,6 +283,8 @@ async function getRocks(db: any, targetMeetingId: string) {
       description: row.project.description,
       status: row.project.rockStatus,
       percentComplete: total ? Math.round((completed / total) * 100) : 0,
+      priority: row.project.priority,
+      dueDate: row.project.dueDate,
       quarter: row.project.rockQuarter,
       ownerId: row.project.ownerId,
       ownerName: row.ownerName ?? "Unassigned",
