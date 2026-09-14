@@ -24,6 +24,7 @@ import {
   pulseWorkItems,
   pulseWorkItemStatusNotes,
   users,
+  userProfiles,
 } from "../../drizzle/schema";
 import { and, eq, desc, asc, isNull, sql, inArray } from "drizzle-orm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
@@ -1741,9 +1742,10 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         if (!db) return [];
         await assertProjectAccess(db, input.projectId, ctx.user);
         return db
-          .select({ userId: pmProjectCollaborators.userId, name: users.name, email: users.email })
+          .select({ userId: pmProjectCollaborators.userId, name: users.name, email: users.email, profilePhotoUrl: userProfiles.profilePhotoUrl })
           .from(pmProjectCollaborators)
           .leftJoin(users, eq(pmProjectCollaborators.userId, users.id))
+          .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
           .where(eq(pmProjectCollaborators.projectId, input.projectId));
       }),
 

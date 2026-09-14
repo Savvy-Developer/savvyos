@@ -5,6 +5,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -404,6 +405,10 @@ export default function ProjectDetailPage() {
     onSuccess: () => { toast.success("Project updated"); refetch(); setEditingProject(false); },
     onError: (e) => toast.error(e.message),
   });
+  const updateProjectOverview = trpc.pm.projects.update.useMutation({
+    onSuccess: () => { toast.success("Project overview updated"); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const archiveProject = trpc.pm.projects.archive.useMutation({
     onSuccess: () => { toast.success("Project archived"); navigate("/projects"); },
@@ -425,6 +430,7 @@ export default function ProjectDetailPage() {
     onSuccess: () => { toast.success("Collaborator removed"); refetch(); refetchCollaborators(); setOwnerRemoval(null); setNewOwnerId(""); },
     onError: (e) => toast.error(e.message),
   });
+  const [showCollaborators, setShowCollaborators] = useState(false);
   const [showAddCollab, setShowAddCollab] = useState(false);
   const [collabUserId, setCollabUserId] = useState("");
   const [ownerRemoval, setOwnerRemoval] = useState<any>(null);
@@ -478,8 +484,6 @@ export default function ProjectDetailPage() {
       ownerId: String(project.ownerId ?? ""),
       dueDate: project.dueDate ? format(new Date(project.dueDate), "yyyy-MM-dd") : "",
       isOngoing: project.isOngoing || !project.dueDate,
-      priority: project.priority,
-      status: project.status,
       isRock: Boolean(project.isRock),
       rockQuarter: project.rockQuarter ?? `Q${Math.floor(new Date().getMonth() / 3) + 1} ${new Date().getFullYear()}`,
       definitionOfDone: project.definitionOfDone ?? "",
@@ -515,8 +519,6 @@ export default function ProjectDetailPage() {
       ownerId: Number(editForm.ownerId),
       dueDate: editForm.isOngoing ? null : (editForm.dueDate ? new Date(editForm.dueDate) : null),
       isOngoing: editForm.isOngoing,
-      priority: editForm.priority,
-      status: editForm.status,
       isRock: editForm.isRock,
       rockQuarter: editForm.isRock ? editForm.rockQuarter : null,
       definitionOfDone: editForm.isRock ? editForm.definitionOfDone : null,
@@ -640,29 +642,6 @@ export default function ProjectDetailPage() {
                 <Label>Description</Label>
                 <Textarea value={editForm.description} onChange={e => setEditForm((f: any) => ({ ...f, description: e.target.value }))} rows={2} />
               </div>
-              <div>
-                <Label>Status</Label>
-                <Select value={editForm.status} onValueChange={v => setEditForm((f: any) => ({ ...f, status: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="not_started">Not Started</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="at_risk">At Risk</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Priority</Label>
-                <Select value={editForm.priority} onValueChange={v => setEditForm((f: any) => ({ ...f, priority: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="sm:col-span-2 xl:col-span-4 rounded-lg border border-primary/20 bg-primary/[0.025] p-2.5">
                 <div className="flex items-center gap-2"><Checkbox id="edit-project-rock" checked={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isRock: checked === true, rockMilestones: checked === true && !f.rockMilestones?.length ? [{ title: "", dueDate: "" }] : f.rockMilestones }))} /><Label htmlFor="edit-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label></div>
                 {editForm.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-3"><div><Label>Quarter *</Label><Input value={editForm.rockQuarter} onChange={event => setEditForm((f: any) => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label>Rock Status</Label><Select value={editForm.rockStatus} onValueChange={value => setEditForm((f: any) => ({ ...f, rockStatus: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="on_track">On Track</SelectItem><SelectItem value="at_risk">At Risk</SelectItem><SelectItem value="off_track">Off Track</SelectItem><SelectItem value="done">Done</SelectItem><SelectItem value="dropped">Dropped</SelectItem></SelectContent></Select></div><div className="sm:col-span-1"><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div>{!project.isRock ? <div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each dated milestone becomes a project section after you save, ready for to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: [...(f.rockMilestones ?? []), { title: "", dueDate: "" }] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{(editForm.rockMilestones ?? []).map((milestone: { title: string; dueDate: string }, index: number) => <div key={`rock-milestone-${index}`} className="grid grid-cols-[minmax(0,1fr)_9.5rem_2rem] gap-2"><Input value={milestone.title} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string }, position: number) => position === index ? { ...value, title: event.target.value } : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Input type="date" value={milestone.dueDate} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string }, position: number) => position === index ? { ...value, dueDate: event.target.value } : value) }))} aria-label={`Due date for milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={(editForm.rockMilestones ?? []).length === 1} onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).filter((_: { title: string; dueDate: string }, position: number) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div> : <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">Rock milestones are managed as project sections below, where their to-dos live.</p>}<RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={editForm.routedMeetingIds ?? []} onChange={(routedMeetingIds) => setEditForm((f: any) => ({ ...f, routedMeetingIds, routesTouched: true }))} /></div> : null}
@@ -709,12 +688,24 @@ export default function ProjectDetailPage() {
             <div className="flex items-start justify-between gap-3 mb-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className={`w-2.5 h-2.5 rounded-full ${priorityCfg.dot}`} />
                   <h1 className="text-xl font-bold text-foreground">{project.title}</h1>
+                  <Select value={project.status} onValueChange={value => updateProjectOverview.mutate({ id: projectId, status: value as Status })}>
+                    <SelectTrigger aria-label="Project status" className={`h-7 w-[8.75rem] gap-1.5 border px-2 text-xs font-medium ${statusCfg.color}`} disabled={updateProjectOverview.isPending}>
+                      <span className="flex items-center gap-1.5">{statusCfg.icon}<SelectValue /></span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(STATUS_CONFIG).map(([value, config]) => <SelectItem key={value} value={value}><span className="flex items-center gap-1.5">{config.icon}{config.label}</span></SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={project.priority} onValueChange={value => updateProjectOverview.mutate({ id: projectId, priority: value as Priority })}>
+                    <SelectTrigger aria-label="Project priority" className={`h-7 w-[6.5rem] gap-1.5 border px-2 text-xs font-medium ${priorityCfg.badge}`} disabled={updateProjectOverview.isPending}>
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${priorityCfg.dot}`} /><SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(PRIORITY_CONFIG).map(([value, config]) => <SelectItem key={value} value={value}><span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${config.dot}`} />{config.label}</span></SelectItem>)}
+                    </SelectContent>
+                  </Select>
                   {project.isRock ? <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-primary"><Flag className="h-3.5 w-3.5" />Rock{project.rockQuarter ? ` · ${project.rockQuarter}` : ""}</span> : null}
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${statusCfg.color}`}>
-                    {statusCfg.icon} {statusCfg.label}
-                  </span>
                 </div>
                 <p className="text-sm text-muted-foreground">{project.description}</p>
               </div>
@@ -787,74 +778,38 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      {/* Collaborators Panel */}
-      <div className="bg-card border border-border rounded-lg p-4 mb-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold flex items-center gap-1.5">
-            <Users className="h-4 w-4 text-muted-foreground" /> Collaborators
-          </h3>
-          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowAddCollab(s => !s)}>
-            <UserPlus className="h-3.5 w-3.5 mr-1" /> Add
-          </Button>
-        </div>
-
-        {showAddCollab && (
-          <div className="flex gap-2 mb-3">
-            <SearchableSelect
-              className="h-8 text-sm flex-1"
-              options={(adminUsers as any[])
-                .filter((u: any) => !(collaborators as any[]).some((c: any) => c.userId === u.id) && u.id !== project.ownerId)
-                .map((u: any) => ({ value: String(u.id), label: u.name ?? `User #${u.id}` }))}
-              value={collabUserId}
-              onValueChange={setCollabUserId}
-              placeholder="Select person…"
-              searchPlaceholder="Search users…"
-              clearable
-              clearValue=""
-            />
-            <Button
-              size="sm"
-              className="h-8"
-              disabled={!collabUserId || addCollaborator.isPending}
-              onClick={() => addCollaborator.mutate({ projectId, userId: Number(collabUserId) })}
-            >
-              Add
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8" onClick={() => setShowAddCollab(false)}>
-              <X className="h-3.5 w-3.5" />
-            </Button>
+      {/* Collaborators */}
+      <div className="mb-5 flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2.5">
+        <button type="button" onClick={() => setShowCollaborators(true)} className="flex min-w-0 items-center gap-2.5 rounded-md text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
+          <div className="flex -space-x-2" aria-hidden="true">
+            {(collaborators as any[]).slice(0, 5).map((collaborator: any) => {
+              const label = collaborator.name ?? collaborator.userName ?? collaborator.email ?? "Unknown user";
+              const initials = label.split(/\s+/).filter(Boolean).map((part: string) => part[0]).slice(0, 2).join("").toUpperCase() || "?";
+              return <Avatar key={collaborator.userId} className="h-7 w-7 border-2 border-card"><AvatarImage src={collaborator.profilePhotoUrl ?? undefined} alt="" className="object-cover" /><AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">{initials}</AvatarFallback></Avatar>;
+            })}
+            {(collaborators as any[]).length > 5 ? <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-muted text-[10px] font-semibold text-muted-foreground">+{(collaborators as any[]).length - 5}</span> : null}
+            {(collaborators as any[]).length === 0 ? <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-muted text-xs text-muted-foreground"><Users className="h-3.5 w-3.5" /></span> : null}
           </div>
-        )}
-
-        {(collaborators as any[]).length === 0 ? (
-          <p className="text-xs text-muted-foreground">No collaborators yet. Add teammates to loop them in.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {(collaborators as any[]).map((c: any) => (
-              <div key={c.userId} className="flex items-center gap-1.5 bg-muted/50 border border-border rounded-full px-2.5 py-1 text-xs">
-                <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-medium text-primary shrink-0">
-                  {(c.name ?? c.userName)?.[0] ?? "?"}
-                </div>
-                <span className="font-medium">{c.name ?? c.userName}</span>
-                <button
-                  onClick={() => {
-                    if (c.userId === project.ownerId) {
-                      setOwnerRemoval(c);
-                      setNewOwnerId("");
-                      return;
-                    }
-                    removeCollaborator.mutate({ projectId, userId: c.userId });
-                  }}
-                  className="ml-0.5 text-muted-foreground hover:text-destructive transition-colors"
-                  title="Remove collaborator"
-                >
-                  <UserMinus className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+          <span className="min-w-0 text-sm font-medium"><span className="inline-flex items-center gap-1.5"><Users className="h-4 w-4 text-muted-foreground" />Collaborators</span><span className="ml-1.5 text-xs font-normal text-muted-foreground">{(collaborators as any[]).length} with access</span></span>
+        </button>
+        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => { setShowCollaborators(true); setShowAddCollab(true); }}><UserPlus className="mr-1 h-3.5 w-3.5" />Add</Button>
       </div>
+
+      <Dialog open={showCollaborators} onOpenChange={open => { setShowCollaborators(open); if (!open) setShowAddCollab(false); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Project access</DialogTitle></DialogHeader>
+          <div className="flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{(collaborators as any[]).length ? `${(collaborators as any[]).length} people can access this project.` : "No collaborators have been added yet."}</p><Button type="button" size="sm" variant="outline" onClick={() => setShowAddCollab(value => !value)}><UserPlus className="mr-1.5 h-3.5 w-3.5" />Add collaborator</Button></div>
+          {showAddCollab ? <div className="flex gap-2 rounded-md border border-primary/25 bg-primary/[0.025] p-2"><SearchableSelect className="h-8 flex-1 text-sm" options={(adminUsers as any[]).filter((user: any) => !(collaborators as any[]).some((collaborator: any) => collaborator.userId === user.id) && user.id !== project.ownerId).map((user: any) => ({ value: String(user.id), label: user.name ?? `User #${user.id}` }))} value={collabUserId} onValueChange={setCollabUserId} placeholder="Select person…" searchPlaceholder="Search users…" clearable clearValue="" /><Button type="button" size="sm" className="h-8" disabled={!collabUserId || addCollaborator.isPending} onClick={() => addCollaborator.mutate({ projectId, userId: Number(collabUserId) })}>{addCollaborator.isPending ? "Adding…" : "Add"}</Button></div> : null}
+          <div className="max-h-[55vh] divide-y overflow-y-auto rounded-md border">
+            {(collaborators as any[]).length ? (collaborators as any[]).map((collaborator: any) => {
+              const label = collaborator.name ?? collaborator.userName ?? collaborator.email ?? "Unknown user";
+              const initials = label.split(/\s+/).filter(Boolean).map((part: string) => part[0]).slice(0, 2).join("").toUpperCase() || "?";
+              const isOwner = collaborator.userId === project.ownerId;
+              return <div key={collaborator.userId} className="flex items-center gap-3 px-3 py-2.5"><Avatar className="h-9 w-9 shrink-0"><AvatarImage src={collaborator.profilePhotoUrl ?? undefined} alt={label} className="object-cover" /><AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{label}</p>{collaborator.email ? <p className="truncate text-xs text-muted-foreground">{collaborator.email}</p> : null}</div>{isOwner ? <Badge variant="secondary" className="shrink-0">Owner</Badge> : null}<Button type="button" size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => { if (isOwner) { setOwnerRemoval(collaborator); setNewOwnerId(""); return; } removeCollaborator.mutate({ projectId, userId: collaborator.userId }); }} disabled={removeCollaborator.isPending} aria-label={`Remove ${label} from this project`} title="Remove collaborator"><UserMinus className="h-3.5 w-3.5" /></Button></div>;
+            }) : <p className="px-3 py-8 text-center text-sm text-muted-foreground">Add collaborators to give teammates access to this project.</p>}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!ownerRemoval} onOpenChange={open => { if (!open) { setOwnerRemoval(null); setNewOwnerId(""); } }}>
         <DialogContent className="max-w-md">
