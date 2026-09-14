@@ -619,21 +619,21 @@ export default function ProjectDetailPage() {
       </button>
 
       {/* Project Header */}
-      <div className="bg-card border border-border rounded-lg p-5 mb-5">
+      <div className="bg-card border border-border rounded-lg p-4 mb-5">
         {editingProject && editForm ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="sm:col-span-2">
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="xl:col-span-3">
                 <Label>Title</Label>
                 <Input value={editForm.title} onChange={e => setEditForm((f: any) => ({ ...f, title: e.target.value }))} />
-              </div>
-              <div className="sm:col-span-2">
-                <Label>Description</Label>
-                <Textarea value={editForm.description} onChange={e => setEditForm((f: any) => ({ ...f, description: e.target.value }))} rows={3} />
               </div>
               <div>
                 <Label>Department</Label>
                 <Input value={editForm.department} onChange={e => setEditForm((f: any) => ({ ...f, department: e.target.value }))} />
+              </div>
+              <div className="sm:col-span-2 xl:col-span-4">
+                <Label>Description</Label>
+                <Textarea value={editForm.description} onChange={e => setEditForm((f: any) => ({ ...f, description: e.target.value }))} rows={2} />
               </div>
               <div>
                 <Label>Status</Label>
@@ -658,7 +658,7 @@ export default function ProjectDetailPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="sm:col-span-2 rounded-lg border border-primary/20 bg-primary/[0.025] p-3">
+              <div className="sm:col-span-2 xl:col-span-4 rounded-lg border border-primary/20 bg-primary/[0.025] p-2.5">
                 <div className="flex items-center gap-2"><Checkbox id="edit-project-rock" checked={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isRock: checked === true, rockMilestones: checked === true && !f.rockMilestones?.length ? [""] : f.rockMilestones }))} /><Label htmlFor="edit-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label></div>
                 {editForm.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-3"><div><Label>Quarter *</Label><Input value={editForm.rockQuarter} onChange={event => setEditForm((f: any) => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label>Rock Status</Label><Select value={editForm.rockStatus} onValueChange={value => setEditForm((f: any) => ({ ...f, rockStatus: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="on_track">On Track</SelectItem><SelectItem value="at_risk">At Risk</SelectItem><SelectItem value="off_track">Off Track</SelectItem><SelectItem value="done">Done</SelectItem><SelectItem value="dropped">Dropped</SelectItem></SelectContent></Select></div><div className="sm:col-span-1"><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div>{!project.isRock ? <div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each milestone becomes a project section after you save, ready for to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: [...(f.rockMilestones ?? []), ""] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{(editForm.rockMilestones ?? []).map((milestone: string, index: number) => <div key={`rock-milestone-${index}`} className="flex gap-2"><Input value={milestone} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: string, position: number) => position === index ? event.target.value : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={(editForm.rockMilestones ?? []).length === 1} onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).filter((_: string, position: number) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div> : <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">Rock milestones are managed as project sections below, where their to-dos live.</p>}<RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={editForm.routedMeetingIds ?? []} onChange={(routedMeetingIds) => setEditForm((f: any) => ({ ...f, routedMeetingIds, routesTouched: true }))} /></div> : null}
               </div>
@@ -690,7 +690,7 @@ export default function ProjectDetailPage() {
                 )}
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2 border-t border-border/70 pt-3">
               <Button size="sm" onClick={handleSaveProject} disabled={updateProject.isPending}>
                 <Save className="h-3.5 w-3.5 mr-1" /> Save Changes
               </Button>
