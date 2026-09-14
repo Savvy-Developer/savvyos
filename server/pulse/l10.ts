@@ -226,7 +226,7 @@ async function getRocks(db: any, targetMeetingId: string) {
       .orderBy(asc(pmProjectRockMeetings.sortOrder), asc(pmProjects.title)),
   ]);
   const projectIds = projectRockRows.map((row: any) => row.project.id);
-  const [milestoneRows, taskCounts] = projectIds.length ? await Promise.all([
+  const [milestoneRows, taskCounts, projectTaskRows] = projectIds.length ? await Promise.all([
     db.select({ id: pmTodoSections.id, projectId: pmTodoSections.projectId, title: pmTodoSections.title, dueDate: pmTodoSections.dueDate, sortOrder: pmTodoSections.sortOrder })
       .from(pmTodoSections)
       .where(inArray(pmTodoSections.projectId, projectIds))
@@ -235,12 +235,23 @@ async function getRocks(db: any, targetMeetingId: string) {
       .from(pmTasks)
       .where(inArray(pmTasks.projectId, projectIds))
       .groupBy(pmTasks.projectId, pmTasks.sectionId),
-  ]) : [[], []];
+    db.select({ id: pmTasks.id, projectId: pmTasks.projectId, sectionId: pmTasks.sectionId, parentTaskId: pmTasks.parentTaskId, title: pmTasks.title, completed: pmTasks.completed, dueDate: pmTasks.dueDate, ownerName: users.name, sortOrder: pmTasks.sortOrder })
+      .from(pmTasks)
+      .leftJoin(users, eq(users.id, pmTasks.ownerId))
+      .where(inArray(pmTasks.projectId, projectIds))
+      .orderBy(asc(pmTasks.sortOrder), asc(pmTasks.id)),
+  ]) : [[], [], []];
   const countsBySection = new Map<string, { total: number; completed: number }>((taskCounts as any[]).map((row: any) => [`${row.projectId}:${row.sectionId ?? "none"}`, { total: Number(row.total ?? 0), completed: Number(row.completed ?? 0) }]));
+  const todosBySection = new Map<string, any[]>();
+  (projectTaskRows as any[]).forEach((task: any) => {
+    if (!task.sectionId) return;
+    const key = `${task.projectId}:${task.sectionId}`;
+    todosBySection.set(key, [...(todosBySection.get(key) ?? []), task]);
+  });
   const milestonesByProject = new Map<number, any[]>();
   (milestoneRows as any[]).forEach((section: any) => {
     const count = countsBySection.get(`${section.projectId}:${section.id}`);
-    const milestone = { id: section.id, title: section.title, dueDate: section.dueDate, total: Number(count?.total ?? 0), completed: Number(count?.completed ?? 0) };
+    const milestone = { id: section.id, title: section.title, dueDate: section.dueDate, total: Number(count?.total ?? 0), completed: Number(count?.completed ?? 0), todos: todosBySection.get(`${section.projectId}:${section.id}`) ?? [] };
     milestonesByProject.set(section.projectId, [...(milestonesByProject.get(section.projectId) ?? []), milestone]);
   });
   const seen = new Set<string>();
@@ -624,6 +635,29 @@ export const pulseL10Router = router({
       await tx.update(pulseWorkItems).set({ status: input.status, completedAt: input.status === "done" ? new Date() : null, completedById: input.status === "done" ? ctx.user.id : null }).where(eq(pulseWorkItems.id, item.id));
       await tx.insert(pulseWorkItemStatusNotes).values({ id: id(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.note ?? null, personId: ctx.user.id });
       await writeActivity(tx, ctx.user.id, "work_item", item.id, "rock_status_changed", item.status, { status: input.status, reviewedInMeetingId: input.meetingId });
+    });
+    return { success: true };
+  }),
+
+  setProjectRockTodoCompletion: pulseMemberProcedure.input(z.object({
+    meetingId,
+    projectId: z.number().int().positive(),
+    sectionId: z.number().int().positive(),
+    taskId: z.number().int().positive(),
+    completed: z.boolean(),
+  })).mutation(async ({ ctx, input }) => {
+    const db = await database();
+    await requireVisibleProjectRock(db, ctx.user.id, input.meetingId, input.projectId);
+    const [task] = await db.select({ id: pmTasks.id, projectId: pmTasks.projectId, sectionId: pmTasks.sectionId, title: pmTasks.title, completed: pmTasks.completed })
+      .from(pmTasks)
+      .where(and(eq(pmTasks.id, input.taskId), eq(pmTasks.projectId, input.projectId), eq(pmTasks.sectionId, input.sectionId)))
+      .limit(1);
+    if (!task) throw notFound("This Project milestone To-Do is not available in this L10.");
+    if (task.completed === input.completed) return { success: true };
+    await db.transaction(async (tx: any) => {
+      await tx.update(pmTasks).set({ completed: input.completed, completedAt: input.completed ? new Date() : null }).where(eq(pmTasks.id, task.id));
+      await tx.insert(pmProjectActivity).values({ projectId: input.projectId, actorId: ctx.user.id, action: input.completed ? "task_completed" : "task_reopened", detail: `${input.completed ? "Completed" : "Reopened"} milestone To-Do "${task.title}" in ${input.meetingId}` });
+      await writeActivity(tx, ctx.user.id, "project_rock_task", String(task.id), input.completed ? "task_completed" : "task_reopened", task.completed, { projectId: input.projectId, sectionId: input.sectionId, meetingId: input.meetingId, source: "projects" });
     });
     return { success: true };
   }),

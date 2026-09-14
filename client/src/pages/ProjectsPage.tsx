@@ -479,7 +479,7 @@ export default function ProjectsPage() {
   const { data: projects = [], refetch } = trpc.pm.projects.list.useQuery({
     includeArchived: showArchived,
     showAll,
-  }, { refetchInterval: 3000 });
+  }, { refetchInterval: 1500 });
   const { data: departments = [], refetch: refetchDepts } = trpc.pm.departments.list.useQuery();
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
   const { data: personalTodoStats } = trpc.pm.personalTodos.stats.useQuery();

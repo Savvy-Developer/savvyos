@@ -142,7 +142,7 @@ export function ProjectTodoSection({
               <span className="truncate text-sm font-semibold">
                 {section.title}
               </span>
-              <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold", dueDate ? "bg-muted text-muted-foreground" : isRock ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")}><CalendarDays className="h-3 w-3" />{dueDate ? `Due ${new Date(`${dueDate}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : isRock ? "Due date required" : "No due date"}</span>
+              {dueDate || isRock ? <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold", dueDate ? "bg-muted text-muted-foreground" : "bg-destructive/10 text-destructive")}><CalendarDays className="h-3 w-3" />{dueDate ? `Due ${new Date(`${dueDate}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "Due date required"}</span> : null}
               <Badge
                 variant="secondary"
                 className="shrink-0 text-[11px]"

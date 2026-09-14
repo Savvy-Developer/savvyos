@@ -336,7 +336,7 @@ export default function ProjectDetailPage() {
   const projectId = Number(id);
 
   const { user } = useAuth();
-  const { data: project, refetch } = trpc.pm.projects.getById.useQuery({ id: projectId }, { refetchInterval: 3000 });
+  const { data: project, refetch } = trpc.pm.projects.getById.useQuery({ id: projectId }, { refetchInterval: 1500 });
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
   const { data: routingOptions = [] } = trpc.pm.projects.routingOptions.useQuery();
 
