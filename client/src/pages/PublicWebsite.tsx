@@ -44,6 +44,7 @@ import {
   EmailPreferencesBody,
   ForgotPasswordBody,
   LockedPanel,
+  MyTransactionsBody,
   ResetPasswordBody,
   SaveButton,
   SavedPropertiesBody,
@@ -2312,5 +2313,7 @@ export default function PublicWebsite() {
     return <AccountPage title="Email preferences"><EmailPreferencesBody /></AccountPage>;
   if (relative === "/account/history")
     return <AccountPage title="Recently viewed"><ViewHistoryBody /></AccountPage>;
+  if (relative === "/account/transactions")
+    return <AccountPage title="My transactions"><MyTransactionsBody /></AccountPage>;
   return <NotFoundPage />;
 }

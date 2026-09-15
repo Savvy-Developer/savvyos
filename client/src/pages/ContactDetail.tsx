@@ -19,6 +19,7 @@ import { ArrowLeft, MessageSquare, Plus, Phone, PhoneCall, Mail, Edit2, Link2, U
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import { openCommunicationsHub } from "@/components/CommunicationsHub";
 import { ContactWebsiteBehaviorsTab } from "@/components/WebsiteBehaviorsTab";
+import { ContactWebsiteAccountPanel } from "@/components/website/ContactWebsiteAccountPanel";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLocation, useParams, Link } from "wouter";
@@ -1708,7 +1709,10 @@ export default function ContactDetail() {
 
             {/* Website Behaviors Tab */}
             <TabsContent value="website-behaviors">
-              <ContactWebsiteBehaviorsTab contactId={contactId} />
+              <div className="space-y-4">
+                <ContactWebsiteAccountPanel contactId={contactId} />
+                <ContactWebsiteBehaviorsTab contactId={contactId} />
+              </div>
             </TabsContent>
             {/* Email Behaviors Tab */}
             <TabsContent value="email-behaviors">

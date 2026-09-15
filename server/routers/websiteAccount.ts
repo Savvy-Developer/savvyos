@@ -1,17 +1,30 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
+  contacts,
   properties,
+  transactions,
+  users,
   websiteAccountPreferences,
   websiteAccountPropertyViews,
   websiteAccountSavedProperties,
   websiteAccounts,
+  websiteAgentProfiles,
   websiteProperties,
 } from "../../drizzle/schema";
-import { getDb } from "../db";
-import { publicProcedure, router, websiteAccountProcedure } from "../_core/trpc";
+import { getDb, logActivity } from "../db";
+import {
+  adminProcedure,
+  publicProcedure,
+  router,
+  websiteAccountProcedure,
+} from "../_core/trpc";
+import {
+  buyerVisibleTransaction,
+  type BuyerVisibleTransaction,
+} from "../websiteTransactionView";
 import {
   accountFromRequest,
   clearedSessionCookie,
@@ -389,5 +402,195 @@ export const websiteAccountRouter = router({
         .where(eq(websiteAccountPropertyViews.accountId, ctx.account.id))
         .orderBy(desc(websiteAccountPropertyViews.lastViewedAt))
         .limit(input?.limit ?? 30);
+    }),
+
+  // ─── My transactions ───────────────────────────────────────────────────────
+
+  /**
+   * The deals this investor is a party to.
+   *
+   * Two gates, and the first one is the important one.
+   *
+   * An account only ever sees transactions through `contactId`, which a member
+   * of staff sets by hand on the contact record. Nothing here matches on email.
+   * That is deliberate: signing up does not require proving you own the
+   * address, so an email match would let anyone read a stranger's purchase by
+   * registering with their address. Sharing a deal with an outside person is a
+   * decision a person makes, not something a string comparison does.
+   *
+   * The second gate is the projection. Every row goes through
+   * buyerVisibleTransaction, which is a whitelist, so a column added to the
+   * transactions table tomorrow does not appear on a client's screen today.
+   */
+  myTransactions: websiteAccountProcedure.query(
+    async ({ ctx }): Promise<BuyerVisibleTransaction[]> => {
+      const contactId = ctx.account.contactId;
+      if (!contactId) return [];
+      const db = await getDb();
+      if (!db) return [];
+
+      const rows = await db
+        .select({
+          id: transactions.id,
+          transactionType: transactions.transactionType,
+          status: transactions.status,
+          propertyAddressSnapshot: transactions.propertyAddressSnapshot,
+          address: properties.address,
+          purchasePrice: transactions.purchasePrice,
+          contractDate: transactions.contractDate,
+          closingDate: transactions.closingDate,
+          agentName: users.name,
+          agentEmail: websiteAgentProfiles.publicEmail,
+          agentPhone: websiteAgentProfiles.publicPhone,
+          agentImageUrl: websiteAgentProfiles.imageUrl,
+          agentSlug: websiteAgentProfiles.slug,
+        })
+        .from(transactions)
+        .leftJoin(properties, eq(transactions.propertyId, properties.id))
+        .leftJoin(users, eq(transactions.agentId, users.id))
+        .leftJoin(
+          websiteAgentProfiles,
+          eq(users.id, websiteAgentProfiles.userId)
+        )
+        .where(
+          or(
+            eq(transactions.primaryContactId, contactId),
+            eq(transactions.buyerContactId, contactId),
+            eq(transactions.sellerContactId, contactId)
+          )!
+        )
+        .orderBy(desc(transactions.contractDate));
+
+      return rows.map(row => buyerVisibleTransaction(row as any));
+    }
+  ),
+
+  // ─── Staff: linking an investor account to a contact ───────────────────────
+
+  /**
+   * What staff see on a contact: the account already linked, and any unlinked
+   * account whose email matches.
+   *
+   * The match is shown as a suggestion, never acted on. Someone with the
+   * contact record in front of them decides whether this really is the same
+   * person, because getting it wrong means showing one client another
+   * client's purchase.
+   */
+  accountsForContact: adminProcedure
+    .input(z.object({ contactId: z.number().int().positive() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { linked: [], suggestion: null };
+
+      const linked = await db
+        .select({
+          id: websiteAccounts.id,
+          email: websiteAccounts.email,
+          firstName: websiteAccounts.firstName,
+          lastName: websiteAccounts.lastName,
+          lastSignInAt: websiteAccounts.lastSignInAt,
+          createdAt: websiteAccounts.createdAt,
+        })
+        .from(websiteAccounts)
+        .where(eq(websiteAccounts.contactId, input.contactId));
+
+      const [contact] = await db
+        .select({ email: contacts.email })
+        .from(contacts)
+        .where(eq(contacts.id, input.contactId))
+        .limit(1);
+
+      let suggestion: { id: number; email: string } | null = null;
+      if (contact?.email) {
+        const [candidate] = await db
+          .select({ id: websiteAccounts.id, email: websiteAccounts.email })
+          .from(websiteAccounts)
+          .where(
+            and(
+              eq(websiteAccounts.email, normalizeAccountEmail(contact.email)),
+              isNull(websiteAccounts.contactId)
+            )
+          )
+          .limit(1);
+        suggestion = candidate ?? null;
+      }
+
+      return { linked, suggestion };
+    }),
+
+  linkAccountToContact: adminProcedure
+    .input(
+      z.object({
+        accountId: z.number().int().positive(),
+        contactId: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [account] = await db
+        .select({ id: websiteAccounts.id, contactId: websiteAccounts.contactId })
+        .from(websiteAccounts)
+        .where(eq(websiteAccounts.id, input.accountId))
+        .limit(1);
+      if (!account) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Account not found." });
+      }
+      // Moving a live link is how one client ends up looking at another's
+      // deal. Unlink first, deliberately, rather than letting a second click
+      // quietly repoint it.
+      if (account.contactId && account.contactId !== input.contactId) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "That account is already linked to a different contact. Unlink it there first.",
+        });
+      }
+
+      await db
+        .update(websiteAccounts)
+        .set({ contactId: input.contactId })
+        .where(eq(websiteAccounts.id, input.accountId));
+
+      await logActivity({
+        userId: ctx.user.id,
+        action: "website_account_linked_to_contact",
+        entityType: "contact",
+        entityId: input.contactId,
+        relatedContactId: input.contactId,
+        details: { websiteAccountId: input.accountId },
+      });
+      return { ok: true };
+    }),
+
+  unlinkAccount: adminProcedure
+    .input(z.object({ accountId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [account] = await db
+        .select({ contactId: websiteAccounts.contactId })
+        .from(websiteAccounts)
+        .where(eq(websiteAccounts.id, input.accountId))
+        .limit(1);
+
+      await db
+        .update(websiteAccounts)
+        .set({ contactId: null })
+        .where(eq(websiteAccounts.id, input.accountId));
+
+      if (account?.contactId) {
+        await logActivity({
+          userId: ctx.user.id,
+          action: "website_account_unlinked_from_contact",
+          entityType: "contact",
+          entityId: account.contactId,
+          relatedContactId: account.contactId,
+          details: { websiteAccountId: input.accountId },
+        });
+      }
+      return { ok: true };
     }),
 });
