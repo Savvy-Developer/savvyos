@@ -485,6 +485,17 @@ type AgentConnectionListFilters = {
   isaId?: number;
   leadSourceId?: number;
   search?: string;
+  buyBoxSearch?: {
+    propertyType?: string;
+    location?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    minBeds?: number;
+    maxBeds?: number;
+    minBaths?: number;
+    minSqft?: number;
+    maxSqft?: number;
+  };
   followUpDateFrom?: Date;
   followUpDateTo?: Date;
   sortOrder?: "asc" | "desc";
@@ -550,6 +561,52 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
       like(contacts.phone, s),
       sql`CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName})) LIKE ${s}`,
     ));
+  }
+  if (filters.buyBoxSearch) {
+    const buyBoxSearch = filters.buyBoxSearch;
+    if (buyBoxSearch.propertyType) {
+      baseConditions.push(like(agentConnections.propertyType, `%${buyBoxSearch.propertyType}%`));
+    }
+    if (buyBoxSearch.location) {
+      const locationPattern = `%${buyBoxSearch.location}%`;
+      baseConditions.push(or(
+        sql`JSON_SEARCH(${agentConnections.targetCities}, 'one', ${locationPattern}) IS NOT NULL`,
+        sql`JSON_SEARCH(${agentConnections.targetZips}, 'one', ${locationPattern}) IS NOT NULL`,
+      ));
+    }
+    if (buyBoxSearch.minPrice !== undefined || buyBoxSearch.maxPrice !== undefined) {
+      baseConditions.push(or(isNotNull(agentConnections.minPrice), isNotNull(agentConnections.maxPrice)));
+      if (buyBoxSearch.minPrice !== undefined) {
+        baseConditions.push(or(isNull(agentConnections.maxPrice), gte(agentConnections.maxPrice, String(buyBoxSearch.minPrice))));
+      }
+      if (buyBoxSearch.maxPrice !== undefined) {
+        baseConditions.push(or(isNull(agentConnections.minPrice), lte(agentConnections.minPrice, String(buyBoxSearch.maxPrice))));
+      }
+    }
+    if (buyBoxSearch.minBeds !== undefined || buyBoxSearch.maxBeds !== undefined) {
+      baseConditions.push(or(isNotNull(agentConnections.minBeds), isNotNull(agentConnections.maxBeds)));
+      if (buyBoxSearch.minBeds !== undefined) {
+        baseConditions.push(or(isNull(agentConnections.maxBeds), gte(agentConnections.maxBeds, buyBoxSearch.minBeds)));
+      }
+      if (buyBoxSearch.maxBeds !== undefined) {
+        baseConditions.push(or(isNull(agentConnections.minBeds), lte(agentConnections.minBeds, buyBoxSearch.maxBeds)));
+      }
+    }
+    if (buyBoxSearch.minBaths !== undefined) {
+      baseConditions.push(and(
+        isNotNull(agentConnections.minBaths),
+        lte(agentConnections.minBaths, String(buyBoxSearch.minBaths)),
+      ));
+    }
+    if (buyBoxSearch.minSqft !== undefined || buyBoxSearch.maxSqft !== undefined) {
+      baseConditions.push(or(isNotNull(agentConnections.minSqft), isNotNull(agentConnections.maxSqft)));
+      if (buyBoxSearch.minSqft !== undefined) {
+        baseConditions.push(or(isNull(agentConnections.maxSqft), gte(agentConnections.maxSqft, buyBoxSearch.minSqft)));
+      }
+      if (buyBoxSearch.maxSqft !== undefined) {
+        baseConditions.push(or(isNull(agentConnections.minSqft), lte(agentConnections.minSqft, buyBoxSearch.maxSqft)));
+      }
+    }
   }
   if (filters.followUpDateFrom) baseConditions.push(gte(agentConnections.followUpDate, filters.followUpDateFrom));
   if (filters.followUpDateTo) baseConditions.push(lte(agentConnections.followUpDate, filters.followUpDateTo));

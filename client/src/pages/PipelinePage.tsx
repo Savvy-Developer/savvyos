@@ -61,6 +61,31 @@ type BuyBoxForm = {
   investmentNotes: string;
 };
 
+type BuyBoxSearchForm = {
+  propertyType: string;
+  location: string;
+  minPrice: string;
+  maxPrice: string;
+  minBeds: string;
+  maxBeds: string;
+  minBaths: string;
+  minSqft: string;
+  maxSqft: string;
+};
+
+const EMPTY_BUY_BOX_SEARCH: BuyBoxSearchForm = {
+  propertyType: "", location: "", minPrice: "", maxPrice: "",
+  minBeds: "", maxBeds: "", minBaths: "", minSqft: "", maxSqft: "",
+};
+
+function toBuyBoxSearchNumber(value: string, wholeNumber = false): number | undefined {
+  const normalized = value.replace(/[^0-9.]/g, "");
+  if (!normalized || normalized === ".") return undefined;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) return undefined;
+  return wholeNumber ? Math.trunc(parsed) : parsed;
+}
+
 export default function PipelinePage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
@@ -74,6 +99,8 @@ export default function PipelinePage() {
   const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("pipeline.sortOrder", "desc");
   const [statsOpen, setStatsOpen] = usePersistentState("pipeline.statsOpen", false);
   const [filterOwnerId, setFilterOwnerId] = usePersistentState("pipeline.filterOwnerId", "");
+  const [buyBoxSearchOpen, setBuyBoxSearchOpen] = usePersistentState("pipeline.buyBoxSearchOpen", false);
+  const [buyBoxSearchForm, setBuyBoxSearchForm] = usePersistentState<BuyBoxSearchForm>("pipeline.buyBoxSearch", EMPTY_BUY_BOX_SEARCH);
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 50;
   const [editOpen, setEditOpen] = useState(false);
@@ -142,6 +169,18 @@ export default function PipelinePage() {
   const statusParam = selectedStage === "all" ? undefined : selectedStage;
   const agentIdParam = selectedAgentId === "all" ? undefined : Number(selectedAgentId);
   const leadSourceIdParam = selectedLeadSourceId === "all" ? undefined : selectedLeadSourceId === "unassigned" ? -1 : Number(selectedLeadSourceId);
+  const buyBoxSearch = {
+    propertyType: buyBoxSearchForm.propertyType.trim() || undefined,
+    location: buyBoxSearchForm.location.trim() || undefined,
+    minPrice: toBuyBoxSearchNumber(buyBoxSearchForm.minPrice),
+    maxPrice: toBuyBoxSearchNumber(buyBoxSearchForm.maxPrice),
+    minBeds: toBuyBoxSearchNumber(buyBoxSearchForm.minBeds, true),
+    maxBeds: toBuyBoxSearchNumber(buyBoxSearchForm.maxBeds, true),
+    minBaths: toBuyBoxSearchNumber(buyBoxSearchForm.minBaths),
+    minSqft: toBuyBoxSearchNumber(buyBoxSearchForm.minSqft, true),
+    maxSqft: toBuyBoxSearchNumber(buyBoxSearchForm.maxSqft, true),
+  };
+  const hasBuyBoxSearch = Object.values(buyBoxSearch).some((value) => value !== undefined);
   // agent_support users (when not working-as-agent) are server-scoped to their
   // assigned agents. Pass the selected agent filter like admin/ISA so the backend
   // can narrow within the allowed set.
@@ -152,6 +191,7 @@ export default function PipelinePage() {
     leadSourceId: leadSourceIdParam,
     status: statusParam,
     search: pipelineSearch.trim() || undefined,
+    buyBoxSearch: effectiveRole === "agent" && hasBuyBoxSearch ? buyBoxSearch : undefined,
     followUpDateFrom: followUpFrom || undefined,
     followUpDateTo: followUpTo || undefined,
     sortOrder,
@@ -246,7 +286,7 @@ export default function PipelinePage() {
   // cannot make a valid filtered result look empty.
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedStage, selectedAgentId, selectedIsaId, selectedLeadSourceId, pipelineSearch, followUpFrom, followUpTo, sortOrder]);
+  }, [selectedStage, selectedAgentId, selectedIsaId, selectedLeadSourceId, pipelineSearch, buyBoxSearchForm, followUpFrom, followUpTo, sortOrder]);
 
   function resetPage() { setCurrentPage(1); }
 
@@ -484,6 +524,72 @@ export default function PipelinePage() {
         </div>
       </div>
 
+      {(user as any)?.role === "agent" && (
+        <Collapsible open={buyBoxSearchOpen} onOpenChange={setBuyBoxSearchOpen} className="mb-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CollapsibleTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                <Home className="h-3.5 w-3.5 text-primary" />
+                Buy box search
+                {hasBuyBoxSearch && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">Active</Badge>}
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${buyBoxSearchOpen ? "rotate-180" : ""}`} />
+              </Button>
+            </CollapsibleTrigger>
+            {hasBuyBoxSearch && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={() => setBuyBoxSearchForm(EMPTY_BUY_BOX_SEARCH)}
+              >
+                Clear buy box search
+              </Button>
+            )}
+          </div>
+          <CollapsibleContent>
+            <Card className="mt-2 border-primary/15 bg-muted/10">
+              <CardContent className="p-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div>
+                    <Label className="text-xs">City or ZIP</Label>
+                    <Input className="mt-1 h-8 text-xs" placeholder="e.g. Asheville or 28801" value={buyBoxSearchForm.location} onChange={(e) => setBuyBoxSearchForm((form) => ({ ...form, location: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Property type</Label>
+                    <Input className="mt-1 h-8 text-xs" placeholder="e.g. Cabin or Condo" value={buyBoxSearchForm.propertyType} onChange={(e) => setBuyBoxSearchForm((form) => ({ ...form, propertyType: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Property price range</Label>
+                    <div className="mt-1 grid grid-cols-2 gap-2">
+                      <Input className="h-8 text-xs" inputMode="numeric" placeholder="Min" value={buyBoxSearchForm.minPrice} onChange={(e) => setBuyBoxSearchForm((form) => ({ ...form, minPrice: e.target.value }))} />
+                      <Input className="h-8 text-xs" inputMode="numeric" placeholder="Max" value={buyBoxSearchForm.maxPrice} onChange={(e) => setBuyBoxSearchForm((form) => ({ ...form, maxPrice: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Beds</Label>
+                    <div className="mt-1 grid grid-cols-2 gap-2">
+                      <Input className="h-8 text-xs" type="number" min="0" placeholder="Min" value={buyBoxSearchForm.minBeds} onChange={(e) => setBuyBoxSearchForm((form) => ({ ...form, minBeds: e.target.value }))} />
+                      <Input className="h-8 text-xs" type="number" min="0" placeholder="Max" value={buyBoxSearchForm.maxBeds} onChange={(e) => setBuyBoxSearchForm((form) => ({ ...form, maxBeds: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Bathrooms</Label>
+                    <Input className="mt-1 h-8 text-xs" type="number" min="0" step="0.5" placeholder="Minimum" value={buyBoxSearchForm.minBaths} onChange={(e) => setBuyBoxSearchForm((form) => ({ ...form, minBaths: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Square footage</Label>
+                    <div className="mt-1 grid grid-cols-2 gap-2">
+                      <Input className="h-8 text-xs" type="number" min="0" placeholder="Min" value={buyBoxSearchForm.minSqft} onChange={(e) => setBuyBoxSearchForm((form) => ({ ...form, minSqft: e.target.value }))} />
+                      <Input className="h-8 text-xs" type="number" min="0" placeholder="Max" value={buyBoxSearchForm.maxSqft} onChange={(e) => setBuyBoxSearchForm((form) => ({ ...form, maxSqft: e.target.value }))} />
+                    </div>
+                  </div>
+                </div>
+                <p className="mt-3 text-[11px] text-muted-foreground">Find buyers in your pipeline whose saved buy box overlaps the property details you enter. Leave any field blank to ignore it.</p>
+              </CardContent>
+            </Card>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
 
       {/* Filter-aware insights — collapsed by default to preserve page density */}
       <Collapsible open={statsOpen} onOpenChange={setStatsOpen} className="mb-3">

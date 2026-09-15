@@ -33,6 +33,29 @@ const buyBoxInput = z.object({
   investmentNotes: z.string().optional().nullable(),
 });
 
+const buyBoxSearchInput = z.object({
+  propertyType: z.string().trim().min(1).max(128).optional(),
+  location: z.string().trim().min(1).max(128).optional(),
+  minPrice: z.number().nonnegative().optional(),
+  maxPrice: z.number().nonnegative().optional(),
+  minBeds: z.number().int().nonnegative().optional(),
+  maxBeds: z.number().int().nonnegative().optional(),
+  minBaths: z.number().nonnegative().optional(),
+  minSqft: z.number().int().nonnegative().optional(),
+  maxSqft: z.number().int().nonnegative().optional(),
+}).superRefine((value, ctx) => {
+  const ranges = [
+    [value.minPrice, value.maxPrice, "Minimum price cannot exceed maximum price."],
+    [value.minBeds, value.maxBeds, "Minimum beds cannot exceed maximum beds."],
+    [value.minSqft, value.maxSqft, "Minimum square footage cannot exceed maximum square footage."],
+  ] as const;
+  for (const [min, max, message] of ranges) {
+    if (min !== undefined && max !== undefined && min > max) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    }
+  }
+});
+
 // Buy box numeric fields arrive as user-typed strings that can include
 // thousands separators or currency symbols (e.g. "250,000", "$300,000").
 // The decimal/int columns reject those, so strip everything except digits
@@ -71,6 +94,7 @@ export const agentConnectionsRouter = router({
       isaId: z.number().optional(),
       leadSourceId: z.number().optional(),
       search: z.string().optional(),
+      buyBoxSearch: buyBoxSearchInput.optional(),
       followUpDateFrom: z.string().optional(),
       followUpDateTo: z.string().optional(),
       sortOrder: z.enum(["asc", "desc"]).default("desc"),
@@ -108,6 +132,7 @@ export const agentConnectionsRouter = router({
         isaId: input?.isaId,
         leadSourceId: input?.leadSourceId,
         search: input?.search || undefined,
+        buyBoxSearch: input?.buyBoxSearch,
         followUpDateFrom: input?.followUpDateFrom ? new Date(input.followUpDateFrom) : undefined,
         followUpDateTo,
         sortOrder: input?.sortOrder ?? "desc",
