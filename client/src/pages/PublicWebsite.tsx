@@ -18,6 +18,7 @@ import {
   KeyRound,
   LineChart,
   Loader2,
+  Lock,
   Mail,
   MapPin,
   Menu,
@@ -36,11 +37,26 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { renderArticleMarkdown } from "@/lib/articleMarkdown";
+import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
+import {
+  AccountMenu,
+  AccountMobileLinks,
+  EmailPreferencesBody,
+  ForgotPasswordBody,
+  LockedPanel,
+  ResetPasswordBody,
+  SaveButton,
+  SavedPropertiesBody,
+  SignInBody,
+  SignUpBody,
+  ViewHistoryBody,
+  useRecordPropertyView,
+} from "@/components/website/publicAccountPages";
 
-const BASE = "/newsite";
+const BASE = PUBLIC_SITE_BASE;
 const LOGO =
   "https://d2xsxph8kpxj0f.cloudfront.net/310519663374872019/RGtcxHR8RPxZsqyxZLCcuq/savvy-logo_c97e2154.png";
-const path = (suffix = "") => `${BASE}${suffix}`;
+const path = publicPath;
 /**
  * Blog posts and case studies are authored as markdown in the Website Studio.
  * Bodies written before that was true are plain text, which is valid markdown,
@@ -255,12 +271,7 @@ function Shell({
             </a>
           </nav>
           <div className="hidden items-center gap-2 lg:flex">
-            <a
-              className={`rounded-lg px-4 py-2 text-sm font-semibold ${darkHeader ? "text-white" : "text-[#05314a]"}`}
-              href="https://os.savvy-agents.com/login"
-            >
-              Login
-            </a>
+            <AccountMenu dark={darkHeader} />
             <a
               className="rounded-lg bg-[#10c0df] px-4 py-2 text-sm font-bold text-[#03293c] shadow-sm transition hover:bg-[#43e8ff]"
               href={path("/contact")}
@@ -289,6 +300,10 @@ function Shell({
                 {label}
               </a>
             ))}
+            <div
+              className={`my-2 border-t ${darkHeader ? "border-white/10" : "border-slate-200"}`}
+            />
+            <AccountMobileLinks dark={darkHeader} />
             <a
               className="mt-2 block rounded-lg bg-[#10c0df] px-3 py-3 text-center text-sm font-bold text-[#03293c]"
               href={path("/contact")}
@@ -323,6 +338,16 @@ function SiteFooter({ settings }: { settings?: any }) {
             <a href={path("/resources")}>Resources</a>
             <a href={path("/about")}>About</a>
             <a href={path("/contact")}>Contact</a>
+            {/* Staff sign in is a different door from the investor account in
+                the header, and it belongs down here rather than competing with
+                it. Agents still need the link, so it is kept rather than
+                dropped. */}
+            <a
+              className="text-slate-500"
+              href="https://os.savvy-agents.com/login"
+            >
+              Savvy team login
+            </a>
           </div>
         </div>
         <div className="mt-8 border-t pt-5 text-xs leading-5 text-slate-500">
@@ -449,19 +474,9 @@ function PropertyCard({ item }: { item: any }) {
           <div className="absolute left-3 top-3 rounded-full bg-[#05314a]/90 px-3 py-1 text-xs font-bold text-white">
             Savvy opportunity
           </div>
-          <button
-            type="button"
-            aria-label="Save property"
-            onClick={event => {
-              event.preventDefault();
-              toast.info(
-                "Saved properties will be enabled with the member portal."
-              );
-            }}
-            className="absolute right-3 top-3 rounded-full bg-white/90 p-2 text-[#05314a] shadow"
-          >
-            <Heart className="h-4 w-4" />
-          </button>
+          <div className="absolute right-3 top-3">
+            <SaveButton propertyId={item.propertyId} compact />
+          </div>
         </div>
         <div className="flex flex-1 flex-col p-5">
           <div className="flex items-start justify-between gap-3">
@@ -504,6 +519,15 @@ function PropertyCard({ item }: { item: any }) {
                   </p>
                 </div>
               ))}
+            </div>
+          ) : item.gated ? (
+            // The figures exist, this visitor just does not have an account
+            // yet. Say which ones, so the offer is concrete.
+            <div className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 p-3 text-center">
+              <Lock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <span className="text-[11px] font-semibold text-slate-500">
+                Sign in to see revenue, cash-on-cash and cap rate
+              </span>
             </div>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1271,6 +1295,9 @@ function PropertyDetailPage({ slug }: { slug: string }) {
   const evidence = trpc.website.publicPropertyEvidence.useQuery({ slug });
   const [showLead, setShowLead] = useState(false);
   usePageTitle(query.data?.metaTitle || query.data?.address || "Property");
+  // Recorded for the signed-in investor only, and only once per listing per
+  // visit. Anonymous browsing is not tracked to an account that does not exist.
+  useRecordPropertyView((query.data as any)?.propertyId);
   if (query.isLoading) return <LoadingPage />;
   const item: any = query.data;
   if (!item) return <NotFoundPage />;
@@ -1370,31 +1397,44 @@ function PropertyDetailPage({ slug }: { slug: string }) {
                 </div>
               </div>
             </div>
-            <div className="rounded-2xl border bg-white p-7 shadow-sm">
-              <h2 className="text-2xl font-bold text-[#05314a]">
-                Projected opportunity
-              </h2>
-              <p className="mt-2 text-sm text-slate-500">
-                Public estimates are shown only when a SavvyOS analysis has been
-                attached. Confirm assumptions in the full diligence package.
-              </p>
-              <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  ["Annual revenue", money(item.projectedRevenue), DollarSign],
-                  ["Cash-on-cash", percent(item.cashOnCash), TrendingUp],
-                  ["Cap rate", percent(item.capRate), LineChart],
-                  ["Occupancy", percent(item.occupancyRate), CalendarDays],
-                ].map(([label, value, Icon]: any) => (
-                  <div key={label} className="rounded-xl bg-cyan-50 p-4">
-                    <Icon className="h-5 w-5 text-cyan-700" />
-                    <p className="mt-3 text-2xl font-black text-[#05314a]">
-                      {value}
-                    </p>
-                    <p className="text-xs text-slate-500">{label}</p>
-                  </div>
-                ))}
+            {item.gated ? (
+              <LockedPanel
+                title="Projected opportunity"
+                description="Annual revenue, cash-on-cash, cap rate and occupancy for this property are available to investors with a free account."
+              />
+            ) : (
+              <div className="rounded-2xl border bg-white p-7 shadow-sm">
+                <h2 className="text-2xl font-bold text-[#05314a]">
+                  Projected opportunity
+                </h2>
+                <p className="mt-2 text-sm text-slate-500">
+                  Public estimates are shown only when a SavvyOS analysis has been
+                  attached. Confirm assumptions in the full diligence package.
+                </p>
+                <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    ["Annual revenue", money(item.projectedRevenue), DollarSign],
+                    ["Cash-on-cash", percent(item.cashOnCash), TrendingUp],
+                    ["Cap rate", percent(item.capRate), LineChart],
+                    ["Occupancy", percent(item.occupancyRate), CalendarDays],
+                  ].map(([label, value, Icon]: any) => (
+                    <div key={label} className="rounded-xl bg-cyan-50 p-4">
+                      <Icon className="h-5 w-5 text-cyan-700" />
+                      <p className="mt-3 text-2xl font-black text-[#05314a]">
+                        {value}
+                      </p>
+                      <p className="text-xs text-slate-500">{label}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
+            {evidence.data?.gated && (
+              <LockedPanel
+                title="Revenue range and comparable listings"
+                description="The projected revenue range for this property, and the nearby listings the projection is built from, are available to investors with a free account."
+              />
+            )}
             {evidence.data?.revenue && (
               <RevenueRangeSection
                 revenue={evidence.data.revenue}
@@ -1471,6 +1511,9 @@ function PropertyDetailPage({ slug }: { slug: string }) {
                     Call agent
                   </a>
                 )}
+                <div className="mt-2">
+                  <SaveButton propertyId={item.propertyId} />
+                </div>
               </div>
               {showLead && (
                 <LeadForm
@@ -2221,6 +2264,18 @@ function MarketsPage() {
   );
 }
 
+/** An investor account page inside the public site's header and footer. */
+function AccountPage({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  usePageTitle(title);
+  return <Shell>{children}</Shell>;
+}
+
 export default function PublicWebsite() {
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
   const relative = pathname.startsWith(BASE)
@@ -2243,5 +2298,19 @@ export default function PublicWebsite() {
   if (relative === "/about") return <AboutPage />;
   if (relative === "/contact") return <ContactPage />;
   if (relative === "/markets") return <MarketsPage />;
+  // Investor accounts. These render inside the same header and footer as the
+  // rest of the site, so signing in never feels like leaving it.
+  if (relative === "/sign-in") return <AccountPage title="Sign in"><SignInBody /></AccountPage>;
+  if (relative === "/sign-up") return <AccountPage title="Create your account"><SignUpBody /></AccountPage>;
+  if (relative === "/forgot-password")
+    return <AccountPage title="Reset your password"><ForgotPasswordBody /></AccountPage>;
+  if (relative === "/reset-password")
+    return <AccountPage title="Set a new password"><ResetPasswordBody /></AccountPage>;
+  if (relative === "/account/saved")
+    return <AccountPage title="Saved properties"><SavedPropertiesBody /></AccountPage>;
+  if (relative === "/account/preferences")
+    return <AccountPage title="Email preferences"><EmailPreferencesBody /></AccountPage>;
+  if (relative === "/account/history")
+    return <AccountPage title="Recently viewed"><ViewHistoryBody /></AccountPage>;
   return <NotFoundPage />;
 }

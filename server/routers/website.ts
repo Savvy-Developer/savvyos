@@ -6,6 +6,7 @@ import {
   agentConnections,
   agentProfiles,
   contacts,
+  marketProfiles,
   proformas,
   properties,
   userProfiles,
@@ -34,6 +35,25 @@ import {
   publicRevenueRange,
   type PublicComp,
 } from "../proformaPublicFigures";
+import { accountFromRequest } from "../_core/websiteAccountAuth";
+import { gateEvidence, gateProperties, gateProperty } from "../websiteGating";
+
+/**
+ * Whether the visitor making this request has an investor account session.
+ *
+ * Deliberately narrow: it answers yes or no and nothing else. The public
+ * procedures below need to know how much of a listing to hand over, not who is
+ * asking, and giving them the account would invite them to start filtering on
+ * it. Returns false on any failure, so a broken session shows the public view
+ * rather than an error page.
+ */
+async function visitorIsSignedIn(req: unknown): Promise<boolean> {
+  try {
+    return (await accountFromRequest(req as any)) != null;
+  } catch {
+    return false;
+  }
+}
 
 const statusSchema = z.enum(["draft", "published", "archived"]);
 const nullableNumber = z.number().finite().nullable().optional();
@@ -578,7 +598,7 @@ const propertyProjection = {
   assignedAgentSlug: websiteAgentProfiles.slug,
 };
 
-async function getPublishedHome() {
+async function getPublishedHome(signedIn: boolean) {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
   const [settingsRows, propertyRows, agentRows, caseRows, postRows] =
@@ -689,7 +709,7 @@ async function getPublishedHome() {
     ]);
   return {
     settings: settingsRows[0] ?? null,
-    properties: propertyRows,
+    properties: gateProperties(propertyRows, signedIn),
     agents: agentRows.map(withNormalizedBooking),
     caseStudies: caseRows,
     posts: postRows,
@@ -774,7 +794,9 @@ export const WEBSITE_PUBLIC_TRPC_PATHS = new Set([
 ]);
 
 export const websiteRouter = router({
-  publicHome: publicProcedure.query(getPublishedHome),
+  publicHome: publicProcedure.query(async ({ ctx }) =>
+    getPublishedHome(await visitorIsSignedIn(ctx.req))
+  ),
 
   publicSettings: publicProcedure.query(async () => {
     const db = await getDb();
@@ -802,9 +824,10 @@ export const websiteRouter = router({
         })
         .optional()
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
+      const signedIn = await visitorIsSignedIn(ctx.req);
       const conditions: any[] = [eq(websiteProperties.status, "published")];
       if (input?.search) {
         const q = `%${input.search}%`;
@@ -848,7 +871,7 @@ export const websiteRouter = router({
                   desc(websiteProperties.publishedAt),
                 ];
 
-      return db
+      const rows = await db
         .select(propertyProjection)
         .from(websiteProperties)
         .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
@@ -860,6 +883,7 @@ export const websiteRouter = router({
         )
         .where(and(...conditions))
         .orderBy(...order);
+      return gateProperties(rows, signedIn);
     }),
 
   /**
@@ -903,9 +927,10 @@ export const websiteRouter = router({
 
   publicProperty: publicProcedure
     .input(z.object({ slug: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return null;
+      const signedIn = await visitorIsSignedIn(ctx.req);
       const rows = await db
         .select(propertyProjection)
         .from(websiteProperties)
@@ -923,7 +948,7 @@ export const websiteRouter = router({
           )
         )
         .limit(1);
-      return rows[0] ?? null;
+      return rows[0] ? gateProperty(rows[0], signedIn) : null;
     }),
 
   /**
@@ -945,10 +970,15 @@ export const websiteRouter = router({
    */
   publicPropertyEvidence: publicProcedure
     .input(z.object({ slug: z.string() }))
-    .query(async ({ input }) => {
-      const empty = { revenue: null, comps: [] as PublicComp[] };
+    .query(async ({ input, ctx }) => {
+      const empty = {
+        revenue: null as ReturnType<typeof publicRevenueRange>,
+        comps: [] as PublicComp[],
+        gated: false,
+      };
       const db = await getDb();
       if (!db) return empty;
+      const signedIn = await visitorIsSignedIn(ctx.req);
 
       const [listing] = await db
         .select({
@@ -978,11 +1008,39 @@ export const websiteRouter = router({
         .limit(1);
       if (!proforma) return empty;
 
-      return {
-        revenue: publicRevenueRange(proforma.formData),
-        comps: publicComps(proforma.formData),
-      };
+      return gateEvidence(
+        {
+          revenue: publicRevenueRange(proforma.formData),
+          comps: publicComps(proforma.formData),
+        },
+        signedIn
+      );
     }),
+
+  /**
+   * The markets an investor can subscribe to in their email preferences.
+   *
+   * Only markets that are actually being worked. Offering someone a market
+   * nobody covers is a subscription to an empty inbox.
+   */
+  publicMarkets: publicProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db
+      .select({
+        id: marketProfiles.id,
+        name: marketProfiles.name,
+        state: marketProfiles.state,
+      })
+      .from(marketProfiles)
+      .where(
+        or(
+          eq(marketProfiles.status, "active"),
+          eq(marketProfiles.status, "recruiting")
+        )!
+      )
+      .orderBy(asc(marketProfiles.state), asc(marketProfiles.name));
+  }),
 
   publicAgents: publicProcedure
     .input(
