@@ -383,6 +383,7 @@ const propertyInput = z.object({
   assignedAgentId: z.number().int().positive().nullable().optional(),
   headline: nullableText,
   summary: nullableText,
+  agentBlurb: nullableText,
   heroImageUrl: nullableText,
   galleryImageUrls: stringList,
   featureTags: stringList,
@@ -462,6 +463,7 @@ const propertyWebsiteContentInput = z.object({
   assignedAgentId: z.number().int().positive().nullable().optional(),
   headline: nullableText,
   summary: nullableText,
+  agentBlurb: nullableText,
   heroImageUrl: nullableText,
   galleryImageUrls: stringList,
   featureTags: stringList,
@@ -565,6 +567,7 @@ const propertyProjection = {
   assignedAgentId: websiteProperties.assignedAgentId,
   headline: websiteProperties.headline,
   summary: websiteProperties.summary,
+  agentBlurb: websiteProperties.agentBlurb,
   heroImageUrl: websiteProperties.heroImageUrl,
   galleryImageUrls: websiteProperties.galleryImageUrls,
   featureTags: websiteProperties.featureTags,
@@ -1272,6 +1275,9 @@ export const websiteRouter = router({
         intent: z
           .enum(["buy", "sell", "property", "agent", "general"])
           .default("general"),
+        requestType: z
+          .enum(["showing", "analysis", "financing"])
+          .optional(),
         propertyId: z.number().int().positive().optional(),
         agentUserId: z.number().int().positive().optional(),
         sourcePath: z.string().trim().max(512).optional(),
@@ -1318,6 +1324,7 @@ export const websiteRouter = router({
         email: normalizedEmail,
         phone: input.phone || null,
         intent: input.intent,
+        requestType: input.requestType || null,
         message: input.message || null,
         sourcePath: input.sourcePath || null,
         attribution: input.attribution || {},
@@ -1349,6 +1356,7 @@ export const websiteRouter = router({
           relatedContactId: contactId,
           details: {
             intent: input.intent,
+            requestType: input.requestType || null,
             message: input.message || null,
             propertyId: input.propertyId ?? null,
             propertyAddress,
@@ -1708,6 +1716,7 @@ export const websiteRouter = router({
           assignedAgentId: input.assignedAgentId || null,
           headline: input.headline || null,
           summary: input.summary || null,
+          agentBlurb: input.agentBlurb || null,
           heroImageUrl: input.heroImageUrl || null,
           galleryImageUrls: input.galleryImageUrls,
           featureTags: input.featureTags,
@@ -2082,6 +2091,7 @@ export const websiteRouter = router({
         assignedAgentId: input.assignedAgentId || null,
         headline: input.headline || null,
         summary: input.summary || null,
+        agentBlurb: input.agentBlurb || null,
         heroImageUrl: input.heroImageUrl || null,
         galleryImageUrls: input.galleryImageUrls,
         featureTags: input.featureTags,
