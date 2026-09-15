@@ -2,15 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   BedDouble,
+  Check,
+  CircleDot,
   Eye,
+  FileText,
   Heart,
   Loader2,
   Lock,
   LogOut,
   Mail,
   MapPin,
+  Phone,
   Settings,
   UserRound,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -41,6 +46,7 @@ export const accountPath = {
   saved: publicPath("/account/saved"),
   preferences: publicPath("/account/preferences"),
   history: publicPath("/account/history"),
+  transactions: publicPath("/account/transactions"),
 };
 
 const money = (value: unknown) =>
@@ -527,6 +533,12 @@ export function AccountMenu({ dark = false }: { dark?: boolean }) {
           </a>
           <a
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            href={accountPath.transactions}
+          >
+            <FileText className="h-4 w-4" /> My transactions
+          </a>
+          <a
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             href={accountPath.preferences}
           >
             <Settings className="h-4 w-4" /> Email preferences
@@ -572,6 +584,9 @@ export function AccountMobileLinks({ dark = false }: { dark?: boolean }) {
     <>
       <a className={itemClass} href={accountPath.saved}>
         Saved properties
+      </a>
+      <a className={itemClass} href={accountPath.transactions}>
+        My transactions
       </a>
       <a className={itemClass} href={accountPath.preferences}>
         Email preferences
@@ -688,14 +703,18 @@ function RequireAccount({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function AccountTabs({ active }: { active: "saved" | "preferences" | "history" }) {
+type AccountTab = "saved" | "preferences" | "history" | "transactions";
+
+function AccountTabs({ active }: { active: AccountTab }) {
   const tabs: Array<[string, string, typeof Heart]> = [
     ["saved", accountPath.saved, Heart],
+    ["transactions", accountPath.transactions, FileText],
     ["preferences", accountPath.preferences, Mail],
     ["history", accountPath.history, Eye],
   ];
   const label: Record<string, string> = {
     saved: "Saved properties",
+    transactions: "My transactions",
     preferences: "Email preferences",
     history: "Recently viewed",
   };
@@ -725,7 +744,7 @@ function AccountShell({
   children,
 }: {
   title: string;
-  active: "saved" | "preferences" | "history";
+  active: AccountTab;
   children: React.ReactNode;
 }) {
   return (
@@ -1118,5 +1137,205 @@ function PreferencesForm() {
         )}
       </button>
     </form>
+  );
+}
+
+// ─── My transactions ─────────────────────────────────────────────────────────
+
+const shortDate = (value: unknown) => {
+  if (!value) return null;
+  const date = new Date(value as string);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+/**
+ * The three points of a purchase, drawn plainly.
+ *
+ * No percentage complete and no invented intermediate stages. SavvyOS records
+ * a contract date, a closing date and a status, so that is what this shows.
+ * A progress bar reading "60%" would be a number nobody computed.
+ */
+function StepTrack({ steps }: { steps: any[] }) {
+  return (
+    <ol className="mt-5 space-y-3">
+      {steps.map((step: any) => {
+        const done = step.state === "done";
+        const current = step.state === "current";
+        const stopped = step.state === "stopped";
+        return (
+          <li key={step.key} className="flex items-start gap-3">
+            <span
+              className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
+                stopped
+                  ? "bg-slate-200 text-slate-600"
+                  : done
+                    ? "bg-[#10c0df] text-[#03293c]"
+                    : current
+                      ? "border-2 border-[#10c0df] bg-white text-cyan-600"
+                      : "border border-slate-300 bg-white text-slate-300"
+              }`}
+            >
+              {stopped ? (
+                <XCircle className="h-3.5 w-3.5" />
+              ) : done ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : current ? (
+                <CircleDot className="h-3.5 w-3.5" />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+              )}
+            </span>
+            <div className="min-w-0">
+              <p
+                className={`text-sm font-bold ${
+                  done || current || stopped ? "text-[#05314a]" : "text-slate-400"
+                }`}
+              >
+                {step.label}
+              </p>
+              {shortDate(step.date) && (
+                <p className="text-xs text-slate-500">{shortDate(step.date)}</p>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function TransactionCard({ deal }: { deal: any }) {
+  return (
+    <div className="rounded-2xl border bg-white p-6 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-600">
+            {deal.side === "sale" ? "Sale" : "Purchase"}
+          </p>
+          <h2 className="mt-1 text-xl font-bold" style={{ color: NAVY }}>
+            {deal.propertyAddress || "Property on file"}
+          </h2>
+        </div>
+        <div className="text-right">
+          <span
+            className={`inline-block rounded-full px-3 py-1 text-xs font-bold ${
+              deal.status === "closed"
+                ? "bg-emerald-50 text-emerald-800"
+                : deal.status === "terminated"
+                  ? "bg-slate-100 text-slate-600"
+                  : "bg-cyan-50 text-cyan-900"
+            }`}
+          >
+            {deal.statusLabel}
+          </span>
+          {deal.purchasePrice && (
+            <p className="mt-2 text-lg font-black" style={{ color: NAVY }}>
+              {money(deal.purchasePrice)}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <StepTrack steps={deal.steps || []} />
+
+      {deal.agent?.name && (
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4">
+          <div className="flex items-center gap-3">
+            {deal.agent.imageUrl ? (
+              <img
+                src={deal.agent.imageUrl}
+                alt=""
+                className="h-10 w-10 rounded-full object-cover"
+              />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-100">
+                <UserRound className="h-5 w-5 text-cyan-700" />
+              </div>
+            )}
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-slate-400">
+                Your agent
+              </p>
+              <p className="text-sm font-bold" style={{ color: NAVY }}>
+                {deal.agent.name}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {deal.agent.phone && (
+              <a
+                className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold"
+                style={{ color: NAVY }}
+                href={`tel:${String(deal.agent.phone).replace(/[^+\d]/g, "")}`}
+              >
+                <Phone className="h-3.5 w-3.5" /> Call
+              </a>
+            )}
+            {deal.agent.email && (
+              <a
+                className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold"
+                style={{ color: NAVY }}
+                href={`mailto:${deal.agent.email}`}
+              >
+                <Mail className="h-3.5 w-3.5" /> Email
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function MyTransactionsBody() {
+  return (
+    <RequireAccount>
+      <AccountShell title="My transactions" active="transactions">
+        <TransactionsList />
+      </AccountShell>
+    </RequireAccount>
+  );
+}
+
+function TransactionsList() {
+  const deals = trpc.websiteAccount.myTransactions.useQuery();
+  if (deals.isLoading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+  const rows = deals.data || [];
+  if (!rows.length) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
+        <FileText className="mx-auto h-6 w-6 text-slate-400" />
+        <p className="mt-3 text-sm text-slate-500">
+          Nothing here yet. Once you are under contract on a property with a
+          Savvy agent, you will be able to follow it from this page.
+        </p>
+        <p className="mx-auto mt-2 max-w-md text-xs text-slate-400">
+          Already working with an agent? Ask them to connect your account and it
+          will show up.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-5">
+      {rows.map((deal: any) => (
+        <TransactionCard key={deal.id} deal={deal} />
+      ))}
+      <p className="text-xs text-slate-500">
+        Dates reflect what is on file with your agent and can move. Your agent
+        is the best person to ask about anything on this page.
+      </p>
+    </div>
   );
 }
