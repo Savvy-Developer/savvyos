@@ -3,6 +3,7 @@ import {
   buildNormalizedKey,
   buildUnitAwareStreetAddress,
   extractAddressUnit,
+  prepareTypedPropertyAddress,
 } from "./addressNormalization";
 
 describe("unit-aware address normalization", () => {
@@ -45,5 +46,23 @@ describe("unit-aware address normalization", () => {
       "34 Chivas Lane",
       "102C",
     )).toBe("34 Chivas Lane Unit 102C");
+  });
+
+  it("does not replace a manual address with a Google search result", () => {
+    const prepared = prepareTypedPropertyAddress({
+      address: "  2805 W U.S. 290  ",
+      city: "dripping springs",
+      state: "tx",
+      zip: "78620",
+    });
+
+    expect(prepared).toMatchObject({
+      address: "2805 W U.S. 290",
+      city: "Dripping Springs",
+      state: "TX",
+      zip: "78620",
+    });
+    expect(prepared.normalizedAddress).toBe(buildNormalizedKey("2805 W U.S. 290", "Dripping Springs", "TX", "78620"));
+    expect(prepared.normalizedAddress).not.toBe(buildNormalizedKey("1301 U.S. 290", "Dripping Springs", "TX", "78620"));
   });
 });

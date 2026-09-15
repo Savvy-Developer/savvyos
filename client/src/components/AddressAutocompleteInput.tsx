@@ -147,9 +147,9 @@ export function AddressAutocompleteInput({
       {verified ? (
         <p className="flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Verified with Google Maps</p>
       ) : unavailable ? (
-        <p className="text-xs text-muted-foreground">Address suggestions are temporarily unavailable; the address will still be verified when saved.</p>
+        <p className="text-xs text-muted-foreground">Address suggestions are temporarily unavailable. You can still enter the address manually and SavvyOS will save exactly what you enter.</p>
       ) : (
-        <p className="text-xs text-muted-foreground">Choose a suggested address to verify and fill City, State, and ZIP.</p>
+        <p className="text-xs text-muted-foreground">Choose a suggested address only if you want Google to fill the fields. Manual entries are saved as entered.</p>
       )}
     </div>
   );

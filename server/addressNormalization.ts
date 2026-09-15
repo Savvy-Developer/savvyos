@@ -99,6 +99,25 @@ export function buildNormalizedKey(
 }
 
 /**
+ * Prepare a manually entered property identity without changing its street
+ * address. This is deliberately separate from Google lookups: validation or
+ * suggestions must never silently replace what a user entered.
+ */
+export function prepareTypedPropertyAddress(input: { address: string; city?: string | null; state?: string | null; zip?: string | null }) {
+  const address = input.address.trim().replace(/\s+/g, " ");
+  const city = capitalizeCity(input.city);
+  const state = normalizeState(input.state);
+  const zip = input.zip?.trim() ?? "";
+  return {
+    address,
+    city,
+    state,
+    zip,
+    normalizedAddress: buildNormalizedKey(address, city, state, zip),
+  };
+}
+
+/**
  * Pull a trailing apartment, unit, suite, lot, or hash-number designator from
  * a street-address field. The returned value is canonicalized for storage and
  * duplicate keys, so “Apt. 2”, “#2”, and “Unit 2” identify the same unit.

@@ -123,6 +123,7 @@ export default function PropertiesPage() {
       city: form.city,
       state: form.state,
       zip: form.zip,
+      addressSource: addressVerified ? "google_selected" : "manual",
       propertyType: form.propertyType as any,
       beds: form.beds || null,
       baths: form.baths || null,
@@ -351,7 +352,7 @@ export default function PropertiesPage() {
             </div>
             <div><Label>List Price</Label><CurrencyInput placeholder="450,000.00" value={form.listPrice} onChange={(listPrice) => setForm(current => ({ ...current, listPrice }))} /></div>
 
-            {!addressVerified && form.address && <p className="text-xs text-muted-foreground">A manually entered address will be verified and standardized when the property is saved.</p>}
+            {!addressVerified && form.address && <p className="text-xs text-muted-foreground">Manual entries are saved exactly as entered. Select a Google suggestion only when you want it to fill the address fields.</p>}
 
             {/* Duplicate Warning */}
             {detectedDuplicate && (

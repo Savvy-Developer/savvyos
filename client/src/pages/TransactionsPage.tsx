@@ -206,18 +206,37 @@ function PropertyPicker({
   value: { id: number; address: string } | null;
   onChange: (p: { id: number; address: string } | null) => void;
 }) {
+  const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [newAddress, setNewAddress] = useState("");
   const [newCity, setNewCity] = useState("");
   const [newState, setNewState] = useState("");
   const [newZip, setNewZip] = useState("");
+  const [duplicateInfo, setDuplicateInfo] = useState<{ id: number; address: string } | null>(null);
 
   const { data: propData } = trpc.properties.list.useQuery(
     { search: search || undefined, limit: 10 },
     { enabled: search.length >= 2 }
   );
   const properties = unwrapPropertyListRows(propData);
+  const completeAddressEntered = Boolean(newAddress && newCity && newState && newZip);
+  const { data: duplicateCheck } = trpc.properties.checkDuplicate.useQuery({
+    address: newAddress || "-",
+    city: newCity,
+    state: newState,
+    zip: newZip,
+  }, {
+    enabled: showCreate && completeAddressEntered,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const detectedDuplicate = duplicateInfo ?? (duplicateCheck?.isDuplicate && duplicateCheck.existingProperty
+    ? {
+        id: duplicateCheck.existingProperty.id,
+        address: [duplicateCheck.existingProperty.address, duplicateCheck.existingProperty.city, duplicateCheck.existingProperty.state, duplicateCheck.existingProperty.zip].filter(Boolean).join(", "),
+      }
+    : null);
 
   const createProperty = trpc.properties.create.useMutation({
     onSuccess: (data: any) => {
@@ -225,9 +244,19 @@ function PropertyPicker({
       setShowCreate(false);
       setSearch(newAddress);
       setNewAddress(""); setNewCity(""); setNewState(""); setNewZip("");
+      setDuplicateInfo(null);
       toast.success("Property created");
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => {
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.type === "DUPLICATE_PROPERTY") {
+          setDuplicateInfo({ id: parsed.existingId, address: parsed.existingAddress });
+          return;
+        }
+      } catch {}
+      toast.error(e.message);
+    },
   });
 
   if (value) {
@@ -266,7 +295,7 @@ function PropertyPicker({
                   <p className="text-sm text-muted-foreground mb-2">No properties found</p>
                   <button
                     className="text-xs text-primary hover:underline font-medium"
-                    onClick={() => { setShowCreate(true); setNewAddress(search); }}
+                    onClick={() => { setShowCreate(true); setNewAddress(search); setDuplicateInfo(null); }}
                   >
                     + Add "{search}" as new property
                   </button>
@@ -285,7 +314,7 @@ function PropertyPicker({
                   ))}
                   <button
                     className="w-full text-left px-3 py-2 text-xs text-primary hover:bg-muted/50 font-medium"
-                    onClick={() => setShowCreate(true)}
+                    onClick={() => { setShowCreate(true); setDuplicateInfo(null); }}
                   >
                     + Add new property instead
                   </button>
@@ -299,29 +328,35 @@ function PropertyPicker({
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add New Property</p>
           <div>
             <Label className="text-xs">Address *</Label>
-            <Input className="mt-0.5 h-8 text-sm" value={newAddress} onChange={(e) => setNewAddress(e.target.value)} />
+            <Input className="mt-0.5 h-8 text-sm" value={newAddress} onChange={(e) => { setDuplicateInfo(null); setNewAddress(e.target.value); }} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div>
               <Label className="text-xs">City *</Label>
-              <Input className="mt-0.5 h-8 text-sm" value={newCity} onChange={(e) => setNewCity(e.target.value)} placeholder="e.g. Glendale" />
+              <Input className="mt-0.5 h-8 text-sm" value={newCity} onChange={(e) => { setDuplicateInfo(null); setNewCity(e.target.value); }} placeholder="e.g. Glendale" />
             </div>
             <div>
               <Label className="text-xs">State *</Label>
-              <Input className="mt-0.5 h-8 text-sm" value={newState} onChange={(e) => setNewState(e.target.value)} placeholder="e.g. UT" maxLength={2} />
+              <Input className="mt-0.5 h-8 text-sm" value={newState} onChange={(e) => { setDuplicateInfo(null); setNewState(e.target.value); }} placeholder="e.g. UT" maxLength={2} />
             </div>
             <div>
               <Label className="text-xs">ZIP *</Label>
-              <Input className="mt-0.5 h-8 text-sm" value={newZip} onChange={(e) => setNewZip(e.target.value)} placeholder="e.g. 84729" />
+              <Input className="mt-0.5 h-8 text-sm" value={newZip} onChange={(e) => { setDuplicateInfo(null); setNewZip(e.target.value); }} placeholder="e.g. 84729" />
             </div>
           </div>
+          {detectedDuplicate && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
+              <p className="flex items-start gap-1.5 text-xs text-amber-800"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />This property already exists: {detectedDuplicate.address}</p>
+              <Button size="sm" variant="outline" className="h-7 w-full text-xs border-amber-300 text-amber-800 hover:bg-amber-100" onClick={() => navigate(`/properties/${detectedDuplicate.id}`)}>Go to existing property</Button>
+            </div>
+          )}
           <div className="flex gap-2 pt-1">
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setShowCreate(false); setDuplicateInfo(null); }}>Cancel</Button>
             <Button
               size="sm"
               className="h-7 text-xs"
-              disabled={!newAddress || !newCity || !newState || !newZip || createProperty.isPending}
-              onClick={() => createProperty.mutate({ address: newAddress, city: newCity, state: newState, zip: newZip })}
+              disabled={!newAddress || !newCity || !newState || !newZip || createProperty.isPending || Boolean(detectedDuplicate)}
+              onClick={() => createProperty.mutate({ address: newAddress, city: newCity, state: newState, zip: newZip, addressSource: "manual" })}
             >
               {createProperty.isPending ? "Adding..." : "Add Property"}
             </Button>
