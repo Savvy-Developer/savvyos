@@ -32,6 +32,12 @@ const PIPELINE_STATUS_LABELS: Record<string, string> = {
   closed: "Closed",
 };
 
+const RELATIONSHIP_TYPE_LABELS: Record<string, string> = {
+  buyer: "Buyer",
+  seller: "Seller",
+  both: "Both",
+};
+
 const STATUS_BADGE: Record<string, { label: string; className: string; icon: React.ElementType }> = {
   pending: { label: "Pending Review", className: "bg-yellow-100 text-yellow-800 border-yellow-200", icon: Clock },
   approved: { label: "Approved", className: "bg-green-100 text-green-800 border-green-200", icon: CheckCircle2 },
@@ -44,6 +50,7 @@ export default function RequestConnectionPage() {
     id: number; firstName: string; lastName: string; email: string | null; phone: string | null;
   } | null>(null);
   const [pipelineStatus, setPipelineStatus] = useState("new_lead");
+  const [relationshipType, setRelationshipType] = useState("both");
   const [submitted, setSubmitted] = useState(false);
 
   const { data: searchResults = [] } = trpc.contacts.searchForRequest.useQuery(
@@ -63,6 +70,7 @@ export default function RequestConnectionPage() {
       setSearch("");
       setSelectedContact(null);
       setPipelineStatus("new_lead");
+      setRelationshipType("both");
       setSubmitted(true);
       refetchRequests();
       setTimeout(() => setSubmitted(false), 3000);
@@ -156,6 +164,17 @@ export default function RequestConnectionPage() {
               This is the pipeline stage you believe best fits this lead. The reviewing admin or ISA may adjust it.
             </p>
           </div>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Relationship Type</Label>
+            <Select value={relationshipType} onValueChange={setRelationshipType}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.entries(RELATIONSHIP_TYPE_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Submit */}
           <div className="pt-2">
@@ -173,6 +192,7 @@ export default function RequestConnectionPage() {
                   requestConnMut.mutate({
                     contactId: selectedContact.id,
                     requestedPipelineStatus: pipelineStatus as any,
+                    requestedRelationshipType: relationshipType as any,
                   });
                 }}
               >
@@ -213,6 +233,7 @@ export default function RequestConnectionPage() {
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         Requested stage: <span className="font-medium">{PIPELINE_STATUS_LABELS[req.requestedPipelineStatus] ?? req.requestedPipelineStatus}</span>
+                        {req.requestedRelationshipType && <> · <span className="font-medium">{RELATIONSHIP_TYPE_LABELS[req.requestedRelationshipType] ?? req.requestedRelationshipType}</span></>}
                         {req.createdAt && (
                           <> · {safeFormat(req.createdAt, "MMM d, yyyy")}</>
                         )}

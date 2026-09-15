@@ -18,6 +18,8 @@ import { sendTransactionalEmail } from "../_core/resendEmail";
 import { buildLeadAssignmentContext } from "../contactClientContext";
 import { NO_EXCLUDED_FIELDS, shouldResetLeadAging } from "../leadAging";
 
+const relationshipType = z.enum(["buyer", "seller", "both"]);
+
 const buyBoxInput = z.object({
   propertyType: z.string().optional().nullable(),
   minPrice: z.string().optional().nullable(),
@@ -91,6 +93,7 @@ export const agentConnectionsRouter = router({
       agentId: z.number().optional(),
       contactId: z.number().optional(),
       status: z.string().optional(),
+      relationshipType: relationshipType.optional(),
       isaId: z.number().optional(),
       leadSourceId: z.number().optional(),
       search: z.string().optional(),
@@ -129,6 +132,7 @@ export const agentConnectionsRouter = router({
         agentId: ctx.user.role === "agent" ? undefined : input?.agentId,
         contactId: input?.contactId,
         status: input?.status,
+        relationshipType: input?.relationshipType,
         isaId: input?.isaId,
         leadSourceId: input?.leadSourceId,
         search: input?.search || undefined,
@@ -193,6 +197,7 @@ export const agentConnectionsRouter = router({
       agentId: z.number(),
       contactId: z.number(),
       pipelineStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead","do_not_contact"]).optional(),
+      relationshipType: relationshipType.optional(),
       followUpDate: z.string().optional().nullable(),
       agentNotes: z.string().optional().nullable(),
       buyBox: buyBoxInput.optional(),
@@ -223,6 +228,7 @@ export const agentConnectionsRouter = router({
         agentId: input.agentId,
         contactId: input.contactId,
         pipelineStatus: input.pipelineStatus ?? "new_lead",
+        relationshipType: input.relationshipType ?? "both",
         followUpDate: input.followUpDate ? new Date(input.followUpDate) : null,
         agentNotes: input.agentNotes,
         appointmentSet: input.appointmentSet ?? false,
@@ -290,6 +296,7 @@ export const agentConnectionsRouter = router({
           agentName: activityAgentName,
           contactName: activityContactName,
           pipelineStatus: input.pipelineStatus ?? "new_lead",
+          relationshipType: input.relationshipType ?? "both",
           agentNotes: input.agentNotes?.trim() || null,
           appointmentSet: input.appointmentSet ?? false,
           appointmentSetAt: input.appointmentSet ? new Date().toISOString() : null,
@@ -366,6 +373,7 @@ export const agentConnectionsRouter = router({
       id: z.number(),
       data: z.object({
         pipelineStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead","do_not_contact"]).optional(),
+        relationshipType: relationshipType.optional(),
         followUpDate: z.string().optional().nullable(),
         agentNotes: z.string().optional().nullable(),
         buyBox: buyBoxInput.optional(),
@@ -427,6 +435,7 @@ export const agentConnectionsRouter = router({
           contactName: updateContactName,
           oldStatus,
           newStatus: input.data.pipelineStatus,
+          relationshipType: input.data.relationshipType,
         },
       });
       return { success: true };

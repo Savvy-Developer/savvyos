@@ -207,6 +207,7 @@ function ContactHistoryTabContent({ contactId, recordOnly = false }: { contactId
 type AssignForm = {
   agentId: string;
   pipelineStatus: string;
+  relationshipType: string;
   agentNotes: string;
   isaFollowUpDate: string;
   isaTaskAssigneeId: string;
@@ -498,8 +499,8 @@ export default function ContactDetail() {
   });
   const [newPropertyDuplicateInfo, setNewPropertyDuplicateInfo] = useState<{ id: number; address: string } | null>(null);
 
-const [assignForm, setAssignForm] = useState<AssignForm>({
-    agentId: "", pipelineStatus: "new_lead", agentNotes: "",
+	const [assignForm, setAssignForm] = useState<AssignForm>({
+	    agentId: "", pipelineStatus: "new_lead", relationshipType: "both", agentNotes: "",
     isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "",
     introduceClient: false, appointmentSet: false,
   });
@@ -711,7 +712,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     onSuccess: () => {
       toast.success("Agent connection created 🎉");
       setAssignOpen(false);
-      setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "", introduceClient: false, appointmentSet: false });
+      setAssignForm({ agentId: "", pipelineStatus: "new_lead", relationshipType: "both", agentNotes: "", isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "", introduceClient: false, appointmentSet: false });
       utils.agentConnections.list.invalidate();
       utils.contacts.list.invalidate();
       celebrate("connection_made");
@@ -925,6 +926,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
       agentId: Number(assignForm.agentId),
       contactId,
       pipelineStatus: assignForm.pipelineStatus as any,
+      relationshipType: assignForm.relationshipType as any,
       agentNotes: assignForm.agentNotes || null,
       isaFollowUpDate: assignForm.isaFollowUpDate || null,
       isaTaskAssigneeId: assignForm.isaTaskAssigneeId ? Number(assignForm.isaTaskAssigneeId) : null,
@@ -1886,6 +1888,13 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                     <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
                   ))}
                 </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Relationship Type</Label>
+              <Select value={assignForm.relationshipType} onValueChange={v => setAssignForm(f => ({ ...f, relationshipType: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="buyer">Buyer</SelectItem><SelectItem value="seller">Seller</SelectItem><SelectItem value="both">Both</SelectItem></SelectContent>
               </Select>
             </div>
             {/* ISA follow-up date and assigned ISA */}

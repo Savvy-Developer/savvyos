@@ -46,6 +46,18 @@ const STAGE_COLORS: Record<string, string> = {
   do_not_contact: "bg-red-100 border-red-300 text-red-800",
 };
 
+const RELATIONSHIP_TYPES = [
+  { value: "buyer", label: "Buyer" },
+  { value: "seller", label: "Seller" },
+  { value: "both", label: "Both" },
+];
+
+const RELATIONSHIP_COLORS: Record<string, string> = {
+  buyer: "bg-blue-50 text-blue-700 border-blue-200",
+  seller: "bg-violet-50 text-violet-700 border-violet-200",
+  both: "bg-emerald-50 text-emerald-700 border-emerald-200",
+};
+
 type BuyBoxForm = {
   propertyType: string;
   minPrice: string;
@@ -90,6 +102,7 @@ export default function PipelinePage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const [selectedStage, setSelectedStage] = usePersistentState("pipeline.selectedStage", "all");
+  const [selectedRelationshipType, setSelectedRelationshipType] = usePersistentState("pipeline.selectedRelationshipType", "all");
   const [selectedAgentId, setSelectedAgentId] = usePersistentState("pipeline.selectedAgentId", "all");
   const [selectedIsaId, setSelectedIsaId] = usePersistentState<string>("pipeline.selectedIsaId", (user as any)?.role === "isa" ? String((user as any)?.id) : "all");
   const [selectedLeadSourceId, setSelectedLeadSourceId] = usePersistentState<string>("pipeline.selectedLeadSourceId", "all");
@@ -111,13 +124,14 @@ export default function PipelinePage() {
   const [massEmailOpen, setMassEmailOpen] = useState(false);
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [addContactForm, setAddContactForm] = useState({
-    firstName: "", lastName: "", email: "", phone: "", pipelineStatus: "new_lead", leadSourceId: "",
+    firstName: "", lastName: "", email: "", phone: "", pipelineStatus: "new_lead", relationshipType: "both", leadSourceId: "",
   });
   const [addDupMatches, setAddDupMatches] = useState<any[]>([]);
   const [addDupNameMatches, setAddDupNameMatches] = useState<any[]>([]);
   const checkDup = trpc.contacts.checkDuplicate.useMutation();
   const requestConn = trpc.connectionRequests.create.useMutation();
   const [newStage, setNewStage] = useState("");
+  const [newRelationshipType, setNewRelationshipType] = useState("both");
   const [followUpDate, setFollowUpDate] = useState("");
   const [agentNotes, setAgentNotes] = useState("");
   useEffect(() => {
@@ -134,6 +148,7 @@ export default function PipelinePage() {
     // Filters are retained while navigating records, but must never carry from
     // one simulated agent to another and silently hide most of their pipeline.
     setSelectedStage("all");
+    setSelectedRelationshipType("all");
     setSelectedAgentId("all");
     setSelectedIsaId((user as any)?.role === "isa" ? activeUserId : "all");
     setSelectedLeadSourceId("all");
@@ -153,6 +168,7 @@ export default function PipelinePage() {
     setSelectedAgentId,
     setSelectedIsaId,
     setSelectedLeadSourceId,
+    setSelectedRelationshipType,
     setSelectedStage,
     setSortOrder,
   ]);
@@ -167,6 +183,7 @@ export default function PipelinePage() {
 
   const isaIdParam = selectedIsaId === "all" ? undefined : selectedIsaId === "unassigned" ? -1 : Number(selectedIsaId);
   const statusParam = selectedStage === "all" ? undefined : selectedStage;
+  const relationshipTypeParam = selectedRelationshipType === "all" ? undefined : selectedRelationshipType as "buyer" | "seller" | "both";
   const agentIdParam = selectedAgentId === "all" ? undefined : Number(selectedAgentId);
   const leadSourceIdParam = selectedLeadSourceId === "all" ? undefined : selectedLeadSourceId === "unassigned" ? -1 : Number(selectedLeadSourceId);
   const buyBoxSearch = {
@@ -190,6 +207,7 @@ export default function PipelinePage() {
     isaId: isaIdParam,
     leadSourceId: leadSourceIdParam,
     status: statusParam,
+    relationshipType: relationshipTypeParam,
     search: pipelineSearch.trim() || undefined,
     buyBoxSearch: effectiveRole === "agent" && hasBuyBoxSearch ? buyBoxSearch : undefined,
     followUpDateFrom: followUpFrom || undefined,
@@ -253,10 +271,11 @@ export default function PipelinePage() {
         agentId: (user as any).id,
         contactId: contact.id,
         pipelineStatus: f.pipelineStatus as any,
+        relationshipType: f.relationshipType as any,
       });
       toast.success(`${f.firstName} ${f.lastName} added to your pipeline`);
       setAddContactOpen(false);
-      setAddContactForm({ firstName: "", lastName: "", email: "", phone: "", pipelineStatus: "new_lead", leadSourceId: "" });
+      setAddContactForm({ firstName: "", lastName: "", email: "", phone: "", pipelineStatus: "new_lead", relationshipType: "both", leadSourceId: "" });
       setAddDupMatches([]); setAddDupNameMatches([]);
       refetch();
     } catch (e: any) {
@@ -267,10 +286,10 @@ export default function PipelinePage() {
   async function handleRequestConnection(contactId: number) {
     const f = addContactForm;
     try {
-      await requestConn.mutateAsync({ contactId, requestedPipelineStatus: f.pipelineStatus as any });
+      await requestConn.mutateAsync({ contactId, requestedPipelineStatus: f.pipelineStatus as any, requestedRelationshipType: f.relationshipType as any });
       toast.success("Connection request submitted — an ISA or admin will review it shortly");
       setAddContactOpen(false);
-      setAddContactForm({ firstName: "", lastName: "", email: "", phone: "", pipelineStatus: "new_lead", leadSourceId: "" });
+      setAddContactForm({ firstName: "", lastName: "", email: "", phone: "", pipelineStatus: "new_lead", relationshipType: "both", leadSourceId: "" });
       setAddDupMatches([]); setAddDupNameMatches([]);
     } catch (e: any) {
       toast.error(e.message ?? "Failed to submit request");
@@ -286,13 +305,14 @@ export default function PipelinePage() {
   // cannot make a valid filtered result look empty.
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedStage, selectedAgentId, selectedIsaId, selectedLeadSourceId, pipelineSearch, buyBoxSearchForm, followUpFrom, followUpTo, sortOrder]);
+  }, [selectedStage, selectedRelationshipType, selectedAgentId, selectedIsaId, selectedLeadSourceId, pipelineSearch, buyBoxSearchForm, followUpFrom, followUpTo, sortOrder]);
 
   function resetPage() { setCurrentPage(1); }
 
   function openEdit(conn: any) {
     setEditConn(conn);
     setNewStage(conn.connection.pipelineStatus ?? "new_lead");
+    setNewRelationshipType(conn.connection.relationshipType ?? "both");
     setFollowUpDate(conn.connection.followUpDate ? safeFormat(conn.connection.followUpDate, "yyyy-MM-dd") : "");
     setAgentNotes(conn.connection.agentNotes ?? "");
     setEditOpen(true);
@@ -476,8 +496,8 @@ export default function PipelinePage() {
               searchPlaceholder="Search lead sources…"
             />
           </div>
-          {(selectedAgentId !== "all" || selectedIsaId !== "all" || selectedLeadSourceId !== "all" || pipelineSearch || followUpFrom || followUpTo || selectedStage !== "all") && (
-            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { setSelectedAgentId("all"); setSelectedIsaId("all"); setSelectedLeadSourceId("all"); setPipelineSearch(""); setFollowUpFrom(""); setFollowUpTo(""); setSelectedStage("all"); resetPage(); }}>
+          {(selectedAgentId !== "all" || selectedIsaId !== "all" || selectedLeadSourceId !== "all" || selectedRelationshipType !== "all" || pipelineSearch || followUpFrom || followUpTo || selectedStage !== "all") && (
+            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { setSelectedAgentId("all"); setSelectedIsaId("all"); setSelectedLeadSourceId("all"); setSelectedRelationshipType("all"); setPipelineSearch(""); setFollowUpFrom(""); setFollowUpTo(""); setSelectedStage("all"); resetPage(); }}>
               Clear filters
             </Button>
           )}
@@ -495,6 +515,17 @@ export default function PipelinePage() {
         >
           {sortOrder === "asc" ? <><ArrowUpAZ className="h-3.5 w-3.5" /><span className="hidden sm:inline">A → Z</span></> : <><ArrowDownAZ className="h-3.5 w-3.5" /><span className="hidden sm:inline">Z → A</span></>}
         </Button>
+        <Select value={selectedRelationshipType} onValueChange={setSelectedRelationshipType}>
+          <SelectTrigger className="w-28 h-8 text-xs" aria-label="Filter by relationship type">
+            <SelectValue placeholder="Relationship" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All types</SelectItem>
+            {RELATIONSHIP_TYPES.map((type) => (
+              <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -681,6 +712,7 @@ export default function PipelinePage() {
                 <th className="text-left py-3 px-4 text-muted-foreground font-medium">Contact</th>
                 <th className="text-left py-3 px-4 text-muted-foreground font-medium">Agent</th>
                 <th className="text-left py-3 px-4 text-muted-foreground font-medium">Stage</th>
+                <th className="text-left py-3 px-4 text-muted-foreground font-medium">Type</th>
                 {(user as any)?.role !== "agent" && (
                   <th className="text-left py-3 px-4 text-muted-foreground font-medium">ISA Status</th>
                 )}
@@ -695,7 +727,7 @@ export default function PipelinePage() {
             <tbody>
               {connections.length === 0 ? (
                 <tr>
-                  <td colSpan={(user as any)?.role === "agent" ? 8 : 9} className="text-center py-10 text-muted-foreground">
+                  <td colSpan={(user as any)?.role === "agent" ? 9 : 10} className="text-center py-10 text-muted-foreground">
                     No pipeline entries found
                   </td>
                 </tr>
@@ -779,6 +811,11 @@ export default function PipelinePage() {
                       </td>
                       <td className="py-3 px-4">
                         <PipelineStatusBadge status={connection.pipelineStatus} />
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge variant="outline" className={`text-xs capitalize ${RELATIONSHIP_COLORS[connection.relationshipType ?? "both"] ?? ""}`}>
+                          {connection.relationshipType ?? "both"}
+                        </Badge>
                       </td>
                       {(user as any)?.role !== "agent" && (
                         <td className="py-3 px-4">
@@ -965,6 +1002,15 @@ export default function PipelinePage() {
               </Select>
             </div>
             <div>
+              <Label>Relationship Type</Label>
+              <Select value={newRelationshipType} onValueChange={setNewRelationshipType}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {RELATIONSHIP_TYPES.map((type) => (<SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <Label>Follow-up Date</Label>
               <Input
                 type="date"
@@ -991,6 +1037,7 @@ export default function PipelinePage() {
                 id: editConn.connection.id,
                 data: {
                   pipelineStatus: newStage as any,
+                  relationshipType: newRelationshipType as any,
                   followUpDate: followUpDate || null,
                   agentNotes: agentNotes || null,
                 },
@@ -1234,6 +1281,15 @@ export default function PipelinePage() {
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {PIPELINE_STAGES.map((s) => (<SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Relationship Type</Label>
+                  <Select value={addContactForm.relationshipType} onValueChange={(v) => setAddContactForm(f => ({ ...f, relationshipType: v }))}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {RELATIONSHIP_TYPES.map((type) => (<SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>))}
                     </SelectContent>
                   </Select>
                 </div>

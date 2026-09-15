@@ -494,6 +494,7 @@ export default function AgentDashboard() {
   const [reqConnSearch, setReqConnSearch] = useState("");
   const [reqConnSelectedContact, setReqConnSelectedContact] = useState<{ id: number; firstName: string; lastName: string; email: string | null; phone: string | null } | null>(null);
   const [reqConnPipelineStatus, setReqConnPipelineStatus] = useState("new_lead");
+  const [reqConnRelationshipType, setReqConnRelationshipType] = useState("both");
 
   const { data: reqConnResults = [] } = trpc.contacts.searchForRequest.useQuery(
     { search: reqConnSearch },
@@ -507,6 +508,7 @@ export default function AgentDashboard() {
       setReqConnSearch("");
       setReqConnSelectedContact(null);
       setReqConnPipelineStatus("new_lead");
+      setReqConnRelationshipType("both");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -911,7 +913,7 @@ export default function AgentDashboard() {
       </div>
 
       {/* ─── Request Connection Dialog ─────────────────────────────────────────── */}
-      <Dialog open={reqConnOpen} onOpenChange={(o) => { if (!o) { setReqConnSearch(""); setReqConnSelectedContact(null); setReqConnPipelineStatus("new_lead"); } setReqConnOpen(o); }}>
+      <Dialog open={reqConnOpen} onOpenChange={(o) => { if (!o) { setReqConnSearch(""); setReqConnSelectedContact(null); setReqConnPipelineStatus("new_lead"); setReqConnRelationshipType("both"); } setReqConnOpen(o); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -974,6 +976,13 @@ export default function AgentDashboard() {
               </Select>
               <p className="text-xs text-muted-foreground">An admin or ISA will review and approve this request before the connection is created.</p>
             </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Relationship Type</Label>
+              <Select value={reqConnRelationshipType} onValueChange={setReqConnRelationshipType}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="buyer">Buyer</SelectItem><SelectItem value="seller">Seller</SelectItem><SelectItem value="both">Both</SelectItem></SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setReqConnOpen(false)}>Cancel</Button>
@@ -982,7 +991,7 @@ export default function AgentDashboard() {
               disabled={!reqConnSelectedContact || requestConnMut.isPending}
               onClick={() => {
                 if (!reqConnSelectedContact) return;
-                requestConnMut.mutate({ contactId: reqConnSelectedContact.id, requestedPipelineStatus: reqConnPipelineStatus as any });
+                requestConnMut.mutate({ contactId: reqConnSelectedContact.id, requestedPipelineStatus: reqConnPipelineStatus as any, requestedRelationshipType: reqConnRelationshipType as any });
               }}
             >
               {requestConnMut.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Submitting…</> : "Submit Request"}

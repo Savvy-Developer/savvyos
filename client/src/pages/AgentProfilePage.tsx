@@ -168,6 +168,7 @@ export default function AgentProfilePage() {
   const [reqConnSearch, setReqConnSearch] = useState("");
   const [reqConnSelectedContact, setReqConnSelectedContact] = useState<{ id: number; firstName: string; lastName: string; email: string | null; phone: string | null } | null>(null);
   const [reqConnPipelineStatus, setReqConnPipelineStatus] = useState("new_lead");
+  const [reqConnRelationshipType, setReqConnRelationshipType] = useState("both");
 
   // Debounced search for contacts not yet connected to this agent
   const { data: reqConnResults = [] } = trpc.contacts.searchForRequest.useQuery(
@@ -182,6 +183,7 @@ export default function AgentProfilePage() {
       setReqConnSearch("");
       setReqConnSelectedContact(null);
       setReqConnPipelineStatus("new_lead");
+      setReqConnRelationshipType("both");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -1852,7 +1854,7 @@ export default function AgentProfilePage() {
       </Dialog>
 
       {/* ─── Request Connection Dialog ─────────────────────────────────────────── */}
-      <Dialog open={reqConnOpen} onOpenChange={(o) => { if (!o) { setReqConnSearch(""); setReqConnSelectedContact(null); setReqConnPipelineStatus("new_lead"); } setReqConnOpen(o); }}>
+      <Dialog open={reqConnOpen} onOpenChange={(o) => { if (!o) { setReqConnSearch(""); setReqConnSelectedContact(null); setReqConnPipelineStatus("new_lead"); setReqConnRelationshipType("both"); } setReqConnOpen(o); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1927,6 +1929,13 @@ export default function AgentProfilePage() {
               </Select>
               <p className="text-xs text-muted-foreground">The connection will be created immediately and added to this agent's pipeline.</p>
             </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Relationship Type</Label>
+              <Select value={reqConnRelationshipType} onValueChange={setReqConnRelationshipType}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="buyer">Buyer</SelectItem><SelectItem value="seller">Seller</SelectItem><SelectItem value="both">Both</SelectItem></SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setReqConnOpen(false)}>Cancel</Button>
@@ -1938,6 +1947,7 @@ export default function AgentProfilePage() {
                 requestConnMut.mutate({
                   contactId: reqConnSelectedContact.id,
                   requestedPipelineStatus: reqConnPipelineStatus as any,
+                  requestedRelationshipType: reqConnRelationshipType as any,
                   // Pass the agent's ID so the connection is created for the agent,
                   // not for the currently logged-in admin/ISA.
                   agentId: agentId,
@@ -1952,4 +1962,3 @@ export default function AgentProfilePage() {
     </div>
   );
 }
-

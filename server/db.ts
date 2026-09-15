@@ -482,6 +482,7 @@ type AgentConnectionListFilters = {
   agentId?: number;
   contactId?: number;
   status?: string;
+  relationshipType?: "buyer" | "seller" | "both";
   isaId?: number;
   leadSourceId?: number;
   search?: string;
@@ -541,6 +542,7 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
   }
   if (filters.agentId) baseConditions.push(eq(agentConnections.agentId, filters.agentId));
   if (filters.contactId) baseConditions.push(eq(agentConnections.contactId, filters.contactId));
+  if (filters.relationshipType) baseConditions.push(eq(agentConnections.relationshipType, filters.relationshipType));
   if (filters.isaId === -1) {
     baseConditions.push(isNull(contacts.assignedIsaId));
   } else if (filters.isaId) {

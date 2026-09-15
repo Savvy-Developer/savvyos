@@ -64,7 +64,7 @@ export default function AgentConnectionDetail() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [buyBoxForm, setBuyBoxForm] = useState<Record<string, any>>({});
-  const [stageForm, setStageForm] = useState({ pipelineStatus: "", followUpDate: "", agentNotes: "" });
+  const [stageForm, setStageForm] = useState({ pipelineStatus: "", relationshipType: "both", followUpDate: "", agentNotes: "" });
   const [commForm, setCommForm] = useState({ type: "note" as const, subject: "", body: "", direction: "outbound" as const });
   const [taskForm, setTaskForm] = useState({ title: "", taskType: "follow_up", priority: "medium", dueDate: "", notes: "" });
 
@@ -255,6 +255,7 @@ export default function AgentConnectionDetail() {
       id,
       data: {
         pipelineStatus: stageForm.pipelineStatus as any || connection.pipelineStatus as any,
+        relationshipType: stageForm.relationshipType as any || connection.relationshipType as any,
         followUpDate: stageForm.followUpDate || null,
         agentNotes: stageForm.agentNotes || connection.agentNotes,
       },
@@ -282,6 +283,7 @@ export default function AgentConnectionDetail() {
   const startEditStage = () => {
     setStageForm({
       pipelineStatus: connection.pipelineStatus ?? "new_lead",
+      relationshipType: connection.relationshipType ?? "both",
       followUpDate: connection.followUpDate ? safeFormat(connection.followUpDate, "yyyy-MM-dd") : "",
       agentNotes: connection.agentNotes ?? "",
     });
@@ -423,6 +425,10 @@ export default function AgentConnectionDetail() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Stage</span>
                 <Badge className={`${stage?.color} border-0 text-xs`}>{stage?.label}</Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Relationship</span>
+                <span className="font-medium capitalize">{connection.relationshipType ?? "both"}</span>
               </div>
               {connection.followUpDate && (
                 <div className="flex justify-between">
@@ -809,6 +815,13 @@ export default function AgentConnectionDetail() {
                 <SelectContent>
                   {PIPELINE_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                 </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Relationship Type</Label>
+              <Select value={stageForm.relationshipType} onValueChange={v => setStageForm({ ...stageForm, relationshipType: v })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="buyer">Buyer</SelectItem><SelectItem value="seller">Seller</SelectItem><SelectItem value="both">Both</SelectItem></SelectContent>
               </Select>
             </div>
             <div>

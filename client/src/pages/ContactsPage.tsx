@@ -56,6 +56,7 @@ const emptyForm: ContactForm = {
 
 type AssignForm = {
   agentId: string; pipelineStatus: string; agentNotes: string;
+  relationshipType: string;
   isaFollowUpDate: string; isaTaskAssigneeId: string; introduceClient: boolean;
   appointmentEnabled: boolean; appointmentTitle: string; appointmentDate: string; appointmentTime: string;
   appointmentDuration: string; appointmentTimezone: string; appointmentLocation: string;
@@ -331,7 +332,7 @@ export default function ContactsPage() {
   const [assignContactId, setAssignContactId] = useState<number | null>(null);
   const [form, setForm] = useState<ContactForm>(emptyForm);
   const [assignForm, setAssignForm] = useState<AssignForm>({
-    agentId: "", pipelineStatus: "new_lead", agentNotes: "",
+    agentId: "", pipelineStatus: "new_lead", relationshipType: "both", agentNotes: "",
     isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "",
     introduceClient: false, ...defaultAppointmentValues(),
   });
@@ -421,7 +422,7 @@ export default function ContactsPage() {
 
   const finishAssignment = () => {
     setAssignOpen(false);
-    setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "", introduceClient: false, ...defaultAppointmentValues() });
+    setAssignForm({ agentId: "", pipelineStatus: "new_lead", relationshipType: "both", agentNotes: "", isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "", introduceClient: false, ...defaultAppointmentValues() });
     utils.contacts.list.invalidate();
     utils.agentConnections.list.invalidate();
   };
@@ -494,6 +495,7 @@ export default function ContactsPage() {
       agentId: Number(assignForm.agentId),
       contactId: assignContactId,
       pipelineStatus: assignForm.pipelineStatus as any,
+      relationshipType: assignForm.relationshipType as any,
       agentNotes: assignForm.agentNotes || null,
       isaFollowUpDate: assignForm.isaFollowUpDate || null,
       isaTaskAssigneeId: assignForm.isaTaskAssigneeId ? Number(assignForm.isaTaskAssigneeId) : null,
@@ -1251,6 +1253,13 @@ export default function ContactsPage() {
                   <SelectItem value="active_client">Active Client</SelectItem>
                   <SelectItem value="under_contract">Under Contract</SelectItem>
                 </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Relationship Type</Label>
+              <Select value={assignForm.relationshipType} onValueChange={v => setAssignForm(f => ({ ...f, relationshipType: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="buyer">Buyer</SelectItem><SelectItem value="seller">Seller</SelectItem><SelectItem value="both">Both</SelectItem></SelectContent>
               </Select>
             </div>
             <div>

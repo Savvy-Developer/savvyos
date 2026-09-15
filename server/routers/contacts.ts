@@ -1530,6 +1530,7 @@ export const connectionRequestsRouter = router({
     .input(z.object({
       contactId: z.number(),
       requestedPipelineStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead"]).default("new_lead"),
+      requestedRelationshipType: z.enum(["buyer", "seller", "both"]).default("both"),
       // Admins and ISAs can supply an explicit agentId to create the connection
       // on behalf of a specific agent (e.g. from the agent profile page).
       agentId: z.number().optional(),
@@ -1563,6 +1564,7 @@ export const connectionRequestsRouter = router({
         agentId: effectiveAgentId,
         contactId: input.contactId,
         requestedPipelineStatus: input.requestedPipelineStatus,
+        requestedRelationshipType: input.requestedRelationshipType,
         status: "approved",
         reviewedAt: new Date(),
       });
@@ -1571,6 +1573,7 @@ export const connectionRequestsRouter = router({
         agentId: effectiveAgentId,
         contactId: input.contactId,
         pipelineStatus: input.requestedPipelineStatus as any,
+        relationshipType: input.requestedRelationshipType,
       });
       // Log the auto-approved connection request
       await logActivity({
@@ -1630,6 +1633,7 @@ export const connectionRequestsRouter = router({
         agentId: req.agentId,
         contactId: req.contactId,
         pipelineStatus: req.requestedPipelineStatus as any,
+        relationshipType: req.requestedRelationshipType,
       });
       const newConnectionId = insertResult?.insertId;
       // Mark request as approved
@@ -1708,6 +1712,7 @@ export const connectionRequestsRouter = router({
           id: connectionRequestsTable.id,
           status: connectionRequestsTable.status,
           requestedPipelineStatus: connectionRequestsTable.requestedPipelineStatus,
+          requestedRelationshipType: connectionRequestsTable.requestedRelationshipType,
           createdAt: connectionRequestsTable.createdAt,
           reviewedAt: connectionRequestsTable.reviewedAt,
           denialReason: connectionRequestsTable.notes,

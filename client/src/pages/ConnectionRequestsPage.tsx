@@ -21,6 +21,12 @@ const PIPELINE_STATUS_LABELS: Record<string, string> = {
   dead: "Dead",
 };
 
+const RELATIONSHIP_TYPE_LABELS: Record<string, string> = {
+  buyer: "Buyer",
+  seller: "Seller",
+  both: "Both",
+};
+
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800 border-amber-200",
   approved: "bg-green-100 text-green-800 border-green-200",
@@ -158,6 +164,10 @@ export default function ConnectionRequestsPage() {
                           <span className="text-muted-foreground">Requested stage: </span>
                           <span className="font-medium">
                             {PIPELINE_STATUS_LABELS[req.requestedPipelineStatus] ?? req.requestedPipelineStatus}
+                          </span>
+                          <span className="text-muted-foreground"> · Type: </span>
+                          <span className="font-medium">
+                            {RELATIONSHIP_TYPE_LABELS[req.requestedRelationshipType] ?? req.requestedRelationshipType ?? "Both"}
                           </span>
                         </div>
                       </div>

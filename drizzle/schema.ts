@@ -504,6 +504,9 @@ export const agentConnections = mysqlTable(
     ])
       .default("new_lead")
       .notNull(),
+    relationshipType: mysqlEnum("relationshipType", ["buyer", "seller", "both"])
+      .default("both")
+      .notNull(),
     followUpDate: timestamp("followUpDate"),
     agentNotes: text("agentNotes"),
     // Buy box
@@ -4520,6 +4523,9 @@ export const connectionRequests = mysqlTable("connection_requests", {
   requestedPipelineStatus: varchar("requestedPipelineStatus", { length: 64 })
     .notNull()
     .default("new_lead"),
+  requestedRelationshipType: mysqlEnum("requestedRelationshipType", ["buyer", "seller", "both"])
+    .default("both")
+    .notNull(),
   status: varchar("status", { length: 32 }).notNull().default("pending"), // pending | approved | denied
   reviewedById: int("reviewedById").references(() => users.id, {
     onDelete: "set null",
