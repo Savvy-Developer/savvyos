@@ -13,7 +13,6 @@ import {
   users,
 } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
-import { notifySavvyOSPromptRun } from "./_core/slackNotifications";
 import { getDb } from "./db";
 
 // Railway's provisioned native OpenAI endpoint supports the GPT-4.1 family.
@@ -693,13 +692,6 @@ async function processJob(jobId: number): Promise<ExtractionResult> {
   const input = await getJobInput(jobId);
   const extraction = await extractConversationIntelligence(input);
   await saveExtraction(jobId, extraction);
-  // This message is deliberately PII-free. It confirms every production prompt
-  // run without sending customer content or record identifiers to Slack.
-  void notifySavvyOSPromptRun({
-    title: "Contact Intelligence profile refreshed",
-    summary: `A native Aircall transcript was analyzed with the Contact Intelligence ${CONTACT_INTELLIGENCE_EXTRACTION_VERSION} extraction schema. The evidence-linked profile and AI contact briefing were refreshed; no human-managed CRM fields were changed.`,
-    actionUrl: "/analytics/conversation-intelligence",
-  });
   return extraction;
 }
 
