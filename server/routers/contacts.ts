@@ -28,6 +28,7 @@ import {
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { shouldResetLeadAging } from "../leadAging";
 import { isValidOptionalUsPhone, normalizeOptionalUsPhone } from "@shared/phone";
+import { canAdminUsePermission } from "./permissions";
 
 const optionalUsPhone = z
   .string()
@@ -381,6 +382,88 @@ export const contactsRouter = router({
         },
       });
       return { success: true };
+    }),
+
+  // Attribution is immutable through the ordinary contact editor. This narrow
+  // correction path is available only to admins explicitly granted the Super
+  // Permission, and retains a durable audit entry for every change.
+  updateLeadSource: protectedProcedure
+    .input(z.object({
+      id: z.number().int().positive(),
+      leadSourceId: z.number().int().positive(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const permitted = ctx.user.role === "admin"
+        && await canAdminUsePermission(ctx.user, "canEditContactLeadSource");
+      if (!permitted) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have permission to edit a contact's lead source.",
+        });
+      }
+
+      const existing = await getContactById(input.id);
+      const contact = (existing as any)?.contact ?? existing;
+      if (!contact) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found." });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+
+      const [selectedLeadSource] = await db
+        .select({
+          id: leadSources.id,
+          name: leadSources.name,
+          parentId: leadSources.parentId,
+          isActive: leadSources.isActive,
+        })
+        .from(leadSources)
+        .where(eq(leadSources.id, input.leadSourceId))
+        .limit(1);
+      if (!selectedLeadSource || !selectedLeadSource.isActive || isNonManualLeadSource(selectedLeadSource.name)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active manual lead source." });
+      }
+
+      let newLeadSourceLabel = selectedLeadSource.name;
+      if (selectedLeadSource.parentId) {
+        const [parent] = await db
+          .select({ name: leadSources.name, isActive: leadSources.isActive })
+          .from(leadSources)
+          .where(eq(leadSources.id, selectedLeadSource.parentId))
+          .limit(1);
+        if (!parent?.isActive) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a lead source under an active category." });
+        }
+        newLeadSourceLabel = `${parent.name} → ${selectedLeadSource.name}`;
+      }
+
+      if (contact.leadSourceId === input.leadSourceId) return { success: true, unchanged: true };
+
+      const oldLeadSource = (existing as any)?.leadSource;
+      const oldLeadSourceLabel = oldLeadSource?.name
+        ? (oldLeadSource.parentName ? `${oldLeadSource.parentName} → ${oldLeadSource.name}` : oldLeadSource.name)
+        : null;
+      await db
+        .update(contactsTable)
+        .set({ leadSourceId: input.leadSourceId })
+        .where(eq(contactsTable.id, input.id));
+
+      const contactName = `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || "Unknown Contact";
+      await logActivity({
+        userId: ctx.user.id,
+        action: "contact_lead_source_updated",
+        entityType: "contact",
+        entityId: input.id,
+        relatedContactId: input.id,
+        details: {
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          contactName,
+          changes: [{ field: "Lead source", from: oldLeadSourceLabel, to: newLeadSourceLabel }],
+        },
+      });
+      return { success: true, unchanged: false };
     }),
 
   markDoNotContact: protectedProcedure

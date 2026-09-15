@@ -33,6 +33,7 @@ import { formatEmail, formatStreet, formatCityStateZip } from "@/lib/format";
 import { useAppBack } from "@/lib/navigationHistory";
 import { unwrapPropertyListRows } from "@/lib/propertyList";
 import { sortActivityTimeline } from "@shared/activityTimeline";
+import LeadSourcePicker from "@/components/LeadSourcePicker";
 
 // ─── US Timezone Options ─────────────────────────────────────────────────────
 const US_TIMEZONES = [
@@ -464,6 +465,7 @@ export default function ContactDetail() {
   const backLabel = analyticsReturnTo ? "Back to report" : hotLeadsReturnTo ? "Back to Hot Leads" : "Back";
   const { user } = useAuth();
   const contactId = parseInt(id ?? "0");
+  const isAdmin = user?.role === "admin";
 
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -539,6 +541,10 @@ export default function ContactDetail() {
 
   const utils = trpc.useUtils();
   const { data: contactData, refetch } = trpc.contacts.get.useQuery({ id: contactId });
+  const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(
+    undefined,
+    { enabled: isAdmin, staleTime: 30_000 },
+  );
   const { data: connectionsData } = trpc.agentConnections.list.useQuery({ contactId, limit: 50 });
   const connections = connectionsData?.rows;
   const { data: contactTxData } = trpc.transactions.byContact.useQuery({ contactId });
@@ -629,6 +635,15 @@ export default function ContactDetail() {
 
   const updateContact = trpc.contacts.update.useMutation({
     onSuccess: () => { toast.success("Contact updated"); setEditOpen(false); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateContactLeadSource = trpc.contacts.updateLeadSource.useMutation({
+    onSuccess: (data, variables) => {
+      toast.success(data.unchanged ? "Lead source is already up to date" : "Contact lead source updated");
+      setEditForm((form: any) => ({ ...form, leadSourceId: variables.leadSourceId }));
+      refetch();
+      utils.contacts.list.invalidate();
+    },
     onError: (e) => toast.error(e.message),
   });
   const checkDupMut = trpc.contacts.checkDuplicate.useMutation();
@@ -883,6 +898,7 @@ export default function ContactDetail() {
       spouseLastName: (contact as any).spouseLastName ?? "",
       spouseEmail: (contact as any).spouseEmail ?? "",
       spousePhone: (contact as any).spousePhone ?? "",
+      leadSourceId: contact.leadSourceId ?? null,
       notes: contact.notes ?? "",
       timezone: (contact as any).timezone ?? "",
     });
@@ -892,7 +908,8 @@ export default function ContactDetail() {
   };
 
   const canAssign = user?.role === "admin" || user?.role === "isa";
-  const isAdmin = user?.role === "admin";
+  const canEditContactLeadSource = isAdmin
+    && !!(adminPermissions as Record<string, boolean> | undefined)?.canEditContactLeadSource;
   const isIsa = user?.role === "isa";
   const aircallCallBlockedReason = !contact.phone
     ? "Add a primary phone number before calling."
@@ -1838,9 +1855,32 @@ export default function ContactDetail() {
               <TabsContent value="details" className="space-y-4">
                 <div>
                   <Label>Lead Source</Label>
-                  <p className="mt-1 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                    Lead source attribution is locked when a contact is created.
-                  </p>
+                  {canEditContactLeadSource ? (
+                    <div className="mt-1 rounded-md border border-amber-200 bg-amber-50/50 p-3">
+                      <LeadSourcePicker
+                        value={editForm.leadSourceId}
+                        onChange={(leadSourceId) => setEditForm({ ...editForm, leadSourceId })}
+                      />
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <p className="text-xs text-amber-800">
+                          This corrects the contact's attribution only. Existing transaction attribution does not change.
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateContactLeadSource.mutate({ id: contactId, leadSourceId: Number(editForm.leadSourceId) })}
+                          disabled={!editForm.leadSourceId || editForm.leadSourceId === contact.leadSourceId || updateContactLeadSource.isPending}
+                        >
+                          {updateContactLeadSource.isPending ? "Saving..." : "Save Lead Source"}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-1 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                      Lead source attribution is locked when a contact is created.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label>Notes</Label>

@@ -38,6 +38,16 @@ import { transactionPayoutItems, transactions, listings, contacts, properties, c
 import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
 import { eq, and, sql, desc, aliasedTable, or, inArray, ne } from "drizzle-orm";
 import { applyAutomaticChecklists, recalculateChecklistDueDates } from "../checklistService";
+import { canAdminUsePermission } from "./permissions";
+
+const NON_MANUAL_LEAD_SOURCE_NAMES = new Set([
+  "unattributed",
+  "unattributed (webhook)",
+]);
+
+function isNonManualLeadSource(name: string | null | undefined): boolean {
+  return NON_MANUAL_LEAD_SOURCE_NAMES.has((name ?? "").trim().toLowerCase());
+}
 
 const wholePercentageSchema = z.coerce
   .number({ error: "Percentage must be a number from 0 to 100." })
@@ -667,6 +677,94 @@ export const transactionsRouter = router({
       }
 
       return { success: true };
+    }),
+
+  // A transaction retains the contact source captured at creation. This is the
+  // sole correction path and is intentionally isolated from the normal update
+  // mutation so only explicitly authorized admins can change historical attribution.
+  updateLeadSource: protectedProcedure
+    .input(z.object({
+      id: z.number().int().positive(),
+      leadSourceId: z.number().int().positive(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const permitted = ctx.user.role === "admin"
+        && await canAdminUsePermission(ctx.user, "canEditTransactionLeadSource");
+      if (!permitted) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have permission to edit a transaction's lead source.",
+        });
+      }
+
+      const existing = await getTransactionById(input.id);
+      if (!existing) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Transaction not found." });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+
+      const [selectedLeadSource] = await db
+        .select({
+          id: leadSources.id,
+          name: leadSources.name,
+          parentId: leadSources.parentId,
+          isActive: leadSources.isActive,
+        })
+        .from(leadSources)
+        .where(eq(leadSources.id, input.leadSourceId))
+        .limit(1);
+      if (!selectedLeadSource || !selectedLeadSource.isActive || isNonManualLeadSource(selectedLeadSource.name)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active manual lead source." });
+      }
+
+      let newLeadSourceLabel = selectedLeadSource.name;
+      if (selectedLeadSource.parentId) {
+        const [parent] = await db
+          .select({ name: leadSources.name, isActive: leadSources.isActive })
+          .from(leadSources)
+          .where(eq(leadSources.id, selectedLeadSource.parentId))
+          .limit(1);
+        if (!parent?.isActive) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a lead source under an active category." });
+        }
+        newLeadSourceLabel = `${parent.name} → ${selectedLeadSource.name}`;
+      }
+
+      if (existing.transaction.transactionLeadSourceId === input.leadSourceId) {
+        return { success: true, unchanged: true };
+      }
+
+      const oldLeadSource = existing.transactionLeadSource;
+      const oldLeadSourceLabel = oldLeadSource?.name
+        ? (existing.transactionLeadSourceParent?.name
+          ? `${existing.transactionLeadSourceParent.name} → ${oldLeadSource.name}`
+          : oldLeadSource.name)
+        : null;
+      await db
+        .update(transactions)
+        .set({ transactionLeadSourceId: input.leadSourceId })
+        .where(eq(transactions.id, input.id));
+
+      const transaction = existing.transaction;
+      const contactName = existing.contact
+        ? `${existing.contact.firstName ?? ""} ${existing.contact.lastName ?? ""}`.trim() || "Unknown Contact"
+        : "Unknown Contact";
+      await logActivity({
+        userId: ctx.user.id,
+        action: "transaction_lead_source_updated",
+        entityType: "transaction",
+        entityId: input.id,
+        details: {
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          txNumber: transaction.transactionNumber,
+          contactName,
+          changes: [{ field: "Transaction Lead Source", from: oldLeadSourceLabel, to: newLeadSourceLabel }],
+        },
+      });
+      return { success: true, unchanged: false };
     }),
 
   // ─── Payout Items ─────────────────────────────────────────────────────────

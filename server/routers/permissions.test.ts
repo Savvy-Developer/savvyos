@@ -116,6 +116,11 @@ describe("Transactions Admin permission", () => {
   it("registers the settled-payout override toggle in its own Super Permissions category", () => {
     expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canAdministerTransactions", label: "Transactions Admin", group: "Transactions Admin" });
   });
+
+  it("registers separate attribution-correction permissions for contacts and transactions", () => {
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canEditContactLeadSource", label: "Edit Contact Lead Source", group: "CRM" });
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canEditTransactionLeadSource", label: "Edit Transaction Lead Source", group: "Transactions Admin" });
+  });
 });
 
 describe("Agent Celebration and Market Match permissions", () => {

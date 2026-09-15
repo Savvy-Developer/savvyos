@@ -29,6 +29,7 @@ import { useCelebration } from "@/hooks/useCelebration";
 import { useAppBack } from "@/lib/navigationHistory";
 import { unwrapPropertyListRows } from "@/lib/propertyList";
 import ChecklistPanel from "@/components/checklists/ChecklistPanel";
+import LeadSourcePicker from "@/components/LeadSourcePicker";
 
 // ─── Transaction History Timeline ─────────────────────────────────────────────────────────
 const TX_HISTORY_OUTCOME_COLORS: Record<string, string> = {
@@ -332,6 +333,10 @@ export default function TransactionDetail() {
   const [splitPreviewOpen, setSplitPreviewOpen] = useState(false);
 
   const { data: txData, refetch } = trpc.transactions.get.useQuery({ id: txId });
+  const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(
+    undefined,
+    { enabled: isAdmin, staleTime: 30_000 },
+  );
   const { data: outboundReferrals = [] } = trpc.referrals.byTransaction.useQuery({ transactionId: txId }, { enabled: canViewOutboundReferrals });
   const { data: payouts, refetch: refetchPayouts } = trpc.transactions.getPayouts.useQuery({ transactionId: txId });
   const { data: tasksData } = trpc.tasks.list.useQuery({ relatedTransactionId: txId });
@@ -384,6 +389,14 @@ export default function TransactionDetail() {
 
   const updateTransaction = trpc.transactions.update.useMutation({
     onSuccess: () => { toast.success("Transaction updated"); setEditOpen(false); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateTransactionLeadSource = trpc.transactions.updateLeadSource.useMutation({
+    onSuccess: (data, variables) => {
+      toast.success(data.unchanged ? "Lead source is already up to date" : "Transaction lead source updated");
+      setEditForm((form) => ({ ...form, transactionLeadSourceId: variables.leadSourceId }));
+      refetch();
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -626,6 +639,8 @@ export default function TransactionDetail() {
       ? `${transactionLeadSourceParent.name} › ${transactionLeadSource.name}`
       : transactionLeadSource.name)
     : null;
+  const canEditTransactionLeadSource = isAdmin
+    && !!(adminPermissions as Record<string, boolean> | undefined)?.canEditTransactionLeadSource;
 
   const totalPct = (payouts?.items ?? []).reduce((s, { payout: p }) => s + Number(p.percentage), 0);
 
@@ -642,6 +657,7 @@ export default function TransactionDetail() {
       agentId: String(tx.agentId ?? ""),
       primaryContactId: String(tx.primaryContactId ?? ""),
       primaryContactName: contact ? `${contact.firstName} ${contact.lastName}` : "",
+      transactionLeadSourceId: tx.transactionLeadSourceId ?? null,
       propertyId: tx.propertyId ? String(tx.propertyId) : "",
       propertyName: tx.propertyAddressSnapshot || (property ? `${property.address}${property.city ? `, ${property.city}` : ""}` : ""),
       purchasePrice: tx.purchasePrice ? Number(tx.purchasePrice).toLocaleString("en-US") : "",
@@ -2051,6 +2067,31 @@ export default function TransactionDetail() {
                 </div>
               )}
             </div>
+
+            {canEditTransactionLeadSource && (
+              <div className="rounded-md border border-amber-200 bg-amber-50/50 p-3">
+                <Label>Transaction Lead Source</Label>
+                <LeadSourcePicker
+                  className="mt-1"
+                  value={editForm.transactionLeadSourceId}
+                  onChange={(transactionLeadSourceId) => setEditForm({ ...editForm, transactionLeadSourceId })}
+                />
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="text-xs text-amber-800">
+                    This corrects the transaction's historical attribution. It does not change the contact's lead source.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => updateTransactionLeadSource.mutate({ id: txId, leadSourceId: Number(editForm.transactionLeadSourceId) })}
+                    disabled={!editForm.transactionLeadSourceId || editForm.transactionLeadSourceId === tx.transactionLeadSourceId || updateTransactionLeadSource.isPending}
+                  >
+                    {updateTransactionLeadSource.isPending ? "Saving..." : "Save Lead Source"}
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {/* Financial */}
             <div className="grid grid-cols-2 gap-3">

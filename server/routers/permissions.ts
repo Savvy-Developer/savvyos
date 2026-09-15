@@ -53,6 +53,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewLeaderboard",            label: "Agent Leaderboard",          group: "Overview" },
   // CRM
   { key: "canViewContacts",               label: "All Contacts",               group: "CRM" },
+  { key: "canEditContactLeadSource",      label: "Edit Contact Lead Source",   group: "CRM" },
   { key: "canViewPipeline",               label: "Agent Pipelines",            group: "CRM" },
   { key: "canViewTasks",                  label: "CRM Tasks",                  group: "CRM" },
   // ISA
@@ -78,6 +79,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canManageReferralAgreements",   label: "Manage Agreements",          group: "Transactions" },
   { key: "canEditHistoricalReferrals",    label: "Edit Historical Referrals",  group: "Transactions" },
   { key: "canAdministerTransactions",      label: "Transactions Admin",         group: "Transactions Admin" },
+  { key: "canEditTransactionLeadSource",  label: "Edit Transaction Lead Source", group: "Transactions Admin" },
   // Agent Success Team
   { key: "canViewAgentMarkets",           label: "Agent Markets",              group: "Agent Success Team" },
   { key: "canViewAgentCelebrations",      label: "Agent Celebration",          group: "Agent Success Team" },
@@ -361,6 +363,8 @@ export const permissionsRouter = router({
             "canArchiveLandingPages",
             "canViewShortLinks",
             "canAdministerTransactions",
+            "canEditContactLeadSource",
+            "canEditTransactionLeadSource",
             "canViewWebsite",
             "canManageWebsiteProperties",
             "canManageWebsiteAgents",

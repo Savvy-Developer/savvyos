@@ -6091,6 +6091,10 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewLeaderboard: boolean("canViewLeaderboard").default(true).notNull(),
   // CRM
   canViewContacts: boolean("canViewContacts").default(true).notNull(),
+  // Attribution corrections remain explicitly controlled even for admins who can view contacts.
+  canEditContactLeadSource: boolean("canEditContactLeadSource")
+    .default(false)
+    .notNull(),
   canViewPipeline: boolean("canViewPipeline").default(true).notNull(),
   canViewConnectionRequests: boolean("canViewConnectionRequests")
     .default(true)
@@ -6100,6 +6104,10 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   // Transactions
   canViewTransactions: boolean("canViewTransactions").default(true).notNull(),
   canAdministerTransactions: boolean("canAdministerTransactions")
+    .default(false)
+    .notNull(),
+  // Historical transaction attribution requires its own explicit capability.
+  canEditTransactionLeadSource: boolean("canEditTransactionLeadSource")
     .default(false)
     .notNull(),
   canViewTransactionExports: boolean("canViewTransactionExports")
