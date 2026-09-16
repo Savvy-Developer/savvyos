@@ -411,8 +411,8 @@ export const pmRouter = router({
         routedMeetingIds: z.array(z.string().uuid()).max(50).optional().default([]),
         collaboratorIds: z.array(z.number()).optional().default([]),
       }).superRefine((input, refinement) => {
-        if (!input.isOngoing && !input.dueDate) {
-          refinement.addIssue({ code: "custom", path: ["dueDate"], message: "A due date is required unless the project is ongoing." });
+        if (input.isRock && !input.isOngoing && !input.dueDate) {
+          refinement.addIssue({ code: "custom", path: ["dueDate"], message: "A due date is required for a Rock unless the project is ongoing." });
         }
         if (input.isOngoing && input.dueDate) {
           refinement.addIssue({ code: "custom", path: ["dueDate"], message: "Ongoing projects cannot also have a due date." });
@@ -523,10 +523,10 @@ export const pmRouter = router({
           : input.dueDate !== undefined
             ? input.dueDate
             : existingProject.dueDate;
-        if (!finalIsOngoing && !finalDueDate) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "A due date is required unless the project is ongoing." });
-        }
         const finalIsRock = input.isRock ?? existingProject.isRock;
+        if (finalIsRock && !finalIsOngoing && !finalDueDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A due date is required for a Rock unless the project is ongoing." });
+        }
         const finalRockQuarter = input.rockQuarter === undefined ? existingProject.rockQuarter : input.rockQuarter;
         const finalDefinitionOfDone = input.definitionOfDone === undefined ? existingProject.definitionOfDone : input.definitionOfDone;
         if (finalIsRock && !finalRockQuarter) {

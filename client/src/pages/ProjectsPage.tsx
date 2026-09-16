@@ -84,7 +84,8 @@ const KANBAN_COLUMNS: { status: Status; label: string }[] = [
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getDueDateLabel(date: Date | null, isOngoing: boolean) {
-  if (isOngoing || !date) return { label: "Ongoing", cls: "text-primary font-medium" };
+  if (isOngoing) return { label: "Ongoing", cls: "text-primary font-medium" };
+  if (!date) return { label: "No due date", cls: "text-muted-foreground" };
   if (isPast(date) && !isToday(date)) return { label: "Overdue", cls: "text-red-600 font-medium" };
   if (isToday(date)) return { label: "Due today", cls: "text-amber-600 font-medium" };
   if (date <= addDays(new Date(), 7)) return { label: format(date, "MMM d"), cls: "text-amber-600" };
@@ -338,8 +339,12 @@ function CreateProjectDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.title || !form.description || !form.department || !form.ownerId || (!form.isOngoing && !form.dueDate)) {
-      toast.error("Please fill in all required fields, including a due date unless the project is ongoing");
+    if (!form.title || !form.description || !form.department || !form.ownerId) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+    if (form.isRock && !form.isOngoing && !form.dueDate) {
+      toast.error("A due date is required for a Rock unless the project is ongoing");
       return;
     }
     const rockMilestones = form.rockMilestones.map((milestone) => ({ title: milestone.title.trim(), dueDate: milestone.dueDate }));
@@ -356,7 +361,7 @@ function CreateProjectDialog({
       description: form.description,
       department: form.department,
       ownerId: Number(form.ownerId),
-      dueDate: form.isOngoing ? null : new Date(form.dueDate),
+      dueDate: form.isOngoing || !form.dueDate ? null : new Date(form.dueDate),
       isOngoing: form.isOngoing,
       priority: form.priority,
       isRock: form.isRock,
@@ -435,8 +440,12 @@ function CreateProjectDialog({
               </div>
               {!form.isOngoing && (
                 <div>
-                  <Label htmlFor="dueDate">Due Date *</Label>
-                  <Input id="dueDate" type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+                  <Label htmlFor="dueDate">Due Date {form.isRock ? "*" : "(optional)"}</Label>
+                  <div className="flex gap-2">
+                    <Input id="dueDate" type="date" value={form.dueDate} required={form.isRock} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+                    {!form.isRock && form.dueDate ? <Button type="button" size="sm" variant="outline" onClick={() => setForm(f => ({ ...f, dueDate: "" }))}>Clear date</Button> : null}
+                  </div>
+                  {!form.isRock ? <p className="mt-1 text-xs text-muted-foreground">Optional for regular projects.</p> : null}
                 </div>
               )}
             </div>
@@ -546,7 +555,7 @@ export default function ProjectsPage() {
       if (filterDept !== "all" && p.department !== filterDept) return false;
       if (filterOwner !== "all" && String(p.ownerId) !== filterOwner) return false;
       if (filterSchedule === "ongoing" && !p.isOngoing) return false;
-      if (filterSchedule === "dated" && p.isOngoing) return false;
+      if (filterSchedule === "dated" && (p.isOngoing || !p.dueDate)) return false;
       return true;
     });
   }, [projects, search, filterStatus, filterPriority, filterDept, filterOwner, filterSchedule]);

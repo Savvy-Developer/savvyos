@@ -503,7 +503,7 @@ export default function ProjectDetailPage() {
       department: project.department,
       ownerId: String(project.ownerId ?? ""),
       dueDate: project.dueDate ? format(new Date(project.dueDate), "yyyy-MM-dd") : "",
-      isOngoing: project.isOngoing || !project.dueDate,
+      isOngoing: project.isOngoing,
       isRock: Boolean(project.isRock),
       rockQuarter: project.rockQuarter ?? currentProjectRockQuarter(),
       definitionOfDone: project.definitionOfDone ?? "",
@@ -516,6 +516,10 @@ export default function ProjectDetailPage() {
 
   function handleSaveProject() {
     if (!editForm || !project) return;
+    if (editForm.isRock && !editForm.isOngoing && !editForm.dueDate) {
+      toast.error("A due date is required for a Rock unless the project is ongoing");
+      return;
+    }
     const rockMilestones: Array<{ title: string; dueDate: string }> = (editForm.rockMilestones ?? []).map((milestone: { title: string; dueDate: string }) => ({ title: milestone.title.trim(), dueDate: milestone.dueDate }));
     const becomingRock = editForm.isRock && !project.isRock;
     if (becomingRock && (!editForm.rockQuarter || !editForm.definitionOfDone.trim() || rockMilestones.length === 0 || rockMilestones.some((milestone) => !milestone.title || !milestone.dueDate))) {
@@ -686,8 +690,12 @@ export default function ProjectDetailPage() {
                 </div>
                 {!editForm.isOngoing && (
                   <div>
-                    <Label>Due Date *</Label>
-                    <Input type="date" value={editForm.dueDate} onChange={e => setEditForm((f: any) => ({ ...f, dueDate: e.target.value }))} />
+                    <Label>Due Date {editForm.isRock ? "*" : "(optional)"}</Label>
+                    <div className="flex gap-2">
+                      <Input type="date" value={editForm.dueDate} required={editForm.isRock} onChange={e => setEditForm((f: any) => ({ ...f, dueDate: e.target.value }))} />
+                      {!editForm.isRock && editForm.dueDate ? <Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, dueDate: "" }))}>Clear date</Button> : null}
+                    </div>
+                    {!editForm.isRock ? <p className="mt-1 text-xs text-muted-foreground">Leave blank to keep this project undated.</p> : null}
                   </div>
                 )}
               </div>
@@ -760,7 +768,7 @@ export default function ProjectDetailPage() {
               </span>
               <span className="flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5" />
-                {project.isOngoing || !project.dueDate ? "Ongoing" : `Due ${format(new Date(project.dueDate), "MMM d, yyyy")}`}
+                {project.isOngoing ? "Ongoing" : project.dueDate ? `Due ${format(new Date(project.dueDate), "MMM d, yyyy")}` : "No due date"}
               </span>
             </div>
 

@@ -117,6 +117,7 @@ export function ProjectTodoSection({
               autoFocus
             />
             <Input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className="h-7 w-32 shrink-0 bg-background text-xs" aria-label="Section due date" required={isRock} />
+            {!isRock && dueDate ? <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" onClick={() => setDueDate("")}>Clear date</Button> : null}
             <Badge
               variant="secondary"
               className="shrink-0 text-[11px]"
