@@ -425,6 +425,10 @@ async function detailedResponsibility(db: Db, responsibilityId: number) {
     db.select().from(rrSopSteps).where(inArray(rrSopSteps.sopId, sopIds)).orderBy(asc(rrSopSteps.sortOrder), asc(rrSopSteps.id)),
     db.select({ resource: rrResources, document: userDocuments }).from(rrResources).leftJoin(userDocuments, eq(rrResources.userDocumentId, userDocuments.id)).where(inArray(rrResources.sopId, sopIds)).orderBy(asc(rrResources.sortOrder)),
   ]) : [[], []] as const;
+  // A detail or review load is the natural read point for an approved SavvyOS
+  // source. Refresh failures are retained on the config and never hide a saved
+  // historical value from the administrator.
+  await Promise.all(metricRows.filter((row) => row.metric.metricType !== "manual").map(({ metric }) => refreshAutomaticMetric(db, metric.id).catch(() => null)));
   const metricIds = metricRows.map((row) => row.metric.id);
   const [metricMappings, metricOwners, changeHistory] = metricIds.length ? await Promise.all([
     db.select({ metricId: pulseMeetingScorecardMetrics.savvyosMetricId, meetingId: pulseMeetingScorecardMetrics.meetingId }).from(pulseMeetingScorecardMetrics).where(inArray(pulseMeetingScorecardMetrics.savvyosMetricId, metricIds)),
@@ -793,6 +797,7 @@ export const rolesResponsibilitiesRouter = router({
     const db = await getDb(); if (!db) return []; await requireRrAccess(db, ctx.user as Viewer);
     const conditions: any[] = []; if (input?.ownerId) conditions.push(or(eq(rrScorecardMetrics.ownerId, input.ownerId), and(isNull(rrScorecardMetrics.ownerId), eq(rolesResponsibilities.ownerId, input.ownerId)))); if (input?.responsibilityId) conditions.push(eq(rrScorecardMetrics.responsibilityId, input.responsibilityId)); if (input?.status !== "all") conditions.push(eq(rrScorecardMetrics.status, input?.status ?? "active")); if (input?.metricType !== "all") conditions.push(eq(rrScorecardMetrics.metricType, input?.metricType ?? "manual"));
     const metrics = await db.select({ metric: rrScorecardMetrics, responsibility: rolesResponsibilities, owner: users, department: adminProfiles.adminType, config: rrMetricAutoConfigs }).from(rrScorecardMetrics).innerJoin(rolesResponsibilities, eq(rrScorecardMetrics.responsibilityId, rolesResponsibilities.id)).innerJoin(users, eq(rolesResponsibilities.ownerId, users.id)).leftJoin(adminProfiles, eq(adminProfiles.userId, users.id)).leftJoin(rrMetricAutoConfigs, eq(rrMetricAutoConfigs.metricId, rrScorecardMetrics.id)).where(conditions.length ? and(...conditions) : undefined).orderBy(asc(users.name), asc(rolesResponsibilities.title), asc(rrScorecardMetrics.name));
+    await Promise.all(metrics.filter((row) => row.metric.metricType !== "manual").map((row) => refreshAutomaticMetric(db, row.metric.id).catch(() => null)));
     const ownerIds = Array.from(new Set(metrics.map((row) => row.metric.ownerId ?? row.responsibility.ownerId)));
     const accountableOwners = ownerIds.length ? await db.select({ id: users.id, name: users.name, email: users.email, title: users.title }).from(users).where(inArray(users.id, ownerIds)) : [];
     const ownerById = new Map(accountableOwners.map((owner) => [owner.id, owner]));
