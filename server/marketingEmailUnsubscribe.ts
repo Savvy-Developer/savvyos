@@ -4,7 +4,11 @@ import { and, eq, or } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { unsubscribeResendMarketingContact } from "./_core/resendMarketingBroadcast";
 import { getDb } from "./db";
-import { contacts } from "../drizzle/schema";
+import {
+  contacts,
+  websiteAccountPreferences,
+  websiteAccounts,
+} from "../drizzle/schema";
 
 const SAVVYOS_BASE_URL = "https://os.savvy-agents.com";
 const TOKEN_VERSION = "v1";
@@ -96,6 +100,29 @@ export async function unsubscribeMarketingEmail(
         )
       )
     );
+
+  // An investor with a website account is a second, separate subscription:
+  // their new-property email is driven by their own preferences row, not by
+  // the contact record. Without this they would keep receiving it after
+  // clicking unsubscribe, which is the worst kind of broken link on a bulk
+  // email — it looks like it worked and it did not.
+  const accountRows = await db
+    .select({ id: websiteAccounts.id })
+    .from(websiteAccounts)
+    .where(eq(websiteAccounts.email, email));
+  for (const account of accountRows) {
+    await db
+      .insert(websiteAccountPreferences)
+      .values({
+        accountId: account.id,
+        notificationsEnabled: false,
+        emailFrequency: "never",
+        marketProfileIds: [],
+      })
+      .onDuplicateKeyUpdate({
+        set: { notificationsEnabled: false, emailFrequency: "never" },
+      });
+  }
 
   // Broadcasts use Resend's contact-level unsubscribe list. The SavvyOS state
   // above is authoritative; mirror successful legacy unsubscribe requests so a
