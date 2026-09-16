@@ -442,7 +442,7 @@ def import_todos(connection: pymysql.connections.Connection, todos: list[Todo], 
                 """,
                 (
                     project_id,
-                    sections[todo.section],
+                    sections[f"{todo.section} To-Dos"],
                     todo.title,
                     owner_id,
                     due_date,
