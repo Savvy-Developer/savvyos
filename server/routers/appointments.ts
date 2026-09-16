@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import {
   agentConnections,
   agentSupportAssignments,
@@ -23,6 +23,7 @@ import {
 } from "../calendarService";
 import { sendAppointmentEmail } from "../appointmentNotifications";
 import { triggerSmartPlansForAppointment } from "../smartPlanScheduler";
+import { canAdminUsePermission } from "./permissions";
 
 const TIMEZONES = [
   "America/New_York",
@@ -45,6 +46,17 @@ const appointmentFormSchema = z.object({
 });
 
 const lifecycleStatus = z.enum(["confirmed", "completed", "no_show"]);
+
+const appointmentDirectoryInput = z.object({
+  search: z.string().trim().max(255).optional(),
+  agentId: z.number().int().positive().optional(),
+  status: z.enum(["scheduled", "confirmed", "canceled", "completed", "no_show"]).optional(),
+  source: z.enum(["savvyos", "calendly"]).optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  page: z.number().int().min(1).default(1),
+  limit: z.number().int().min(1).max(100).default(50),
+});
 
 type ConnectionRecord = typeof agentConnections.$inferSelect;
 type AppointmentRecord = typeof appointments.$inferSelect;
@@ -373,6 +385,88 @@ function splitName(value: string): { firstName: string; lastName: string } {
 }
 
 export const appointmentsRouter = router({
+  /** Admin directory for searching appointments across every SavvyOS host. */
+  directory: protectedProcedure
+    .input(appointmentDirectoryInput)
+    .query(async ({ input, ctx }) => {
+      const permitted = await canAdminUsePermission(ctx.user, "canViewAgentAppointments");
+      if (!permitted) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Your Super Permissions do not allow access to Agent Appointments.",
+        });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+
+      const conditions = [];
+      if (input.agentId) conditions.push(eq(appointments.hostUserId, input.agentId));
+      if (input.status) conditions.push(eq(appointments.status, input.status));
+      if (input.source) conditions.push(eq(appointments.source, input.source));
+      if (input.dateFrom) conditions.push(sql`${appointments.startAt} >= ${new Date(`${input.dateFrom}T00:00:00.000Z`)}`);
+      if (input.dateTo) {
+        const endExclusive = new Date(`${input.dateTo}T00:00:00.000Z`);
+        endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+        conditions.push(sql`${appointments.startAt} < ${endExclusive}`);
+      }
+
+      const search = input.search?.trim();
+      if (search) {
+        const pattern = `%${search}%`;
+        conditions.push(or(
+          like(appointments.title, pattern),
+          like(contacts.firstName, pattern),
+          like(contacts.lastName, pattern),
+          like(contacts.email, pattern),
+          like(contacts.phone, pattern),
+          like(users.name, pattern),
+          like(users.email, pattern),
+          sql`CONCAT_WS(' ', ${contacts.firstName}, ${contacts.lastName}) LIKE ${pattern}`,
+        ));
+      }
+
+      const whereClause = conditions.length ? and(...conditions) : undefined;
+      const [{ total = 0 } = {}] = await db
+        .select({ total: sql<number>`COUNT(*)` })
+        .from(appointments)
+        .innerJoin(contacts, eq(contacts.id, appointments.contactId))
+        .innerJoin(users, eq(users.id, appointments.hostUserId))
+        .where(whereClause);
+
+      const rows = await db
+        .select({
+          appointment: appointments,
+          contact: {
+            id: contacts.id,
+            firstName: contacts.firstName,
+            lastName: contacts.lastName,
+            email: contacts.email,
+            phone: contacts.phone,
+          },
+          agent: {
+            id: users.id,
+            name: users.name,
+            email: users.email,
+          },
+        })
+        .from(appointments)
+        .innerJoin(contacts, eq(contacts.id, appointments.contactId))
+        .innerJoin(users, eq(users.id, appointments.hostUserId))
+        .where(whereClause)
+        .orderBy(desc(appointments.startAt), desc(appointments.id))
+        .limit(input.limit)
+        .offset((input.page - 1) * input.limit);
+
+      const agents = await db
+        .selectDistinct({ id: users.id, name: users.name, email: users.email })
+        .from(appointments)
+        .innerJoin(users, eq(users.id, appointments.hostUserId))
+        .orderBy(users.name);
+
+      return { rows, total: Number(total), agents };
+    }),
+
   list: protectedProcedure
     .input(z.object({ connectionId: z.number().int().positive() }))
     .query(async ({ input, ctx }) => {

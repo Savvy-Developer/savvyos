@@ -56,6 +56,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canEditContactLeadSource",      label: "Edit Contact Lead Source",   group: "CRM" },
   { key: "canViewPipeline",               label: "Agent Pipelines",            group: "CRM" },
   { key: "canViewTasks",                  label: "CRM Tasks",                  group: "CRM" },
+  { key: "canViewAgentAppointments",      label: "Agent Appointments",         group: "CRM" },
   // ISA
   { key: "canViewIsmDashboard",           label: "ISM Dashboard",              group: "ISA" },
   { key: "canViewConversationIntelligence", label: "Conversation Intelligence", group: "ISA" },

@@ -6206,6 +6206,10 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewConnectionRequests: boolean("canViewConnectionRequests")
     .default(true)
     .notNull(),
+  // Appointment directory is broadly available to administrators by default.
+  canViewAgentAppointments: boolean("canViewAgentAppointments")
+    .default(true)
+    .notNull(),
   canViewLeadSources: boolean("canViewLeadSources").default(true).notNull(),
   canViewHotLeads: boolean("canViewHotLeads").default(true).notNull(),
   // Transactions

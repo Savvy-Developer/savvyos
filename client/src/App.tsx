@@ -157,6 +157,7 @@ import EventsPage from "./pages/EventsPage";
 import WebsitePage from "./pages/WebsitePage";
 import PublicWebsite from "./pages/PublicWebsite";
 import AgentCelebrationPage from "./pages/AgentCelebrationPage";
+import AgentAppointmentsPage from "./pages/AgentAppointmentsPage";
 import ChecklistsPage from "./pages/ChecklistsPage";
 import PublicTrishRecruitingPage from "./pages/PublicTrishRecruitingPage";
 import RecruitingPage from "./pages/RecruitingPage";
@@ -302,6 +303,16 @@ function AgentCelebrationsRoute({ children }: { children: React.ReactNode }) {
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewAgentCelebrations) return <NotFound />;
+  return <>{children}</>;
+}
+
+function AgentAppointmentsRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewAgentAppointments) return <NotFound />;
   return <>{children}</>;
 }
 
@@ -473,6 +484,7 @@ function Router() {
           <Route path="/isa-stats">{() => <AdminOrIsaRoute><IsaStatsPage /></AdminOrIsaRoute>}</Route>
           <Route path="/contacts">{() => <NonAgentRoute><ContactsPage /></NonAgentRoute>}</Route>
           <Route path="/contacts/:id">{() => <NonAgentRoute><ContactDetail /></NonAgentRoute>}</Route>
+          <Route path="/agent-appointments">{() => <AgentAppointmentsRoute><AgentAppointmentsPage /></AgentAppointmentsRoute>}</Route>
           <Route path="/market-match/:id">{() => <AdminOrIsaRoute><MarketMatchCallPage /></AdminOrIsaRoute>}</Route>
           <Route path="/admin/market-match-quiz">{() => <MarketMatchQuizRoute><MarketMatchQuizAdminPage /></MarketMatchQuizRoute>}</Route>
           <Route path="/agent-celebrations">{() => <AgentCelebrationsRoute><AgentCelebrationPage /></AgentCelebrationsRoute>}</Route>

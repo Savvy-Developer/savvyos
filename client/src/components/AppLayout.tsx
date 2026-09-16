@@ -324,6 +324,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewLeaderboard: "/leaderboard",
   canViewContacts: "/contacts",
   canViewPipeline: "/pipeline",
+  canViewAgentAppointments: "/agent-appointments",
   canViewConnectionRequests: "/connection-requests",
   canViewLeadSources: "/lead-sources",
   canViewHotLeads: "/hot-leads",
@@ -427,6 +428,7 @@ function buildAdminNav(
       items: [
         { icon: Users, label: "All Contacts", path: "/contacts" },
         { icon: GitBranch, label: "Agent Pipelines", path: "/pipeline" },
+        { icon: CalendarDays, label: "Agent Appointments", path: "/agent-appointments" },
         {
           icon: ClipboardList,
           label: "CRM Tasks",
