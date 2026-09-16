@@ -10347,6 +10347,34 @@ export const websiteAccountTokens = mysqlTable(
 export type WebsiteAccountToken = typeof websiteAccountTokens.$inferSelect;
 
 /**
+ * When an investor account was last sent the new-property email.
+ *
+ * Kept apart from the preferences row because they answer different
+ * questions. Storing the send time on preferences would mean someone editing
+ * their budget looked like they had just been emailed, and their next email
+ * would be silently skipped.
+ */
+export const websiteAccountEmailSends = mysqlTable(
+  "website_account_email_sends",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    accountId: int("accountId")
+      .notNull()
+      .references(() => websiteAccounts.id, { onDelete: "cascade" }),
+    listingCount: int("listingCount").default(0).notNull(),
+    sentAt: timestamp("sentAt").defaultNow().notNull(),
+  },
+  table => [
+    index("website_account_email_sends_account_idx").on(
+      table.accountId,
+      table.sentAt
+    ),
+  ]
+);
+export type WebsiteAccountEmailSend =
+  typeof websiteAccountEmailSends.$inferSelect;
+
+/**
  * Saved properties. Points at the SavvyOS property rather than the website row,
  * so unpublishing and republishing a listing does not lose anyone's saves.
  */

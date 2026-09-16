@@ -20,6 +20,7 @@ import { scheduleAgentProductionReport } from "../agentProductionReportScheduler
 import { scheduleWeeklyLeadReport } from "../weeklyLeadReportScheduler";
 import { scheduleWeeklyOperationsReports } from "../weeklyOperationsReportsScheduler";
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
+import { scheduleDailyPropertyEmails } from "../dailyPropertyEmail";
 import { scheduleDailyIsaActivitiesReport } from "../dailyIsaActivitiesReportScheduler";
 import { scheduleMonthlyAgentRenewalsReport } from "../monthlyAgentRenewalsReport";
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
@@ -352,6 +353,9 @@ async function startServer() {
     processOneTimeSmartPlanSends().catch((err) => console.error("[OneTimeSend] Startup run error:", err));
     processAgentIntroductionFollowUps().catch((err) => console.error("[AgentIntroductions] Startup run error:", err));
   }, 10_000);
+
+  // New-property email for investors with a website account: daily at 8am Eastern.
+  scheduleDailyPropertyEmails();
 
   // Listing expiration reminder: daily at 8am
   scheduleListingExpirationCheck();
