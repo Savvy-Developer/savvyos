@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -16,7 +16,7 @@ import { format, isPast, isToday, addDays } from "date-fns";
 import {
   Plus, LayoutList, LayoutGrid, Search,
   CheckCircle2, Clock, TrendingUp, AlertTriangle, ChevronRight, Calendar,
-  User, Layers, MoreHorizontal, Archive, Trash2, Flag, ClipboardList, X,
+  User, Layers, MoreHorizontal, Archive, Trash2, Flag, ClipboardList, X, GripVertical, ListOrdered,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import ProjectNotificationsPanel from "@/components/ProjectNotificationsPanel";
 import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelector";
 import { currentProjectRockQuarter, ProjectRockQuarterSelect } from "@/components/ProjectRockQuarterSelect";
+import ProjectSortList from "@/components/ProjectSortList";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -468,6 +469,7 @@ export default function ProjectsPage() {
   const [filterCollaborator, setFilterCollaborator] = useState<string>("all");
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [isArranging, setIsArranging] = useState(false);
   // Departments management
   const [deptMgmtOpen, setDeptMgmtOpen] = useState(false);
   const [deptCreateOpen, setDeptCreateOpen] = useState(false);
@@ -484,6 +486,7 @@ export default function ProjectsPage() {
   const { data: departments = [], refetch: refetchDepts } = trpc.pm.departments.list.useQuery();
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
   const { data: personalTodoStats } = trpc.pm.personalTodos.stats.useQuery();
+  const reorder = trpc.pm.projects.reorder.useMutation();
   const canToggleAllProjects = new Set([
     "tyler@savvy.realty", "dyl@savvy.realty", "kryzll@savvy.realty", "elana@savvy.realty",
     "philleone@savvy.realty", "rhythm@savvy.realty", "athens@savvy.realty",
@@ -560,7 +563,11 @@ export default function ProjectsPage() {
     };
   }, [projects]);
 
-  const hasFilters = filterStatus !== "all" || filterPriority !== "all" || filterDept !== "all" || filterOwner !== "all" || filterSchedule !== "all" || filterCollaborator !== "all" || search;
+  const hasFilters = filterStatus !== "all" || filterPriority !== "all" || filterDept !== "all" || filterOwner !== "all" || filterSchedule !== "all" || filterCollaborator !== "all" || Boolean(search);
+
+  useEffect(() => {
+    if (hasFilters) setIsArranging(false);
+  }, [hasFilters]);
 
   return (
     <div>
@@ -633,11 +640,25 @@ export default function ProjectsPage() {
               variant={view === "kanban" ? "secondary" : "ghost"}
               size="sm"
               className="rounded-none px-3"
-              onClick={() => setView("kanban")}
+              onClick={() => { setView("kanban"); setIsArranging(false); }}
             >
               <LayoutGrid className="h-4 w-4" />
             </Button>
           </div>
+          <Button
+            variant={isArranging ? "secondary" : "outline"}
+            size="sm"
+            className="shrink-0"
+            disabled={hasFilters}
+            title={hasFilters ? "Clear filters to arrange the full project list" : "Arrange the project list"}
+            onClick={() => {
+              setView("list");
+              setIsArranging(current => !current);
+            }}
+          >
+            <ListOrdered className="h-4 w-4 mr-1" />
+            {isArranging ? "Done" : "Arrange"}
+          </Button>
         </div>
 
         {/* Row 2: Filters */}
@@ -717,6 +738,13 @@ export default function ProjectsPage() {
         </div>
       </div>
 
+      {isArranging && !hasFilters && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/[0.045] px-3 py-2 text-sm text-muted-foreground" role="status">
+          <GripVertical className="h-4 w-4 shrink-0 text-primary" />
+          Drag a handle to arrange the shared project list. You can also use the arrow buttons, or focus a handle and press Space, then the arrow keys.
+        </div>
+      )}
+
       {/* Empty state */}
       {filtered.length === 0 && (
         <div className="text-center py-16 text-muted-foreground">
@@ -737,11 +765,28 @@ export default function ProjectsPage() {
 
       {/* List View */}
       {view === "list" && filtered.length > 0 && (
-        <div className="space-y-2">
-          {filtered.map(p => (
-            <ProjectListRow key={p.id} project={p as Project} onArchive={id => archive.mutate({ id })} />
-          ))}
-        </div>
+        isArranging ? (
+          <ProjectSortList
+            projects={filtered as Project[]}
+            saving={reorder.isPending}
+            onOrderChange={async projectIds => {
+              try {
+                await reorder.mutateAsync(projectIds.map((id, sortOrder) => ({ id, sortOrder })));
+                await refetch();
+                return true;
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Could not save the project order");
+                return false;
+              }
+            }}
+          />
+        ) : (
+          <div className="space-y-2">
+            {filtered.map(p => (
+              <ProjectListRow key={p.id} project={p as Project} onArchive={id => archive.mutate({ id })} />
+            ))}
+          </div>
+        )
       )}
 
       {/* Kanban View */}
