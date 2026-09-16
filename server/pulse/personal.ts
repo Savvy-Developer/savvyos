@@ -265,19 +265,61 @@ function addDays(value: Date, days: number) {
   return next;
 }
 
-function nextOccurrence(dayOfWeek?: string | null, startTime?: string | null) {
+type ZonedDateParts = { year: number; month: number; day: number; hour: number; minute: number; second: number };
+
+function usableTimeZone(value?: string | null) {
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: value || "America/New_York" }).resolvedOptions().timeZone;
+  } catch {
+    return "America/New_York";
+  }
+}
+
+function zonedDateParts(value: Date, timeZone: string): ZonedDateParts {
+  const values = new Map(new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).formatToParts(value).filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
+  return {
+    year: values.get("year") ?? 0,
+    month: values.get("month") ?? 0,
+    day: values.get("day") ?? 0,
+    hour: values.get("hour") ?? 0,
+    minute: values.get("minute") ?? 0,
+    second: values.get("second") ?? 0,
+  };
+}
+
+function zonedWallTimeToUtc(year: number, month: number, day: number, hour: number, minute: number, timeZone: string) {
+  const targetAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  let timestamp = targetAsUtc;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const actual = zonedDateParts(new Date(timestamp), timeZone);
+    const actualAsUtc = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, actual.second, 0);
+    const adjustment = targetAsUtc - actualAsUtc;
+    if (adjustment === 0) break;
+    timestamp += adjustment;
+  }
+  return new Date(timestamp);
+}
+
+export function nextOccurrence(dayOfWeek?: string | null, startTime?: string | null, timeZone?: string | null, now = new Date()) {
   if (!dayOfWeek || !startTime) return null;
   const dayIndex: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
   const target = dayIndex[dayOfWeek];
-  if (target === undefined) return null;
-  const now = new Date();
-  const next = new Date(now);
   const [hours, minutes] = startTime.split(":").map(Number);
-  next.setHours(hours || 0, minutes || 0, 0, 0);
-  let delta = (target - now.getDay() + 7) % 7;
-  if (delta === 0 && next <= now) delta = 7;
-  next.setDate(next.getDate() + delta);
-  return next.toISOString();
+  if (target === undefined || !Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  const zone = usableTimeZone(timeZone);
+  const localNow = zonedDateParts(now, zone);
+  const localToday = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day));
+  let daysUntil = (target - localToday.getUTCDay() + 7) % 7;
+  let localCandidate = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day + daysUntil));
+  let occurrence = zonedWallTimeToUtc(localCandidate.getUTCFullYear(), localCandidate.getUTCMonth() + 1, localCandidate.getUTCDate(), hours, minutes, zone);
+  if (occurrence <= now) {
+    daysUntil += 7;
+    localCandidate = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day + daysUntil));
+    occurrence = zonedWallTimeToUtc(localCandidate.getUTCFullYear(), localCandidate.getUTCMonth() + 1, localCandidate.getUTCDate(), hours, minutes, zone);
+  }
+  return occurrence.toISOString();
 }
 
 export const pulsePersonalRouter = router({
@@ -380,7 +422,7 @@ export const pulsePersonalRouter = router({
       listAccessibleItems(db, ctx.user.id, {}),
       ids.length ? db.select({
         id: pulseMeetings.id, name: pulseMeetings.name, label: pulseMeetings.label, dayOfWeek: pulseMeetings.dayOfWeek,
-        startTime: pulseMeetings.startTime, durationMinutes: pulseMeetings.durationMinutes,
+        startTime: pulseMeetings.startTime, durationMinutes: pulseMeetings.durationMinutes, timezone: pulseMeetings.timezone,
       }).from(pulseMeetings).where(and(inArray(pulseMeetings.id, ids), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name)) : Promise.resolve([]),
       personalMeetingPrep(db, ctx.user.id),
       getPendingCascadePayloads(db, ctx.user.id),
@@ -431,7 +473,7 @@ export const pulsePersonalRouter = router({
       .map((field: any) => ({ ...field, source: field.meetingName, sourceHref: `/pulse/meetings/${field.meetingId}` }));
     const nextMeetings = meetings
       .filter((meeting: any) => workspaceId === "all" || meeting.id === workspaceId)
-      .map((meeting: any) => ({ ...meeting, nextOccursAt: nextOccurrence(meeting.dayOfWeek, meeting.startTime), canRun: canRun && meeting.label === "level_10" }))
+      .map((meeting: any) => ({ ...meeting, nextOccursAt: nextOccurrence(meeting.dayOfWeek, meeting.startTime, meeting.timezone), canRun: canRun && meeting.label === "level_10" }))
       .filter((meeting: any) => meeting.nextOccursAt)
       .sort((left: any, right: any) => String(left.nextOccursAt).localeCompare(String(right.nextOccursAt))).slice(0, 4);
 

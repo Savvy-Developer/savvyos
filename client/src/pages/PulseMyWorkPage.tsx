@@ -12,7 +12,16 @@ import { PulseCompletedHistory } from "@/components/pulse/PulseCompletedHistory"
 import { PulseNotificationsInbox } from "@/components/pulse/PulseNotificationsInbox";
 import { PulseIssueTimeframeFilter, type IssueTimeframeFilterValue } from "@/components/pulse/PulseWorkItemBadges";
 
-const formatDate = (value?: string | null, includeTime = false) => includeTime ? formatEasternDateTime(value, { includeYear: false }) : value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "No deadline";
+function formatMeetingDateTime(value?: string | null, timeZone?: string | null) {
+  if (!value) return "Schedule not set";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Schedule not set";
+  try {
+    return new Intl.DateTimeFormat(undefined, { timeZone: timeZone || "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(date);
+  } catch {
+    return formatEasternDateTime(value, { includeYear: false });
+  }
+}
 
 function WorkRow({ item, onChanged, showDestination = false }: { item: any; onChanged: () => void; showDestination?: boolean }) {
   return <PulseInlineItemRow item={item} onChanged={onChanged} showDestination={showDestination} />;
@@ -26,7 +35,7 @@ function ActivitySummary({ activity }: { activity: any[] }) {
 
 function NextMeetingsPanel({ meetings, limit = 3 }: { meetings: any[]; limit?: number }) {
   const visible = meetings.slice(0, limit);
-  return <Card className="pulse-card-compact border-primary/20 bg-primary/[0.018]"><CardHeader className="flex flex-row items-start justify-between gap-2 pb-2"><div><CardTitle className="flex items-center gap-2 text-base"><CalendarClock className="h-4 w-4 text-primary" />Next meetings</CardTitle><CardDescription className="mt-0.5">Open the workspace or start an authorized L10.</CardDescription></div></CardHeader><CardContent className="space-y-1.5">{visible.length ? visible.map((meeting: any) => <article key={meeting.id} className="rounded-md border bg-background px-2.5 py-1.5"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-semibold">{meeting.name}</p><p className="mt-0.5 text-xs text-muted-foreground">{formatDate(meeting.nextOccursAt, true)} · {meeting.durationMinutes} min</p></div><CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-primary" /></div><div className="mt-1.5 flex gap-1.5"><Button asChild size="sm" variant="outline" className="h-8 text-xs"><a href={`/pulse/meetings/${meeting.id}`}>Open</a></Button>{meeting.canRun ? <Button asChild size="sm" className="h-8 text-xs"><a href={`/pulse/meetings/${meeting.id}/run`}>Run Meeting</a></Button> : null}</div></article>) : <p className="rounded-md border border-dashed px-2 py-2 text-sm text-muted-foreground">No scheduled authorized meetings are available.</p>}{meetings.length > visible.length ? <Button asChild type="button" variant="ghost" size="sm" className="h-8 w-full text-xs"><a href="/pulse/meetings">View all meetings</a></Button> : null}</CardContent></Card>;
+  return <Card className="pulse-card-compact border-primary/20 bg-primary/[0.018]"><CardHeader className="flex flex-row items-start justify-between gap-2 pb-2"><div><CardTitle className="flex items-center gap-2 text-base"><CalendarClock className="h-4 w-4 text-primary" />Next meetings</CardTitle><CardDescription className="mt-0.5">Open the workspace or start an authorized L10.</CardDescription></div></CardHeader><CardContent className="space-y-1.5">{visible.length ? visible.map((meeting: any) => <article key={meeting.id} className="rounded-md border bg-background px-2.5 py-1.5"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-semibold">{meeting.name}</p><p className="mt-0.5 text-xs text-muted-foreground">{formatMeetingDateTime(meeting.nextOccursAt, meeting.timezone)} · {meeting.durationMinutes} min</p></div><CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-primary" /></div><div className="mt-1.5 flex gap-1.5"><Button asChild size="sm" variant="outline" className="h-8 text-xs"><a href={`/pulse/meetings/${meeting.id}`}>Open</a></Button>{meeting.canRun ? <Button asChild size="sm" className="h-8 text-xs"><a href={`/pulse/meetings/${meeting.id}/run`}>Run Meeting</a></Button> : null}</div></article>) : <p className="rounded-md border border-dashed px-2 py-2 text-sm text-muted-foreground">No scheduled authorized meetings are available.</p>}{meetings.length > visible.length ? <Button asChild type="button" variant="ghost" size="sm" className="h-8 w-full text-xs"><a href="/pulse/meetings">View all meetings</a></Button> : null}</CardContent></Card>;
 }
 
 export default function PulseMyWorkPage() {
