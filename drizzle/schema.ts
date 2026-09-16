@@ -976,6 +976,43 @@ export const websiteProperties = mysqlTable(
   ]
 );
 export type WebsiteProperty = typeof websiteProperties.$inferSelect;
+
+/**
+ * Editable content pages on the public website.
+ *
+ * The designed pages stay in code. About and Contact are layouts with icons,
+ * stat bands and grids rather than text in a box, and putting a textarea in
+ * front of them would promise an edit the page cannot honour. This table is
+ * for pages that really are words on a page, which is what the CMS dropdown
+ * was asked for.
+ */
+export const websitePages = mysqlTable(
+  "website_pages",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    name: varchar("name", { length: 160 }).notNull(),
+    status: mysqlEnum("status", ["draft", "published", "archived"])
+      .default("draft")
+      .notNull(),
+    heroEyebrow: varchar("heroEyebrow", { length: 160 }),
+    heroTitle: varchar("heroTitle", { length: 255 }),
+    heroSubtitle: text("heroSubtitle"),
+    bodyMarkdown: mediumtext("bodyMarkdown"),
+    ctaText: varchar("ctaText", { length: 160 }),
+    ctaHref: varchar("ctaHref", { length: 512 }),
+    metaTitle: varchar("metaTitle", { length: 255 }),
+    metaDescription: text("metaDescription"),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    publishedAt: timestamp("publishedAt"),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("website_pages_status_idx").on(table.status, table.sortOrder)]
+);
+export type WebsitePage = typeof websitePages.$inferSelect;
 export type InsertWebsiteProperty = typeof websiteProperties.$inferInsert;
 
 export const websiteCaseStudies = mysqlTable(

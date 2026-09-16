@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { CmsPagesEditor } from "@/components/website/CmsPagesEditor";
 import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -949,7 +950,12 @@ export default function WebsitePage() {
           </CardContent>
         </Card>
       )}
-      {tab === "settings" && <SettingsEditor settings={data?.settings} />}
+      {tab === "settings" && (
+        <div className="space-y-6">
+          <CmsPagesEditor />
+          <SettingsEditor settings={data?.settings} />
+        </div>
+      )}
       {editor?.type === "case" && (
         <ContentEditor
           kind="case"
