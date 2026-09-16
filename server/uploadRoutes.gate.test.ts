@@ -48,7 +48,9 @@ function readSource() {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const fs = require("node:fs");
   const path = require("node:path");
-  return fs.readFileSync(path.join(__dirname, "uploadRoutes.ts"), "utf8");
+  // Normalised because core.autocrlf gives Windows checkouts CRLF while the
+  // blob is LF, and the extractors below anchor on newlines.
+  return fs.readFileSync(path.join(__dirname, "uploadRoutes.ts"), "utf8").replace(/\r\n/g, "\n");
 }
 
 /** One route handler's source, from its app.post to the start of the next. */
