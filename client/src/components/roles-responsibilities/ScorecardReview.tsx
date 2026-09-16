@@ -34,7 +34,7 @@ function formatValue(metric: any, value: number | null | undefined) {
 }
 
 function targetText(metric: any) {
-  const target = metric.targetConfig ?? {};
+  const target = metric?.targetConfig ?? {};
   if (target.comparisonRule === "informational") return "Informational only";
   if (target.comparisonRule === "within_range") return target.targetMinimum == null || target.targetMaximum == null ? "Target unset" : `Between ${formatValue(metric, target.targetMinimum)} and ${formatValue(metric, target.targetMaximum)}`;
   if (target.targetValue == null) return "Target unset";
@@ -54,6 +54,7 @@ function StatusBadge({ status }: { status?: string | null }) {
 }
 
 function DetailDialog({ metric, open, onOpenChange }: { metric: any; open: boolean; onOpenChange: (open: boolean) => void }) {
+  if (!metric) return null;
   const metadata = metric?.currentValue?.calculationMetadata ?? {};
   const inputs = metric?.currentValue?.supportingInputs ?? {};
   return <Dialog open={open} onOpenChange={onOpenChange}>
