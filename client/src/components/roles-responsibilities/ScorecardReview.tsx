@@ -54,8 +54,8 @@ function StatusBadge({ status }: { status?: string | null }) {
 }
 
 function DetailDialog({ metric, open, onOpenChange }: { metric: any; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const metadata = metric.currentValue?.calculationMetadata ?? {};
-  const inputs = metric.currentValue?.supportingInputs ?? {};
+  const metadata = metric?.currentValue?.calculationMetadata ?? {};
+  const inputs = metric?.currentValue?.supportingInputs ?? {};
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
       <DialogHeader><DialogTitle>{metric?.name}</DialogTitle><DialogDescription>{metric?.responsibility?.title} · {metric?.owner?.name ?? "Unassigned"}</DialogDescription></DialogHeader>
