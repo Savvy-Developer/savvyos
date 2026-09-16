@@ -32,10 +32,10 @@ describe("Commission Engine", () => {
       expect(getPayout(r, "referral_partner")?.referralFeePaidBy).toBe("savvy");
     });
 
-    it("60/40 with 25% referral: Agent pays 10%, Savvy pays 15%", () => {
+    it("60/40 with 25% referral: Savvy protects its 20% floor before the agent pays the balance", () => {
       const r = calculateCommission({ agentSplit: 60, isInGroup: false, referralPercent: 25, gci: GCI });
-      expect(getPayout(r, "agent")?.percentage).toBe(50); // 60 - 10
-      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(25); // 40 - 15
+      expect(getPayout(r, "agent")?.percentage).toBe(55); // 60 - 5
+      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(20); // 40 - 20
       expect(getPayout(r, "referral_partner")?.percentage).toBe(25);
     });
 
@@ -73,28 +73,28 @@ describe("Commission Engine", () => {
       expect(getPayout(r, "group_leader")?.percentage).toBe(0);
     });
 
-    it("25% referral: Agent=50, Savvy=22.5, Ref=25, GL=2.5", () => {
+    it("25% referral: Agent=50, Savvy=20, Ref=25, GL=5", () => {
       const r = calculateCommission({ ...opts, referralPercent: 25, gci: GCI });
       expect(getPayout(r, "agent")?.percentage).toBe(50);
-      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(22.5);
+      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(20);
       expect(getPayout(r, "referral_partner")?.percentage).toBe(25);
-      expect(getPayout(r, "group_leader")?.percentage).toBe(2.5);
-    });
-
-    it("20% referral: Agent=50, Savvy=25, Ref=20, GL=5", () => {
-      const r = calculateCommission({ ...opts, referralPercent: 20, gci: GCI });
-      expect(getPayout(r, "agent")?.percentage).toBe(50);
-      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(25);
-      expect(getPayout(r, "referral_partner")?.percentage).toBe(20);
       expect(getPayout(r, "group_leader")?.percentage).toBe(5);
     });
 
-    it("15% referral: Agent=50, Savvy=27.5, Ref=15, GL=7.5", () => {
+    it("20% referral: Agent=50, Savvy=20, Ref=20, GL=10", () => {
+      const r = calculateCommission({ ...opts, referralPercent: 20, gci: GCI });
+      expect(getPayout(r, "agent")?.percentage).toBe(50);
+      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(20);
+      expect(getPayout(r, "referral_partner")?.percentage).toBe(20);
+      expect(getPayout(r, "group_leader")?.percentage).toBe(10);
+    });
+
+    it("15% referral: Agent=50, Savvy=25, Ref=15, GL=10", () => {
       const r = calculateCommission({ ...opts, referralPercent: 15, gci: GCI });
       expect(getPayout(r, "agent")?.percentage).toBe(50);
-      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(27.5);
+      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(25);
       expect(getPayout(r, "referral_partner")?.percentage).toBe(15);
-      expect(getPayout(r, "group_leader")?.percentage).toBe(7.5);
+      expect(getPayout(r, "group_leader")?.percentage).toBe(10);
     });
 
     it("10% referral: Agent=50, Savvy=30, Ref=10, GL=10", () => {
@@ -125,44 +125,44 @@ describe("Commission Engine", () => {
       expect(getPayout(r, "group_leader")?.percentage).toBe(0);
     });
 
-    it("25% referral: Agent=50, Savvy=22.5, Ref=25, GL=2.5", () => {
+    it("25% referral: Agent=50, Savvy=20, Ref=25, GL=5", () => {
       const r = calculateCommission({ ...opts, referralPercent: 25, gci: GCI });
       expect(getPayout(r, "agent")?.percentage).toBe(50);
-      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(22.5);
+      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(20);
       expect(getPayout(r, "referral_partner")?.percentage).toBe(25);
-      expect(getPayout(r, "group_leader")?.percentage).toBe(2.5);
-    });
-
-    it("15% referral: Agent=50, Savvy=27.5, Ref=15, GL=7.5", () => {
-      const r = calculateCommission({ ...opts, referralPercent: 15, gci: GCI });
-      expect(getPayout(r, "agent")?.percentage).toBe(50);
-      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(27.5);
-      expect(getPayout(r, "referral_partner")?.percentage).toBe(15);
-      expect(getPayout(r, "group_leader")?.percentage).toBe(7.5);
-    });
-
-    it("20% referral: Agent=50, Savvy=25, Ref=20, GL=5", () => {
-      const r = calculateCommission({ ...opts, referralPercent: 20, gci: GCI });
-      expect(getPayout(r, "agent")?.percentage).toBe(50);
-      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(25);
-      expect(getPayout(r, "referral_partner")?.percentage).toBe(20);
       expect(getPayout(r, "group_leader")?.percentage).toBe(5);
     });
 
-    it("10% referral: Agent=50, Savvy=30, Ref=10, GL=10", () => {
-      const r = calculateCommission({ ...opts, referralPercent: 10, gci: GCI });
+    it("15% referral: Agent=50, Savvy=20, Ref=15, GL=15", () => {
+      const r = calculateCommission({ ...opts, referralPercent: 15, gci: GCI });
       expect(getPayout(r, "agent")?.percentage).toBe(50);
-      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(30);
-      expect(getPayout(r, "referral_partner")?.percentage).toBe(10);
+      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(20);
+      expect(getPayout(r, "referral_partner")?.percentage).toBe(15);
+      expect(getPayout(r, "group_leader")?.percentage).toBe(15);
+    });
+
+    it("20% referral: Agent=50, Savvy=20, Ref=20, GL=10", () => {
+      const r = calculateCommission({ ...opts, referralPercent: 20, gci: GCI });
+      expect(getPayout(r, "agent")?.percentage).toBe(50);
+      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(20);
+      expect(getPayout(r, "referral_partner")?.percentage).toBe(20);
       expect(getPayout(r, "group_leader")?.percentage).toBe(10);
     });
 
-    it("5% referral: Agent=50, Savvy=30, Ref=5, GL=15", () => {
+    it("10% referral: Agent=50, Savvy=20, Ref=10, GL=20", () => {
+      const r = calculateCommission({ ...opts, referralPercent: 10, gci: GCI });
+      expect(getPayout(r, "agent")?.percentage).toBe(50);
+      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(20);
+      expect(getPayout(r, "referral_partner")?.percentage).toBe(10);
+      expect(getPayout(r, "group_leader")?.percentage).toBe(20);
+    });
+
+    it("5% referral: Agent=50, Savvy=25, Ref=5, GL=20", () => {
       const r = calculateCommission({ ...opts, referralPercent: 5, gci: GCI });
       expect(getPayout(r, "agent")?.percentage).toBe(50);
-      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(30);
+      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(25);
       expect(getPayout(r, "referral_partner")?.percentage).toBe(5);
-      expect(getPayout(r, "group_leader")?.percentage).toBe(15);
+      expect(getPayout(r, "group_leader")?.percentage).toBe(20);
     });
   });
 
@@ -193,13 +193,11 @@ describe("Commission Engine", () => {
   });
 
   describe("Savvy minimum flag", () => {
-    it("flags when Savvy drops below 20%", () => {
-      // This shouldn't normally happen with the rules, but test the flag
+    it("preserves Savvy's 20% floor when the agent absorbs the remaining referral fee", () => {
       const r = calculateCommission({ agentSplit: 70, isInGroup: false, referralPercent: 15, gci: GCI });
-      // Agent: 70 - 15 (pays up to 20, but referral is only 15) = 55
-      // Actually: 70/30 with 15% referral: agent pays min(15,20)=15, savvy pays min(0,10)=0
-      // Agent net = 70-15 = 55, Savvy net = 30-0 = 30
-      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(30);
+      // Savvy pays 10 points down to its floor; the agent absorbs the remaining 5.
+      expect(getPayout(r, "agent")?.percentage).toBe(65);
+      expect(getPayout(r, "savvy_str_agents")?.percentage).toBe(20);
       expect(r.flagForReview).toBe(false);
     });
   });

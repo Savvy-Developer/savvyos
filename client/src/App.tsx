@@ -27,6 +27,7 @@ import ProformaPage from "./pages/ProformaPage";
 import MyProformasPage from "./pages/MyProformasPage";
 import ProformaDefaultsPage from "./pages/ProformaDefaultsPage";
 import TasksPage from "./pages/TasksPage";
+import LeadCohortConversionPage from "./pages/LeadCohortConversionPage";
 import ReportingSuitePage from "./pages/ReportingSuitePage";
 import CustomReportsPage from "./pages/CustomReportsPage";
 import IsmDashboardPage from "./pages/IsmDashboardPage";
@@ -505,7 +506,7 @@ function Router() {
           <Route path="/pto/admin">{() => <PtoAdministrationRoute><PtoAdministrationPage /></PtoAdministrationRoute>}</Route>
           <Route path="/analytics/legacy">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
           <Route path="/analytics/conversation-intelligence">{() => <ConversationIntelligenceRoute><ConversationIntelligencePage /></ConversationIntelligenceRoute>}</Route>
-          <Route path="/analytics/lead-cohorts">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
+          <Route path="/analytics/lead-cohorts">{() => <AdminRoute><LeadCohortConversionPage /></AdminRoute>}</Route>
           <Route path="/analytics">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
           <Route path="/custom-reports">{() => <CustomReportsRoute><CustomReportsPage /></CustomReportsRoute>}</Route>
           <Route path="/commission" component={CommissionPage} />

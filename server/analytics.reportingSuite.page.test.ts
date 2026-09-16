@@ -191,10 +191,10 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(views).toContain("export function IsaActivitiesReport");
     expect(views).toContain("export function LeadSourcesReport");
     expect(views).toContain("Overdue");
-    expect(views).toContain("Follow-up");
+    expect(views).toContain("Open-work evidence");
     expect(views).toContain("Appointments set by agent");
     expect(views).toContain("agentAppointments");
-    expect(views).toContain("w-full xl:w-1/2");
+    expect(views).toContain("xl:grid-cols-[0.95fr_1.05fr]");
     expect(views).toContain("agents with no appointments");
     expect(views).toContain("agent.marketName");
     expect(views).toContain("/agents/${agent.agentId}");

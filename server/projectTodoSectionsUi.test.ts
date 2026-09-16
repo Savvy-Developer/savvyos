@@ -53,13 +53,13 @@ describe("project todo section UI", () => {
     expect(projectDetailPage).toContain("Section Title *");
     expect(projectDetailPage).toContain('id="project-todo-section-title"');
     expect(projectDetailPage).toContain(
-      "disabled={!sectionTitle.trim() || createSection.isPending}"
+      "disabled={!sectionTitle.trim() || (project.isRock && !sectionDueDate) || createSection.isPending}"
     );
     expect(projectRouter).toContain("title: z.string().trim().min(1).max(128)");
   });
 
   it("keeps empty expanded sections compact", () => {
-    expect(sectionComponent).toContain("displayCount > 0 ? (");
+    expect(sectionComponent).toContain("displayCount > 0 || acceptingTask ? (");
     expect(sectionComponent).toContain(
       'className="px-3 py-2 text-xs text-muted-foreground"'
     );

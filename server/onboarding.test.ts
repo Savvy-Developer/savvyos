@@ -137,6 +137,7 @@ vi.mock("./_core/emailAlerts", () => ({
 }));
 
 vi.mock("./_core/resendEmail", () => ({
+  EMAIL_NOTIFICATION_TYPES: ["lead_assigned"],
   sendTransactionalEmail: vi.fn().mockResolvedValue(undefined),
 }));
 

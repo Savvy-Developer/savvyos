@@ -23,6 +23,7 @@ let clientId = "";
 let testUserId = 0;
 let issuedTokens: { access_token: string; refresh_token: string } | null = null;
 const originalMcpPublicBaseUrl = process.env.MCP_PUBLIC_BASE_URL;
+const hasTestDatabase = Boolean(process.env.DATABASE_URL);
 
 async function mcpRequest(body: object, accessToken: string) {
   return fetch(`${baseUrl}/api/mcp`, {
@@ -46,7 +47,7 @@ async function readMcpPayload(response: Response): Promise<any> {
   return JSON.parse(data);
 }
 
-describe("OAuth 2.1 MCP authorization", () => {
+describe.skipIf(!hasTestDatabase)("OAuth 2.1 MCP authorization", () => {
   beforeAll(async () => {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl)

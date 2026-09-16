@@ -14,7 +14,7 @@ vi.mock("./db", () => ({
   }),
 }));
 
-vi.mock("../../drizzle/schema", () => ({
+vi.mock("../drizzle/schema", () => ({
   contacts: {},
 }));
 
@@ -29,12 +29,14 @@ import { getDb } from "./db";
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe("verifyResendWebhookSignature", () => {
-  const secret = "whsec_test_secret";
+  const secret = "whsec_c2VjcmV0";
   const payload = JSON.stringify({ type: "email.bounced", data: { to: ["test@example.com"] } });
+  const svixId = "msg_test";
+  const svixTimestamp = "1735689600";
 
-  it("returns true for a valid HMAC-SHA256 signature", () => {
-    const signature = createHmac("sha256", secret).update(payload).digest("hex");
-    expect(verifyResendWebhookSignature(payload, signature, secret)).toBe(true);
+  it("returns true for a valid Svix HMAC-SHA256 signature", () => {
+    const signature = `v1,${createHmac("sha256", Buffer.from("secret")).update(`${svixId}.${svixTimestamp}.${payload}`).digest("base64")}`;
+    expect(verifyResendWebhookSignature(payload, signature, secret, svixId, svixTimestamp)).toBe(true);
   });
 
   it("returns false for an invalid signature", () => {
@@ -93,13 +95,14 @@ describe("handleResendWebhook", () => {
     expect(result.email).toBe("suppressed@example.com");
   });
 
-  it("returns handled: false when no email address is present", async () => {
+  it("records a bounce even when Resend omits the recipient address", async () => {
     const result = await handleResendWebhook({
       type: "email.bounced",
       data: {},
     });
-    expect(result.handled).toBe(false);
-    expect(result.reason).toBe("no_email");
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe("marked_bounced");
+    expect(result.email).toBeNull();
   });
 
   it("returns handled: false for unrecognized event types", async () => {

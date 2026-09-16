@@ -13,7 +13,8 @@ const ismPage = () => readFileSync("client/src/pages/IsmDashboardPage.tsx", "utf
 describe("ISA transaction outcome attribution", () => {
   it("stores appointment ownership and transaction outcomes independently of mutable contact assignment", () => {
     expect(schema()).toContain('appointmentSetByUserId: int("appointmentSetByUserId")');
-    expect(schema()).toContain('export const isaOutcomeAttributions = mysqlTable("isa_outcome_attributions"');
+    expect(schema()).toContain("export const isaOutcomeAttributions = mysqlTable(");
+    expect(schema()).toContain('"isa_outcome_attributions"');
     expect(schema()).toContain('uniqueIndex("isa_outcome_transaction_uidx")');
     expect(connectionRouter()).toContain('appointmentSetByUserId: input.appointmentSet && ctx.user.role === "isa" ? ctx.user.id : null');
   });

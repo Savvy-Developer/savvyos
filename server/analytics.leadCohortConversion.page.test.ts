@@ -41,7 +41,7 @@ describe("Lead Cohort Conversion report — stable cohort and evidence contract"
     expect(routes).toContain('path="/analytics/lead-cohorts"');
     const contact = contactDetail();
     expect(contact).toContain('candidate?.startsWith("/analytics")');
-    expect(contact).toContain('analyticsReturnTo ? "Back to report" : "Back"');
+    expect(contact).toContain('analyticsReturnTo ? "Back to report" : hotLeadsReturnTo ? "Back to Hot Leads" : "Back"');
   });
 
   it("uses a distinct administrator-gated report and scoped intelligence endpoints", () => {
