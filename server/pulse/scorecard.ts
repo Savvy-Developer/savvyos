@@ -6,6 +6,9 @@ import {
   pulseMeetingScorecardMetrics,
   pulseMeetings,
   rolesResponsibilities,
+  rrMetricAutoConfigs,
+  rrMetricChangeHistory,
+  rrMetricTargetHistory,
   rrMetricValues,
   rrScorecardMetrics,
   users,
@@ -13,6 +16,7 @@ import {
 import { router } from "../_core/trpc";
 import { getDb } from "../db";
 import { is_visible_meeting_manager, require_visible_meeting } from "./access";
+import { currentMeasurementPeriod, formatPeriod as formatScorecardPeriod, isEventMetric, isSnapshotMetric, metricPeriodBounds, scoreResult, targetLabel, trendPhrase as scorecardTrendPhrase } from "../rrScorecard";
 
 export const SCORECARD_CADENCES = ["weekly", "monthly", "quarterly", "annually"] as const;
 export type ScorecardCadence = (typeof SCORECARD_CADENCES)[number];
@@ -73,18 +77,16 @@ function formatPeriod(cadence: ScorecardCadence, start: Date) {
   return String(start.getUTCFullYear());
 }
 
-function performance(actual: number | null, target: number | null, direction: string) {
-  if (actual == null || target == null) return null;
-  return direction === "higher" ? actual >= target : actual <= target;
+function numeric(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function trendPhrase(values: Array<number | null>, cadence: ScorecardCadence) {
-  const [current, prior, older] = values;
-  if (current == null || prior == null) return null;
-  const unit = cadence === "weekly" ? "week" : cadence === "monthly" ? "month" : cadence === "quarterly" ? "quarter" : "year";
-  const direction = current > prior ? "up" : current < prior ? "down" : "flat";
-  if (older != null && ((current > prior && prior > older) || (current < prior && prior < older))) return `3rd ${unit} ${direction === "up" ? "rising" : "declining"}`;
-  return direction === "flat" ? "Holding steady" : `${direction === "up" ? "Trending up" : "Trending down"}`;
+function targetForPeriod(metric: any, targets: any[], periodStart: string) {
+  const historic = targets.filter((target) => target.effectiveDate <= periodStart).sort((left, right) => String(right.effectiveDate).localeCompare(String(left.effectiveDate)))[0];
+  const source = historic ?? (targets.length ? { comparisonRule: metric.comparisonRule ?? (metric.performanceDirection === "lower" ? "at_most" : "at_least") } : metric);
+  return { targetValue: numeric(source.targetValue), targetMinimum: numeric(source.targetMinimum), targetMaximum: numeric(source.targetMaximum), comparisonRule: source.comparisonRule ?? (metric.performanceDirection === "lower" ? "at_most" : "at_least"), warningThreshold: numeric(source.warningThreshold), performanceDirection: metric.performanceDirection };
 }
 
 async function database() {
@@ -112,41 +114,65 @@ export async function getMeetingScorecard(db: any, viewerId: number, meetingId: 
   const rows = await mappingRows(db, meetingId);
   const active = rows.filter((row: any) => row.metric?.status === "active" && row.responsibility && row.owner);
   const metricIds = active.map((row: any) => row.metric.id);
-  const values = metricIds.length
-    ? await db.select().from(rrMetricValues).where(inArray(rrMetricValues.metricId, metricIds)).orderBy(desc(rrMetricValues.periodEnd))
-    : [];
+  const [values, targets, configs, metricOwners] = metricIds.length ? await Promise.all([
+    db.select().from(rrMetricValues).where(inArray(rrMetricValues.metricId, metricIds)).orderBy(desc(rrMetricValues.eventDate), desc(rrMetricValues.periodEnd)),
+    db.select().from(rrMetricTargetHistory).where(inArray(rrMetricTargetHistory.metricId, metricIds)).orderBy(desc(rrMetricTargetHistory.effectiveDate)),
+    db.select().from(rrMetricAutoConfigs).where(inArray(rrMetricAutoConfigs.metricId, metricIds)),
+    db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, Array.from(new Set(active.map((row: any) => row.metric.ownerId ?? row.responsibility.ownerId))))),
+  ]) : [[], [], [], []] as const;
   const valuesByMetric = new Map<number, any[]>();
   for (const value of values) valuesByMetric.set(value.metricId, [...(valuesByMetric.get(value.metricId) ?? []), value]);
+  const targetsByMetric = new Map<number, any[]>();
+  for (const target of targets) targetsByMetric.set(target.metricId, [...(targetsByMetric.get(target.metricId) ?? []), target]);
+  const configByMetric = new Map<number, any>((configs as any[]).map((config: any) => [config.metricId, config]));
+  const ownerById = new Map<number, any>((metricOwners as any[]).map((owner: any) => [owner.id, owner]));
 
   const items = active.map((row: any) => {
     const metric = row.metric;
     const cadence = metric.frequency as ScorecardCadence;
+    const sourceValues = valuesByMetric.get(metric.id) ?? [];
+    const metricTargets = targetsByMetric.get(metric.id) ?? [];
     const references = [new Date(), priorPeriod(cadence, new Date()), priorPeriod(cadence, priorPeriod(cadence, new Date()))];
-    const periods = references.map((reference) => {
-      const bounds = periodBounds(cadence, reference);
-      const start = dateOnly(bounds.start);
-      const end = dateOnly(addDays(bounds.end, -1));
-      const value = (valuesByMetric.get(metric.id) ?? []).find((candidate: any) => candidate.periodStart === start && candidate.periodEnd === end) ?? null;
-      return { periodStart: start, periodEnd: end, label: formatPeriod(cadence, bounds.start), value: value ? Number(value.actualValue) : null, note: value?.note ?? null };
-    });
+    const periods: any[] = (isEventMetric(metric) || isSnapshotMetric(metric))
+      ? sourceValues.slice(0, 3).map((value: any) => ({ periodStart: value.periodStart, periodEnd: value.periodEnd, label: value.eventLabel || (value.eventDate ? `Event · ${value.eventDate}` : "Latest result"), value: numeric(value.actualValue), note: value.note ?? null, resultState: value.resultState, eventLabel: value.eventLabel, eventDate: value.eventDate, supportingInputs: value.supportingInputs, calculationMetadata: value.calculationMetadata }))
+      : references.map((reference) => {
+        const bounds = metricPeriodBounds(metric, reference);
+        const start = dateOnly(bounds.start);
+        const end = dateOnly(addDays(bounds.end, -1));
+        const value = sourceValues.find((candidate: any) => candidate.periodStart === start && candidate.periodEnd === end) ?? null;
+        return { periodStart: start, periodEnd: end, label: formatScorecardPeriod(metric, bounds.start, addDays(bounds.end, -1)), value: numeric(value?.actualValue), note: value?.note ?? null, resultState: value?.resultState ?? "missing", eventLabel: value?.eventLabel, eventDate: value?.eventDate, supportingInputs: value?.supportingInputs, calculationMetadata: value?.calculationMetadata };
+      });
+    if ((isEventMetric(metric) || isSnapshotMetric(metric)) && !periods.length) {
+      const bounds = metricPeriodBounds(metric);
+      periods.push({ periodStart: dateOnly(bounds.start), periodEnd: dateOnly(addDays(bounds.end, -1)), label: isEventMetric(metric) ? "No event reported" : "Current snapshot", value: null, note: null, resultState: isEventMetric(metric) ? "not_due" : "missing" });
+    }
     const current = periods[0];
-    const target = metric.targetValue == null ? null : Number(metric.targetValue);
+    const targetConfig = targetForPeriod(metric, metricTargets, current.periodStart);
+    const target = targetConfig.targetValue;
+    const grade = scoreResult(current.value, current.resultState, targetConfig);
+    const autoConfig = configByMetric.get(metric.id) ?? null;
     return {
       mappingId: row.mapping.id,
       metricId: metric.id,
       name: metric.name,
       cadence,
-      owner: { id: row.owner.id, name: row.owner.name ?? row.owner.email ?? "Unassigned" },
+      owner: { id: metric.ownerId ?? row.owner.id, name: ownerById.get(metric.ownerId ?? row.owner.id)?.name ?? ownerById.get(metric.ownerId ?? row.owner.id)?.email ?? row.owner.name ?? row.owner.email ?? "Unassigned" },
       target,
+      targetConfig,
+      targetLabel: targetLabel(targetConfig, (value) => `${value}`),
       performanceDirection: metric.performanceDirection,
       displayFormat: metric.displayFormat,
       metricType: metric.metricType,
+      unit: metric.unit ?? "count",
+      measurementPeriod: currentMeasurementPeriod(metric),
+      reviewFrequency: metric.reviewFrequency ?? "weekly",
       current,
       periods,
-      onTarget: performance(current.value, target, metric.performanceDirection),
-      trend: trendPhrase(periods.map((period) => period.value), cadence),
-      canEdit: metric.metricType === "manual" && row.responsibility.ownerId === viewerId,
-      detail: { responsibility: row.responsibility.title, definition: row.responsibility.description, ownerName: row.owner.name ?? row.owner.email ?? "Unassigned", target, cadence, history: periods },
+      statusLabel: grade.status,
+      onTarget: grade.onTarget,
+      trend: scorecardTrendPhrase(periods.map((period) => period.value), cadence),
+      canEdit: metric.metricType !== "automatic" && (metric.ownerId ?? row.responsibility.ownerId) === viewerId,
+      detail: { responsibility: row.responsibility.title, definition: metric.definition || row.responsibility.description, ownerName: ownerById.get(metric.ownerId ?? row.owner.id)?.name ?? ownerById.get(metric.ownerId ?? row.owner.id)?.email ?? row.owner.name ?? row.owner.email ?? "Unassigned", target, targetConfig, cadence, measurementPeriod: currentMeasurementPeriod(metric), reviewFrequency: metric.reviewFrequency ?? "weekly", calculationMethod: metric.calculationMethod ?? metric.rollupMethod, formulaExpression: metric.formulaExpression, manualInputDefinitions: metric.manualInputDefinitions, dataSource: autoConfig?.dataSource ?? "Manual entry", dateField: autoConfig?.dateField ?? null, calculation: autoConfig?.calculation ?? metric.calculationMethod ?? metric.rollupMethod, lastUpdated: current?.updatedAt ?? autoConfig?.lastRefreshedAt ?? null, history: periods, supportingInputs: current?.supportingInputs ?? null, calculationMetadata: current?.calculationMetadata ?? null },
     };
   });
 
@@ -177,15 +203,17 @@ export async function saveCurrentScorecardValue(db: any, personId: number, input
     .innerJoin(rolesResponsibilities, eq(rolesResponsibilities.id, rrScorecardMetrics.responsibilityId))
     .where(and(eq(pulseMeetingScorecardMetrics.meetingId, input.meetingId), eq(rrScorecardMetrics.id, input.metricId), eq(rrScorecardMetrics.status, "active"))).limit(1);
   if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "That SavvyOS metric is no longer available in this meeting." });
-  if (row.metric.metricType !== "manual") throw new TRPCError({ code: "BAD_REQUEST", message: "This metric is calculated in SavvyOS and cannot be entered manually." });
-  if (row.responsibility.ownerId !== personId) throw new TRPCError({ code: "FORBIDDEN", message: "Only this metric’s SavvyOS owner can enter its number." });
-  const bounds = periodBounds(row.metric.frequency as ScorecardCadence);
+  if (row.metric.metricType === "automatic" || row.metric.calculationMethod === "formula") throw new TRPCError({ code: "BAD_REQUEST", message: "Use the SavvyOS scorecard review to report this calculated metric." });
+  if ((row.metric.ownerId ?? row.responsibility.ownerId) !== personId) throw new TRPCError({ code: "FORBIDDEN", message: "Only this metric’s SavvyOS owner can enter its number." });
+  if (isEventMetric(row.metric)) throw new TRPCError({ code: "BAD_REQUEST", message: "Event-based metrics are reported in the SavvyOS scorecard review so the event and date remain intact." });
+  const bounds = metricPeriodBounds(row.metric);
   const periodStart = dateOnly(bounds.start);
   const periodEnd = dateOnly(addDays(bounds.end, -1));
   const [existing] = await db.select({ id: rrMetricValues.id }).from(rrMetricValues).where(and(eq(rrMetricValues.metricId, input.metricId), eq(rrMetricValues.periodStart, periodStart), eq(rrMetricValues.periodEnd, periodEnd))).limit(1);
-  const data = { actualValue: String(input.actualValue), note: input.note ?? null, valueSource: "manual" as const, enteredById: personId, enteredAt: new Date() };
+  const data = { actualValue: String(input.actualValue), resultState: "reported", note: input.note ?? null, valueSource: row.metric.metricType === "hybrid" ? "hybrid" as const : "manual" as const, enteredById: personId, enteredAt: new Date() };
   if (existing) await db.update(rrMetricValues).set(data).where(eq(rrMetricValues.id, existing.id));
   else await db.insert(rrMetricValues).values({ metricId: input.metricId, periodStart, periodEnd, ...data });
+  await db.insert(rrMetricChangeHistory).values({ metricId: input.metricId, changeType: existing ? "result_corrected" : "result_reported", details: { periodStart, periodEnd, actualValue: input.actualValue, note: input.note ?? null, source: "pulse" }, createdById: personId });
   return { success: true, periodStart, periodEnd };
 }
 

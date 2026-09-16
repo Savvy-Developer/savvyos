@@ -3130,8 +3130,15 @@ export const rrScorecardMetrics = mysqlTable(
     responsibilityId: int("responsibilityId")
       .notNull()
       .references(() => rolesResponsibilities.id, { onDelete: "cascade" }),
+    ownerId: int("ownerId").references(() => users.id, {
+      onDelete: "set null",
+    }),
     name: varchar("name", { length: 255 }).notNull(),
-    metricType: mysqlEnum("metricType", ["manual", "automatic"])
+    // A shared key keeps equivalent definitions connected when an administrator
+    // assigns the same measurable to several R&Rs with separate targets.
+    definitionKey: varchar("definitionKey", { length: 64 }),
+    definition: text("definition"),
+    metricType: mysqlEnum("metricType", ["manual", "automatic", "hybrid"])
       .default("manual")
       .notNull(),
     frequency: mysqlEnum("frequency", [
@@ -3142,7 +3149,22 @@ export const rrScorecardMetrics = mysqlTable(
     ])
       .default("monthly")
       .notNull(),
+    measurementPeriod: varchar("measurementPeriod", { length: 32 })
+      .default("monthly")
+      .notNull(),
+    rollingDays: int("rollingDays"),
+    reviewFrequency: varchar("reviewFrequency", { length: 32 })
+      .default("weekly")
+      .notNull(),
+    reportingSchedule: text("reportingSchedule"),
+    unit: varchar("unit", { length: 32 }).default("count").notNull(),
     targetValue: decimal("targetValue", { precision: 16, scale: 4 }),
+    targetMinimum: decimal("targetMinimum", { precision: 16, scale: 4 }),
+    targetMaximum: decimal("targetMaximum", { precision: 16, scale: 4 }),
+    comparisonRule: varchar("comparisonRule", { length: 32 })
+      .default("at_least")
+      .notNull(),
+    warningThreshold: decimal("warningThreshold", { precision: 16, scale: 4 }),
     performanceDirection: mysqlEnum("performanceDirection", ["higher", "lower"])
       .default("higher")
       .notNull(),
@@ -3158,11 +3180,19 @@ export const rrScorecardMetrics = mysqlTable(
       "sum",
       "average",
       "count",
+      "unique_count",
+      "weighted_average",
       "percentage",
       "latest",
     ])
       .default("sum")
       .notNull(),
+    calculationMethod: varchar("calculationMethod", { length: 32 })
+      .default("count")
+      .notNull(),
+    formulaExpression: text("formulaExpression"),
+    manualInputDefinitions: json("manualInputDefinitions").$type<Array<{ key: string; label: string; unit?: string }>>(),
+    zeroDenominatorLabel: varchar("zeroDenominatorLabel", { length: 255 }),
     isCumulative: boolean("isCumulative").default(false).notNull(),
     cumulativeReset: mysqlEnum("cumulativeReset", [
       "monthly",
@@ -3173,6 +3203,7 @@ export const rrScorecardMetrics = mysqlTable(
     status: mysqlEnum("status", ["active", "inactive"])
       .default("active")
       .notNull(),
+    archivedAt: timestamp("archivedAt"),
     createdById: int("createdById").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -3184,6 +3215,7 @@ export const rrScorecardMetrics = mysqlTable(
       table.responsibilityId,
       table.status
     ),
+    index("rr_metrics_owner_status_idx").on(table.ownerId, table.status),
     index("rr_metrics_name_idx").on(table.name),
   ]
 );
@@ -3199,9 +3231,15 @@ export const rrMetricValues = mysqlTable(
       .references(() => rrScorecardMetrics.id, { onDelete: "cascade" }),
     periodStart: date("periodStart", { mode: "string" }).notNull(),
     periodEnd: date("periodEnd", { mode: "string" }).notNull(),
-    actualValue: decimal("actualValue", { precision: 18, scale: 4 }).notNull(),
+    actualValue: decimal("actualValue", { precision: 18, scale: 4 }),
+    resultState: varchar("resultState", { length: 32 })
+      .default("reported")
+      .notNull(),
     note: text("note"),
-    valueSource: mysqlEnum("valueSource", ["manual", "automatic"])
+    eventLabel: varchar("eventLabel", { length: 255 }),
+    eventDate: date("eventDate", { mode: "string" }),
+    supportingInputs: json("supportingInputs").$type<Record<string, number | null>>(),
+    valueSource: mysqlEnum("valueSource", ["manual", "automatic", "hybrid"])
       .default("manual")
       .notNull(),
     calculationMetadata: json("calculationMetadata"),
@@ -3239,12 +3277,16 @@ export const rrMetricAutoConfigs = mysqlTable("rr_metric_auto_configs", {
   dateField: varchar("dateField", { length: 64 }).notNull(),
   calculation: mysqlEnum("calculation", [
     "count",
+    "unique_count",
     "sum",
     "average",
+    "weighted_average",
     "percentage",
     "latest",
   ]).notNull(),
   valueField: varchar("valueField", { length: 64 }),
+  weightField: varchar("weightField", { length: 64 }),
+  outputKey: varchar("outputKey", { length: 64 }),
   filters: json("filters"),
   numeratorFilters: json("numeratorFilters"),
   denominatorFilters: json("denominatorFilters"),
@@ -3256,6 +3298,61 @@ export const rrMetricAutoConfigs = mysqlTable("rr_metric_auto_configs", {
 });
 export type RrMetricAutoConfig = typeof rrMetricAutoConfigs.$inferSelect;
 export type InsertRrMetricAutoConfig = typeof rrMetricAutoConfigs.$inferInsert;
+
+// Target records are never overwritten. Scorecard grading selects the record
+// effective for a reporting period, preserving the historical evaluation.
+export const rrMetricTargetHistory = mysqlTable(
+  "rr_metric_target_history",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    metricId: int("metricId")
+      .notNull()
+      .references(() => rrScorecardMetrics.id, { onDelete: "cascade" }),
+    effectiveDate: date("effectiveDate", { mode: "string" }).notNull(),
+    targetValue: decimal("targetValue", { precision: 16, scale: 4 }),
+    targetMinimum: decimal("targetMinimum", { precision: 16, scale: 4 }),
+    targetMaximum: decimal("targetMaximum", { precision: 16, scale: 4 }),
+    comparisonRule: varchar("comparisonRule", { length: 32 }).notNull(),
+    warningThreshold: decimal("warningThreshold", { precision: 16, scale: 4 }),
+    note: text("note"),
+    createdById: int("createdById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("rr_metric_target_history_lookup_idx").on(
+      table.metricId,
+      table.effectiveDate
+    ),
+  ]
+);
+export type RrMetricTargetHistory = typeof rrMetricTargetHistory.$inferSelect;
+
+// Configuration and result corrections are retained independently from the
+// generic activity log so an administrator can audit a measurable in context.
+export const rrMetricChangeHistory = mysqlTable(
+  "rr_metric_change_history",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    metricId: int("metricId")
+      .notNull()
+      .references(() => rrScorecardMetrics.id, { onDelete: "cascade" }),
+    changeType: varchar("changeType", { length: 64 }).notNull(),
+    details: json("details"),
+    createdById: int("createdById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("rr_metric_change_history_metric_idx").on(
+      table.metricId,
+      table.createdAt
+    ),
+  ]
+);
+export type RrMetricChangeHistory = typeof rrMetricChangeHistory.$inferSelect;
 
 // ─── User Core Profile (all roles) ───────────────────────────────────────────"
 export const userProfiles = mysqlTable("user_profiles", {
