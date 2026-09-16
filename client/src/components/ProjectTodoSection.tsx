@@ -117,7 +117,6 @@ export function ProjectTodoSection({
               autoFocus
             />
             <Input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className="h-7 w-32 shrink-0 bg-background text-xs" aria-label="Section due date" required={isRock} />
-            {!isRock && dueDate ? <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" onClick={() => setDueDate("")}>Clear date</Button> : null}
             <Badge
               variant="secondary"
               className="shrink-0 text-[11px]"
@@ -156,6 +155,15 @@ export function ProjectTodoSection({
         )}
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          {!editing && !isRock && section.dueDate ? <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => onUpdate({ title: section.title, dueDate: null })}
+          >
+            Clear date
+          </Button> : null}
           {editing ? (
             <>
               <Button

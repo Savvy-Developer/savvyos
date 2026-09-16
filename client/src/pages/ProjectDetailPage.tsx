@@ -693,7 +693,6 @@ export default function ProjectDetailPage() {
                     <Label>Due Date {editForm.isRock ? "*" : "(optional)"}</Label>
                     <div className="flex gap-2">
                       <Input type="date" value={editForm.dueDate} required={editForm.isRock} onChange={e => setEditForm((f: any) => ({ ...f, dueDate: e.target.value }))} />
-                      {!editForm.isRock && editForm.dueDate ? <Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, dueDate: "" }))}>Clear date</Button> : null}
                     </div>
                     {!editForm.isRock ? <p className="mt-1 text-xs text-muted-foreground">Leave blank to keep this project undated.</p> : null}
                   </div>
@@ -740,6 +739,9 @@ export default function ProjectDetailPage() {
                   <Sparkles className="h-3.5 w-3.5 mr-1" />
                   {aiLoading ? "Generating..." : "AI Summary"}
                 </Button>
+                {!project.isRock && !project.isOngoing && project.dueDate ? <Button size="sm" variant="outline" onClick={() => updateProjectOverview.mutate({ id: projectId, dueDate: null })} disabled={updateProjectOverview.isPending}>
+                  <Calendar className="h-3.5 w-3.5 mr-1" /> Clear due date
+                </Button> : null}
                 <Button size="sm" variant="outline" onClick={startEditProject}>
                   <Edit2 className="h-3.5 w-3.5 mr-1" /> Edit
                 </Button>
