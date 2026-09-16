@@ -13,10 +13,11 @@ const projectRouter = readFileSync(
 );
 
 describe("Project Notifications bulk acknowledgement", () => {
-  it("provides a disabled-while-pending Clear all control for unread notifications", () => {
+  it("keeps Clear all visible and disables it only when there is nothing to acknowledge", () => {
     expect(notificationsPanel).toContain("trpc.pm.inbox.markAllRead.useMutation");
     expect(notificationsPanel).toContain('"Clear all"');
-    expect(notificationsPanel).toContain("disabled={markAllRead.isPending}");
+    expect(notificationsPanel).toContain('"No unread"');
+    expect(notificationsPanel).toContain("disabled={unreadCount === 0 || markAllRead.isPending}");
     expect(notificationsPanel).toContain('markAllRead.mutate()');
   });
 
