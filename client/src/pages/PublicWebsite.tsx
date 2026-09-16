@@ -17,8 +17,12 @@ import {
   Home,
   KeyRound,
   LineChart,
+  CalendarCheck,
+  Calculator,
   Loader2,
+  Landmark,
   Lock,
+  Quote,
   Mail,
   MapPin,
   Menu,
@@ -38,6 +42,10 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
+import {
+  CALCULATOR_DEFAULTS,
+  runCalculator,
+} from "@/lib/investmentCalculator";
 import {
   AccountMenu,
   AccountMobileLinks,
@@ -716,12 +724,16 @@ function LeadForm({
   agentUserId,
   propertyId,
   intent = "general",
+  requestType,
   title = "Talk with a Savvy STR specialist",
   message = "",
 }: {
   agentUserId?: number;
   propertyId?: number;
   intent?: "buy" | "sell" | "property" | "agent" | "general";
+  /** Which call to action opened this form, so the agent sees what was asked
+   *  for rather than inferring it from the message text. */
+  requestType?: "showing" | "analysis" | "financing";
   title?: string;
   message?: string;
 }) {
@@ -806,6 +818,7 @@ function LeadForm({
           submit.mutate({
             ...form,
             intent,
+            requestType,
             propertyId,
             agentUserId,
             sourcePath: window.location.pathname,
@@ -1289,12 +1302,238 @@ function PropertiesPage() {
   );
 }
 
+/**
+ * The assigned agent's own note on a listing.
+ *
+ * Presented as a quote with their name on it, because that is what it is: one
+ * person's judgement, not the company's. An investor can weigh a named
+ * opinion. An unattributed one just reads as marketing.
+ */
+function AgentNote({ item }: { item: any }) {
+  if (!item.agentBlurb) return null;
+  return (
+    <div className="rounded-2xl border bg-white p-7 shadow-sm">
+      <p className="text-sm font-bold uppercase tracking-[.16em] text-cyan-600">
+        Why I like this property
+      </p>
+      <div className="mt-4 flex gap-4">
+        <Quote className="h-6 w-6 shrink-0 text-cyan-200" />
+        <p className="text-base leading-8 text-slate-700">{item.agentBlurb}</p>
+      </div>
+      <div className="mt-5 flex items-center gap-3 border-t pt-5">
+        {item.assignedAgentImageUrl ? (
+          <img
+            src={item.assignedAgentImageUrl}
+            alt=""
+            className="h-10 w-10 rounded-full object-cover"
+          />
+        ) : (
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-100">
+            <UserRound className="h-5 w-5 text-cyan-700" />
+          </div>
+        )}
+        <div>
+          <p className="text-sm font-bold text-[#05314a]">
+            {item.assignedAgentName || "Savvy STR Agents"}
+          </p>
+          <p className="text-xs text-slate-500">STR Investment Specialist</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What the form says depending on which button opened it.
+ *
+ * The message is pre-filled but editable. It saves someone typing the obvious
+ * and, more usefully, it means the agent receiving the lead knows what was
+ * asked for without having to guess from an empty message.
+ */
+const ASK_COPY: Record<
+  "showing" | "analysis" | "financing" | "default",
+  { title: (address: string) => string; message: (address: string) => string }
+> = {
+  showing: {
+    title: address => `Book a showing at ${address}`,
+    message: address =>
+      `I'd like to see ${address}. Here are some times that work for me:`,
+  },
+  analysis: {
+    title: address => `Request the full analysis for ${address}`,
+    message: address =>
+      `Please send me the complete investment analysis for ${address}.`,
+  },
+  financing: {
+    title: address => `Financing for ${address}`,
+    message: address =>
+      `I'd like to talk through financing options for ${address}.`,
+  },
+  default: {
+    title: address => `Ask about ${address}`,
+    message: address =>
+      `I'd like the full investment analysis for ${address}.`,
+  },
+};
+
+const pctInput = (value: string) => {
+  const parsed = parseFloat(value.replace(/[^0-9.]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+/**
+ * What this property might do at terms the reader chooses.
+ *
+ * Every assumption is a field they can change, and the defaults are stated
+ * rather than buried. It runs on the published projected revenue, so it is
+ * behind the same login as that figure: a calculator with no revenue in it
+ * would either sit empty or invite someone to type a number and mistake their
+ * own guess for our analysis.
+ */
+function InvestmentCalculator({ item }: { item: any }) {
+  const [terms, setTerms] = useState({
+    downPaymentPct: String(CALCULATOR_DEFAULTS.downPaymentPct),
+    interestRatePct: String(CALCULATOR_DEFAULTS.interestRatePct),
+    loanTermYears: String(CALCULATOR_DEFAULTS.loanTermYears),
+    operatingCostPct: String(CALCULATOR_DEFAULTS.operatingCostPct),
+    annualTaxesAndInsurance: "",
+  });
+  const set = (key: string, value: string) =>
+    setTerms(prior => ({ ...prior, [key]: value }));
+
+  const result = runCalculator({
+    purchasePrice: item.listPrice == null ? null : Number(item.listPrice),
+    annualRevenue:
+      item.projectedRevenue == null ? null : Number(item.projectedRevenue),
+    downPaymentPct: pctInput(terms.downPaymentPct),
+    interestRatePct: pctInput(terms.interestRatePct),
+    loanTermYears: pctInput(terms.loanTermYears) || 30,
+    operatingCostPct: pctInput(terms.operatingCostPct),
+    annualTaxesAndInsurance: pctInput(terms.annualTaxesAndInsurance),
+  });
+
+  const fields: Array<[string, string, string]> = [
+    ["Down payment", "downPaymentPct", "%"],
+    ["Interest rate", "interestRatePct", "%"],
+    ["Loan term", "loanTermYears", "yrs"],
+    ["Operating costs", "operatingCostPct", "% of revenue"],
+    ["Taxes & insurance", "annualTaxesAndInsurance", "$ / yr"],
+  ];
+
+  return (
+    <div className="rounded-2xl border bg-white p-7 shadow-sm">
+      <h2 className="flex items-center gap-2 text-2xl font-bold text-[#05314a]">
+        <Calculator className="h-5 w-5 text-cyan-600" />
+        Investment calculator
+      </h2>
+      <p className="mt-2 text-sm text-slate-500">
+        Built on this listing's price and projected revenue. Change any
+        assumption to see what it does.
+      </p>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {fields.map(([label, key, suffix]) => (
+          <label key={key} className="block">
+            <span className="text-xs font-semibold text-slate-600">
+              {label}
+            </span>
+            <div className="mt-1 flex items-center rounded-lg border border-slate-300 px-3">
+              <input
+                className="w-full py-2.5 text-sm outline-none"
+                inputMode="decimal"
+                value={(terms as any)[key]}
+                placeholder="0"
+                onChange={event => set(key, event.target.value)}
+              />
+              <span className="ml-2 shrink-0 text-xs text-slate-400">
+                {suffix}
+              </span>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      {result ? (
+        <>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            {[
+              [
+                "Monthly cash flow",
+                money(Math.round(result.monthlyCashFlow)),
+                result.monthlyCashFlow < 0,
+              ],
+              [
+                "Cash-on-cash",
+                result.cashOnCash == null
+                  ? "—"
+                  : percent(result.cashOnCash),
+                (result.cashOnCash ?? 0) < 0,
+              ],
+              ["Cap rate", percent(result.capRate), false],
+            ].map(([label, value, negative]: any) => (
+              <div
+                key={label}
+                className={`rounded-xl p-4 ${negative ? "bg-rose-50" : "bg-cyan-50"}`}
+              >
+                <p
+                  className={`text-2xl font-black ${negative ? "text-rose-700" : "text-[#05314a]"}`}
+                >
+                  {value}
+                </p>
+                <p className="text-xs text-slate-500">{label}</p>
+              </div>
+            ))}
+          </div>
+          <dl className="mt-5 grid gap-x-6 gap-y-2 border-t pt-5 text-sm sm:grid-cols-2">
+            {[
+              ["Down payment", money(Math.round(result.downPayment))],
+              ["Loan amount", money(Math.round(result.loanAmount))],
+              [
+                "Monthly loan payment",
+                money(Math.round(result.monthlyDebtPayment)),
+              ],
+              ["Operating costs", money(Math.round(result.operatingCosts))],
+              [
+                "Net operating income",
+                money(Math.round(result.netOperatingIncome)),
+              ],
+              ["Annual cash flow", money(Math.round(result.annualCashFlow))],
+            ].map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-4">
+                <dt className="text-slate-500">{label}</dt>
+                <dd className="font-semibold text-[#05314a]">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-5 text-xs leading-5 text-slate-500">
+            An estimate, not an offer. Cash invested counts the down payment
+            only, so closing costs, furnishing and renovation are on top.
+            Confirm every figure with your agent, your lender and your
+            accountant before you act on it.
+          </p>
+        </>
+      ) : (
+        <p className="mt-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+          This listing does not have a published revenue projection yet, so
+          there is nothing to calculate from. Ask the agent for the full
+          analysis.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function PropertyDetailPage({ slug }: { slug: string }) {
   const query = trpc.website.publicProperty.useQuery({ slug });
   // The revenue range and comps come from the linked pro-forma, read live, so
   // the listing cannot drift from the analysis it claims to be based on.
   const evidence = trpc.website.publicPropertyEvidence.useQuery({ slug });
   const [showLead, setShowLead] = useState(false);
+  // Which of the three calls to action was pressed, so the form says what it
+  // is for and the lead records what was actually asked.
+  const [ask, setAsk] = useState<null | "showing" | "analysis" | "financing">(
+    null
+  );
   usePageTitle(query.data?.metaTitle || query.data?.address || "Property");
   // Recorded for the signed-in investor only, and only once per listing per
   // visit. Anonymous browsing is not tracked to an account that does not exist.
@@ -1442,6 +1681,22 @@ function PropertyDetailPage({ slug }: { slug: string }) {
                 comps={evidence.data.comps}
               />
             )}
+            {item.blurbGated ? (
+              <LockedPanel
+                title="Why I like this property"
+                description="The assigned agent's own take on this listing is available to investors with a free account."
+              />
+            ) : (
+              <AgentNote item={item} />
+            )}
+            {item.gated ? (
+              <LockedPanel
+                title="Investment calculator"
+                description="Model this property at your own down payment, rate and operating costs. Available to investors with a free account."
+              />
+            ) : (
+              <InvestmentCalculator item={item} />
+            )}
             {highlights.length > 0 && (
               <div className="rounded-2xl border bg-white p-7 shadow-sm">
                 <h2 className="text-2xl font-bold text-[#05314a]">
@@ -1515,14 +1770,40 @@ function PropertyDetailPage({ slug }: { slug: string }) {
                 <div className="mt-2">
                   <SaveButton propertyId={item.propertyId} />
                 </div>
+                <div className="mt-4 space-y-2 border-t pt-4">
+                  {(
+                    [
+                      ["showing", "Book a showing", CalendarCheck],
+                      ["analysis", "Request deeper analysis", LineChart],
+                      ["financing", "Financing", Landmark],
+                    ] as const
+                  ).map(([key, label, Icon]) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        setAsk(key);
+                        setShowLead(true);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-bold transition ${
+                        ask === key
+                          ? "border-cyan-400 bg-cyan-50 text-[#05314a]"
+                          : "border-slate-300 text-[#05314a] hover:bg-slate-50"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 text-cyan-600" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
               {showLead && (
                 <LeadForm
                   agentUserId={item.assignedAgentId}
                   propertyId={item.propertyId}
                   intent="property"
-                  title={`Ask about ${item.address}`}
-                  message={`I'd like the full investment analysis for ${item.address}.`}
+                  requestType={ask ?? undefined}
+                  title={ASK_COPY[ask ?? "default"].title(item.address)}
+                  message={ASK_COPY[ask ?? "default"].message(item.address)}
                 />
               )}
             </div>

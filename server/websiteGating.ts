@@ -35,7 +35,7 @@ export const GATED_PROPERTY_FIELDS = [
 
 export type GatedPropertyField = (typeof GATED_PROPERTY_FIELDS)[number];
 
-export type Gated<T> = T & { gated: boolean };
+export type Gated<T> = T & { gated: boolean; blurbGated: boolean };
 
 function hasValue(value: unknown): boolean {
   return value !== null && value !== undefined && value !== "";
@@ -49,7 +49,7 @@ export function gateProperty<T extends Record<string, any>>(
   row: T,
   signedIn: boolean
 ): Gated<T> {
-  if (signedIn) return { ...row, gated: false };
+  if (signedIn) return { ...row, gated: false, blurbGated: false };
 
   const out: Record<string, any> = { ...row };
   let withheld = false;
@@ -58,7 +58,18 @@ export function gateProperty<T extends Record<string, any>>(
     if (hasValue(out[field])) withheld = true;
     out[field] = null;
   }
-  return { ...out, gated: withheld } as Gated<T>;
+
+  // The agent's note is withheld too, but it is counted separately. The
+  // figures panel and the note are two different places on the page, and a
+  // listing with a note but no figures must not put a "sign in to see the
+  // numbers" panel over an empty set of numbers.
+  let blurbWithheld = false;
+  if ("agentBlurb" in out) {
+    blurbWithheld = hasValue(out.agentBlurb);
+    out.agentBlurb = null;
+  }
+
+  return { ...out, gated: withheld, blurbGated: blurbWithheld } as Gated<T>;
 }
 
 export function gateProperties<T extends Record<string, any>>(

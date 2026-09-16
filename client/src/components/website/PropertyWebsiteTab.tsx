@@ -46,6 +46,7 @@ type Draft = {
   assignedAgentId: string;
   headline: string;
   summary: string;
+  agentBlurb: string;
   heroImageUrl: string;
   galleryImageUrls: string;
   featureTags: string;
@@ -71,6 +72,7 @@ function blankDraft(fallbackSlug: string): Draft {
     assignedAgentId: "",
     headline: "",
     summary: "",
+    agentBlurb: "",
     heroImageUrl: "",
     galleryImageUrls: "",
     featureTags: "",
@@ -98,6 +100,7 @@ function draftFrom(website: any, fallbackSlug: string): Draft {
     assignedAgentId: website.assignedAgentId ? String(website.assignedAgentId) : "",
     headline: website.headline ?? "",
     summary: website.summary ?? "",
+    agentBlurb: website.agentBlurb ?? "",
     heroImageUrl: website.heroImageUrl ?? "",
     galleryImageUrls: joinLines(website.galleryImageUrls),
     featureTags: joinLines(website.featureTags),
@@ -381,6 +384,7 @@ export default function PropertyWebsiteTab({
       assignedAgentId: draft.assignedAgentId ? Number(draft.assignedAgentId) : null,
       headline: draft.headline || null,
       summary: draft.summary || null,
+      agentBlurb: draft.agentBlurb || null,
       heroImageUrl: draft.heroImageUrl || null,
       galleryImageUrls: splitLines(draft.galleryImageUrls),
       featureTags: splitLines(draft.featureTags),
@@ -473,6 +477,14 @@ export default function PropertyWebsiteTab({
                 value={draft.summary}
                 onChange={value => set("summary", value)}
                 placeholder="A short paragraph investors see on the listing card."
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Area
+                label="Why I like this property"
+                value={draft.agentBlurb}
+                onChange={value => set("agentBlurb", value)}
+                placeholder="In the assigned agent's own words. Shown as a quote with their name on it, and only to investors who have signed in."
               />
             </div>
             <Field

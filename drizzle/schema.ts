@@ -943,6 +943,11 @@ export const websiteProperties = mysqlTable(
     assignedAgentId: int("assignedAgentId").references(() => users.id, { onDelete: "set null" }),
     headline: varchar("headline", { length: 512 }),
     summary: text("summary"),
+    // The assigned agent's own note on this listing, in their voice. Shown as
+    // a quote attributed to them, so it is withheld from anonymous visitors
+    // along with the figures: it is the judgement an investor is really here
+    // for, and it is the agent's to give rather than the internet's to take.
+    agentBlurb: text("agentBlurb"),
     heroImageUrl: text("heroImageUrl"),
     galleryImageUrls: json("galleryImageUrls").$type<string[]>().notNull(),
     featureTags: json("featureTags").$type<string[]>().notNull(),
@@ -1090,6 +1095,10 @@ export const websiteLeads = mysqlTable(
     email: varchar("email", { length: 320 }).notNull(),
     phone: varchar("phone", { length: 64 }),
     intent: mysqlEnum("intent", ["buy", "sell", "property", "agent", "general"]).default("general").notNull(),
+    // Which call to action produced this lead: showing, analysis, financing,
+    // or nothing when the general form was used. Separate from `intent`, which
+    // says what the person wants rather than where they asked for it.
+    requestType: varchar("requestType", { length: 40 }),
     message: text("message"),
     sourcePath: varchar("sourcePath", { length: 512 }),
     attribution: json("attribution").$type<Record<string, string>>(),
@@ -1101,6 +1110,7 @@ export const websiteLeads = mysqlTable(
     index("website_leads_status_created_idx").on(table.status, table.createdAt),
     index("website_leads_property_idx").on(table.propertyId),
     index("website_leads_agent_idx").on(table.agentUserId),
+    index("website_leads_request_type_idx").on(table.requestType, table.createdAt),
   ]
 );
 export type WebsiteLead = typeof websiteLeads.$inferSelect;

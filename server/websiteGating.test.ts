@@ -94,6 +94,62 @@ describe("gateProperty", () => {
   });
 });
 
+describe("gateProperty and the agent's note", () => {
+  const withBlurb = { ...listing, agentBlurb: "The creek frontage is the whole deal here." };
+
+  it("hands the note to a signed-in visitor", () => {
+    const result = gateProperty(withBlurb, true);
+    expect(result.agentBlurb).toBe("The creek frontage is the whole deal here.");
+    expect(result.blurbGated).toBe(false);
+  });
+
+  it("withholds the note from an anonymous visitor", () => {
+    const result = gateProperty(withBlurb, false);
+    expect(result.agentBlurb).toBeNull();
+    expect(result.blurbGated).toBe(true);
+  });
+
+  /**
+   * The figures and the note are two separate places on the page. A listing
+   * with a note and no figures must not put a "sign in to see the numbers"
+   * panel over numbers that do not exist, and the reverse.
+   */
+  it("counts the note separately from the figures", () => {
+    const noFigures = {
+      ...withBlurb,
+      projectedRevenue: null,
+      cashOnCash: null,
+      capRate: null,
+      occupancyRate: null,
+      averageDailyRate: null,
+    };
+    const result = gateProperty(noFigures, false);
+    expect(result.gated).toBe(false);
+    expect(result.blurbGated).toBe(true);
+
+    const noBlurb = gateProperty({ ...listing, agentBlurb: null }, false);
+    expect(noBlurb.gated).toBe(true);
+    expect(noBlurb.blurbGated).toBe(false);
+  });
+
+  it("says nothing was withheld when the listing has neither", () => {
+    const bare = gateProperty(
+      {
+        ...listing,
+        agentBlurb: null,
+        projectedRevenue: null,
+        cashOnCash: null,
+        capRate: null,
+        occupancyRate: null,
+        averageDailyRate: null,
+      },
+      false
+    );
+    expect(bare.gated).toBe(false);
+    expect(bare.blurbGated).toBe(false);
+  });
+});
+
 describe("gateEvidence", () => {
   const evidence = {
     revenue: { low: 84000, high: 112000, single: false },
