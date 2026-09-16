@@ -368,7 +368,7 @@ function CreateProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className={cn("max-h-[calc(100vh-2rem)] overflow-y-auto transition-[max-width] duration-200", form.isRock ? "max-w-5xl" : "max-w-2xl")}>
+      <DialogContent className={cn("max-h-[calc(100vh-2rem)] overflow-y-auto transition-[max-width] duration-200", form.isRock ? "sm:max-w-[min(96vw,72rem)]" : "sm:max-w-2xl")}>
         <DialogHeader>
           <DialogTitle>New Project</DialogTitle>
         </DialogHeader>
