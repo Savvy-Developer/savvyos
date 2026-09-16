@@ -14,6 +14,7 @@ import {
   websiteAgentProfiles,
   websiteBlogPosts,
   websiteCaseStudies,
+  websiteContentViews,
   websiteLeads,
   websiteLeadAttempts,
   websitePages,
@@ -31,6 +32,15 @@ import {
 import { getDb, logActivity } from "../db";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission, type PermissionKey } from "./permissions";
+import {
+  clientIpFrom,
+  fillMissingDays,
+  summarize,
+  viewDateKey,
+  visitorHash,
+  type ContentKind,
+  type DailyViewRow,
+} from "../websiteContentViews";
 import {
   publicComps,
   publicRevenueRange,
@@ -1042,6 +1052,141 @@ export const websiteRouter = router({
         },
         signedIn
       );
+    }),
+
+  // ─── Article reads ─────────────────────────────────────────────────────────
+
+  /**
+   * Record that somebody opened a blog post or case study.
+   *
+   * Fire and forget from the reader's point of view: it always reports success
+   * and never throws, because a counter failing must not put an error in front
+   * of somebody reading an article.
+   */
+  recordArticleView: publicProcedure
+    .input(
+      z.object({
+        kind: z.enum(["post", "case_study"]),
+        contentId: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const db = await getDb();
+        if (!db) return { ok: false };
+        const req: any = ctx.req;
+        const dateKey = viewDateKey(new Date());
+        const hash = visitorHash({
+          ip: clientIpFrom(req?.headers?.["x-forwarded-for"], req?.socket?.remoteAddress),
+          userAgent: req?.headers?.["user-agent"],
+          kind: input.kind as ContentKind,
+          contentId: input.contentId,
+          dateKey,
+          secret: process.env.JWT_SECRET || "",
+        });
+
+        await db
+          .insert(websiteContentViews)
+          .values({
+            contentKind: input.kind,
+            contentId: input.contentId,
+            dateKey,
+            visitorHash: hash,
+            viewCount: 1,
+          })
+          .onDuplicateKeyUpdate({
+            set: {
+              viewCount: sql`${websiteContentViews.viewCount} + 1`,
+              lastViewedAt: new Date(),
+            },
+          });
+        return { ok: true };
+      } catch (error) {
+        console.error("[WebsiteContentViews] Failed to record view:", error);
+        return { ok: false };
+      }
+    }),
+
+  /**
+   * Read counts per article, for the studio.
+   *
+   * Returns a total and a daily series with the quiet days filled in, so a
+   * chart shows a flat stretch rather than skipping it and making four slow
+   * days look like one busy one.
+   */
+  contentViewStats: protectedProcedure
+    .input(
+      z
+        .object({ days: z.number().int().min(1).max(365).default(30) })
+        .optional()
+    )
+    .query(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx);
+      const db = await getDb();
+      if (!db) return { from: "", to: "", articles: [] };
+
+      const windowDays = input?.days ?? 30;
+      const to = viewDateKey(new Date());
+      const fromDate = new Date();
+      fromDate.setUTCDate(fromDate.getUTCDate() - (windowDays - 1));
+      const from = viewDateKey(fromDate);
+
+      const rows = await db
+        .select({
+          contentKind: websiteContentViews.contentKind,
+          contentId: websiteContentViews.contentId,
+          dateKey: websiteContentViews.dateKey,
+          views: sql<number>`SUM(${websiteContentViews.viewCount})`,
+          readers: sql<number>`COUNT(*)`,
+        })
+        .from(websiteContentViews)
+        .where(gte(websiteContentViews.dateKey, from))
+        .groupBy(
+          websiteContentViews.contentKind,
+          websiteContentViews.contentId,
+          websiteContentViews.dateKey
+        );
+
+      const byArticle = new Map<string, DailyViewRow[]>();
+      for (const row of rows) {
+        const key = `${row.contentKind}:${row.contentId}`;
+        const list = byArticle.get(key) ?? [];
+        list.push({
+          dateKey: row.dateKey,
+          views: Number(row.views) || 0,
+          readers: Number(row.readers) || 0,
+        });
+        byArticle.set(key, list);
+      }
+
+      const [posts, cases] = await Promise.all([
+        db
+          .select({ id: websiteBlogPosts.id, title: websiteBlogPosts.title, slug: websiteBlogPosts.slug })
+          .from(websiteBlogPosts),
+        db
+          .select({ id: websiteCaseStudies.id, title: websiteCaseStudies.title, slug: websiteCaseStudies.slug })
+          .from(websiteCaseStudies),
+      ]);
+
+      const articles = [
+        ...posts.map(post => ({ kind: "post" as const, ...post })),
+        ...cases.map(item => ({ kind: "case_study" as const, ...item })),
+      ].map(article => {
+        const daily = byArticle.get(`${article.kind}:${article.id}`) ?? [];
+        const summary = summarize(daily);
+        return {
+          kind: article.kind,
+          id: article.id,
+          title: article.title,
+          slug: article.slug,
+          views: summary.views,
+          readers: summary.readers,
+          days: fillMissingDays(summary.days, from, to),
+        };
+      });
+
+      articles.sort((a, b) => b.views - a.views || a.title.localeCompare(b.title));
+      return { from, to, articles };
     }),
 
   // ─── Content pages ─────────────────────────────────────────────────────────
