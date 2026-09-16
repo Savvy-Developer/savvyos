@@ -367,20 +367,20 @@ function CreateProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Project</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="title">Title *</Label>
             <Input id="title" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Project title" />
           </div>
           <div>
             <Label htmlFor="description">Description *</Label>
-            <Textarea id="description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="What is this project about?" rows={3} />
+            <Textarea id="description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="What is this project about?" rows={2} />
           </div>
-          <div className="rounded-lg border border-primary/20 bg-primary/[0.025] p-3">
+          <div className="rounded-lg border border-primary/20 bg-primary/[0.025] p-3 sm:col-span-2">
             <div className="flex items-center gap-2">
               <Checkbox id="create-project-rock" checked={form.isRock} onCheckedChange={checked => setForm(f => ({ ...f, isRock: checked === true, rockMilestones: checked === true && !f.rockMilestones.length ? [{ title: "", dueDate: "" }] : f.rockMilestones }))} />
               <Label htmlFor="create-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label>
@@ -388,7 +388,7 @@ function CreateProjectDialog({
             <p className="mt-1 text-xs text-muted-foreground">Rocks are quarterly priorities. They use this same project, its todos, updates, and activity.</p>
             {form.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="rock-quarter">Quarter *</Label><Input id="rock-quarter" value={form.rockQuarter} onChange={event => setForm(f => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label htmlFor="rock-done">Definition of Done *</Label><Input id="rock-done" value={form.definitionOfDone} onChange={event => setForm(f => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div><div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each dated milestone becomes a project section after creation, ready for its to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setForm(f => ({ ...f, rockMilestones: [...f.rockMilestones, { title: "", dueDate: "" }] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{form.rockMilestones.map((milestone, index) => <div key={`rock-milestone-${index}`} className="grid grid-cols-[minmax(0,1fr)_9.5rem_2rem] gap-2"><Input value={milestone.title} onChange={event => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.map((value, position) => position === index ? { ...value, title: event.target.value } : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Input type="date" value={milestone.dueDate} onChange={event => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.map((value, position) => position === index ? { ...value, dueDate: event.target.value } : value) }))} aria-label={`Due date for milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={form.rockMilestones.length === 1} onClick={() => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.filter((_, position) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div><RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={form.routedMeetingIds} onChange={(routedMeetingIds) => setForm(f => ({ ...f, routedMeetingIds }))} /></div> : null}
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label>Department *</Label>
               <DepartmentCombobox
@@ -410,7 +410,7 @@ function CreateProjectDialog({
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="owner">Owner *</Label>
               <SearchableSelect
@@ -439,7 +439,7 @@ function CreateProjectDialog({
               )}
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="sm:col-span-2">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={create.isPending}>
               {create.isPending ? "Creating..." : "Create Project"}
