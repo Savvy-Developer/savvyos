@@ -407,6 +407,64 @@ export const webinarsRouter = router({
     return { success: true };
   }),
 
+  reschedule: protectedProcedure.input(z.object({
+    id: z.number().int().positive(),
+    startTime: z.string().min(1),
+  })).mutation(async ({ input, ctx }) => {
+    await requireWebinarAccess(ctx.user);
+    const db = await getDatabase();
+    const [current] = await db.select().from(webinars).where(eq(webinars.id, input.id));
+    if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Webinar not found." });
+    if (current.status !== "scheduled") {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only scheduled webinars can be rescheduled." });
+    }
+    if (!current.zoomWebinarId) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This webinar is not linked to Zoom, so it cannot be rescheduled safely." });
+    }
+
+    const startTime = parseDateTime(input.startTime);
+    if (startTime <= new Date()) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a future date and time for the webinar." });
+    }
+    const configuration = getZoomConfigurationStatus();
+    if (!configuration.configured) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Zoom is not configured. Add ${configuration.missing.join(", ")} to the SavvyOS service configuration first.` });
+    }
+
+    try {
+      await updateZoomWebinar(current.zoomWebinarId, {
+        title: current.title,
+        description: current.description,
+        startTime,
+        durationMinutes: current.durationMinutes,
+        timezone: current.timezone,
+        registrationApproval: current.registrationApproval,
+      });
+    } catch (error: any) {
+      const message = error?.message ?? "Zoom could not reschedule this webinar.";
+      await db.update(webinars).set({ lastZoomSyncError: message }).where(eq(webinars.id, input.id));
+      throw new TRPCError({
+        code: "BAD_GATEWAY",
+        message: "Zoom could not reschedule this webinar. SavvyOS has not changed the scheduled time.",
+      });
+    }
+
+    await db.update(webinars).set({ startTime, lastZoomSyncError: null }).where(eq(webinars.id, input.id));
+    await logActivity({
+      userId: ctx.user.id,
+      action: "webinar_rescheduled",
+      entityType: "webinar",
+      entityId: input.id,
+      details: {
+        title: current.title,
+        previousStartTime: current.startTime.toISOString(),
+        newStartTime: startTime.toISOString(),
+        zoomWebinarId: current.zoomWebinarId,
+      },
+    });
+    return { success: true, startTime };
+  }),
+
   cancel: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
     await requireWebinarAccess(ctx.user);
     const db = await getDatabase();

@@ -49,6 +49,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertCircle,
+  CalendarClock,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -120,6 +121,24 @@ function easternWallTimeToIso(value: string) {
   return instant.toISOString();
 }
 
+/** Formats an instant for a datetime-local field while preserving Eastern wall time. */
+function easternDateTimeLocalValue(value: Date | string) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ET_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const read = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find(part => part.type === type)?.value ?? "";
+  return `${read("year")}-${read("month")}-${read("day")}T${read("hour")}:${read("minute")}`;
+}
+
 function easternZoneName(value: Date | string) {
   const date = value instanceof Date ? value : new Date(value);
   return (
@@ -188,6 +207,100 @@ function copyText(
     .writeText(value)
     .then(() => toast.success(successMessage))
     .catch(() => toast.error("Could not copy the link"));
+}
+
+function WebinarRescheduleDialog({
+  webinar,
+  open,
+  onOpenChange,
+  onRescheduled,
+}: {
+  webinar: any;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRescheduled: () => Promise<void> | void;
+}) {
+  const utils = trpc.useUtils();
+  const [startTime, setStartTime] = useState("");
+  useEffect(() => {
+    if (open && webinar) {
+      setStartTime(easternDateTimeLocalValue(webinar.startTime));
+    }
+  }, [open, webinar?.id, webinar?.startTime]);
+
+  const rescheduleMutation = trpc.webinars.reschedule.useMutation({
+    onSuccess: async () => {
+      await Promise.all([utils.webinars.list.invalidate(), onRescheduled()]);
+      toast.success("Webinar rescheduled in SavvyOS and Zoom.");
+      onOpenChange(false);
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  function submit() {
+    const startTimeIso = easternWallTimeToIso(startTime);
+    if (!startTimeIso) {
+      toast.error("Enter a valid new webinar date and time.");
+      return;
+    }
+    if (new Date(startTimeIso) <= new Date()) {
+      toast.error("Choose a future date and time for the webinar.");
+      return;
+    }
+    rescheduleMutation.mutate({ id: webinar.id, startTime: startTimeIso });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Reschedule Webinar</DialogTitle>
+          <DialogDescription>
+            This changes the webinar time in SavvyOS and Zoom. The existing
+            registration link and registrants remain connected to the webinar.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+            <p className="font-medium">{webinar?.title}</p>
+            <p className="mt-1 text-muted-foreground">
+              Currently scheduled for {formatEasternDateTime(webinar?.startTime)}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="reschedule-webinar-start">
+              New start date and time (Eastern Time)
+            </Label>
+            <Input
+              id="reschedule-webinar-start"
+              type="datetime-local"
+              value={startTime}
+              onChange={event => setStartTime(event.target.value)}
+              disabled={rescheduleMutation.isPending}
+            />
+            <p className="text-xs text-muted-foreground">
+              SavvyOS accounts for EST and EDT automatically.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={rescheduleMutation.isPending}
+          >
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={rescheduleMutation.isPending}>
+            {rescheduleMutation.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            Reschedule in Zoom
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function WebinarCreateDialog({
@@ -512,10 +625,15 @@ function WebinarDetailDialog({
     },
     onError: error => toast.error(error.message),
   });
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  useEffect(() => {
+    if (!open) setRescheduleOpen(false);
+  }, [open]);
   const detail = detailQuery.data;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto p-6 sm:max-w-7xl sm:rounded-xl">
         {detailQuery.isLoading || !detail ? (
           <div className="flex h-48 items-center justify-center">
@@ -711,20 +829,32 @@ function WebinarDetailDialog({
               </div>
             </div>
             <DialogFooter className="sm:justify-between">
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "Cancel this webinar in Zoom? This cannot be undone."
+              <div className="flex flex-wrap gap-2">
+                {detail.webinar.status === "scheduled" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setRescheduleOpen(true)}
+                    disabled={cancelMutation.isPending}
+                  >
+                    <CalendarClock className="mr-2 h-4 w-4" />
+                    Reschedule
+                  </Button>
+                )}
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Cancel this webinar in Zoom? This cannot be undone."
+                      )
                     )
-                  )
-                    cancelMutation.mutate({ id: detail.webinar.id });
-                }}
-                disabled={cancelMutation.isPending}
-              >
-                Cancel Webinar
-              </Button>
+                      cancelMutation.mutate({ id: detail.webinar.id });
+                  }}
+                  disabled={cancelMutation.isPending}
+                >
+                  Cancel Webinar
+                </Button>
+              </div>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Close
               </Button>
@@ -732,7 +862,18 @@ function WebinarDetailDialog({
           </>
         )}
       </DialogContent>
-    </Dialog>
+      </Dialog>
+      {detail && (
+        <WebinarRescheduleDialog
+          webinar={detail.webinar}
+          open={rescheduleOpen}
+          onOpenChange={setRescheduleOpen}
+          onRescheduled={async () => {
+            await detailQuery.refetch();
+          }}
+        />
+      )}
+    </>
   );
 }
 
