@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { invokeLLM } from "./_core/llm";
 import { canAdminUsePermission } from "./routers/permissions";
+import { agentOwnsProperty } from "./routers/website";
 import pdfParse from "./lib/pdf-parse-safe";
 import { categorizeExpenseInvoice } from "./eventsExpenseIntake";
 import { recalculateEventCommittedExpense } from "./eventsFinancials";
@@ -48,6 +49,28 @@ const headshotUpload = multer({
   },
 });
 
+/**
+ * Who may upload public-site media.
+ *
+ * Mirrors the gate the website router already applies to the matching save:
+ * admins go through the Website Studio permission, and an agent may upload
+ * for a property they own or for their own website profile. Without the
+ * agent half an agent can fill in a listing they are allowed to publish but
+ * cannot add its photos.
+ */
+async function canUploadWebsiteImage(user: any, rawPropertyId: unknown): Promise<boolean> {
+  if (!user || user.isActive === false) return false;
+  if (user.role === "admin") return canAdminUsePermission(user, "canViewWebsite");
+  if (user.role !== "agent") return false;
+  // No property on the form means the agent's own profile photo.
+  if (rawPropertyId === undefined || rawPropertyId === null || rawPropertyId === "") return true;
+  const propertyId = Number(rawPropertyId);
+  if (!Number.isInteger(propertyId) || propertyId <= 0) return false;
+  const db = await getDb();
+  if (!db) return false;
+  return agentOwnsProperty(db, user.id, propertyId);
+}
+
 export function registerUploadRoutes(app: express.Application) {
   // POST /api/upload/website-image — public-site media, restricted by the
   // opt-in Website permissions used by the CMS.
@@ -55,7 +78,7 @@ export function registerUploadRoutes(app: express.Application) {
     try {
       let user: any = null;
       try { user = await sdk.authenticateRequest(req); } catch { user = null; }
-      if (!user || !(await canAdminUsePermission(user, "canViewWebsite"))) return res.status(403).json({ error: "Website permission is required" });
+      if (!(await canUploadWebsiteImage(user, req.body?.propertyId))) return res.status(403).json({ error: "You can only upload images for your own listings or profile." });
       if (!req.file) return res.status(400).json({ error: "No image provided" });
       const ext = req.file.mimetype === "image/png" ? "png" : req.file.mimetype === "image/webp" ? "webp" : "jpg";
       const fileKey = `website/${user.id}/${nanoid(12)}.${ext}`;

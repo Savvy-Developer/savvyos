@@ -509,7 +509,7 @@ export default function PropertyWebsiteTab({
               onChange={value => set("heroImageUrl", value)}
             />
             <div className="mt-2">
-              <MediaUpload
+              <MediaUpload propertyId={propertyId}
                 onUploaded={url => {
                   set("heroImageUrl", url);
                   set(

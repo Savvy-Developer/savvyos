@@ -107,9 +107,12 @@ export function slugify(value: string) {
 
 export function MediaUpload({
   onUploaded,
+  propertyId,
   label = "Upload image",
 }: {
   onUploaded: (url: string) => void;
+  /** The property this image belongs to. Omitted for an agent profile photo. */
+  propertyId?: number;
   label?: string;
 }) {
   const [uploading, setUploading] = useState(false);
@@ -117,6 +120,9 @@ export function MediaUpload({
     setUploading(true);
     try {
       const body = new FormData();
+      // Appended before the file so multer has parsed it by the time the
+      // route decides whether this upload is allowed.
+      if (propertyId != null) body.append("propertyId", String(propertyId));
       body.append("file", file);
       const response = await fetch("/api/upload/website-image", {
         method: "POST",
