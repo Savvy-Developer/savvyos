@@ -399,13 +399,16 @@ def get_or_create_sections(connection: pymysql.connections.Connection, project_i
     with connection.cursor() as cursor:
         cursor.execute("SELECT id, title FROM pm_todo_sections WHERE projectId = %s", (project_id,))
         existing = {row["title"]: int(row["id"]) for row in cursor.fetchall()}
-        for position, title in enumerate(("Open To-Dos", "Completed To-Dos")):
+        cursor.execute("SELECT COALESCE(MAX(sortOrder), -1) AS max_sort_order FROM pm_todo_sections WHERE projectId = %s", (project_id,))
+        next_sort_order = int(cursor.fetchone()["max_sort_order"]) + 1
+        for title in ("Open To-Dos", "Completed To-Dos"):
             if title not in existing:
                 cursor.execute(
                     "INSERT INTO pm_todo_sections (projectId, title, dueDate, sortOrder, createdAt, updatedAt) VALUES (%s, %s, NULL, %s, UTC_TIMESTAMP(), UTC_TIMESTAMP())",
-                    (project_id, title, position),
+                    (project_id, title, next_sort_order),
                 )
                 existing[title] = int(cursor.lastrowid)
+                next_sort_order += 1
     return existing
 
 
