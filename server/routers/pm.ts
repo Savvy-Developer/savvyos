@@ -367,7 +367,7 @@ export const pmRouter = router({
           .leftJoin(users, eq(pmProjectActivity.actorId, users.id))
           .where(eq(pmProjectActivity.projectId, input.id))
           .orderBy(desc(pmProjectActivity.createdAt))
-          .limit(50);
+          .limit(1000);
 
         const visibleMeetingIds = await visible_meeting_ids(db, ctx.user.id);
         const routedMeetings = visibleMeetingIds.length
@@ -932,7 +932,7 @@ export const pmRouter = router({
         sectionId: z.number().nullable().optional(),
         title: z.string().min(1).max(5000),
         ownerId: z.number(),
-        dueDate: z.date(),
+        dueDate: z.date().nullable().optional(),
         priority: z.enum(["high", "medium", "low"]).default("medium"),
         notes: z.string().optional(),
       }))
@@ -986,7 +986,7 @@ export const pmRouter = router({
           sectionId,
           title: input.title,
           ownerId: input.ownerId,
-          dueDate: input.dueDate,
+          dueDate: input.dueDate ?? null,
           priority: input.priority,
           notes: input.notes ?? null,
           sortOrder,
@@ -1536,10 +1536,10 @@ export const pmRouter = router({
         return p.status !== "completed" && (!lu || lu.createdAt < sevenDaysAgo);
       });
 
-      const overdueTasks = visibleTasks.filter((t: TaskRow) => t.dueDate < now);
+      const overdueTasks = visibleTasks.filter((t: TaskRow) => !!t.dueDate && t.dueDate < now);
       const dueTodayTasks = visibleTasks.filter((t: TaskRow) => {
         const d = t.dueDate;
-        return d >= new Date(now.getFullYear(), now.getMonth(), now.getDate()) &&
+        return !!d && d >= new Date(now.getFullYear(), now.getMonth(), now.getDate()) &&
                d < new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
       });
 
@@ -1600,7 +1600,7 @@ export const pmRouter = router({
         const lu = latestUpdateMap.get(p.id);
         return p.status !== "completed" && (!lu || lu.createdAt < sevenDaysAgo);
       });
-      const overdueTasks = visibleTasks.filter((t: TRow) => t.dueDate < now);
+      const overdueTasks = visibleTasks.filter((t: TRow) => !!t.dueDate && t.dueDate < now);
 
       const prompt = `You are an executive assistant for a real estate brokerage. Today is ${now.toLocaleDateString()}.
 
@@ -1616,7 +1616,7 @@ PROJECTS WITH NO UPDATE IN 7+ DAYS (${stale.length}):
 ${stale.map((p: PRow) => `- ${p.title} (${p.department})`).join("\n") || "None"}
 
 OVERDUE TASKS (${overdueTasks.length}):
-${overdueTasks.slice(0, 10).map((t: TRow) => `- ${t.title} (due ${t.dueDate.toLocaleDateString()})`).join("\n") || "None"}
+${overdueTasks.slice(0, 10).map((t: TRow) => `- ${t.title} (due ${t.dueDate?.toLocaleDateString() ?? "unscheduled"})`).join("\n") || "None"}
 
 Generate a concise, action-oriented morning debrief for the CEO. Structure it as:
 1. **What Needs Attention Today** (top 3-5 items, most urgent first)

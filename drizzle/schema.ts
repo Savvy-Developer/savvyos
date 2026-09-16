@@ -4748,7 +4748,7 @@ export const pmTasks = mysqlTable(
     ownerId: int("ownerId")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
-    dueDate: timestamp("dueDate").notNull(),
+    dueDate: timestamp("dueDate"),
     priority: varchar("priority", { length: 16 }).notNull().default("medium"), // high | medium | low
     completed: boolean("completed").notNull().default(false),
     completedAt: timestamp("completedAt"),

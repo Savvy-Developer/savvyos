@@ -548,8 +548,8 @@ export default function ProjectDetailPage() {
 
   function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    if (!taskForm.title || !taskForm.ownerId || !taskForm.dueDate) {
-      toast.error("Title, owner, and due date are required");
+    if (!taskForm.title || !taskForm.ownerId) {
+      toast.error("Title and owner are required");
       return;
     }
     createTask.mutate({
@@ -558,7 +558,7 @@ export default function ProjectDetailPage() {
       sectionId: parentTodo ? undefined : (taskForm.sectionId === NO_SECTION_VALUE ? null : Number(taskForm.sectionId)),
       title: taskForm.title,
       ownerId: Number(taskForm.ownerId),
-      dueDate: new Date(taskForm.dueDate),
+      dueDate: taskForm.dueDate ? new Date(taskForm.dueDate) : null,
       priority: taskForm.priority,
       notes: taskForm.notes || undefined,
     });
@@ -956,7 +956,7 @@ export default function ProjectDetailPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Due Date *</Label>
+                  <Label className="text-xs">Due Date (optional)</Label>
                   <Input type="date" value={taskForm.dueDate} onChange={e => setTaskForm(f => ({ ...f, dueDate: e.target.value }))} />
                 </div>
                 <div>
