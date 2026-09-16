@@ -2546,6 +2546,60 @@ function MarketsPage() {
   );
 }
 
+/**
+ * A content page from the CMS.
+ *
+ * Renders only when a published page exists at this address. Anything else
+ * falls through to the not-found page, so a draft or a typo in the address
+ * reads as "no such page" rather than a blank layout that looks broken.
+ */
+function ContentPage({ slug }: { slug: string }) {
+  const query = trpc.website.publicPage.useQuery({ slug });
+  const page: any = query.data;
+  usePageTitle(page?.metaTitle || page?.name || "");
+  if (query.isLoading) return <LoadingPage />;
+  if (!page) return <NotFoundPage />;
+  return (
+    <Shell>
+      <section className="bg-[#05314a] py-20 text-white">
+        <div className="mx-auto max-w-4xl px-5 text-center">
+          {page.heroEyebrow && (
+            <p className="text-xs font-bold uppercase tracking-[.22em] text-cyan-300">
+              {page.heroEyebrow}
+            </p>
+          )}
+          <h1 className="mt-4 text-4xl font-black sm:text-5xl">
+            {page.heroTitle || page.name}
+          </h1>
+          {page.heroSubtitle && (
+            <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-cyan-50">
+              {page.heroSubtitle}
+            </p>
+          )}
+          {page.ctaText && page.ctaHref && (
+            <a
+              className="mt-8 inline-flex rounded-lg bg-[#10c0df] px-6 py-3 font-bold text-[#03293c]"
+              href={page.ctaHref}
+            >
+              {page.ctaText}
+            </a>
+          )}
+        </div>
+      </section>
+      {page.bodyMarkdown && (
+        <section className="bg-white py-16">
+          <div className="mx-auto max-w-3xl px-5">
+            <ArticleBody
+              markdown={page.bodyMarkdown}
+              className="prose prose-slate max-w-none text-base leading-8 text-slate-700"
+            />
+          </div>
+        </section>
+      )}
+    </Shell>
+  );
+}
+
 /** An investor account page inside the public site's header and footer. */
 function AccountPage({
   title,
@@ -2596,5 +2650,8 @@ export default function PublicWebsite() {
     return <AccountPage title="Recently viewed"><ViewHistoryBody /></AccountPage>;
   if (relative === "/account/transactions")
     return <AccountPage title="My transactions"><MyTransactionsBody /></AccountPage>;
+  // Anything left over may be a page from the CMS. Checked last, so a page
+  // saved at a built-in address can never shadow the real one.
+  if (segments.length === 1) return <ContentPage slug={segments[0]} />;
   return <NotFoundPage />;
 }

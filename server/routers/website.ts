@@ -16,6 +16,7 @@ import {
   websiteCaseStudies,
   websiteLeads,
   websiteLeadAttempts,
+  websitePages,
   websiteProperties,
   websiteSiteSettings,
   listings,
@@ -123,6 +124,29 @@ async function enforceLeadThrottle(db: any, req: any, email: string) {
   await db.insert(websiteLeadAttempts).values({ ipHash, emailHash });
   if (Math.random() < 0.02) await db.delete(websiteLeadAttempts).where(lt(websiteLeadAttempts.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000)));
 }
+
+/**
+ * Addresses the public site already serves from code.
+ *
+ * The router matches these before it falls through to the CMS, so a page saved
+ * at one of them would look published in the studio and never appear on the
+ * site. Kept here rather than in the UI so the rule holds however the save is
+ * called.
+ */
+export const RESERVED_PAGE_SLUGS = new Set([
+  "properties",
+  "agents",
+  "case-studies",
+  "resources",
+  "about",
+  "contact",
+  "markets",
+  "sign-in",
+  "sign-up",
+  "forgot-password",
+  "reset-password",
+  "account",
+]);
 
 function cleanSlug(value: string) {
   return value
@@ -1018,6 +1042,170 @@ export const websiteRouter = router({
         },
         signedIn
       );
+    }),
+
+  // ─── Content pages ─────────────────────────────────────────────────────────
+
+  /**
+   * One published content page, by slug.
+   *
+   * Returns null rather than throwing for an unknown slug, so the site can
+   * show its own not-found page instead of an error.
+   */
+  publicPage: publicProcedure
+    .input(z.object({ slug: z.string().trim().min(1).max(255) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const [page] = await db
+        .select({
+          slug: websitePages.slug,
+          name: websitePages.name,
+          heroEyebrow: websitePages.heroEyebrow,
+          heroTitle: websitePages.heroTitle,
+          heroSubtitle: websitePages.heroSubtitle,
+          bodyMarkdown: websitePages.bodyMarkdown,
+          ctaText: websitePages.ctaText,
+          ctaHref: websitePages.ctaHref,
+          metaTitle: websitePages.metaTitle,
+          metaDescription: websitePages.metaDescription,
+        })
+        .from(websitePages)
+        .where(
+          and(
+            eq(websitePages.slug, cleanSlug(input.slug)),
+            eq(websitePages.status, "published")
+          )
+        )
+        .limit(1);
+      return page ?? null;
+    }),
+
+  /** Every page in the CMS, for the studio dropdown. */
+  adminPages: protectedProcedure.query(async ({ ctx }) => {
+    await requireWebsitePermission(ctx);
+    const db = await getDb();
+    if (!db) return [];
+    return db
+      .select()
+      .from(websitePages)
+      .orderBy(asc(websitePages.sortOrder), asc(websitePages.name));
+  }),
+
+  savePage: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive().optional(),
+        slug: z.string().trim().min(1).max(255),
+        name: z.string().trim().min(1).max(160),
+        status: statusSchema.default("draft"),
+        heroEyebrow: nullableText,
+        heroTitle: nullableText,
+        heroSubtitle: nullableText,
+        bodyMarkdown: nullableText,
+        ctaText: nullableText,
+        ctaHref: nullableText,
+        metaTitle: nullableText,
+        metaDescription: nullableText,
+        sortOrder: z.number().int().min(0).max(999).default(0),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const slug = cleanSlug(input.slug);
+      if (!slug) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That page address is empty once tidied up. Try another.",
+        });
+      }
+      // A CMS page must never shadow a page that lives in code. The router
+      // checks built-in routes first, so such a page would save cleanly, show
+      // as published, and never appear. Refusing here is kinder than a page
+      // that exists everywhere except on the website.
+      if (RESERVED_PAGE_SLUGS.has(slug)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${slug}" is already a page on the site and cannot be used here.`,
+        });
+      }
+
+      const data = {
+        slug,
+        name: input.name,
+        status: input.status,
+        heroEyebrow: input.heroEyebrow || null,
+        heroTitle: input.heroTitle || null,
+        heroSubtitle: input.heroSubtitle || null,
+        bodyMarkdown: input.bodyMarkdown || null,
+        ctaText: input.ctaText || null,
+        ctaHref: input.ctaHref || null,
+        metaTitle: input.metaTitle || null,
+        metaDescription: input.metaDescription || null,
+        sortOrder: input.sortOrder,
+        updatedById: ctx.user.id,
+      };
+
+      if (input.id) {
+        const [existing] = await db
+          .select({ id: websitePages.id, publishedAt: websitePages.publishedAt })
+          .from(websitePages)
+          .where(eq(websitePages.id, input.id))
+          .limit(1);
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Page not found." });
+        }
+        await db
+          .update(websitePages)
+          .set({
+            ...data,
+            // Stamped when it first goes live and then left alone, so a page
+            // from March does not look new every time somebody fixes a typo.
+            publishedAt:
+              input.status === "published"
+                ? (existing.publishedAt ?? new Date())
+                : existing.publishedAt,
+          })
+          .where(eq(websitePages.id, input.id));
+        await logActivity({
+          userId: ctx.user.id,
+          action: "website_page_updated",
+          entityType: "website_page",
+          entityId: input.id,
+          details: { slug, status: input.status },
+        });
+        return { id: input.id, slug };
+      }
+
+      const [clash] = await db
+        .select({ id: websitePages.id })
+        .from(websitePages)
+        .where(eq(websitePages.slug, slug))
+        .limit(1);
+      if (clash) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "A page already uses that address.",
+        });
+      }
+
+      const result = await db.insert(websitePages).values({
+        ...data,
+        publishedAt: input.status === "published" ? new Date() : null,
+        createdById: ctx.user.id,
+      });
+      const id = Number((result as any)[0]?.insertId);
+      await logActivity({
+        userId: ctx.user.id,
+        action: "website_page_created",
+        entityType: "website_page",
+        entityId: id,
+        details: { slug, status: input.status },
+      });
+      return { id, slug };
     }),
 
   /**
