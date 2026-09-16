@@ -43,6 +43,7 @@ import {
   isEventMetric,
   isSnapshotMetric,
   metricPeriodBounds,
+  periodToDatePerformance,
   scoreResult,
   trendPhrase as scorecardTrendPhrase,
 } from "../rrScorecard";
@@ -386,10 +387,11 @@ async function performanceForMetric(db: Db, metric: typeof rrScorecardMetrics.$i
   const bounds = metricPeriodBounds(metric as any);
   const defaultStart = scorecardDateOnly(bounds.start);
   const defaultEnd = scorecardDateOnly(addDays(bounds.end, -1));
-  const [values, targetHistory] = await Promise.all([
-    db.select().from(rrMetricValues).where(eq(rrMetricValues.metricId, metric.id)).orderBy(desc(rrMetricValues.eventDate), desc(rrMetricValues.periodEnd)).limit(24),
+  const [allValues, targetHistory] = await Promise.all([
+    db.select().from(rrMetricValues).where(eq(rrMetricValues.metricId, metric.id)).orderBy(desc(rrMetricValues.eventDate), desc(rrMetricValues.periodEnd)),
     db.select().from(rrMetricTargetHistory).where(eq(rrMetricTargetHistory.metricId, metric.id)).orderBy(desc(rrMetricTargetHistory.effectiveDate)),
   ]);
+  const values = allValues.slice(0, 24);
   const current = isEventMetric(metric as any) || isSnapshotMetric(metric as any)
     ? values[0] ?? null
     : values.find((value) => value.periodStart === defaultStart && value.periodEnd === defaultEnd) ?? null;
@@ -399,12 +401,14 @@ async function performanceForMetric(db: Db, metric: typeof rrScorecardMetrics.$i
   const actual = decimalNumber(current?.actualValue);
   const target = targetForPeriod(metric, targetHistory, periodStart);
   const graded = scoreResult(actual, current?.resultState, target);
+  const recordByValueId = periodToDatePerformance(allValues.map((value) => ({ id: value.id, actual: decimalNumber(value.actualValue), resultState: value.resultState })), metric);
   const history = values.map((value) => {
     const valueTarget = targetForPeriod(metric, targetHistory, value.periodStart);
     const valueActual = decimalNumber(value.actualValue);
-    return { ...value, actual: valueActual, target: valueTarget, grade: scoreResult(valueActual, value.resultState, valueTarget) };
+    return { ...value, actual: valueActual, target: valueTarget, grade: scoreResult(valueActual, value.resultState, valueTarget), periodToDatePerformance: recordByValueId.get(value.id) ?? null };
   });
-  return { ...metric, currentValue: current, actual, target: target.targetValue, targetConfig: target, statusLabel: graded.status, onTarget: graded.onTarget, trend: actual != null && decimalNumber(prior?.actualValue) != null ? actual - decimalNumber(prior?.actualValue)! : null, periodStart, periodEnd, periodLabel: formatScorecardPeriod(metric as any, new Date(`${periodStart}T00:00:00Z`), new Date(`${periodEnd}T00:00:00Z`)), valueHistory: history, targetHistory };
+  const currentPerformance = current ? recordByValueId.get(current.id) ?? null : null;
+  return { ...metric, currentValue: current, actual, target: target.targetValue, targetConfig: target, statusLabel: graded.status, onTarget: graded.onTarget, trend: actual != null && decimalNumber(prior?.actualValue) != null ? actual - decimalNumber(prior?.actualValue)! : null, periodStart, periodEnd, periodLabel: formatScorecardPeriod(metric as any, new Date(`${periodStart}T00:00:00Z`), new Date(`${periodEnd}T00:00:00Z`)), periodToDatePerformance: currentPerformance, valueHistory: history, targetHistory };
 }
 
 async function detailedResponsibility(db: Db, responsibilityId: number) {

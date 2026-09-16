@@ -16,7 +16,7 @@ import {
 import { router } from "../_core/trpc";
 import { getDb } from "../db";
 import { is_visible_meeting_manager, require_visible_meeting } from "./access";
-import { currentMeasurementPeriod, formatPeriod as formatScorecardPeriod, isEventMetric, isSnapshotMetric, metricPeriodBounds, scoreResult, targetLabel, trendPhrase as scorecardTrendPhrase } from "../rrScorecard";
+import { currentMeasurementPeriod, formatPeriod as formatScorecardPeriod, isEventMetric, isSnapshotMetric, metricPeriodBounds, periodToDatePerformance, scoreResult, targetLabel, trendPhrase as scorecardTrendPhrase } from "../rrScorecard";
 
 export const SCORECARD_CADENCES = ["weekly", "monthly", "quarterly", "annually"] as const;
 export type ScorecardCadence = (typeof SCORECARD_CADENCES)[number];
@@ -140,13 +140,15 @@ export async function getMeetingScorecard(db: any, viewerId: number, meetingId: 
         const start = dateOnly(bounds.start);
         const end = dateOnly(addDays(bounds.end, -1));
         const value = sourceValues.find((candidate: any) => candidate.periodStart === start && candidate.periodEnd === end) ?? null;
-        return { periodStart: start, periodEnd: end, label: formatScorecardPeriod(metric, bounds.start, addDays(bounds.end, -1)), value: numeric(value?.actualValue), note: value?.note ?? null, resultState: value?.resultState ?? "missing", eventLabel: value?.eventLabel, eventDate: value?.eventDate, supportingInputs: value?.supportingInputs, calculationMetadata: value?.calculationMetadata };
+        return { id: value?.id ?? null, periodStart: start, periodEnd: end, label: formatScorecardPeriod(metric, bounds.start, addDays(bounds.end, -1)), value: numeric(value?.actualValue), note: value?.note ?? null, resultState: value?.resultState ?? "missing", eventLabel: value?.eventLabel, eventDate: value?.eventDate, supportingInputs: value?.supportingInputs, calculationMetadata: value?.calculationMetadata };
       });
     if ((isEventMetric(metric) || isSnapshotMetric(metric)) && !periods.length) {
       const bounds = metricPeriodBounds(metric);
-      periods.push({ periodStart: dateOnly(bounds.start), periodEnd: dateOnly(addDays(bounds.end, -1)), label: isEventMetric(metric) ? "No event reported" : "Current snapshot", value: null, note: null, resultState: isEventMetric(metric) ? "not_due" : "missing" });
+      periods.push({ id: null, periodStart: dateOnly(bounds.start), periodEnd: dateOnly(addDays(bounds.end, -1)), label: isEventMetric(metric) ? "No event reported" : "Current snapshot", value: null, note: null, resultState: isEventMetric(metric) ? "not_due" : "missing" });
     }
-    const current = periods[0];
+    const recordByValueId = periodToDatePerformance(sourceValues.map((value: any) => ({ id: value.id, actual: numeric(value.actualValue), resultState: value.resultState })), metric);
+    const periodsWithPerformance = periods.map((period: any) => ({ ...period, periodToDatePerformance: period.id ? recordByValueId.get(period.id) ?? null : null }));
+    const current = periodsWithPerformance[0];
     const targetConfig = targetForPeriod(metric, metricTargets, current.periodStart);
     const target = targetConfig.targetValue;
     const grade = scoreResult(current.value, current.resultState, targetConfig);
@@ -167,12 +169,13 @@ export async function getMeetingScorecard(db: any, viewerId: number, meetingId: 
       measurementPeriod: currentMeasurementPeriod(metric),
       reviewFrequency: metric.reviewFrequency ?? "weekly",
       current,
-      periods,
+      periods: periodsWithPerformance,
+      periodToDatePerformance: current?.periodToDatePerformance ?? null,
       statusLabel: grade.status,
       onTarget: grade.onTarget,
-      trend: scorecardTrendPhrase(periods.map((period) => period.value), cadence),
+      trend: scorecardTrendPhrase(periodsWithPerformance.map((period) => period.value), cadence),
       canEdit: metric.metricType !== "automatic" && (metric.ownerId ?? row.responsibility.ownerId) === viewerId,
-      detail: { responsibility: row.responsibility.title, definition: metric.definition || row.responsibility.description, ownerName: ownerById.get(metric.ownerId ?? row.owner.id)?.name ?? ownerById.get(metric.ownerId ?? row.owner.id)?.email ?? row.owner.name ?? row.owner.email ?? "Unassigned", target, targetConfig, cadence, measurementPeriod: currentMeasurementPeriod(metric), reviewFrequency: metric.reviewFrequency ?? "weekly", calculationMethod: metric.calculationMethod ?? metric.rollupMethod, formulaExpression: metric.formulaExpression, manualInputDefinitions: metric.manualInputDefinitions, dataSource: autoConfig?.dataSource ?? "Manual entry", dateField: autoConfig?.dateField ?? null, calculation: autoConfig?.calculation ?? metric.calculationMethod ?? metric.rollupMethod, lastUpdated: current?.updatedAt ?? autoConfig?.lastRefreshedAt ?? null, history: periods, supportingInputs: current?.supportingInputs ?? null, calculationMetadata: current?.calculationMetadata ?? null },
+      detail: { responsibility: row.responsibility.title, definition: metric.definition || row.responsibility.description, ownerName: ownerById.get(metric.ownerId ?? row.owner.id)?.name ?? ownerById.get(metric.ownerId ?? row.owner.id)?.email ?? row.owner.name ?? row.owner.email ?? "Unassigned", target, targetConfig, cadence, measurementPeriod: currentMeasurementPeriod(metric), reviewFrequency: metric.reviewFrequency ?? "weekly", calculationMethod: metric.calculationMethod ?? metric.rollupMethod, formulaExpression: metric.formulaExpression, manualInputDefinitions: metric.manualInputDefinitions, dataSource: autoConfig?.dataSource ?? "Manual entry", dateField: autoConfig?.dateField ?? null, calculation: autoConfig?.calculation ?? metric.calculationMethod ?? metric.rollupMethod, lastUpdated: current?.updatedAt ?? autoConfig?.lastRefreshedAt ?? null, history: periodsWithPerformance, supportingInputs: current?.supportingInputs ?? null, calculationMetadata: current?.calculationMetadata ?? null },
     };
   });
 
