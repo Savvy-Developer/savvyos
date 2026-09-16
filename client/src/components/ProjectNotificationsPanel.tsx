@@ -27,6 +27,14 @@ export default function ProjectNotificationsPanel() {
   const markNoteRead = trpc.pm.notes.markRead.useMutation({ onSuccess: () => { void refetchItems(); void refetchCount(); } });
   const markNoteUnread = trpc.pm.notes.markUnread.useMutation({ onSuccess: () => { void refetchItems(); void refetchCount(); } });
   const markComment = trpc.pm.inbox.markCommentRead.useMutation({ onSuccess: () => { void refetchItems(); void refetchCount(); } });
+  const markAllRead = trpc.pm.inbox.markAllRead.useMutation({
+    onSuccess: (result) => {
+      toast.success(result.totalMarkedRead === 1 ? "Notification acknowledged" : `${result.totalMarkedRead} notifications acknowledged`);
+      void refetchItems();
+      void refetchCount();
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const dismiss = trpc.pm.inbox.dismiss.useMutation({ onSuccess: () => { toast.success("Notification removed"); void refetchItems(); void refetchCount(); }, onError: (error) => toast.error(error.message) });
   const unreadCount = (countData as any)?.count ?? 0;
 
@@ -61,7 +69,7 @@ export default function ProjectNotificationsPanel() {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] p-0">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3"><div><p className="text-sm font-semibold">Notifications</p><p className="text-xs text-muted-foreground">Only activity from projects you can access</p></div>{unreadCount > 0 && <span className="text-xs text-muted-foreground">{unreadCount} unread</span>}</div>
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3"><div className="min-w-0"><p className="text-sm font-semibold">Notifications</p><p className="text-xs text-muted-foreground">Only activity from projects you can access</p></div>{unreadCount > 0 && <div className="flex shrink-0 items-center gap-2"><span className="text-xs text-muted-foreground">{unreadCount} unread</span><Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending}>{markAllRead.isPending ? "Clearing…" : "Clear all"}</Button></div>}</div>
         <div className="max-h-[28rem] overflow-y-auto">
           {(items as NotificationItem[]).length === 0 ? <div className="py-10 text-center text-muted-foreground"><Bell className="mx-auto mb-2 h-7 w-7 opacity-30" /><p className="text-sm">You are all caught up.</p></div> : <div className="divide-y divide-border">{(items as NotificationItem[]).map((item) => <button key={`${item.type}-${item.id}`} type="button" onClick={() => visit(item)} className={`flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/60 ${item.isUnread ? "bg-primary/5" : ""}`}>
             <span className="mt-0.5 shrink-0">{item.type === "note" ? <StickyNote className="h-4 w-4 text-primary" /> : <MessageSquare className="h-4 w-4 text-blue-500" />}</span>

@@ -2238,6 +2238,98 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
       return items.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }),
 
+    markAllRead: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        const [myProjects, myCollabProjects, myMentionedNotes] = await Promise.all([
+          db.select({ id: pmProjects.id }).from(pmProjects).where(eq(pmProjects.ownerId, ctx.user.id)),
+          db.select({ projectId: pmProjectCollaborators.projectId })
+            .from(pmProjectCollaborators)
+            .where(eq(pmProjectCollaborators.userId, ctx.user.id)),
+          db.select({ noteId: pmNoteMentions.noteId })
+            .from(pmNoteMentions)
+            .where(eq(pmNoteMentions.mentionedUserId, ctx.user.id)),
+        ]);
+        const projectIds = Array.from(new Set([
+          ...myProjects.map(project => project.id),
+          ...myCollabProjects.map(project => project.projectId),
+        ]));
+        const mentionedNoteIds = myMentionedNotes.map(mention => mention.noteId);
+
+        const notes = projectIds.length > 0
+          ? await db.select({ id: pmProjectNotes.id, authorId: pmProjectNotes.authorId })
+              .from(pmProjectNotes)
+              .where(inArray(pmProjectNotes.projectId, projectIds))
+          : [];
+        const noteIds = Array.from(new Set([
+          ...notes.filter(note => note.authorId !== ctx.user.id).map(note => note.id),
+          ...mentionedNoteIds,
+        ]));
+
+        const tasks = projectIds.length > 0
+          ? await db.select({ id: pmTasks.id }).from(pmTasks).where(inArray(pmTasks.projectId, projectIds))
+          : [];
+        const comments = tasks.length > 0
+          ? await db.select({ id: pmTaskComments.id, authorId: pmTaskComments.authorId })
+              .from(pmTaskComments)
+              .where(inArray(pmTaskComments.taskId, tasks.map(task => task.id)))
+          : [];
+        const commentIds = comments.filter(comment => comment.authorId !== ctx.user.id).map(comment => comment.id);
+
+        const [noteReads, commentReads] = await Promise.all([
+          noteIds.length > 0
+            ? db.select().from(pmNoteReads).where(and(inArray(pmNoteReads.noteId, noteIds), eq(pmNoteReads.userId, ctx.user.id)))
+            : Promise.resolve([]),
+          commentIds.length > 0
+            ? db.select().from(pmTaskCommentReads).where(and(inArray(pmTaskCommentReads.commentId, commentIds), eq(pmTaskCommentReads.userId, ctx.user.id)))
+            : Promise.resolve([]),
+        ]);
+        const noteReadsByNoteId = new Map(noteReads.map(read => [read.noteId, read]));
+        const commentReadsByCommentId = new Map(commentReads.map(read => [read.commentId, read]));
+        const unreadNoteIds = noteIds.filter(noteId => {
+          const read = noteReadsByNoteId.get(noteId);
+          return !read || (!read.dismissedAt && read.markedUnread);
+        });
+        const unreadCommentIds = commentIds.filter(commentId => {
+          const read = commentReadsByCommentId.get(commentId);
+          return !read || (!read.dismissedAt && read.markedUnread);
+        });
+        const now = new Date();
+
+        await db.transaction(async transaction => {
+          for (const noteId of unreadNoteIds) {
+            const read = noteReadsByNoteId.get(noteId);
+            if (read) {
+              await transaction.update(pmNoteReads)
+                .set({ markedUnread: false, dismissedAt: null, readAt: now })
+                .where(eq(pmNoteReads.id, read.id));
+            } else {
+              await transaction.insert(pmNoteReads).values({ noteId, userId: ctx.user.id, markedUnread: false, readAt: now });
+            }
+          }
+          for (const commentId of unreadCommentIds) {
+            const read = commentReadsByCommentId.get(commentId);
+            if (read) {
+              await transaction.update(pmTaskCommentReads)
+                .set({ markedUnread: false, dismissedAt: null, readAt: now })
+                .where(eq(pmTaskCommentReads.id, read.id));
+            } else {
+              await transaction.insert(pmTaskCommentReads).values({ commentId, userId: ctx.user.id, markedUnread: false, readAt: now });
+            }
+          }
+        });
+
+        return {
+          success: true,
+          notesMarkedRead: unreadNoteIds.length,
+          commentsMarkedRead: unreadCommentIds.length,
+          totalMarkedRead: unreadNoteIds.length + unreadCommentIds.length,
+        };
+      }),
+
     markCommentRead: protectedProcedure
       .input(z.object({ commentId: z.number(), markedUnread: z.boolean().optional().default(false) }))
       .mutation(async ({ ctx, input }) => {
