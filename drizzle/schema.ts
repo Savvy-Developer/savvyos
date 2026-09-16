@@ -1013,6 +1013,43 @@ export const websitePages = mysqlTable(
   table => [index("website_pages_status_idx").on(table.status, table.sortOrder)]
 );
 export type WebsitePage = typeof websitePages.$inferSelect;
+
+/**
+ * Daily read counts for blog posts and case studies.
+ *
+ * A reader is a salted hash that includes the date, so the same person is a
+ * different hash tomorrow. That is enough to recognise a repeat read within a
+ * day and useless for anything else: no address is stored, and no reading
+ * history can be assembled from this table. visitorHash is nullable because a
+ * request with no address still counts as a view, just not as a reader.
+ */
+export const websiteContentViews = mysqlTable(
+  "website_content_views",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    contentKind: mysqlEnum("contentKind", ["post", "case_study"]).notNull(),
+    contentId: int("contentId").notNull(),
+    dateKey: varchar("dateKey", { length: 10 }).notNull(),
+    visitorHash: varchar("visitorHash", { length: 64 }),
+    viewCount: int("viewCount").default(1).notNull(),
+    firstViewedAt: timestamp("firstViewedAt").defaultNow().notNull(),
+    lastViewedAt: timestamp("lastViewedAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("website_content_views_unique").on(
+      table.contentKind,
+      table.contentId,
+      table.dateKey,
+      table.visitorHash
+    ),
+    index("website_content_views_content_idx").on(
+      table.contentKind,
+      table.contentId,
+      table.dateKey
+    ),
+  ]
+);
+export type WebsiteContentView = typeof websiteContentViews.$inferSelect;
 export type InsertWebsiteProperty = typeof websiteProperties.$inferInsert;
 
 export const websiteCaseStudies = mysqlTable(

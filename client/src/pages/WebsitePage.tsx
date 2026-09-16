@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { CmsPagesEditor } from "@/components/website/CmsPagesEditor";
+import { ContentViewsPanel } from "@/components/website/ContentViewsPanel";
 import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -881,6 +882,7 @@ export default function WebsitePage() {
           </Card>
         </>
       )}
+      {tab === "case-studies" && <ContentViewsPanel />}
       {tab === "case-studies" && (
         <RecordTable
           items={data?.caseStudies || []}
@@ -889,6 +891,7 @@ export default function WebsitePage() {
           preview={item => `${PUBLIC_PREVIEW_URL}case-studies/${item.slug}`}
         />
       )}
+      {tab === "blog" && <ContentViewsPanel />}
       {tab === "blog" && (
         <RecordTable
           items={data?.posts || []}
