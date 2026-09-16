@@ -65,4 +65,22 @@ describe("project todo section UI", () => {
     );
     expect(sectionComponent).not.toContain("px-2 py-5 text-center");
   });
+
+  it("clears regular due dates immediately without a stale-read overwrite", () => {
+    expect(projectDetailPage).toContain(
+      'updateProjectOverview.mutate({ id: projectId, dueDate: null })'
+    );
+    expect(projectDetailPage).toContain(
+      'utils.pm.projects.getById.cancel({ id: projectId })'
+    );
+    expect(projectDetailPage).toContain(
+      'utils.pm.projects.getById.setData({ id: projectId }, current => current ? { ...current, dueDate: null } : current)'
+    );
+    expect(projectDetailPage).toContain(
+      'utils.pm.projects.getById.invalidate({ id: projectId })'
+    );
+    expect(sectionComponent).toContain(
+      'onUpdate({ title: section.title, dueDate: null })'
+    );
+  });
 });

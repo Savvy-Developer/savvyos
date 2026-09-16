@@ -356,6 +356,7 @@ export default function ProjectDetailPage() {
   const projectId = Number(id);
 
   const { user } = useAuth();
+  const utils = trpc.useUtils();
   const { data: project, refetch } = trpc.pm.projects.getById.useQuery({ id: projectId }, { refetchInterval: 1500 });
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
   const { data: routingOptions = [] } = trpc.pm.projects.routingOptions.useQuery();
@@ -394,8 +395,22 @@ export default function ProjectDetailPage() {
     onError: (e) => toast.error(e.message),
   });
   const updateSection = trpc.pm.sections.update.useMutation({
-    onSuccess: () => { toast.success("Section updated"); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onMutate: async (input) => {
+      if (input.dueDate !== null) return { previousProject: undefined };
+      await utils.pm.projects.getById.cancel({ id: projectId });
+      const previousProject = utils.pm.projects.getById.getData({ id: projectId });
+      utils.pm.projects.getById.setData({ id: projectId }, current => current ? {
+        ...current,
+        todoSections: current.todoSections?.map(section => section.id === input.id ? { ...section, dueDate: null } : section),
+      } : current);
+      return { previousProject };
+    },
+    onSuccess: () => { toast.success("Section updated"); },
+    onError: (e, _input, context) => {
+      if (context?.previousProject) utils.pm.projects.getById.setData({ id: projectId }, context.previousProject);
+      toast.error(e.message);
+    },
+    onSettled: () => { void utils.pm.projects.getById.invalidate({ id: projectId }); },
   });
   const deleteSection = trpc.pm.sections.delete.useMutation({
     onSuccess: () => { toast.success("Section deleted; its todos returned to the main list"); refetch(); },
@@ -422,12 +437,34 @@ export default function ProjectDetailPage() {
   });
 
   const updateProject = trpc.pm.projects.update.useMutation({
-    onSuccess: () => { toast.success("Project updated"); refetch(); setEditingProject(false); },
-    onError: (e) => toast.error(e.message),
+    onMutate: async (input) => {
+      if (input.dueDate !== null) return { previousProject: undefined };
+      await utils.pm.projects.getById.cancel({ id: projectId });
+      const previousProject = utils.pm.projects.getById.getData({ id: projectId });
+      utils.pm.projects.getById.setData({ id: projectId }, current => current ? { ...current, dueDate: null } : current);
+      return { previousProject };
+    },
+    onSuccess: () => { toast.success("Project updated"); setEditingProject(false); },
+    onError: (e, _input, context) => {
+      if (context?.previousProject) utils.pm.projects.getById.setData({ id: projectId }, context.previousProject);
+      toast.error(e.message);
+    },
+    onSettled: () => { void utils.pm.projects.getById.invalidate({ id: projectId }); },
   });
   const updateProjectOverview = trpc.pm.projects.update.useMutation({
-    onSuccess: () => { toast.success("Project overview updated"); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onMutate: async (input) => {
+      if (input.dueDate !== null) return { previousProject: undefined };
+      await utils.pm.projects.getById.cancel({ id: projectId });
+      const previousProject = utils.pm.projects.getById.getData({ id: projectId });
+      utils.pm.projects.getById.setData({ id: projectId }, current => current ? { ...current, dueDate: null } : current);
+      return { previousProject };
+    },
+    onSuccess: () => { toast.success("Project overview updated"); },
+    onError: (e, _input, context) => {
+      if (context?.previousProject) utils.pm.projects.getById.setData({ id: projectId }, context.previousProject);
+      toast.error(e.message);
+    },
+    onSettled: () => { void utils.pm.projects.getById.invalidate({ id: projectId }); },
   });
 
   const archiveProject = trpc.pm.projects.archive.useMutation({
