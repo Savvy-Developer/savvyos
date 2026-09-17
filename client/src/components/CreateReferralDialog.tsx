@@ -145,7 +145,10 @@ export function CreateReferralDialog({
       setContactSearch("");
       setSelectedContact(lockedContact ?? null);
     }
-  }, [open, selectedContactId, lockedContact]);
+    // `lockedContact` may be reconstructed by the parent after a query refresh.
+    // Reset only when this dialog opens or the actual contact changes, not when
+    // the same contact is passed as a new object while someone is typing.
+  }, [open, selectedContactId]);
 
   function selectContact(contactId: string) {
     setSelectedContact(contacts.find(contact => String(contact.id) === contactId) ?? selectedContact);
