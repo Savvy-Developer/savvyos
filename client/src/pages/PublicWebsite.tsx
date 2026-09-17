@@ -43,6 +43,10 @@ import { trpc } from "@/lib/trpc";
 import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
 import {
+  attributionLine,
+  publishedTestimonials,
+} from "@shared/websiteTestimonials";
+import {
   CALCULATOR_DEFAULTS,
   runCalculator,
 } from "@/lib/investmentCalculator";
@@ -412,6 +416,67 @@ function NotFoundPage() {
         </div>
       </section>
     </Shell>
+  );
+}
+
+/**
+ * What real customers said.
+ *
+ * Three rules, all of them about not overstating:
+ *
+ * - No star ratings. The previous version drew five filled stars on every
+ *   quote. Nobody gave those stars; they were decoration that read as a
+ *   rating, on a real person's name.
+ * - Every published testimonial is shown, not the first three, so the section
+ *   is the whole set rather than a silently truncated sample.
+ * - With nothing to show the section does not render at all, heading included.
+ *   An empty "What Our Investors Are Saying" is worse than no section.
+ *
+ * Horizontal scroll with snap points rather than a timed carousel: no library,
+ * no autoplay stealing a quote mid-sentence, and it still works with the
+ * keyboard and on a phone.
+ */
+function TestimonialsSection({ rows }: { rows: unknown }) {
+  const testimonials = publishedTestimonials(rows);
+  if (!testimonials.length) return null;
+  return (
+    <section className="bg-white py-20">
+      <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
+        <SectionHeading
+          eyebrow="Investor confidence"
+          title="What Our Investors Are Saying"
+          body="Specialized guidance matters before, during, and long after closing."
+        />
+        <div
+          className="mt-10 flex snap-x snap-mandatory gap-5 overflow-x-auto pb-4"
+          tabIndex={0}
+          role="region"
+          aria-label="Investor testimonials"
+        >
+          {testimonials.map((item, index) => {
+            const attribution = attributionLine(item);
+            return (
+              <blockquote
+                key={`${item.name}:${index}`}
+                className="flex min-h-64 w-[19rem] shrink-0 snap-start flex-col rounded-2xl border bg-white p-7 shadow-sm sm:w-[22rem]"
+              >
+                {/* whitespace-pre-line so a quote pasted with paragraph breaks
+                    keeps them instead of collapsing into one block. */}
+                <p className="whitespace-pre-line text-base leading-7 text-slate-700">
+                  “{item.quote}”
+                </p>
+                <footer className="mt-auto pt-6">
+                  <p className="font-bold text-[#05314a]">{item.name}</p>
+                  {attribution && (
+                    <p className="text-xs text-slate-500">{attribution}</p>
+                  )}
+                </footer>
+              </blockquote>
+            );
+          })}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -944,38 +1009,7 @@ function HomePage() {
           </div>
         </div>
       </section>
-      <section className="bg-white py-20">
-        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            eyebrow="Investor confidence"
-            title="What Our Investors Are Saying"
-            body="Specialized guidance matters before, during, and long after closing."
-          />
-          <div className="mt-10 grid gap-5 lg:grid-cols-3">
-            {((settings.testimonials || []) as any[])
-              .slice(0, 3)
-              .map((item: any) => (
-                <blockquote
-                  key={item.quote}
-                  className="flex min-h-64 flex-col rounded-2xl border bg-white p-7 shadow-sm"
-                >
-                  <div className="flex gap-1 text-amber-400">
-                    {[0, 1, 2, 3, 4].map(index => (
-                      <Star key={index} className="h-4 w-4 fill-current" />
-                    ))}
-                  </div>
-                  <p className="mt-5 text-base leading-7 text-slate-700">
-                    “{item.quote}”
-                  </p>
-                  <footer className="mt-auto pt-6">
-                    <p className="font-bold text-[#05314a]">{item.name}</p>
-                    <p className="text-xs text-slate-500">{item.role}</p>
-                  </footer>
-                </blockquote>
-              ))}
-          </div>
-        </div>
-      </section>
+      <TestimonialsSection rows={settings.testimonials} />
       <section className="relative overflow-hidden bg-[#04283c] py-24">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_30%,rgba(16,192,223,.24),transparent_35%)]" />
         <div className="relative mx-auto max-w-[1180px] px-4 text-center sm:px-6">
