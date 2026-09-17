@@ -28,7 +28,8 @@ import { scheduleDailyCoachingTips } from "../dailyCoachingTipsScheduler";
 import { scheduleCoachFeedback } from "../coachingFeedback";
 import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "../analytics/workspace";
 import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../analytics/businessInsights";
-import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebhook";
+import { verifyResendWebhookSignature } from "./resendWebhook";
+import { describeResendWebhookEvent, enqueueResendWebhookEvent } from "../resendWebhookInbox";
 import { registerWebhookRoute } from "../webhookRoute";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
 import { scheduleTempGrantExpiry } from "../tempGrantExpiryScheduler";
@@ -132,26 +133,17 @@ async function startServer() {
       const svixTimestamp = req.headers["svix-timestamp"] as string | undefined;
       const secret = process.env.RESEND_WEBHOOK_SECRET || "";
 
-      console.log("[Resend Webhook] Incoming request:", {
-        secretConfigured: !!secret,
-        secretPrefix: secret ? secret.slice(0, 10) + "..." : "(none)",
-        hasSvixId: !!svixId,
-        hasSvixTimestamp: !!svixTimestamp,
-        hasSignature: !!signature,
-        bodyIsBuffer: Buffer.isBuffer(req.body),
-      });
-
       // Verify signature if secret is configured
       if (secret && !verifyResendWebhookSignature(rawBody, signature, secret, svixId, svixTimestamp)) {
         console.warn("[Resend Webhook] Signature verification FAILED");
         return res.status(401).json({ error: "Invalid webhook signature" });
       }
 
-      console.log("[Resend Webhook] Signature verification PASSED (or no secret configured)");
-
-      const event = JSON.parse(rawBody);
-      const result = await handleResendWebhook(event, svixId);
-      return res.json({ ok: true, ...result });
+      // Persist first and return immediately. The dedicated worker performs all
+      // CRM matching, analytics projection, and campaign rollups outside the
+      // interactive SavvyOS process.
+      await enqueueResendWebhookEvent(describeResendWebhookEvent(rawBody, svixId));
+      return res.status(200).json({ ok: true, queued: true });
     } catch (err: any) {
       console.error("[Resend Webhook] Error:", err.message);
       return res.status(500).json({ error: "Webhook processing failed" });

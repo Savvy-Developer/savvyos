@@ -45,7 +45,7 @@ export function verifyResendWebhookSignature(
   });
 }
 
-type ResendWebhookEvent = {
+export type ResendWebhookEvent = {
   type: string;
   created_at?: string;
   data: {
@@ -74,6 +74,24 @@ const SMART_PLAN_EVENT_TYPES = new Set([
   "email.received",
 ]);
 
+export type ResendWebhookProjectionOptions = {
+  /** Campaign totals are recalculated once after a worker batch, never per callback. */
+  deferOneTimeMetricsRefresh?: boolean;
+};
+
+export type ResendWebhookProjectionResult = {
+  handled: boolean;
+  action?: string;
+  reason?: string;
+  type?: string;
+  email?: string | null;
+  emailId?: string;
+  executionId?: number;
+  recipientId?: number;
+  oneTimeSendId?: number;
+  threadId?: number;
+};
+
 function inboundReplyToken(recipients?: string[]): string | null {
   const recipient = recipients?.[0]?.trim().toLowerCase();
   if (!recipient) return null;
@@ -97,7 +115,8 @@ function inboundSenderEmail(value: string | undefined): string | null {
 async function recordOneTimeSendEvent(
   event: ResendWebhookEvent,
   webhookEventId?: string,
-): Promise<{ recipientId?: number; duplicate?: boolean }> {
+  options: ResendWebhookProjectionOptions = {},
+): Promise<{ recipientId?: number; sendId?: number; duplicate?: boolean }> {
   if (!SMART_PLAN_EVENT_TYPES.has(event.type)) return {};
 
   const db = await getDb();
@@ -205,8 +224,10 @@ async function recordOneTimeSendEvent(
       },
     });
   });
-  await refreshOneTimeSendMetrics(db, recipient.sendId);
-  return { recipientId: recipient.id };
+  if (!options.deferOneTimeMetricsRefresh) {
+    await refreshOneTimeSendMetrics(db, recipient.sendId);
+  }
+  return { recipientId: recipient.id, sendId: recipient.sendId };
 }
 
 async function recordSmartPlanEvent(
@@ -309,7 +330,11 @@ async function recordSmartPlanEvent(
   return { executionId: execution.id };
 }
 
-export async function handleResendWebhook(event: ResendWebhookEvent, webhookEventId?: string) {
+export async function handleResendWebhook(
+  event: ResendWebhookEvent,
+  webhookEventId?: string,
+  options: ResendWebhookProjectionOptions = {}
+): Promise<ResendWebhookProjectionResult> {
   const { type, data } = event;
   const recipientEmail = (data.to && data.to[0]) || data.email || null;
   const emailId = data.email_id;
@@ -348,9 +373,9 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
   if (smartPlanResult.duplicate) {
     return { handled: true, action: "duplicate_ignored", emailId, executionId: smartPlanResult.executionId };
   }
-  const oneTimeSendResult = await recordOneTimeSendEvent(event, webhookEventId);
+  const oneTimeSendResult = await recordOneTimeSendEvent(event, webhookEventId, options);
   if (oneTimeSendResult.duplicate) {
-    return { handled: true, action: "duplicate_ignored", emailId, recipientId: oneTimeSendResult.recipientId };
+    return { handled: true, action: "duplicate_ignored", emailId, recipientId: oneTimeSendResult.recipientId, oneTimeSendId: oneTimeSendResult.sendId };
   }
 
   const db = await getDb();
@@ -434,7 +459,7 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
         .set({ status: "bounced", updatedAt: new Date() })
         .where(and(eq(emailBehaviors.source, "resend"), eq(emailBehaviors.externalId, emailId)));
     }
-    return { handled: true, action: "marked_bounced", email: recipientEmail, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId };
+    return { handled: true, action: "marked_bounced", email: recipientEmail, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId, oneTimeSendId: oneTimeSendResult.sendId };
   }
 
   if (type === "email.complained") {
@@ -444,7 +469,7 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
         .set({ emailStatus: "unsubscribed", emailUnsubscribedAt: new Date() })
         .where(eq(contacts.email, recipientEmail));
     }
-    return { handled: true, action: "marked_unsubscribed_complaint", email: recipientEmail, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId };
+    return { handled: true, action: "marked_unsubscribed_complaint", email: recipientEmail, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId, oneTimeSendId: oneTimeSendResult.sendId };
   }
 
   if (type === "email.suppressed") {
@@ -454,7 +479,7 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
         .set({ emailStatus: "unsubscribed", emailUnsubscribedAt: new Date() })
         .where(eq(contacts.email, recipientEmail));
     }
-    return { handled: true, action: "marked_unsubscribed_suppressed", email: recipientEmail, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId };
+    return { handled: true, action: "marked_unsubscribed_suppressed", email: recipientEmail, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId, oneTimeSendId: oneTimeSendResult.sendId };
   }
 
   if (type === "email.delivered" && emailId) {
@@ -462,7 +487,7 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
       .update(emailBehaviors)
       .set({ status: "delivered", updatedAt: new Date() })
       .where(and(eq(emailBehaviors.source, "resend"), eq(emailBehaviors.externalId, emailId)));
-    return { handled: true, action: "marked_delivered", emailId, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId };
+    return { handled: true, action: "marked_delivered", emailId, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId, oneTimeSendId: oneTimeSendResult.sendId };
   }
 
   if (type === "email.opened" && emailId) {
@@ -470,7 +495,7 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
       .update(emailBehaviors)
       .set({ openedAt: new Date(), status: "opened", updatedAt: new Date() })
       .where(and(eq(emailBehaviors.source, "resend"), eq(emailBehaviors.externalId, emailId)));
-    return { handled: true, action: "marked_opened", emailId, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId };
+    return { handled: true, action: "marked_opened", emailId, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId, oneTimeSendId: oneTimeSendResult.sendId };
   }
 
   if (type === "email.clicked" && emailId) {
@@ -478,7 +503,7 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
       .update(emailBehaviors)
       .set({ clickedAt: new Date(), status: "clicked", updatedAt: new Date() })
       .where(and(eq(emailBehaviors.source, "resend"), eq(emailBehaviors.externalId, emailId)));
-    return { handled: true, action: "marked_clicked", emailId, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId };
+    return { handled: true, action: "marked_clicked", emailId, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId, oneTimeSendId: oneTimeSendResult.sendId };
   }
 
   if (type === "email.received") {
@@ -488,8 +513,9 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
       threadId: inboxResult?.threadId,
       executionId: smartPlanResult.executionId,
       recipientId: oneTimeSendResult.recipientId,
+      oneTimeSendId: oneTimeSendResult.sendId,
     };
   }
 
-  return { handled: smartPlanResult.executionId !== undefined || oneTimeSendResult.recipientId !== undefined, reason: "unhandled_event_type", type, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId };
+  return { handled: smartPlanResult.executionId !== undefined || oneTimeSendResult.recipientId !== undefined, reason: "unhandled_event_type", type, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId, oneTimeSendId: oneTimeSendResult.sendId };
 }

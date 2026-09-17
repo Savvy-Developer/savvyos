@@ -5311,7 +5311,49 @@ export const emailNotificationDeliveries = mysqlTable(
 );
 export type EmailNotificationDelivery = typeof emailNotificationDeliveries.$inferSelect;
 
-// ─── Scheduled Report Runs ───────────────────────────────────────────────────
+// ─── Durable Resend Webhook Inbox ───────────────────────────────────────────
+// The public webhook route stores a verified callback here before returning 2xx
+// to Resend. A dedicated worker later projects it into Smart Plans, campaigns,
+// contacts, and email behaviors. This prevents high-volume provider callbacks
+// from competing with interactive SavvyOS requests.
+export const resendWebhookEvents = mysqlTable(
+  "resend_webhook_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    // Svix IDs are unique per delivery and provide the authoritative idempotency key.
+    svixId: varchar("svixId", { length: 255 }).notNull(),
+    eventType: varchar("eventType", { length: 64 }).notNull(),
+    providerMessageId: varchar("providerMessageId", { length: 255 }),
+    broadcastId: varchar("broadcastId", { length: 255 }),
+    payload: json("payload").$type<Record<string, unknown>>().notNull(),
+    status: mysqlEnum("status", ["pending", "processing", "processed"])
+      .default("pending")
+      .notNull(),
+    attemptCount: int("attemptCount").default(0).notNull(),
+    availableAt: timestamp("availableAt").defaultNow().notNull(),
+    leaseToken: varchar("leaseToken", { length: 128 }),
+    leaseExpiresAt: timestamp("leaseExpiresAt"),
+    processedAt: timestamp("processedAt"),
+    errorMessage: text("errorMessage"),
+    receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("resend_webhook_events_svix_id_unique").on(table.svixId),
+    index("resend_webhook_events_status_available_idx").on(
+      table.status,
+      table.availableAt,
+      table.id
+    ),
+    index("resend_webhook_events_message_idx").on(table.providerMessageId),
+    index("resend_webhook_events_broadcast_idx").on(table.broadcastId),
+    index("resend_webhook_events_lease_idx").on(table.leaseExpiresAt),
+  ]
+);
+export type ResendWebhookEvent = typeof resendWebhookEvents.$inferSelect;
+
+// ─── Scheduled Report Runs ─────────────────────────────────────────────────
 // A unique report/date record prevents duplicate delivery across process restarts
 // and provides an auditable delivery outcome for scheduled reports.
 export const scheduledReportRuns = mysqlTable(
