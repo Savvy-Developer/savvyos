@@ -335,9 +335,10 @@ export const chatChannels = mysqlTable(
     sectionId: int("sectionId").references(() => chatSections.id, {
       onDelete: "set null",
     }),
-    // Groups are governed by Chat Admins. Direct conversations are participant
-    // private, including from Chat Admins who are not in that conversation.
+    // Permanent groups are governed by Chat Admins. Personal chats, including
+    // direct messages and user-created group chats, are participant private.
     type: mysqlEnum("type", ["group", "direct"]).default("group").notNull(),
+    isPermanent: boolean("isPermanent").notNull().default(true),
     // Canonical pair key: lower user ID first, e.g. "12:87". Null for groups.
     directKey: varchar("directKey", { length: 64 }),
     name: varchar("name", { length: 100 }).notNull(),
@@ -384,6 +385,27 @@ export const chatChannelMembers = mysqlTable(
   ]
 );
 export type ChatChannelMember = typeof chatChannelMembers.$inferSelect;
+
+// Per-user archive state. Archiving a personal chat never changes anyone
+// else's view and is cleared automatically when another participant messages.
+export const chatChannelHides = mysqlTable(
+  "chat_channel_hides",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    channelId: int("channelId")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    hiddenAt: timestamp("hiddenAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("chat_channel_hides_unique").on(table.channelId, table.userId),
+    index("chat_channel_hides_user_idx").on(table.userId, table.channelId),
+  ]
+);
+export type ChatChannelHide = typeof chatChannelHides.$inferSelect;
 
 export const chatMessages = mysqlTable(
   "chat_messages",

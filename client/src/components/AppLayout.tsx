@@ -264,9 +264,6 @@ function buildIsaNav(
         { icon: TrendingUp, label: "My Performance", path: "/isa-stats" },
       ],
     },
-    ...(canUseChat
-      ? [{ label: "Chat", items: [{ icon: MessageSquare, label: "Chat", path: "/chat" }] }]
-      : []),
     {
       label: "Leads & CRM",
       items: [
@@ -300,8 +297,9 @@ function buildIsaNav(
       ],
     },
     {
-      label: "Operations",
+      label: "Work",
       items: [
+        ...(canUseChat ? [{ icon: MessageSquare, label: "Chat", path: "/chat" }] : []),
         {
           icon: ClipboardList,
           label: "Tasks",
@@ -430,10 +428,6 @@ function buildAdminNav(
       ],
     },
     {
-      label: "Chat",
-      items: [{ icon: MessageSquare, label: "Chat", path: "/chat" }],
-    },
-    {
       label: "CRM",
       items: [
         { icon: Users, label: "All Contacts", path: "/contacts" },
@@ -520,6 +514,7 @@ function buildAdminNav(
     {
       label: "Work",
       items: [
+        { icon: MessageSquare, label: "Chat", path: "/chat" },
         { icon: Activity, label: "Pulse", path: "/pulse" },
         { icon: CheckSquare, label: "Transaction Checklists", path: "/checklists" },
         { icon: Layers, label: "Projects", path: "/projects" },
@@ -1159,6 +1154,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           adminPerms as Record<string, boolean> | null | undefined
         )
       : baseNavGroups;
+  // Chat Admins may be protected or granted through the Chat-specific access
+  // rule, so the sidebar follows chat.access rather than only the raw matrix.
+  const chatAwareNavGroups: NavGroup[] =
+    !canUsePulseLayout &&
+    !!chatAccess?.canAccess &&
+    !permissionFilteredNavGroups.some(group =>
+      group.items.some(item => item.path === "/chat")
+    )
+      ? permissionFilteredNavGroups.map(group =>
+          group.label === "Work"
+            ? {
+                ...group,
+                items: [
+                  { icon: MessageSquare, label: "Chat", path: "/chat" },
+                  ...group.items,
+                ],
+              }
+            : group
+        )
+      : permissionFilteredNavGroups;
   const passwordNavItem: NavItem = {
     icon: Lock,
     label: "Passwords",
@@ -1167,7 +1182,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navGroups: NavGroup[] = canUsePulseLayout
     ? baseNavGroups
     : role === "admin"
-      ? permissionFilteredNavGroups
+      ? chatAwareNavGroups
           .map(group => ({
             ...group,
             items: group.items.filter(
@@ -1178,17 +1193,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           }))
           .filter(group => group.items.length > 0)
       : passwordAccess?.hasAccessibleLists
-        ? permissionFilteredNavGroups.some(group => group.label === "Resources")
-          ? permissionFilteredNavGroups.map(group =>
+        ? chatAwareNavGroups.some(group => group.label === "Resources")
+          ? chatAwareNavGroups.map(group =>
               group.label === "Resources"
                 ? { ...group, items: [...group.items, passwordNavItem] }
                 : group
             )
           : [
-              ...permissionFilteredNavGroups,
+              ...chatAwareNavGroups,
               { label: "Shared", items: [passwordNavItem] },
             ]
-        : permissionFilteredNavGroups;
+        : chatAwareNavGroups;
   // My PTO is an employee benefit driven only by the authoritative W-2 tag.
   // Approval and administration remain separately controlled through Super Permissions.
   const ptoItem: NavItem = {

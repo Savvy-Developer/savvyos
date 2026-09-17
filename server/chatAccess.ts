@@ -39,10 +39,14 @@ export function canReadChatConversation(input: {
   memberGroupIds: Set<number>;
   channelId: number;
   channelType: "group" | "direct";
+  isPermanent: boolean;
 }): boolean {
   if (input.channelType === "direct") {
     return input.memberGroupIds.has(input.channelId);
   }
+  // A user-created group belongs to its participants, not to the Chat Admin
+  // role. Only permanent company groups grant Chat Admin visibility by default.
+  if (!input.isPermanent) return input.memberGroupIds.has(input.channelId);
   return canReadChatGroup({
     isChatAdmin: input.isChatAdmin,
     memberGroupIds: input.memberGroupIds,
@@ -54,6 +58,8 @@ export function canPostInChatGroup(input: {
   isChatAdmin: boolean;
   memberGroupIds: Set<number>;
   groupId: number;
+  isPermanent: boolean;
 }): boolean {
+  if (!input.isPermanent) return input.memberGroupIds.has(input.groupId);
   return canReadChatGroup(input);
 }

@@ -94,6 +94,7 @@ describe("Chat access rules", () => {
         memberGroupIds: new Set([2]),
         channelId: 9,
         channelType: "direct",
+        isPermanent: false,
       })
     ).toBe(false);
     expect(
@@ -102,6 +103,7 @@ describe("Chat access rules", () => {
         memberGroupIds: new Set([9]),
         channelId: 9,
         channelType: "direct",
+        isPermanent: false,
       })
     ).toBe(true);
     expect(
@@ -110,7 +112,17 @@ describe("Chat access rules", () => {
         memberGroupIds: new Set(),
         channelId: 9,
         channelType: "group",
+        isPermanent: true,
       })
     ).toBe(true);
+    expect(
+      canReadChatConversation({
+        isChatAdmin: true,
+        memberGroupIds: new Set(),
+        channelId: 10,
+        channelType: "group",
+        isPermanent: false,
+      })
+    ).toBe(false);
   });
 });
