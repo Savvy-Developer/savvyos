@@ -1048,11 +1048,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { enabled: role === "admin", staleTime: 30000 }
   );
 
-  // Chat stays invisible until a user is explicitly permitted. The first
-  // release is Tyler-only, while the same hook supports ISA rollout later.
+  // Chat stays invisible until a user is explicitly permitted. Query every
+  // authenticated role so the top bar becomes available automatically when a
+  // future agent or ISA rollout is explicitly enabled in Super Permissions.
   const { data: chatAccess } = trpc.chat.access.useQuery(undefined, {
-    enabled: role === "admin" || role === "isa",
+    enabled: !!user,
     staleTime: 30000,
+  });
+  const { data: chatWorkspace } = trpc.chat.workspace.useQuery(undefined, {
+    enabled: !!chatAccess?.canAccess,
+    refetchInterval: 30000,
   });
 
   // Resend Inbox is separately super-permissioned because it contains external correspondence.
@@ -1109,6 +1114,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const resendInboxUnreadCount = (resendInboxUnreadData as any)?.count ?? 0;
   const marketingTextInboxUnreadCount =
     (marketingTextInboxUnreadData as any)?.count ?? 0;
+  const chatUnreadCount = chatWorkspace?.totalUnreadCount ?? 0;
 
   const standardNavGroups =
     role === "admin"
@@ -1459,6 +1465,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               />
             </div>
             {/* Mobile: role badge on right */}
+            {chatAccess?.canAccess && (
+              <button
+                type="button"
+                onClick={() => navigate("/chat")}
+                className="relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted md:hidden"
+                aria-label={chatUnreadCount > 0 ? `Open Chat, ${chatUnreadCount} unread messages` : "Open Chat"}
+                title="Open Chat"
+              >
+                <MessageSquare className="h-5 w-5" />
+                {chatUnreadCount > 0 && (
+                  <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground">
+                    {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                  </span>
+                )}
+              </button>
+            )}
             <div className="md:hidden">
               <span
                 className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${roleBadgeClass}`}
@@ -1468,6 +1490,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
             {/* Desktop: spacer */}
             <div className="hidden md:flex flex-1" />
+            {chatAccess?.canAccess && (
+              <button
+                type="button"
+                onClick={() => navigate("/chat")}
+                className="relative mr-1 hidden min-h-9 min-w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted md:inline-flex"
+                aria-label={chatUnreadCount > 0 ? `Open Chat, ${chatUnreadCount} unread messages` : "Open Chat"}
+                title="Open Chat"
+              >
+                <MessageSquare className="h-4 w-4" />
+                {chatUnreadCount > 0 && (
+                  <span className="absolute right-0 top-0 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground">
+                    {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                  </span>
+                )}
+              </button>
+            )}
             {isAdmin && (
               <>
                 <button
