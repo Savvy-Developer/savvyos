@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, like, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   chatChannelMembers,
@@ -488,6 +488,106 @@ export const chatRouter = router({
       ),
     };
   }),
+
+  /**
+   * Chat-only search. Candidate conversations are privacy-filtered before any
+   * message or attachment query runs. Direct messages remain invisible to Chat
+   * Admins unless that admin is a direct-message participant.
+   */
+  search: protectedProcedure
+    .input(z.object({ query: z.string().trim().min(2).max(100) }))
+    .query(async ({ input, ctx }) => {
+      const state = await requireChatAccess(ctx.user);
+      const pattern = `%${input.query.replace(/[\\%_]/g, "\\$&")}%`;
+      const activeChannels = await state.db
+        .select()
+        .from(chatChannels)
+        .where(eq(chatChannels.isArchived, false));
+      const visibleChannels = activeChannels.filter(channel =>
+        canReadChatConversation({
+          isChatAdmin: state.isChatAdmin,
+          memberGroupIds: state.memberChannelIds,
+          channelId: channel.id,
+          channelType: channelType(channel.type),
+        })
+      );
+      const visibleChannelIds = visibleChannels.map(channel => channel.id);
+      if (!visibleChannelIds.length) {
+        return { conversations: [], messages: [], attachments: [] };
+      }
+
+      const visibleDirectIds = visibleChannels
+        .filter(channel => channelType(channel.type) === "direct")
+        .map(channel => channel.id);
+      const directParticipants = visibleDirectIds.length
+        ? await state.db
+            .select({
+              channelId: chatChannelMembers.channelId,
+              person: { id: users.id, name: users.name, email: users.email, role: users.role },
+              profilePhotoUrl: userProfiles.profilePhotoUrl,
+            })
+            .from(chatChannelMembers)
+            .innerJoin(users, eq(users.id, chatChannelMembers.userId))
+            .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+            .where(inArray(chatChannelMembers.channelId, visibleDirectIds))
+        : [];
+      const directPersonByChannel = new Map(
+        visibleDirectIds.map(channelId => [
+          channelId,
+          directParticipants.find(item => item.channelId === channelId && item.person.id !== ctx.user.id) ?? null,
+        ])
+      );
+
+      const conversations = visibleChannels
+        .map(channel => {
+          const directPerson = directPersonByChannel.get(channel.id);
+          const title = directPerson
+            ? directPerson.person.name ?? directPerson.person.email ?? "Direct message"
+            : channel.name;
+          const haystack = `${title} ${channel.description ?? ""}`.toLowerCase();
+          return haystack.includes(input.query.toLowerCase())
+            ? { channel, person: directPerson?.person ?? null, profilePhotoUrl: directPerson?.profilePhotoUrl ?? null }
+            : null;
+        })
+        .filter((item): item is NonNullable<typeof item> => !!item)
+        .slice(0, 12);
+
+      const [messageRows, attachmentRows] = await Promise.all([
+        state.db
+          .select({
+            message: chatMessages,
+            sender: { id: users.id, name: users.name, email: users.email },
+          })
+          .from(chatMessages)
+          .innerJoin(users, eq(users.id, chatMessages.senderId))
+          .where(and(inArray(chatMessages.channelId, visibleChannelIds), like(chatMessages.body, pattern)))
+          .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
+          .limit(30),
+        state.db
+          .select({
+            attachment: chatMessageAttachments,
+            message: { id: chatMessages.id, channelId: chatMessages.channelId, body: chatMessages.body, createdAt: chatMessages.createdAt },
+            sender: { id: users.id, name: users.name, email: users.email },
+          })
+          .from(chatMessageAttachments)
+          .innerJoin(chatMessages, eq(chatMessages.id, chatMessageAttachments.messageId))
+          .innerJoin(users, eq(users.id, chatMessages.senderId))
+          .where(and(inArray(chatMessages.channelId, visibleChannelIds), like(chatMessageAttachments.fileName, pattern)))
+          .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
+          .limit(20),
+      ]);
+      const channelsById = new Map(visibleChannels.map(channel => [channel.id, channel]));
+      const titleFor = (channelId: number) => {
+        const channel = channelsById.get(channelId)!;
+        const person = directPersonByChannel.get(channelId);
+        return person?.person.name ?? person?.person.email ?? channel.name;
+      };
+      return {
+        conversations,
+        messages: messageRows.map(row => ({ ...row, channelTitle: titleFor(row.message.channelId), channelType: channelsById.get(row.message.channelId)?.type ?? "group" })),
+        attachments: attachmentRows.map(row => ({ ...row, channelTitle: titleFor(row.message.channelId), channelType: channelsById.get(row.message.channelId)?.type ?? "group" })),
+      };
+    }),
 
   messages: router({
     list: protectedProcedure
