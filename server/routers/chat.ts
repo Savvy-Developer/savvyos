@@ -954,18 +954,16 @@ export const chatRouter = router({
 
   groups: router({
     create: protectedProcedure
-      .input(z.object({ sectionId: z.number().int().positive().nullable().optional(), name: z.string().trim().min(1).max(100), description: z.string().trim().max(500).optional().nullable() }))
+      .input(z.object({ sectionId: z.number().int().positive(), name: z.string().trim().min(1).max(100), description: z.string().trim().max(500).optional().nullable() }))
       .mutation(async ({ input, ctx }) => {
         const state = await requireChatAdmin(ctx.user);
-        if (input.sectionId) {
-          const sections = await state.db.select({ id: chatSections.id, isArchived: chatSections.isArchived }).from(chatSections).where(eq(chatSections.id, input.sectionId)).limit(1);
-          if (!sections[0] || sections[0].isArchived) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active Chat section." });
-        }
-        const result = await state.db.insert(chatChannels).values({ sectionId: input.sectionId ?? null, type: "group", isPermanent: true, name: input.name, description: textOrNull(input.description), createdById: ctx.user.id });
+        const sections = await state.db.select({ id: chatSections.id, isArchived: chatSections.isArchived }).from(chatSections).where(eq(chatSections.id, input.sectionId)).limit(1);
+        if (!sections[0] || sections[0].isArchived) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active Chat section." });
+        const result = await state.db.insert(chatChannels).values({ sectionId: input.sectionId, type: "group", isPermanent: true, name: input.name, description: textOrNull(input.description), createdById: ctx.user.id });
         return { id: Number(result[0].insertId) };
       }),
     update: protectedProcedure
-      .input(z.object({ id: z.number().int().positive(), sectionId: z.number().int().positive().nullable().optional(), name: z.string().trim().min(1).max(100).optional(), description: z.string().trim().max(500).optional().nullable() }))
+      .input(z.object({ id: z.number().int().positive(), sectionId: z.number().int().positive().optional(), name: z.string().trim().min(1).max(100).optional(), description: z.string().trim().max(500).optional().nullable() }))
       .mutation(async ({ input, ctx }) => {
         const state = await requireChatAdmin(ctx.user);
         const group = await getChannelOrThrow(state.db, input.id);
