@@ -14,6 +14,7 @@ import { getDb } from "./db";
 import { ENV } from "./_core/env";
 import { createMarketingUnsubscribeUrl } from "./marketingEmailUnsubscribe";
 import {
+  dailyPropertyEmailEnabled,
   newSince,
   selectListingsFor,
   shouldEmailToday,
@@ -235,6 +236,16 @@ export async function sendDailyPropertyEmails(
     failed: 0,
     unresolvableMarketPreferences: 0,
   };
+
+  // Paused. Checked before the run row is written, so a day spent paused is
+  // not marked as already sent: switching the email back on later the same day
+  // still sends, rather than silently skipping until tomorrow.
+  if (!dailyPropertyEmailEnabled(ENV.dailyPropertyEmailEnabled)) {
+    console.info(
+      `[DailyPropertyEmail] ${reportDate}: paused, nothing sent. Set DAILY_PROPERTY_EMAIL_ENABLED=true to resume.`
+    );
+    return summary;
+  }
 
   const db = await getDb();
   if (!db) return summary;
@@ -459,6 +470,19 @@ function scheduleNext(): void {
 
 /** Daily at 8am Eastern, with same-day recovery after a restart. */
 export function scheduleDailyPropertyEmails(): void {
+  // Nothing is scheduled while paused, so there is no timer to misfire and the
+  // log says plainly why no email went out.
+  if (!dailyPropertyEmailEnabled(ENV.dailyPropertyEmailEnabled)) {
+    console.info(
+      "[DailyPropertyEmail] Paused. No run scheduled. Set DAILY_PROPERTY_EMAIL_ENABLED=true to resume."
+    );
+    if (schedulerTimer) clearTimeout(schedulerTimer);
+    if (startupRecoveryTimer) clearTimeout(startupRecoveryTimer);
+    schedulerTimer = null;
+    startupRecoveryTimer = null;
+    return;
+  }
+
   scheduleNext();
   if (startupRecoveryTimer) clearTimeout(startupRecoveryTimer);
   startupRecoveryTimer = setTimeout(() => {

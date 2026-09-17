@@ -63,6 +63,20 @@ function normalizeZip(zip: string | null | undefined): string | null {
   return digits.length === 5 ? digits : null;
 }
 
+/**
+ * Whether the investor email is switched on at all.
+ *
+ * Paused is the default. Anything other than the exact string "true" means
+ * off: an unset variable, a blank one, a typo, a fresh environment, a restored
+ * database. The asymmetry is deliberate. Failing to send an email is a delay;
+ * sending one nobody approved reaches investors and cannot be taken back.
+ */
+export function dailyPropertyEmailEnabled(
+  flagValue: string | null | undefined
+): boolean {
+  return String(flagValue ?? "").trim().toLowerCase() === "true";
+}
+
 /** Whether this investor should be emailed at all today. */
 export function shouldEmailToday(
   preferences: Preferences | null,
