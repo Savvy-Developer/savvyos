@@ -130,6 +130,16 @@ describe("Agent Celebration and Market Match permissions", () => {
   });
 });
 
+describe("Transaction Checklists permission", () => {
+  it("registers the admin-only checklist library in the Work group", () => {
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({
+      key: "canViewTransactionChecklists",
+      label: "Transaction Checklists",
+      group: "Work",
+    });
+  });
+});
+
 describe("Website Studio permissions", () => {
   it("registers the Website Studio navigation link and all Website controls in one group", () => {
     const websitePermissions = ADMIN_NAV_PERMISSIONS.filter(permission => permission.group === "Website");

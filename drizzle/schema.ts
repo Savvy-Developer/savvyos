@@ -6375,6 +6375,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
     .notNull(),
   // Operations
   canViewTasks: boolean("canViewTasks").default(true).notNull(),
+  canViewTransactionChecklists: boolean("canViewTransactionChecklists").default(true).notNull(),
   // PTO access, approval, and administration are intentionally opt-in and must be assigned through Super Permissions.
   canViewPto: boolean("canViewPto").default(false).notNull(),
   canApprovePto: boolean("canApprovePto").default(false).notNull(),

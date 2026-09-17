@@ -12,6 +12,7 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import {
   assertChecklistRole,
+  requireChecklistAccess,
   requireApplicationAccess,
   requireApplicationItemAccess,
   requireChecklistTargetAccess,
@@ -103,6 +104,11 @@ function viewer(user: { id: number; role: "admin" | "agent" | "isa" | "agent_sup
   return user as ChecklistViewer;
 }
 
+const checklistProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  await requireChecklistAccess(viewer(ctx.user));
+  return next({ ctx });
+});
+
 async function requireDb() {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
@@ -186,7 +192,7 @@ async function getNestedTemplate(
 
 export const checklistsRouter = router({
   templates: router({
-    list: protectedProcedure
+    list: checklistProcedure
       .input(z.object({ includeArchived: z.boolean().default(false) }).optional())
       .query(async ({ input, ctx }) => {
         const current = viewer(ctx.user);
@@ -220,7 +226,7 @@ export const checklistsRouter = router({
         return nested;
       }),
 
-    get: protectedProcedure
+    get: checklistProcedure
       .input(z.object({ id: positiveId }))
       .query(async ({ input, ctx }) => {
         const db = await requireDb();
@@ -231,7 +237,7 @@ export const checklistsRouter = router({
         return { ...template, canManage: current.role === "admin" || template.ownerUserId === current.id };
       }),
 
-    create: protectedProcedure.input(templateDataSchema).mutation(async ({ input, ctx }) => {
+    create: checklistProcedure.input(templateDataSchema).mutation(async ({ input, ctx }) => {
       const current = viewer(ctx.user);
       assertChecklistRole(current);
       const db = await requireDb();
@@ -263,7 +269,7 @@ export const checklistsRouter = router({
       return getNestedTemplate(db, id);
     }),
 
-    update: protectedProcedure
+    update: checklistProcedure
       .input(z.object({ id: positiveId, data: templateDataSchema }))
       .mutation(async ({ input, ctx }) => {
         const db = await requireDb();
@@ -301,7 +307,7 @@ export const checklistsRouter = router({
         return getNestedTemplate(db, input.id);
       }),
 
-    archive: protectedProcedure
+    archive: checklistProcedure
       .input(z.object({ id: positiveId }))
       .mutation(async ({ input, ctx }) => {
         const db = await requireDb();
@@ -315,7 +321,7 @@ export const checklistsRouter = router({
         return { success: true };
       }),
 
-    restore: protectedProcedure
+    restore: checklistProcedure
       .input(z.object({ id: positiveId }))
       .mutation(async ({ input, ctx }) => {
         const db = await requireDb();
@@ -329,7 +335,7 @@ export const checklistsRouter = router({
         return { success: true };
       }),
 
-    duplicate: protectedProcedure
+    duplicate: checklistProcedure
       .input(z.object({ id: positiveId, name: z.string().trim().min(1).max(255).optional() }))
       .mutation(async ({ input, ctx }) => {
         const db = await requireDb();
@@ -377,7 +383,7 @@ export const checklistsRouter = router({
         return getNestedTemplate(db, duplicateId);
       }),
 
-    share: protectedProcedure
+    share: checklistProcedure
       .input(z.object({ id: positiveId, userId: positiveId }))
       .mutation(async ({ input, ctx }) => {
         const db = await requireDb();
@@ -406,7 +412,7 @@ export const checklistsRouter = router({
         return { success: true };
       }),
 
-    unshare: protectedProcedure
+    unshare: checklistProcedure
       .input(z.object({ id: positiveId, userId: positiveId }))
       .mutation(async ({ input, ctx }) => {
         const db = await requireDb();
@@ -430,7 +436,7 @@ export const checklistsRouter = router({
   }),
 
   users: router({
-    candidates: protectedProcedure.query(async ({ ctx }) => {
+    candidates: checklistProcedure.query(async ({ ctx }) => {
       const current = viewer(ctx.user);
       assertChecklistRole(current);
       const db = await requireDb();
@@ -443,13 +449,13 @@ export const checklistsRouter = router({
   }),
 
   applications: router({
-    list: protectedProcedure.input(applicationTargetSchema).query(async ({ input, ctx }) => {
+    list: checklistProcedure.input(applicationTargetSchema).query(async ({ input, ctx }) => {
       const db = await requireDb();
       await requireChecklistTargetAccess(db, viewer(ctx.user), input.targetType, input.targetId);
       return listChecklistApplications(input.targetType, input.targetId);
     }),
 
-    applyTemplate: protectedProcedure
+    applyTemplate: checklistProcedure
       .input(applicationTargetSchema.extend({ templateId: positiveId }))
       .mutation(async ({ input, ctx }) => {
         const db = await requireDb();
@@ -481,7 +487,7 @@ export const checklistsRouter = router({
         return result;
       }),
 
-    remove: protectedProcedure
+    remove: checklistProcedure
       .input(z.object({ id: positiveId }))
       .mutation(async ({ input, ctx }) => {
         const db = await requireDb();
@@ -505,7 +511,7 @@ export const checklistsRouter = router({
   }),
 
   items: router({
-    update: protectedProcedure
+    update: checklistProcedure
       .input(
         z.object({
           id: positiveId,
@@ -577,7 +583,7 @@ export const checklistsRouter = router({
         return { success: true };
       }),
 
-    addItem: protectedProcedure
+    addItem: checklistProcedure
       .input(
         z.object({
           applicationId: positiveId,
@@ -625,7 +631,7 @@ export const checklistsRouter = router({
         return { id: itemId };
       }),
 
-    removeItem: protectedProcedure
+    removeItem: checklistProcedure
       .input(z.object({ id: positiveId }))
       .mutation(async ({ input, ctx }) => {
         const db = await requireDb();

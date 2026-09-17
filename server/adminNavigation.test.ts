@@ -44,6 +44,8 @@ describe("admin navigation consolidation", () => {
     expect(source).toContain('label: "Agent Celebration"');
     expect(source).toContain('label: "Knowledgebase", path: "/kb"');
     expect(source).toContain('label: "Tech Requests", path: "/tech-requests"');
+    expect(source).toContain('label: "Transaction Checklists", path: "/checklists"');
+    expect(appLayout).toContain('{ icon: CheckSquare, label: "My Checklists", path: "/checklists" }');
 
     const agentSuccessStart = source.indexOf('label: "Agent Success Team"');
     const workStart = source.indexOf('label: "Work"', agentSuccessStart);
@@ -73,5 +75,6 @@ describe("admin navigation consolidation", () => {
     expect(permissionsRouter).toContain('{ key: "canViewAgentCelebrations",      label: "Agent Celebration",          group: "Agent Success Team" }');
     expect(permissionsRouter).toContain('{ key: "canViewMarketMatchQuiz",        label: "Market Match Quiz",          group: "Admin" }');
     expect(permissionsRouter).toContain('{ key: "canViewTechRequests",           label: "Tech Requests",              group: "Admin" }');
+    expect(permissionsRouter).toContain('{ key: "canViewTransactionChecklists",  label: "Transaction Checklists",     group: "Work" }');
   });
 });

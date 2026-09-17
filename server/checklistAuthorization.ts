@@ -8,6 +8,7 @@ import {
 } from "../drizzle/schema";
 import { getDb } from "./db";
 import { getChecklistTarget, type ChecklistTargetSnapshot } from "./checklistService";
+import { canAdminUsePermission } from "./routers/permissions";
 
 export type ChecklistViewer = {
   id: number;
@@ -21,6 +22,16 @@ export function assertChecklistRole(viewer: ChecklistViewer): void {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Only administrators and agents can access checklists.",
+    });
+  }
+}
+
+export async function requireChecklistAccess(viewer: ChecklistViewer): Promise<void> {
+  assertChecklistRole(viewer);
+  if (viewer.role === "admin" && !(await canAdminUsePermission(viewer, "canViewTransactionChecklists"))) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Transaction Checklists permission is required.",
     });
   }
 }

@@ -509,7 +509,7 @@ export default function ChecklistsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="My Checklists"
+        title={isAdmin ? "Transaction Checklists" : "My Checklists"}
         subtitle="Build repeatable transaction and listing workflows, then apply independent copies to individual records."
         actions={
           <Button onClick={openCreate}>

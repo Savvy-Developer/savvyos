@@ -218,6 +218,18 @@ function AgentOrAdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function ChecklistsRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const role = (user as any)?.role;
+  const isAdmin = role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (role === "agent") return <>{children}</>;
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewTransactionChecklists) return <NotFound />;
+  return <>{children}</>;
+}
+
 function NonAgentRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [, navigate] = useLocation();
@@ -512,7 +524,7 @@ function Router() {
           <Route path="/tasks" component={TasksPage} />
           <Route path="/my-tasks" component={MyTasksPage} />
           <Route path="/tasks/:id" component={TaskDetailPage} />
-          <Route path="/checklists">{() => <AgentOrAdminRoute><ChecklistsPage /></AgentOrAdminRoute>}</Route>
+          <Route path="/checklists">{() => <ChecklistsRoute><ChecklistsPage /></ChecklistsRoute>}</Route>
           <Route path="/pto">{() => <PtoEmployeeRoute><PtoPage /></PtoEmployeeRoute>}</Route>
           <Route path="/pto/approvals">{() => <PtoApprovalsRoute><PtoManagerQueuePage /></PtoApprovalsRoute>}</Route>
           <Route path="/pto/admin">{() => <PtoAdministrationRoute><PtoAdministrationPage /></PtoAdministrationRoute>}</Route>

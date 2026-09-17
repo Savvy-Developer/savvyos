@@ -95,6 +95,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewPulse",                  label: "Pulse",                      group: "Pulse" },
   { key: "canViewPulseSettings",          label: "Pulse Settings",             group: "Pulse" },
   // Work
+  { key: "canViewTransactionChecklists",  label: "Transaction Checklists",     group: "Work" },
   { key: "canViewProjects",               label: "Projects",                   group: "Work" },
   { key: "canViewJobBoard",               label: "Job Board",                  group: "Work" },
   { key: "canViewTalentProfile",          label: "Talent Profiles",            group: "Work" },

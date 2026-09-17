@@ -337,6 +337,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewReferrals: "/referrals",
   canViewPulse: "/pulse",
   canViewTasks: "/tasks",
+  canViewTransactionChecklists: "/checklists",
   canApprovePto: "/pto/approvals",
   canAdministerPto: "/pto/admin",
   canViewOnboarding: "/onboarding",
@@ -511,7 +512,7 @@ function buildAdminNav(
       label: "Work",
       items: [
         { icon: Activity, label: "Pulse", path: "/pulse" },
-        { icon: CheckSquare, label: "My Checklists", path: "/checklists" },
+        { icon: CheckSquare, label: "Transaction Checklists", path: "/checklists" },
         { icon: Layers, label: "Projects", path: "/projects" },
         { icon: Briefcase, label: "Job Board", path: "/job-board" },
         {
