@@ -8,6 +8,11 @@ export const ENV = {
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   resendApiKey: process.env.RESEND_API_KEY ?? "",
+  // The investor new-property email. Paused unless this is exactly "true".
+  // Off is the safe default: a missing or misspelled variable, a fresh
+  // environment or a restored database all mean nobody is emailed by
+  // accident. Turning it on is a deliberate act.
+  dailyPropertyEmailEnabled: process.env.DAILY_PROPERTY_EMAIL_ENABLED ?? "",
   // GoHighLevel (LeadConnector) — outbound contact sync. Sync is no-op when
   // GHL_LOCATION_TOKEN is empty (e.g. local dev) — see server/_core/ghlSync.ts.
   ghlLocationToken: process.env.GHL_LOCATION_TOKEN ?? "",

@@ -4,6 +4,7 @@ import {
   matchesBedrooms,
   matchesBudget,
   matchesMarket,
+  dailyPropertyEmailEnabled,
   newSince,
   selectListingsFor,
   shouldEmailToday,
@@ -259,5 +260,35 @@ describe("newSince", () => {
     // in that email. Sending it twice is the most visible bug this can have.
     const result = newSince([newer], new Date("2026-09-14T00:00:00Z"));
     expect(result).toHaveLength(0);
+  });
+});
+
+describe("dailyPropertyEmailEnabled", () => {
+  /**
+   * The default is the whole point. An unset variable, a fresh environment or a
+   * restored database must all mean nobody is emailed.
+   */
+  it("is off unless switched on", () => {
+    expect(dailyPropertyEmailEnabled(undefined)).toBe(false);
+    expect(dailyPropertyEmailEnabled(null)).toBe(false);
+    expect(dailyPropertyEmailEnabled("")).toBe(false);
+    expect(dailyPropertyEmailEnabled("   ")).toBe(false);
+  });
+
+  it("is on only for a real yes", () => {
+    expect(dailyPropertyEmailEnabled("true")).toBe(true);
+    expect(dailyPropertyEmailEnabled(" TRUE ")).toBe(true);
+    expect(dailyPropertyEmailEnabled("True")).toBe(true);
+  });
+
+  /**
+   * A near miss is off, not on. Someone typing "1" or "yes" into Railway has
+   * not been through the conversation about resuming, and guessing in their
+   * favour sends real email to real investors.
+   */
+  it("does not guess from a near miss", () => {
+    for (const value of ["1", "yes", "on", "enabled", "TRUE!", "false", "no"]) {
+      expect(dailyPropertyEmailEnabled(value)).toBe(false);
+    }
   });
 });
