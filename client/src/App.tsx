@@ -162,6 +162,7 @@ import ChecklistsPage from "./pages/ChecklistsPage";
 import PublicTrishRecruitingPage from "./pages/PublicTrishRecruitingPage";
 import RecruitingPage from "./pages/RecruitingPage";
 import RecruitDetailPage from "./pages/RecruitDetailPage";
+import ChatPage from "./pages/ChatPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -227,6 +228,13 @@ function ChecklistsRoute({ children }: { children: React.ReactNode }) {
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewTransactionChecklists) return <NotFound />;
+  return <>{children}</>;
+}
+
+function ChatRoute({ children }: { children: React.ReactNode }) {
+  const { data: access, isLoading } = trpc.chat.access.useQuery();
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!access?.canAccess) return <NotFound />;
   return <>{children}</>;
 }
 
@@ -524,6 +532,7 @@ function Router() {
           <Route path="/tasks" component={TasksPage} />
           <Route path="/my-tasks" component={MyTasksPage} />
           <Route path="/tasks/:id" component={TaskDetailPage} />
+          <Route path="/chat">{() => <ChatRoute><ChatPage /></ChatRoute>}</Route>
           <Route path="/checklists">{() => <ChecklistsRoute><ChecklistsPage /></ChecklistsRoute>}</Route>
           <Route path="/pto">{() => <PtoEmployeeRoute><PtoPage /></PtoEmployeeRoute>}</Route>
           <Route path="/pto/approvals">{() => <PtoApprovalsRoute><PtoManagerQueuePage /></PtoApprovalsRoute>}</Route>

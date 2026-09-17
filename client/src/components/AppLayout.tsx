@@ -253,7 +253,8 @@ function buildIsaNav(
   pendingConnReqs: number,
   myOverdueTasks: number = 0,
   resendInboxUnread: number = 0,
-  marketingTextInboxUnread: number = 0
+  marketingTextInboxUnread: number = 0,
+  canUseChat: boolean = false
 ): NavGroup[] {
   return [
     {
@@ -263,6 +264,9 @@ function buildIsaNav(
         { icon: TrendingUp, label: "My Performance", path: "/isa-stats" },
       ],
     },
+    ...(canUseChat
+      ? [{ label: "Chat", items: [{ icon: MessageSquare, label: "Chat", path: "/chat" }] }]
+      : []),
     {
       label: "Leads & CRM",
       items: [
@@ -317,6 +321,7 @@ function buildIsaNav(
 // Permission key → path mapping (used to filter nav items)
 const PERM_PATH_MAP: Record<string, string> = {
   canViewDashboard: "/",
+  canViewChat: "/chat",
   canViewIsmDashboard: "/ism-dashboard",
   canViewConversationIntelligence: "/analytics/conversation-intelligence",
   canViewReporting: "/analytics",
@@ -423,6 +428,10 @@ function buildAdminNav(
         { icon: BarChart3, label: "Reporting", path: "/analytics" },
         { icon: Trophy, label: "Agent Leaderboard", path: "/leaderboard" },
       ],
+    },
+    {
+      label: "Chat",
+      items: [{ icon: MessageSquare, label: "Chat", path: "/chat" }],
     },
     {
       label: "CRM",
@@ -1039,6 +1048,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { enabled: role === "admin", staleTime: 30000 }
   );
 
+  // Chat stays invisible until a user is explicitly permitted. The first
+  // release is Tyler-only, while the same hook supports ISA rollout later.
+  const { data: chatAccess } = trpc.chat.access.useQuery(undefined, {
+    enabled: role === "admin" || role === "isa",
+    staleTime: 30000,
+  });
+
   // Resend Inbox is separately super-permissioned because it contains external correspondence.
   const canUseResendInbox =
     role === "isa" ||
@@ -1114,7 +1130,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             pendingConnReqs,
             myOverdueTaskCount,
             resendInboxUnreadCount,
-            marketingTextInboxUnreadCount
+            marketingTextInboxUnreadCount,
+            !!chatAccess?.canAccess
           )
         : role === "agent_support"
           ? buildAgentSupportNav()

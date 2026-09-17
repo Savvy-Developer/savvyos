@@ -37,6 +37,7 @@ import { useLocation } from "wouter";
 
 const GROUP_ORDER = [
   "Overview",
+  "Chat",
   "CRM",
   "ISA",
   "Transactions",
@@ -53,6 +54,7 @@ const GROUP_ORDER = [
 
 const GROUP_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   "Overview":         { bg: "#eff6ff", text: "#1d4ed8", border: "#bfdbfe" },
+  "Chat":             { bg: "#f0fdfa", text: "#0f766e", border: "#99f6e4" },
   "CRM":              { bg: "#f5f3ff", text: "#6d28d9", border: "#ddd6fe" },
   "ISA":              { bg: "#fdf4ff", text: "#a21caf", border: "#f5d0fe" },
   "Transactions":     { bg: "#ecfdf5", text: "#065f46", border: "#a7f3d0" },

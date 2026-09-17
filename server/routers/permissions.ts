@@ -51,6 +51,9 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewReporting",              label: "Reporting",                  group: "Overview" },
   { key: "canViewCustomReports",          label: "Custom Reports",             group: "Overview" },
   { key: "canViewLeaderboard",            label: "Agent Leaderboard",          group: "Overview" },
+  // Chat
+  { key: "canViewChat",                   label: "Chat",                       group: "Chat" },
+  { key: "canManageChat",                 label: "Chat Admin",                 group: "Chat" },
   // CRM
   { key: "canViewContacts",               label: "All Contacts",               group: "CRM" },
   { key: "canEditContactLeadSource",      label: "Edit Contact Lead Source",   group: "CRM" },
@@ -146,6 +149,57 @@ export const ADMIN_NAV_PERMISSIONS = [
 
 export type PermissionKey = typeof ADMIN_NAV_PERMISSIONS[number]["key"];
 
+// These permissions are intentionally closed unless they are explicitly granted.
+// The list is shared by the single-user view, current-user navigation state, and
+// Super Permissions matrix so a newly added sensitive module does not open by
+// accident for historical permission rows.
+const DEFAULT_OFF_PERMISSIONS = new Set<PermissionKey>([
+  "canViewChat",
+  "canManageChat",
+  "canViewPulse",
+  "canViewProjects",
+  "canViewSmartPlans",
+  "canViewEmailNotifications",
+  "canViewSuperPermissions",
+  "canViewResendInbox",
+  "canViewPulseSettings",
+  "canViewCoachFeedback",
+  "canApprovePto",
+  "canAdministerPto",
+  "canViewLandingPages",
+  "canCreateLandingPages",
+  "canEditLandingPages",
+  "canPublishLandingPages",
+  "canArchiveLandingPages",
+  "canViewShortLinks",
+  "canAdministerTransactions",
+  "canEditContactLeadSource",
+  "canEditTransactionLeadSource",
+  "canViewWebsite",
+  "canManageWebsiteProperties",
+  "canManageWebsiteAgents",
+  "canManageWebsiteCaseStudies",
+  "canManageWebsiteBlog",
+  "canManageWebsiteSettings",
+  "canViewWebsiteLeads",
+]);
+
+function readPermission(row: unknown, permission: PermissionKey): boolean {
+  const values = (row ?? {}) as Record<string, unknown>;
+  const direct = values[permission];
+  const value =
+    typeof direct === "boolean"
+      ? direct
+      : !DEFAULT_OFF_PERMISSIONS.has(permission);
+
+  // Chat Admin necessarily includes basic Chat access. This avoids granting an
+  // administrator moderation powers without an actual route into the module.
+  if (permission === "canViewChat") {
+    return value || values.canManageChat === true;
+  }
+  return value;
+}
+
 /**
  * Resolves a centralized admin capability for a current user. Feature modules use this
  * helper instead of carrying their own protected-user exceptions or permission storage.
@@ -163,9 +217,9 @@ export async function canAdminUsePermission(
   if (rows.length === 0) {
     await db.insert(adminPermissions).values({ userId: user.id });
     const created = await db.select().from(adminPermissions).where(eq(adminPermissions.userId, user.id)).limit(1);
-    return (created[0] as any)?.[permission] ?? false;
+    return readPermission(created[0], permission);
   }
-  return (rows[0] as any)?.[permission] ?? false;
+  return readPermission(rows[0], permission);
 }
 
 const permissionUpdateSchema = z.object({
@@ -201,13 +255,13 @@ export const permissionsRouter = router({
         const newRows = await db.select().from(adminPermissions).where(eq(adminPermissions.userId, input.userId)).limit(1);
         const row = newRows[0];
         const perms: Record<string, boolean> = {};
-        for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? true;
+        for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = readPermission(row, p.key);
         return { userId: input.userId, permissions: perms, isProtected: false };
       }
 
       const row = rows[0];
       const perms: Record<string, boolean> = {};
-      for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? true;
+      for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = readPermission(row, p.key);
       return { userId: input.userId, permissions: perms, isProtected: false };
     }),
 
@@ -234,13 +288,13 @@ export const permissionsRouter = router({
         const newRows = await db.select().from(adminPermissions).where(eq(adminPermissions.userId, ctx.user.id)).limit(1);
         const row = newRows[0];
         const perms: Record<string, boolean> = {};
-        for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? true;
+        for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = readPermission(row, p.key);
         return perms;
       }
 
       const row = rows[0];
       const perms: Record<string, boolean> = {};
-      for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? true;
+      for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = readPermission(row, p.key);
       return perms;
     }),
 
@@ -344,39 +398,11 @@ export const permissionsRouter = router({
           // Tyler always has full access
           for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = true;
         } else if (row) {
-          for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? true;
+          for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = readPermission(row, p.key);
         } else {
           // No row yet — defaults: most ON, except intentionally restricted views.
-          const defaultOff = new Set<PermissionKey>([
-            "canViewPulse",
-            "canViewProjects",
-            "canViewSmartPlans",
-            "canViewEmailNotifications",
-            "canViewSuperPermissions",
-            "canViewResendInbox",
-            "canViewPulseSettings",
-            "canViewCoachFeedback",
-            "canApprovePto",
-            "canAdministerPto",
-            "canViewLandingPages",
-            "canCreateLandingPages",
-            "canEditLandingPages",
-            "canPublishLandingPages",
-            "canArchiveLandingPages",
-            "canViewShortLinks",
-            "canAdministerTransactions",
-            "canEditContactLeadSource",
-            "canEditTransactionLeadSource",
-            "canViewWebsite",
-            "canManageWebsiteProperties",
-            "canManageWebsiteAgents",
-            "canManageWebsiteCaseStudies",
-            "canManageWebsiteBlog",
-            "canManageWebsiteSettings",
-            "canViewWebsiteLeads",
-          ]);
           for (const p of ADMIN_NAV_PERMISSIONS) {
-            perms[p.key] = !defaultOff.has(p.key);
+            perms[p.key] = readPermission(null, p.key);
           }
         }
         return {

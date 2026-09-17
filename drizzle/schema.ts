@@ -300,6 +300,109 @@ export const groupMembers = mysqlTable("group_members", {
 
 export type GroupMember = typeof groupMembers.$inferSelect;
 
+// ─── Chat ─────────────────────────────────────────────────────────────────────
+// Chat groups are intentionally separate from the commission/team `groups` above.
+// A teammate can belong to many chat groups without changing commission logic.
+export const chatSections = mysqlTable(
+  "chat_sections",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    name: varchar("name", { length: 100 }).notNull(),
+    description: varchar("description", { length: 500 }),
+    sortOrder: int("sortOrder").notNull().default(0),
+    isArchived: boolean("isArchived").notNull().default(false),
+    createdById: int("createdById")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("chat_sections_active_sort_idx").on(
+      table.isArchived,
+      table.sortOrder,
+      table.name
+    ),
+  ]
+);
+export type ChatSection = typeof chatSections.$inferSelect;
+
+export const chatChannels = mysqlTable(
+  "chat_channels",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sectionId: int("sectionId").references(() => chatSections.id, {
+      onDelete: "set null",
+    }),
+    name: varchar("name", { length: 100 }).notNull(),
+    description: varchar("description", { length: 500 }),
+    isArchived: boolean("isArchived").notNull().default(false),
+    createdById: int("createdById")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("chat_channels_active_section_idx").on(
+      table.isArchived,
+      table.sectionId,
+      table.name
+    ),
+  ]
+);
+export type ChatChannel = typeof chatChannels.$inferSelect;
+
+export const chatChannelMembers = mysqlTable(
+  "chat_channel_members",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    channelId: int("channelId")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    addedById: int("addedById")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("chat_channel_members_unique").on(
+      table.channelId,
+      table.userId
+    ),
+    index("chat_channel_members_user_idx").on(table.userId, table.channelId),
+  ]
+);
+export type ChatChannelMember = typeof chatChannelMembers.$inferSelect;
+
+export const chatMessages = mysqlTable(
+  "chat_messages",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    channelId: int("channelId")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    senderId: int("senderId")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    body: mediumtext("body").notNull(),
+    editedAt: timestamp("editedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("chat_messages_channel_created_idx").on(
+      table.channelId,
+      table.createdAt,
+      table.id
+    ),
+    index("chat_messages_sender_created_idx").on(table.senderId, table.createdAt),
+  ]
+);
+export type ChatMessage = typeof chatMessages.$inferSelect;
+
 // ─── Lead Sources ───────────────────────────────────────────────────────────
 // Two-level hierarchy: parent categories (parentId=null) and child sub-sources
 export const leadSources = mysqlTable("lead_sources", {
@@ -6321,6 +6424,10 @@ export const adminPermissions = mysqlTable("admin_permissions", {
     .references(() => users.id, { onDelete: "cascade" }),
   // Overview
   canViewDashboard: boolean("canViewDashboard").default(true).notNull(),
+  // Chat is private until intentionally assigned. Chat Admins can manage every
+  // group, section, membership, and message in the workspace.
+  canViewChat: boolean("canViewChat").default(false).notNull(),
+  canManageChat: boolean("canManageChat").default(false).notNull(),
   canViewIsmDashboard: boolean("canViewIsmDashboard").default(false).notNull(),
   canViewConversationIntelligence: boolean("canViewConversationIntelligence").default(true).notNull(),
   canViewReporting: boolean("canViewReporting").default(true).notNull(),

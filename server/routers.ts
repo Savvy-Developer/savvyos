@@ -86,6 +86,7 @@ import { websiteAccountRouter } from "./routers/websiteAccount";
 import { agentCelebrationsRouter } from "./routers/agentCelebrations";
 import { checklistsRouter } from "./routers/checklists";
 import { recruitingRouter } from "./routers/recruiting";
+import { chatRouter } from "./routers/chat";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -116,6 +117,7 @@ function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: s
 export const appRouter = router({
   system: systemRouter,
   marketMatchQuiz: marketMatchQuizRouter,
+  chat: chatRouter,
 
   auth: router({
     me: publicProcedure.query(opts => {
