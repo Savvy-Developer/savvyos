@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { canOpenChatWorkspace, canReadChatGroup } from "./chatAccess";
+import {
+  canOpenChatWorkspace,
+  canReadChatConversation,
+  canReadChatGroup,
+} from "./chatAccess";
 
 describe("Chat access rules", () => {
   it("keeps the initial agent rollout closed even when an agent is enrolled in a group", () => {
@@ -79,6 +83,33 @@ describe("Chat access rules", () => {
         isChatAdmin: true,
         memberGroupIds: new Set(),
         groupId: 3,
+      })
+    ).toBe(true);
+  });
+
+  it("keeps direct messages private even from a Chat Admin who is not a participant", () => {
+    expect(
+      canReadChatConversation({
+        isChatAdmin: true,
+        memberGroupIds: new Set([2]),
+        channelId: 9,
+        channelType: "direct",
+      })
+    ).toBe(false);
+    expect(
+      canReadChatConversation({
+        isChatAdmin: false,
+        memberGroupIds: new Set([9]),
+        channelId: 9,
+        channelType: "direct",
+      })
+    ).toBe(true);
+    expect(
+      canReadChatConversation({
+        isChatAdmin: true,
+        memberGroupIds: new Set(),
+        channelId: 9,
+        channelType: "group",
       })
     ).toBe(true);
   });

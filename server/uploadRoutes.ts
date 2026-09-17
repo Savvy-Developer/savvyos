@@ -3,12 +3,13 @@ import multer from "multer";
 import { nanoid } from "nanoid";
 import { storagePut } from "./storage";
 import { getDb } from "./db";
-import { documents, eventExpenses, eventPortfolio, userProfiles } from "../drizzle/schema";
+import { chatMessageAttachments, documents, eventExpenses, eventPortfolio, userProfiles } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { invokeLLM } from "./_core/llm";
 import { canAdminUsePermission } from "./routers/permissions";
 import { agentOwnsProperty } from "./routers/website";
+import { authorizeChatAttachmentUpload } from "./routers/chat";
 import pdfParse from "./lib/pdf-parse-safe";
 import { categorizeExpenseInvoice } from "./eventsExpenseIntake";
 import { recalculateEventCommittedExpense } from "./eventsFinancials";
@@ -49,6 +50,32 @@ const headshotUpload = multer({
   },
 });
 
+// Chat permits common work documents and images, but deliberately rejects
+// executable/archive types. The server, not the browser, owns the S3 key.
+const chatAttachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-powerpoint",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "text/plain",
+      "text/csv",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+    ];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Chat accepts PDFs, Office files, CSV or text files, and JPG, PNG, WEBP, or GIF images."));
+  },
+});
+
 /**
  * Who may upload public-site media.
  *
@@ -72,6 +99,45 @@ async function canUploadWebsiteImage(user: any, rawPropertyId: unknown): Promise
 }
 
 export function registerUploadRoutes(app: express.Application) {
+  // POST /api/chat/attachments/upload — staged attachment for an authorized
+  // participant. The tRPC send mutation links the staged record atomically to
+  // the eventual message, so a user cannot attach a file to another channel.
+  app.post("/api/chat/attachments/upload", chatAttachmentUpload.single("file"), async (req: any, res: any) => {
+    try {
+      let user: any = null;
+      try { user = await sdk.authenticateRequest(req); } catch { user = null; }
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (!req.file) return res.status(400).json({ error: "No file provided" });
+      const channelId = Number(req.body?.channelId);
+      if (!Number.isInteger(channelId) || channelId <= 0) {
+        return res.status(400).json({ error: "A valid Chat conversation is required" });
+      }
+      const state = await authorizeChatAttachmentUpload(user, channelId);
+      const safeName = req.file.originalname.replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180) || "attachment";
+      const fileKey = `chat/${channelId}/${user.id}/${nanoid(14)}-${safeName}`;
+      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
+      const [result] = await state.db.insert(chatMessageAttachments).values({
+        channelId,
+        uploadedById: user.id,
+        fileName: req.file.originalname.slice(0, 255),
+        fileUrl: url,
+        fileKey,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+      });
+      return res.json({
+        id: Number(result.insertId),
+        fileName: req.file.originalname.slice(0, 255),
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+      });
+    } catch (err: any) {
+      const status = err?.code === "FORBIDDEN" ? 403 : err?.code === "NOT_FOUND" ? 404 : 500;
+      console.error("[ChatAttachmentUpload] Error:", err?.message ?? err);
+      return res.status(status).json({ error: err?.message ?? "Upload failed" });
+    }
+  });
+
   // POST /api/upload/website-image — public-site media, restricted by the
   // opt-in Website permissions used by the CMS.
   app.post("/api/upload/website-image", landingPageImageUpload.single("file"), async (req: any, res: any) => {

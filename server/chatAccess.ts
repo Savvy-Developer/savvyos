@@ -28,6 +28,28 @@ export function canReadChatGroup(input: {
   return input.isChatAdmin || input.memberGroupIds.has(input.groupId);
 }
 
+/**
+ * Group conversations are visible to Chat Admins, while direct messages remain
+ * private to their participants. This distinction is deliberately centralised
+ * so uploads, reads, replies, reactions, and mentions cannot accidentally
+ * expose a direct conversation through an admin-only group rule.
+ */
+export function canReadChatConversation(input: {
+  isChatAdmin: boolean;
+  memberGroupIds: Set<number>;
+  channelId: number;
+  channelType: "group" | "direct";
+}): boolean {
+  if (input.channelType === "direct") {
+    return input.memberGroupIds.has(input.channelId);
+  }
+  return canReadChatGroup({
+    isChatAdmin: input.isChatAdmin,
+    memberGroupIds: input.memberGroupIds,
+    groupId: input.channelId,
+  });
+}
+
 export function canPostInChatGroup(input: {
   isChatAdmin: boolean;
   memberGroupIds: Set<number>;

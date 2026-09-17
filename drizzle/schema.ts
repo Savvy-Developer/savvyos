@@ -15,6 +15,7 @@ import {
   index,
   uniqueIndex,
   check,
+  type AnyMySqlColumn,
 } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
@@ -334,6 +335,11 @@ export const chatChannels = mysqlTable(
     sectionId: int("sectionId").references(() => chatSections.id, {
       onDelete: "set null",
     }),
+    // Groups are governed by Chat Admins. Direct conversations are participant
+    // private, including from Chat Admins who are not in that conversation.
+    type: mysqlEnum("type", ["group", "direct"]).default("group").notNull(),
+    // Canonical pair key: lower user ID first, e.g. "12:87". Null for groups.
+    directKey: varchar("directKey", { length: 64 }),
     name: varchar("name", { length: 100 }).notNull(),
     description: varchar("description", { length: 500 }),
     isArchived: boolean("isArchived").notNull().default(false),
@@ -349,6 +355,7 @@ export const chatChannels = mysqlTable(
       table.sectionId,
       table.name
     ),
+    uniqueIndex("chat_channels_direct_key_unique").on(table.directKey),
   ]
 );
 export type ChatChannel = typeof chatChannels.$inferSelect;
@@ -388,6 +395,10 @@ export const chatMessages = mysqlTable(
     senderId: int("senderId")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
+    parentMessageId: int("parentMessageId").references(
+      (): AnyMySqlColumn => chatMessages.id,
+      { onDelete: "set null" }
+    ),
     body: mediumtext("body").notNull(),
     editedAt: timestamp("editedAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -399,9 +410,115 @@ export const chatMessages = mysqlTable(
       table.id
     ),
     index("chat_messages_sender_created_idx").on(table.senderId, table.createdAt),
+    index("chat_messages_parent_created_idx").on(
+      table.parentMessageId,
+      table.createdAt,
+      table.id
+    ),
   ]
 );
 export type ChatMessage = typeof chatMessages.$inferSelect;
+
+export const chatMessageAttachments = mysqlTable(
+  "chat_message_attachments",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    channelId: int("channelId")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    // An attachment is staged immediately after upload and linked atomically
+    // when a message is sent. This avoids orphaned client-only attachment data.
+    messageId: int("messageId").references(() => chatMessages.id, {
+      onDelete: "cascade",
+    }),
+    uploadedById: int("uploadedById")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    fileName: varchar("fileName", { length: 255 }).notNull(),
+    fileUrl: text("fileUrl").notNull(),
+    fileKey: varchar("fileKey", { length: 500 }).notNull(),
+    mimeType: varchar("mimeType", { length: 255 }).notNull(),
+    fileSize: int("fileSize").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("chat_attachments_message_idx").on(table.messageId, table.id),
+    index("chat_attachments_channel_user_idx").on(
+      table.channelId,
+      table.uploadedById,
+      table.messageId
+    ),
+  ]
+);
+export type ChatMessageAttachment = typeof chatMessageAttachments.$inferSelect;
+
+export const chatMessageMentions = mysqlTable(
+  "chat_message_mentions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    messageId: int("messageId")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    mentionedUserId: int("mentionedUserId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("chat_mentions_message_user_unique").on(
+      table.messageId,
+      table.mentionedUserId
+    ),
+    index("chat_mentions_user_idx").on(table.mentionedUserId, table.messageId),
+  ]
+);
+export type ChatMessageMention = typeof chatMessageMentions.$inferSelect;
+
+export const chatMessageReactions = mysqlTable(
+  "chat_message_reactions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    messageId: int("messageId")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    emoji: varchar("emoji", { length: 32 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("chat_reactions_message_user_emoji_unique").on(
+      table.messageId,
+      table.userId,
+      table.emoji
+    ),
+    index("chat_reactions_message_idx").on(table.messageId, table.emoji),
+  ]
+);
+export type ChatMessageReaction = typeof chatMessageReactions.$inferSelect;
+
+export const chatChannelReads = mysqlTable(
+  "chat_channel_reads",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    channelId: int("channelId")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lastReadMessageId: int("lastReadMessageId").references(() => chatMessages.id, {
+      onDelete: "set null",
+    }),
+    lastReadAt: timestamp("lastReadAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("chat_reads_channel_user_unique").on(table.channelId, table.userId),
+    index("chat_reads_user_channel_idx").on(table.userId, table.channelId),
+  ]
+);
+export type ChatChannelRead = typeof chatChannelReads.$inferSelect;
 
 // ─── Lead Sources ───────────────────────────────────────────────────────────
 // Two-level hierarchy: parent categories (parentId=null) and child sub-sources
