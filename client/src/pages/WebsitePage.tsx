@@ -21,6 +21,8 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { CmsPagesEditor } from "@/components/website/CmsPagesEditor";
+import { TestimonialsEditor } from "@/components/website/TestimonialsEditor";
+import { normalizeTestimonials } from "@shared/websiteTestimonials";
 import { ContentViewsPanel } from "@/components/website/ContentViewsPanel";
 import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
 import { Badge } from "@/components/ui/badge";
@@ -560,11 +562,6 @@ function SettingsEditor({ settings }: { settings: any }) {
         statsText: (settings.stats || [])
           .map((item: any) => `${item.value} | ${item.label}`)
           .join("\n"),
-        testimonialsText: (settings.testimonials || [])
-          .map(
-            (item: any) => `${item.quote} | ${item.name} | ${item.role || ""}`
-          )
-          .join("\n"),
       });
   }, [settings]);
   const save = trpc.website.saveSettings.useMutation({
@@ -624,11 +621,9 @@ function SettingsEditor({ settings }: { settings: any }) {
           value={draft.statsText || ""}
           onChange={value => set("statsText", value)}
         />
-        <Area
-          label="Testimonials — Quote | Name | Role, one per line"
-          value={draft.testimonialsText || ""}
-          onChange={value => set("testimonialsText", value)}
-          rows={6}
+        <TestimonialsEditor
+          value={draft.testimonials}
+          onChange={rows => set("testimonials", rows)}
         />
         <div className="grid gap-4 md:grid-cols-2">
           <Field
@@ -666,16 +661,10 @@ function SettingsEditor({ settings }: { settings: any }) {
                     };
                   })
                   .filter(item => item.value && item.label),
-                testimonials: splitLines(draft.testimonialsText)
-                  .map(line => {
-                    const [quote, name, role] = line.split("|");
-                    return {
-                      quote: (quote || "").trim(),
-                      name: (name || "").trim(),
-                      role: (role || "").trim(),
-                    };
-                  })
-                  .filter(item => item.quote && item.name),
+                // Rows go to the server as rows. The quote is sent exactly as
+                // typed, including any line breaks, because it is somebody's
+                // own words.
+                testimonials: normalizeTestimonials(draft.testimonials),
                 contactEmail: draft.contactEmail || null,
                 contactPhone: draft.contactPhone || null,
                 footerText: draft.footerText || null,

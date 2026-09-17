@@ -1147,7 +1147,21 @@ export const websiteSiteSettings = mysqlTable("website_site_settings", {
   heroBody: text("heroBody"),
   heroImageUrl: text("heroImageUrl"),
   stats: json("stats").$type<Array<{ value: string; label: string }>>().notNull(),
-  testimonials: json("testimonials").$type<Array<{ quote: string; name: string; role?: string }>>().notNull(),
+  // Stored as rows, not as delimited prose: a customer's words must survive
+  // storage exactly. `role` appears on rows written before the rename and is
+  // still read. See shared/websiteTestimonials.ts.
+  testimonials: json("testimonials")
+    .$type<
+      Array<{
+        quote: string;
+        name: string;
+        title?: string;
+        location?: string;
+        published?: boolean;
+        role?: string;
+      }>
+    >()
+    .notNull(),
   contactEmail: varchar("contactEmail", { length: 320 }),
   contactPhone: varchar("contactPhone", { length: 64 }),
   footerText: text("footerText"),

@@ -48,6 +48,7 @@ import {
 } from "../proformaPublicFigures";
 import { accountFromRequest } from "../_core/websiteAccountAuth";
 import { gateEvidence, gateProperties, gateProperty } from "../websiteGating";
+import { publishedTestimonials } from "@shared/websiteTestimonials";
 
 /**
  * Whether the visitor making this request has an investor account session.
@@ -583,6 +584,11 @@ const settingsInput = z.object({
     z.object({
       quote: z.string(),
       name: z.string(),
+      title: z.string().optional(),
+      location: z.string().optional(),
+      published: z.boolean().optional(),
+      // Rows saved before the rename still carry `role`. Accepted so an
+      // untouched row round-trips rather than failing validation on save.
       role: z.string().optional(),
     })
   ),
@@ -839,7 +845,15 @@ export const websiteRouter = router({
     const db = await getDb();
     if (!db) return null;
     const rows = await db.select().from(websiteSiteSettings).where(eq(websiteSiteSettings.singletonKey, "primary")).limit(1);
-    return rows[0] ?? null;
+    const settings = rows[0];
+    if (!settings) return null;
+    // Drafts are filtered here rather than in the page, so an unpublished
+    // testimonial never leaves the server and cannot be read out of the
+    // network response.
+    return {
+      ...settings,
+      testimonials: publishedTestimonials(settings.testimonials),
+    };
   }),
 
   publicProperties: publicProcedure
