@@ -28,13 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowDownLeft,
@@ -495,6 +488,11 @@ export default function SuperPermissionsPage() {
   );
   const selectedGroupDefinitions = grouped[selectedGroup] ?? [];
   const pageDefinitions = grouped[selectedGroup] ?? [];
+  const matrixGridTemplateColumns = useMemo(
+    () =>
+      `320px repeat(${Math.max(selectedGroupDefinitions.length, 1)}, 164px)`,
+    [selectedGroupDefinitions.length]
+  );
   const selectedPage =
     definitions.find(definition => definition.key === selectedPageKey) ?? null;
   const selectedAdmin =
@@ -1157,38 +1155,47 @@ export default function SuperPermissionsPage() {
                   onChange={selectGroup}
                 />
               </div>
-              <div className="max-h-[62vh] overflow-auto p-3 sm:p-5">
-                <table className="sticky-table min-w-max w-full caption-bottom text-sm">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="sticky sticky-surface top-0 left-0 z-30 min-w-[220px] border-r shadow-[2px_2px_4px_-3px_rgba(15,23,42,0.35)]">
-                        Administrator
-                      </TableHead>
-                      {selectedGroupDefinitions.map(definition => (
-                        <TableHead
-                          key={definition.key}
-                          className="sticky sticky-surface top-0 z-20 min-w-[132px] whitespace-normal text-center text-xs shadow-[0_2px_4px_-3px_rgba(15,23,42,0.35)]"
-                          title={definition.label}
-                        >
-                          {definition.label}
-                        </TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+              <div
+                data-super-permissions-matrix
+                className="isolate max-h-[62vh] overflow-auto bg-card"
+              >
+                <div className="min-w-max">
+                  <div
+                    className="sticky top-0 z-30 grid border-b bg-card shadow-[0_2px_5px_-3px_rgba(15,23,42,0.45)]"
+                    style={{ gridTemplateColumns: matrixGridTemplateColumns }}
+                  >
+                    <div className="sticky left-0 z-40 flex min-h-[76px] items-center border-r bg-card px-5 text-sm font-medium shadow-[3px_0_5px_-4px_rgba(15,23,42,0.45)]">
+                      Administrator
+                    </div>
+                    {selectedGroupDefinitions.map(definition => (
+                      <div
+                        key={definition.key}
+                        className="flex min-h-[76px] items-center justify-center border-l bg-card px-3 text-center text-xs font-medium leading-5"
+                        title={definition.label}
+                      >
+                        {definition.label}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="divide-y">
                     {allAdmins.map(admin => (
-                      <TableRow key={admin.userId}>
-                        <TableCell className="sticky sticky-surface left-0 z-10 min-w-[220px] border-r py-3 shadow-[2px_0_4px_-3px_rgba(15,23,42,0.35)] group-hover:bg-muted">
+                      <div
+                        key={admin.userId}
+                        className="group grid min-h-[76px] bg-card"
+                        style={{ gridTemplateColumns: matrixGridTemplateColumns }}
+                      >
+                        <div className="sticky left-0 z-20 flex min-h-[76px] items-center border-r bg-card px-5 shadow-[3px_0_5px_-4px_rgba(15,23,42,0.45)] group-hover:bg-muted">
                           <AdminIdentity admin={admin} />
-                        </TableCell>
+                        </div>
                         {selectedGroupDefinitions.map(definition => {
                           const granted = Boolean(
                             permissionsFor(admin)[definition.key]
                           );
                           return (
-                            <TableCell
+                            <div
                               key={definition.key}
-                              className="text-center"
+                              className="flex min-h-[76px] items-center justify-center border-l px-3"
                             >
                               <Checkbox
                                 checked={granted}
@@ -1208,13 +1215,13 @@ export default function SuperPermissionsPage() {
                                 }
                                 aria-label={`${granted ? "Revoke" : "Grant"} ${definition.label} for ${admin.name}`}
                               />
-                            </TableCell>
+                            </div>
                           );
                         })}
-                      </TableRow>
+                      </div>
                     ))}
-                  </TableBody>
-                </table>
+                  </div>
+                </div>
               </div>
             </div>
           </TabsContent>

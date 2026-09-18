@@ -8,6 +8,10 @@ const tablePrimitive = readFileSync(
   "utf8"
 );
 const globalStyles = readFileSync(join(clientRoot, "index.css"), "utf8");
+const superPermissionsPage = readFileSync(
+  join(clientRoot, "pages", "SuperPermissionsPage.tsx"),
+  "utf8"
+);
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -68,5 +72,19 @@ describe("sticky table surfaces", () => {
     });
 
     expect(violations).toEqual([]);
+  });
+
+  it("renders the Super Matrix with independent frozen grid panes, not sticky table cells", () => {
+    const matrixSource = superPermissionsPage.slice(
+      superPermissionsPage.indexOf("data-super-permissions-matrix"),
+      superPermissionsPage.indexOf("</TabsContent>", superPermissionsPage.indexOf("data-super-permissions-matrix"))
+    );
+
+    expect(matrixSource).toContain("matrixGridTemplateColumns");
+    expect(matrixSource).toContain("isolate max-h-[62vh] overflow-auto bg-card");
+    expect(matrixSource).toContain("sticky top-0 z-30 grid border-b bg-card");
+    expect(matrixSource).toContain("sticky left-0 z-40");
+    expect(matrixSource).toContain("sticky left-0 z-20");
+    expect(matrixSource).not.toMatch(/<(?:table|TableHead|TableCell|TableRow)\b/);
   });
 });
