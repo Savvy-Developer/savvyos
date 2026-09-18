@@ -508,6 +508,11 @@ function buildAdminNav(
           label: "Coach Feedback",
           path: "/coach-feedback",
         },
+        {
+          icon: CheckSquare,
+          label: "Transaction Checklists",
+          path: "/checklists",
+        },
         { icon: Target, label: "Goals", path: "/goals" },
         { icon: Wrench, label: "Vendors", path: "/admin/vendors" },
       ],
@@ -517,7 +522,6 @@ function buildAdminNav(
       items: [
         { icon: MessageSquare, label: "Chat", path: "/chat" },
         { icon: Activity, label: "Pulse", path: "/pulse" },
-        { icon: CheckSquare, label: "Transaction Checklists", path: "/checklists" },
         { icon: Layers, label: "Projects", path: "/projects" },
         { icon: Briefcase, label: "Job Board", path: "/job-board" },
         {
@@ -557,9 +561,16 @@ function buildAdminNav(
       ],
     },
     {
-      label: "Website",
+      label: "Tech",
       items: [
         { icon: Globe2, label: "Website Studio", path: "/website" },
+        { icon: Wrench, label: "Tech Requests", path: "/tech-requests" },
+        {
+          icon: Mail,
+          label: "Email Notifications",
+          path: "/email-notifications",
+        },
+        { icon: Webhook, label: "Webhooks", path: "/webhooks" },
       ],
     },
     {
@@ -580,29 +591,15 @@ function buildAdminNav(
       ],
     },
     {
-      label: "Admin",
+      label: "HR",
       items: [
         { icon: UserCheck, label: "Users", path: "/users" },
-        {
-          icon: Sparkles,
-          label: "Market Match Quiz",
-          path: "/admin/market-match-quiz",
-        },
-        { icon: Link2, label: "Affiliate Links", path: "/affiliate-links" },
         {
           icon: CalendarDays,
           label: "Agent Renewals",
           path: "/agent-renewals",
         },
-        { icon: Tag, label: "Lead Sources", path: "/lead-sources" },
-        { icon: Activity, label: "Activity Log", path: "/admin/activity" },
-        { icon: Shield, label: "Operations Escalations", path: "/operations-escalations" },
         { icon: Settings, label: "PTO Administration", path: "/pto/admin" },
-        {
-          icon: Settings,
-          label: "Market Match Settings",
-          path: "/admin/market-match-settings",
-        },
         {
           icon: ClipboardList,
           label: "PTO Approvals",
@@ -613,24 +610,41 @@ function buildAdminNav(
         { icon: Network, label: "Org Chart", path: "/org-chart" },
         { icon: Users, label: "Agent Directory", path: "/agent-directory" },
         {
+          icon: ClipboardList,
+          label: "Roles and Responsibilities",
+          path: "/roles-responsibilities",
+        },
+      ],
+    },
+    {
+      label: "Admin",
+      items: [
+        {
+          icon: Sparkles,
+          label: "Market Match Quiz",
+          path: "/admin/market-match-quiz",
+        },
+        { icon: Link2, label: "Affiliate Links", path: "/affiliate-links" },
+        { icon: Tag, label: "Lead Sources", path: "/lead-sources" },
+        { icon: Activity, label: "Activity Log", path: "/admin/activity" },
+        { icon: Shield, label: "Operations Escalations", path: "/operations-escalations" },
+        {
+          icon: Settings,
+          label: "Market Match Settings",
+          path: "/admin/market-match-settings",
+        },
+        {
           icon: MessageSquarePlus,
           label: "Feedback and Requests",
           path: "/feedback",
           badge: pendingFeedback > 0 ? pendingFeedback : undefined,
         },
-        { icon: Wrench, label: "Tech Requests", path: "/tech-requests" },
         {
           icon: ShieldCheck,
           label: "Super Permissions",
           path: "/admin/super-permissions",
         },
         { icon: Lock, label: "Passwords", path: "/passwords" },
-        {
-          icon: Mail,
-          label: "Email Notifications",
-          path: "/email-notifications",
-        },
-        { icon: Webhook, label: "Webhooks", path: "/webhooks" },
       ],
     },
   ];

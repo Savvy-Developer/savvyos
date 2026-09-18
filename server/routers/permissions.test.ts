@@ -131,26 +131,44 @@ describe("Agent Celebration and Market Match permissions", () => {
 });
 
 describe("Transaction Checklists permission", () => {
-  it("registers the admin-only checklist library in the Work group", () => {
+  it("registers the admin-only checklist library in the Agent Success Team group", () => {
     expect(ADMIN_NAV_PERMISSIONS).toContainEqual({
       key: "canViewTransactionChecklists",
       label: "Transaction Checklists",
-      group: "Work",
+      group: "Agent Success Team",
     });
   });
 });
 
-describe("Website Studio permissions", () => {
-  it("registers the Website Studio navigation link and all Website controls in one group", () => {
-    const websitePermissions = ADMIN_NAV_PERMISSIONS.filter(permission => permission.group === "Website");
-    expect(websitePermissions).toEqual([
-      { key: "canViewWebsite", label: "Website Studio", group: "Website" },
-      { key: "canManageWebsiteProperties", label: "Website properties", group: "Website" },
-      { key: "canManageWebsiteAgents", label: "Website agent profiles", group: "Website" },
-      { key: "canManageWebsiteCaseStudies", label: "Website case studies", group: "Website" },
-      { key: "canManageWebsiteBlog", label: "Website blog", group: "Website" },
-      { key: "canManageWebsiteSettings", label: "Website settings", group: "Website" },
-      { key: "canViewWebsiteLeads", label: "Website leads", group: "Website" },
+describe("HR and Tech permissions", () => {
+  it("organizes HR destinations in the HR group", () => {
+    const hrPermissions = ADMIN_NAV_PERMISSIONS.filter(permission => permission.group === "HR");
+    expect(hrPermissions).toEqual([
+      { key: "canViewUsers", label: "Users", group: "HR" },
+      { key: "canAdministerPto", label: "PTO Administration", group: "HR" },
+      { key: "canApprovePto", label: "PTO Approvals", group: "HR" },
+      { key: "canViewAgentRenewals", label: "Agent Renewals", group: "HR" },
+      { key: "canViewOnboarding", label: "On/Offboarding", group: "HR" },
+      { key: "canViewOrgChart", label: "Org Chart", group: "HR" },
+      { key: "canViewAgentDirectory", label: "Agent Directory", group: "HR" },
+      { key: "canViewRolesResponsibilities", label: "Roles and Responsibilities", group: "HR" },
     ]);
+  });
+
+  it("replaces the Website category with Tech and retains its controls", () => {
+    const techPermissions = ADMIN_NAV_PERMISSIONS.filter(permission => permission.group === "Tech");
+    expect(techPermissions).toEqual([
+      { key: "canViewWebsite", label: "Website Studio", group: "Tech" },
+      { key: "canViewTechRequests", label: "Tech Requests", group: "Tech" },
+      { key: "canViewEmailNotifications", label: "Email Notifications", group: "Tech" },
+      { key: "canViewWebhooks", label: "Webhooks", group: "Tech" },
+      { key: "canManageWebsiteProperties", label: "Website properties", group: "Tech" },
+      { key: "canManageWebsiteAgents", label: "Website agent profiles", group: "Tech" },
+      { key: "canManageWebsiteCaseStudies", label: "Website case studies", group: "Tech" },
+      { key: "canManageWebsiteBlog", label: "Website blog", group: "Tech" },
+      { key: "canManageWebsiteSettings", label: "Website settings", group: "Tech" },
+      { key: "canViewWebsiteLeads", label: "Website leads", group: "Tech" },
+    ]);
+    expect(ADMIN_NAV_PERMISSIONS.some(permission => permission.group === "Website")).toBe(false);
   });
 });

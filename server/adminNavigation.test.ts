@@ -25,7 +25,9 @@ describe("admin navigation consolidation", () => {
       "Agent Success Team",
       "Work",
       "Marketing",
+      "Tech",
       "Approvals",
+      "HR",
       "Admin",
     ];
 
@@ -44,15 +46,35 @@ describe("admin navigation consolidation", () => {
     expect(source).toContain('label: "Agent Celebration"');
     expect(source).toContain('label: "Knowledgebase", path: "/kb"');
     expect(source).toContain('label: "Tech Requests", path: "/tech-requests"');
-    expect(source).toContain('label: "Transaction Checklists", path: "/checklists"');
+    expect(source).toContain('label: "Transaction Checklists"');
+    expect(source).toContain('path: "/checklists"');
     expect(appLayout).toContain('{ icon: CheckSquare, label: "My Checklists", path: "/checklists" }');
 
     const agentSuccessStart = source.indexOf('label: "Agent Success Team"');
     const workStart = source.indexOf('label: "Work"', agentSuccessStart);
-    const adminStart = source.indexOf('label: "Admin"', workStart);
+    const techStart = source.indexOf('label: "Tech"', workStart);
+    const hrStart = source.indexOf('label: "HR"', techStart);
+    const adminStart = source.indexOf('label: "Admin"', hrStart);
     const agentSuccessSection = source.slice(agentSuccessStart, workStart);
+    const workSection = source.slice(workStart, techStart);
+    const techSection = source.slice(techStart, hrStart);
+    const hrSection = source.slice(hrStart, adminStart);
     const adminSection = source.slice(adminStart);
     expect(agentSuccessSection).toContain('path: "/agent-celebrations"');
+    expect(agentSuccessSection).toContain('path: "/checklists"');
+    expect(workSection).not.toContain('path: "/checklists"');
+    expect(techSection).toContain('path: "/website"');
+    expect(techSection).toContain('path: "/tech-requests"');
+    expect(techSection).toContain('path: "/email-notifications"');
+    expect(techSection).toContain('path: "/webhooks"');
+    expect(hrSection).toContain('path: "/users"');
+    expect(hrSection).toContain('path: "/pto/admin"');
+    expect(hrSection).toContain('path: "/pto/approvals"');
+    expect(hrSection).toContain('path: "/agent-renewals"');
+    expect(hrSection).toContain('path: "/onboarding"');
+    expect(hrSection).toContain('path: "/org-chart"');
+    expect(hrSection).toContain('path: "/agent-directory"');
+    expect(hrSection).toContain('path: "/roles-responsibilities"');
     expect(agentSuccessSection).not.toContain('path: "/admin/market-match-quiz"');
     expect(adminSection).toContain('path: "/admin/market-match-quiz"');
   });
@@ -74,7 +96,7 @@ describe("admin navigation consolidation", () => {
     expect(permissionsRouter).toContain('{ key: "canViewTransactionExports",     label: "Transaction Exports",        group: "Transactions" }');
     expect(permissionsRouter).toContain('{ key: "canViewAgentCelebrations",      label: "Agent Celebration",          group: "Agent Success Team" }');
     expect(permissionsRouter).toContain('{ key: "canViewMarketMatchQuiz",        label: "Market Match Quiz",          group: "Admin" }');
-    expect(permissionsRouter).toContain('{ key: "canViewTechRequests",           label: "Tech Requests",              group: "Admin" }');
-    expect(permissionsRouter).toContain('{ key: "canViewTransactionChecklists",  label: "Transaction Checklists",     group: "Work" }');
+    expect(permissionsRouter).toContain('{ key: "canViewTechRequests",           label: "Tech Requests",              group: "Tech" }');
+    expect(permissionsRouter).toContain('{ key: "canViewTransactionChecklists",  label: "Transaction Checklists",     group: "Agent Success Team" }');
   });
 });
