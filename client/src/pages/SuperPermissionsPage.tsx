@@ -1161,16 +1161,16 @@ export default function SuperPermissionsPage() {
               >
                 <div className="min-w-max">
                   <div
-                    className="sticky top-0 z-30 grid border-b bg-card shadow-[0_2px_5px_-3px_rgba(15,23,42,0.45)]"
+                    className="sticky top-0 z-50 grid isolate border-b bg-card shadow-[0_2px_5px_-3px_rgba(15,23,42,0.45)] before:absolute before:inset-0 before:z-0 before:bg-card"
                     style={{ gridTemplateColumns: matrixGridTemplateColumns }}
                   >
-                    <div className="sticky left-0 z-40 flex min-h-[76px] items-center border-r bg-card px-5 text-sm font-medium shadow-[3px_0_5px_-4px_rgba(15,23,42,0.45)]">
+                    <div className="sticky left-0 z-10 flex min-h-[76px] items-center border-r bg-card px-5 text-sm font-medium shadow-[3px_0_5px_-4px_rgba(15,23,42,0.45)]">
                       Administrator
                     </div>
                     {selectedGroupDefinitions.map(definition => (
                       <div
                         key={definition.key}
-                        className="flex min-h-[76px] items-center justify-center border-l bg-card px-3 text-center text-xs font-medium leading-5"
+                        className="relative z-10 flex min-h-[76px] items-center justify-center border-l bg-card px-3 text-center text-xs font-medium leading-5"
                         title={definition.label}
                       >
                         {definition.label}
@@ -1178,11 +1178,11 @@ export default function SuperPermissionsPage() {
                     ))}
                   </div>
 
-                  <div className="divide-y">
+                  <div className="relative z-0 divide-y">
                     {allAdmins.map(admin => (
                       <div
                         key={admin.userId}
-                        className="group grid min-h-[76px] bg-card"
+                        className="relative z-0 group grid min-h-[76px] bg-card"
                         style={{ gridTemplateColumns: matrixGridTemplateColumns }}
                       >
                         <div className="sticky left-0 z-20 flex min-h-[76px] items-center border-r bg-card px-5 shadow-[3px_0_5px_-4px_rgba(15,23,42,0.45)] group-hover:bg-muted">
