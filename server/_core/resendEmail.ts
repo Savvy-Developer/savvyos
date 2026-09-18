@@ -111,6 +111,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "monthly_agent_renewals",
   "coaching_weekly_accountability",
   "coaching_tips_for_today",
+  "operations_escalation_resolved",
   "coaching_feedback_invitation",
   "coaching_feedback_weekly_summary",
   "pulse_overdue_digest",
@@ -270,6 +271,11 @@ interface EmailContext {
   coachingTipsDate?: string;
   coachingTipsHtml?: string;
   coachingTipsSubject?: string;
+  // Operations escalation resolution fields
+  operationsEscalationDescription?: string;
+  operationsEscalationResolution?: string;
+  operationsEscalationResolverName?: string;
+  operationsEscalationSubmittedAt?: string;
   // Anonymous coaching feedback-specific fields
   coachFeedbackHtml?: string;
   coachFeedbackSubject?: string;
@@ -849,6 +855,35 @@ const TEMPLATES: Record<
       ),
     };
   },
+
+  operations_escalation_resolved: ctx => ({
+    subject: `Operations Escalation Resolved${ctx.agentName ? ` — ${ctx.agentName}` : ""}`,
+    html: emailLayout(
+      `${heading("Operations Escalation Resolved", "#059669")}
+      ${subheading("Coaching Hub Update")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("An Operations Escalation you submitted during a coaching session has been resolved.")}
+      ${infoCard(
+        [
+          ...(ctx.agentName
+            ? [`<strong style="color:${BLACK};">Agent</strong>&nbsp;&nbsp; ${escapeHtml(ctx.agentName)}`]
+            : []),
+          ...(ctx.operationsEscalationSubmittedAt
+            ? [`<strong style="color:${BLACK};">Submitted</strong>&nbsp;&nbsp; ${escapeHtml(ctx.operationsEscalationSubmittedAt)}`]
+            : []),
+          ...(ctx.operationsEscalationResolverName
+            ? [`<strong style="color:${BLACK};">Resolved by</strong>&nbsp;&nbsp; ${escapeHtml(ctx.operationsEscalationResolverName)}`]
+            : []),
+        ],
+        "#059669"
+      )}
+      ${ctx.operationsEscalationDescription ? `<p style="margin:20px 0 7px;font-size:14px;font-weight:700;color:${BLACK};">Escalation</p><div style="background:#F9FAFB;border-radius:8px;border-left:3px solid #0FC0DF;padding:14px 16px;font-size:14px;line-height:1.6;color:#374151;white-space:pre-wrap;">${escapeHtml(ctx.operationsEscalationDescription)}</div>` : ""}
+      <p style="margin:20px 0 7px;font-size:14px;font-weight:700;color:${BLACK};">Resolution</p>
+      <div style="background:#ECFDF5;border-radius:8px;border-left:3px solid #059669;padding:14px 16px;font-size:14px;line-height:1.6;color:#065F46;white-space:pre-wrap;">${escapeHtml(ctx.operationsEscalationResolution ?? "Resolution recorded in SavvyOS.")}</div>
+      ${ctaButton("View Operations Escalations", APP_URL + "/operations-escalations", "#059669")}`,
+      "Your Operations Escalation has been resolved."
+    ),
+  }),
 
   transaction_created: ctx => ({
     subject: `Please Confirm Lead Source${ctx.transactionNumber ? ` — Transaction #${ctx.transactionNumber}` : ""}`,

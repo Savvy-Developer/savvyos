@@ -23,7 +23,7 @@ import EmailNotificationBuilderDialog, { type CustomNotificationFormValues } fro
 
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
-type Recipient = "Agent" | "Admin" | "ISA" | "Agent + Admin" | "Agent + Client" | "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Configured Admins + Optional Agent" | "Active Admins + ISAs + Agents" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Reporting Manager" | "Requesting Employee" | "Vendor" | "Vendor Agent + Designated Leadership" | "Not Currently Sent";
+type Recipient = "Agent" | "Admin" | "ISA" | "Agent + Admin" | "Agent + Client" | "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Configured Admins + Optional Agent" | "Active Admins + ISAs + Agents" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Submitting Coach" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Reporting Manager" | "Requesting Employee" | "Vendor" | "Vendor Agent + Designated Leadership" | "Not Currently Sent";
 type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Commission" | "Projects" | "Pulse" | "Partner & Access" | "Account Security" | "Marketing" | "Reporting" | "PTO";
 type TriggerType = "Event" | "Scheduled";
 
@@ -91,7 +91,8 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "coaching_tips_for_today", name: "Coaching Tips for Today", description: "Sent only to the named coaching leadership distribution list.", trigger: "Daily scheduled briefing", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Reporting" },
   { id: "coaching_feedback_invitation", name: "Coaching Feedback Invitation", description: "Sent only to the agent who attended the coaching session, using a private survey link.", trigger: "Following an eligible coaching session", triggerType: "Event", recipient: "Coached Agent", category: "Reporting" },
   { id: "coaching_feedback_weekly_summary", name: "Coaching Feedback Weekly Summary", description: "Each active coach receives their own aggregate; named leaders receive the company-wide aggregate.", trigger: "Friday scheduled report", triggerType: "Scheduled", recipient: "Coach + Leaders", category: "Reporting" },
-  // ── Pulse ────────────────────────────────────────────────────────────────
+  { id: "operations_escalation_resolved", name: "Operations Escalation Resolved", description: "Sends the written resolution to the coach who submitted the Operations Escalation during a Coaching Hub session.", trigger: "An authorized administrator resolves an Operations Escalation", triggerType: "Event", recipient: "Submitting Coach", category: "Reporting" },
+  // ── Pulse ──────────────────────────────────────────────────────────────────
   { id: "meeting_reminder", name: "Pulse Meeting Reminder", description: "Sent only to active members of the relevant Pulse meeting who have email enabled in their preferences.", trigger: "Scheduled weekly preparation reminder", triggerType: "Scheduled", recipient: "Pulse Member(s)", category: "Pulse" },
   { id: "pulse_submission_confirmation", name: "Pulse Weekly Prep Confirmation", description: "Sent only to the member who submitted weekly preparation.", trigger: "Weekly preparation is submitted", triggerType: "Event", recipient: "Pulse Member(s)", category: "Pulse" },
   { id: "pulse_meeting_recap", name: "Pulse Meeting Recap", description: "Sent only to active members of the meeting whose recap was generated.", trigger: "Meeting recap is generated", triggerType: "Event", recipient: "Pulse Member(s)", category: "Pulse" },
@@ -148,6 +149,7 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
   "Full-User Agent": "bg-slate-100 text-slate-700",
   "Coached Agent": "bg-slate-100 text-slate-700",
   "Coach + Leaders": "bg-orange-100 text-orange-700",
+  "Submitting Coach": "bg-orange-100 text-orange-700",
   "Pulse Member(s)": "bg-fuchsia-100 text-fuchsia-700",
   "Pulse Work Assignee(s)": "bg-fuchsia-100 text-fuchsia-700",
   "Mentioned User": "bg-teal-100 text-teal-700",

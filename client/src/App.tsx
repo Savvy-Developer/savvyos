@@ -109,6 +109,7 @@ import CoachingHubPage from "./pages/CoachingHubPage";
 import CoachingAgentPage from "./pages/CoachingAgentPage";
 import CoachingSessionPage from "./pages/CoachingSessionPage";
 import CoachingSessionsPage from "./pages/CoachingSessionsPage";
+import OperationsEscalationsPage from "./pages/OperationsEscalationsPage";
 import HotLeadsPage from "./pages/HotLeadsPage";
 import PasswordsPage from "./pages/PasswordsPage";
 import RolesResponsibilitiesPage from "./pages/RolesResponsibilitiesPage";
@@ -333,6 +334,16 @@ function AgentAppointmentsRoute({ children }: { children: React.ReactNode }) {
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewAgentAppointments) return <NotFound />;
+  return <>{children}</>;
+}
+
+function OperationsEscalationsRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewOperationsEscalations) return <NotFound />;
   return <>{children}</>;
 }
 
@@ -629,6 +640,7 @@ function Router() {
           <Route path="/leaderboard" component={AgentLeaderboardPage} />
           <Route path="/admin/activity">{() => <AdminRoute><ActivityTimelinePage /></AdminRoute>}</Route>
           <Route path="/admin/super-permissions">{() => <AdminRoute><SuperPermissionsPage /></AdminRoute>}</Route>
+          <Route path="/operations-escalations">{() => <OperationsEscalationsRoute><OperationsEscalationsPage /></OperationsEscalationsRoute>}</Route>
           <Route path="/coaching">{() => <AdminRoute><CoachingHubPage /></AdminRoute>}</Route>
           <Route path="/coaching/sessions">{() => <AdminRoute><CoachingSessionsPage /></AdminRoute>}</Route>
           <Route path="/coaching/agent/:id">{() => <AdminRoute><CoachingAgentPage /></AdminRoute>}</Route>

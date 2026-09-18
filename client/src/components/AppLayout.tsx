@@ -345,6 +345,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canAdministerPto: "/pto/admin",
   canViewOnboarding: "/onboarding",
   canViewCoachingHub: "/coaching",
+  canViewOperationsEscalations: "/operations-escalations",
   canViewAgentRenewals: "/agent-renewals",
   canViewCoachFeedback: "/coach-feedback",
   canViewLeadershipDashboard: "/leadership-dashboard",
@@ -595,6 +596,7 @@ function buildAdminNav(
         },
         { icon: Tag, label: "Lead Sources", path: "/lead-sources" },
         { icon: Activity, label: "Activity Log", path: "/admin/activity" },
+        { icon: Shield, label: "Operations Escalations", path: "/operations-escalations" },
         { icon: Settings, label: "PTO Administration", path: "/pto/admin" },
         {
           icon: Settings,

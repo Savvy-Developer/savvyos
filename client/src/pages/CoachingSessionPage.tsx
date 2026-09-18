@@ -193,15 +193,22 @@ export default function CoachingSessionPage() {
   const generateBrief = trpc.coaching.generatePreSessionBrief.useMutation();
   const generateSummary = trpc.coaching.generateSessionSummary.useMutation();
   const approveSummary = trpc.coaching.approveSessionSummary.useMutation();
+  const createOperationsEscalation = trpc.operationsEscalations.create.useMutation();
   const bulkApprove = trpc.coaching.bulkApproveCommitments.useMutation();
   const bulkDismiss = trpc.coaching.bulkDismissCommitments.useMutation();
   const upsertProfile = trpc.coaching.upsertProfile.useMutation();
   const scheduleNextSession = trpc.coaching.scheduleNextSession.useMutation();
+  const operationsEscalationsQuery = trpc.operationsEscalations.listForAgent.useQuery(
+    { agentId: Number((data as any)?.agent?.id ?? 0) },
+    { enabled: Boolean((data as any)?.agent?.id) },
+  );
 
   const [activeStage, setActiveStage] = useState<Stage>("Prepare");
   const [notes, setNotes] = useState("");
   const [transcript, setTranscript] = useState("");
   const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [showOperationsEscalationDialog, setShowOperationsEscalationDialog] = useState(false);
+  const [operationsEscalationDescription, setOperationsEscalationDescription] = useState("");
   const [selectedCommitments, setSelectedCommitments] = useState<number[]>([]);
   const [profileForm, setProfileForm] = useState({
     performanceStatus: "Launch",
@@ -277,6 +284,8 @@ export default function CoachingSessionPage() {
   const goalTarget = Number(goalsData?.annualGoal?.closingsTarget ?? 0);
   const ytdClosings = Number(goalsData?.ytdActuals?.ytdClosings ?? 0);
   const goalDetail = goalTarget ? `${ytdClosings} of ${goalTarget} annual closings` : `${ytdClosings} YTD closings; goal not set`;
+  const operationsEscalations = operationsEscalationsQuery.data ?? [];
+  const openOperationsEscalations = operationsEscalations.filter((row: any) => row.escalation.status === "Open");
 
   const saveProfile = async () => {
     try {
@@ -352,6 +361,25 @@ export default function CoachingSessionPage() {
       refetch();
     } catch (err: any) {
       toast.error(err.message ?? "Unable to save transcript");
+    }
+  };
+
+  const submitOperationsEscalation = async () => {
+    if (!operationsEscalationDescription.trim()) {
+      toast.error("Describe the operational issue before submitting it.");
+      return;
+    }
+    try {
+      await createOperationsEscalation.mutateAsync({
+        sessionId,
+        description: operationsEscalationDescription,
+      });
+      setOperationsEscalationDescription("");
+      setShowOperationsEscalationDialog(false);
+      toast.success("Operations Escalation submitted for administrative review.");
+      void operationsEscalationsQuery.refetch();
+    } catch (err: any) {
+      toast.error(err.message ?? "Unable to submit the Operations Escalation");
     }
   };
 
@@ -531,6 +559,17 @@ export default function CoachingSessionPage() {
                   <Button size="sm" className="w-full" onClick={saveProfile} disabled={upsertProfile.isPending}>{upsertProfile.isPending ? "Saving..." : "Save Coaching Updates"}</Button>
                 </CardContent>
               </Card>
+              <Card className="border-amber-200 bg-amber-50/30">
+                <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm"><AlertTriangle className="h-4 w-4 text-amber-700" />Operations Escalations</CardTitle><CardDescription>{openOperationsEscalations.length ? `${openOperationsEscalations.length} unresolved item${openOperationsEscalations.length === 1 ? "" : "s"} for this agent.` : "Past operational blockers and their resolution status."}</CardDescription></CardHeader>
+                <CardContent className="space-y-2">
+                  {operationsEscalations.length ? operationsEscalations.slice(0, 4).map((row: any) => {
+                    const escalation = row.escalation;
+                    const isOpen = escalation.status === "Open";
+                    return <div key={escalation.id} className={`rounded-md border p-2 ${isOpen ? "border-amber-200 bg-white/70" : "border-emerald-100 bg-emerald-50/40"}`}><div className="flex items-start justify-between gap-2"><p className="line-clamp-2 text-xs leading-relaxed">{escalation.description}</p><Badge className={`shrink-0 text-[9px] ${isOpen ? "bg-amber-100 text-amber-800 hover:bg-amber-100" : "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"}`}>{isOpen ? "Unresolved" : "Resolved"}</Badge></div><p className="mt-1 text-[10px] text-muted-foreground">{safeFormat(escalation.createdAt, "MMM d, yyyy")} · Submitted by {row.submittedBy?.name ?? "Coach"}</p>{!isOpen && escalation.resolution && <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-emerald-800">Resolution: {escalation.resolution}</p>}</div>;
+                  }) : <p className="py-1 text-xs text-muted-foreground">No Operations Escalations have been recorded for this agent.</p>}
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => setShowOperationsEscalationDialog(true)} disabled={session.status !== "In Progress"}><AlertTriangle className="mr-1 h-3.5 w-3.5" />Add Operations Escalation</Button>
+                </CardContent>
+              </Card>
               <Card className="border-amber-200 bg-amber-50/30"><CardContent className="p-3"><p className="text-xs font-semibold text-amber-800">Live-call reminder</p><p className="mt-1 text-[11px] leading-relaxed text-amber-800">Confirm the one priority, who owns each commitment, the evidence that proves completion, and the date you will inspect it.</p></CardContent></Card>
               <Button className="w-full" onClick={endLiveCall} disabled={session.status === "Completed" || completeSession.isPending || updateSession.isPending}><Square className="mr-1 h-3.5 w-3.5" />{session.status === "Completed" ? "Live Call Ended" : "End Live Call"}</Button>
             </div>
@@ -567,6 +606,9 @@ export default function CoachingSessionPage() {
 
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
         <DialogContent className="max-w-md"><DialogHeader><DialogTitle>Upload Notetaker Notes</DialogTitle></DialogHeader><div className="space-y-4"><p className="text-xs text-muted-foreground">Upload a plain-text file such as TXT, MD, or CSV. The content is appended to the post-session transcript field for review before AI processing.</p><div className="relative rounded-lg border-2 border-dashed p-8 text-center"><Upload className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" /><p className="text-sm font-medium">Choose a notes file</p><input type="file" accept=".txt,.md,.csv,text/plain,text/markdown,text/csv" className="absolute inset-0 cursor-pointer opacity-0" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; try { const text = await file.text(); const combined = transcript ? `${transcript}\n\n${text}` : text; setTranscript(combined); await updateSession.mutateAsync({ sessionId, transcript: combined }); toast.success("Notetaker notes loaded into transcript"); setShowUploadDialog(false); refetch(); } catch (err: any) { toast.error(err.message ?? "Unable to read notes file"); } }} /></div></div><DialogFooter><Button variant="outline" onClick={() => setShowUploadDialog(false)}>Close</Button></DialogFooter></DialogContent>
+      </Dialog>
+      <Dialog open={showOperationsEscalationDialog} onOpenChange={(open) => { setShowOperationsEscalationDialog(open); if (!open) setOperationsEscalationDescription(""); }}>
+        <DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Add Operations Escalation</DialogTitle></DialogHeader><div className="space-y-3"><p className="text-sm text-muted-foreground">Flag an operational blocker that needs administrative follow-through. This will be linked to {agent?.name ?? "this agent"} and this coaching session.</p><div className="space-y-1.5"><Label htmlFor="operations-escalation-description">What needs to be addressed?</Label><Textarea id="operations-escalation-description" rows={6} value={operationsEscalationDescription} onChange={(event) => setOperationsEscalationDescription(event.target.value)} placeholder="Describe the operational issue, the impact, and the help needed." /></div></div><DialogFooter><Button variant="outline" onClick={() => setShowOperationsEscalationDialog(false)}>Cancel</Button><Button onClick={submitOperationsEscalation} disabled={!operationsEscalationDescription.trim() || createOperationsEscalation.isPending}>{createOperationsEscalation.isPending ? "Submitting..." : "Submit Operations Escalation"}</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
   );

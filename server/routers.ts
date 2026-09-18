@@ -57,6 +57,7 @@ import { marketingTextInboxRouter } from "./routers/marketingTextInbox";
 import { jobBoardRouter } from "./routers/jobBoard";
 import { talentProfileRouter } from "./routers/talentProfile";
 import { coachingRouter } from "./routers/coaching";
+import { operationsEscalationsRouter } from "./routers/operationsEscalations";
 import { hotLeadsRouter } from "./routers/hotLeads";
 import { passwordsRouter } from "./routers/passwords";
 import { rolesResponsibilitiesRouter } from "./routers/rolesResponsibilities";
@@ -300,6 +301,7 @@ export const appRouter = router({
   jobBoard: jobBoardRouter,
   talentProfile: talentProfileRouter,
   coaching: coachingRouter,
+  operationsEscalations: operationsEscalationsRouter,
   hotLeads: hotLeadsRouter,
   passwords: passwordsRouter,
     rolesResponsibilities: rolesResponsibilitiesRouter,

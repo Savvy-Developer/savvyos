@@ -6642,6 +6642,10 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canAdministerPto: boolean("canAdministerPto").default(false).notNull(),
   canViewOnboarding: boolean("canViewOnboarding").default(true).notNull(),
   canViewCoachingHub: boolean("canViewCoachingHub").default(true).notNull(),
+  // Operations escalations expose internal coaching records and are explicitly assigned.
+  canViewOperationsEscalations: boolean("canViewOperationsEscalations")
+    .default(false)
+    .notNull(),
   canViewAgentRenewals: boolean("canViewAgentRenewals").default(true).notNull(),
   // Sensitive aggregate-only feedback area. Explicitly granted to designated leadership.
   canViewCoachFeedback: boolean("canViewCoachFeedback")
@@ -8655,6 +8659,39 @@ export const capacityEscalations = mysqlTable(
 );
 export type CapacityEscalation = typeof capacityEscalations.$inferSelect;
 export type InsertCapacityEscalation = typeof capacityEscalations.$inferInsert;
+
+// Operations escalations — coach-submitted operational blockers captured during a coaching session.
+export const operationsEscalations = mysqlTable(
+  "operations_escalations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sessionId: int("sessionId")
+      .notNull()
+      .references(() => coachingSessions.id, { onDelete: "cascade" }),
+    agentId: int("agentId")
+      .notNull()
+      .references(() => users.id),
+    submittedById: int("submittedById")
+      .notNull()
+      .references(() => users.id),
+    description: text("description").notNull(),
+    status: mysqlEnum("status", ["Open", "Resolved"])
+      .default("Open")
+      .notNull(),
+    resolution: text("resolution"),
+    resolvedById: int("resolvedById").references(() => users.id),
+    resolvedAt: timestamp("resolvedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("operations_escalations_session_idx").on(table.sessionId, table.createdAt),
+    index("operations_escalations_agent_idx").on(table.agentId, table.status),
+    index("operations_escalations_status_created_idx").on(table.status, table.createdAt),
+  ]
+);
+export type OperationsEscalation = typeof operationsEscalations.$inferSelect;
+export type InsertOperationsEscalation = typeof operationsEscalations.$inferInsert;
 
 // Coach-out recommendations.
 export const coachOutRecommendations = mysqlTable("coach_out_recommendations", {
