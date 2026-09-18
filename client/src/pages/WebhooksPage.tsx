@@ -222,7 +222,8 @@ function CreateEndpointDialog({
                 {`curl -X POST "${endpointUrl}" \\`}
               </p>
               <p>{`  -H "Content-Type: application/json" \\`}</p>
-              <p>{`  -d '{"first_name":"Jane","last_name":"Doe","email":"jane@example.com"}'`}</p>
+              <p>{`  -d '{"name":"Jane Doe","email":"jane@example.com","lead_source":"Meta Ad",`}</p>
+              <p>{`      "utm_source":"fb","utm_medium":"paid","utm_campaign":"120248019387630701"}'`}</p>
             </div>
           </div>
         )}
@@ -678,6 +679,11 @@ export default function WebhooksPage() {
                       ["lead_source / source", "Lead Source (by name)"],
                       ["lead_source_id", "Lead Source (by ID)"],
                       ["notes / message", "Notes"],
+                      ["utm_source", "Ad source (last touch)"],
+                      ["utm_medium", "Ad medium (last touch)"],
+                      ["utm_campaign", "Ad campaign (last touch)"],
+                      ["utm_term", "Ad set (last touch)"],
+                      ["utm_content", "Ad (last touch)"],
                       ["agent_id / agent_email", "Assign to Agent"],
                     ].map(([field, maps]) => (
                       <TableRow key={field}>

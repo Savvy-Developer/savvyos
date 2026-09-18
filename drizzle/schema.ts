@@ -644,6 +644,15 @@ export const contacts = mysqlTable(
       "sphere",
     ]),
     campaignSource: varchar("campaignSource", { length: 255 }),
+    // Ad attribution, last touch. leadSourceId above is first touch and locked
+    // at creation, so it cannot record a later campaign; these can. Strings,
+    // not numbers: Meta campaign, ad set and ad ids are 18 digits and lose
+    // precision past 2^53. See shared/adAttribution.ts.
+    utmSource: varchar("utmSource", { length: 255 }),
+    utmMedium: varchar("utmMedium", { length: 255 }),
+    utmCampaign: varchar("utmCampaign", { length: 255 }),
+    utmTerm: varchar("utmTerm", { length: 255 }),
+    utmContent: varchar("utmContent", { length: 255 }),
     partnershipName: varchar("partnershipName", { length: 255 }),
     // Assignment
     assignedIsaId: int("assignedIsaId").references(() => users.id),

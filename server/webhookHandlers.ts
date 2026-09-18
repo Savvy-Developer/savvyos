@@ -24,6 +24,11 @@ import { eq, and, or, isNull, sql } from "drizzle-orm";
 import type { WebhookEndpoint } from "../drizzle/schema";
 import { normalizeOptionalUsPhone } from "@shared/phone";
 import { sendTransactionalEmail } from "./_core/resendEmail";
+import {
+  adAttributionUpdates,
+  campaignSourceFrom,
+  readAdAttribution,
+} from "@shared/adAttribution";
 
 // The public savvy-agents.com client already uses this publishable key for
 // property reads. Website lead events contain a property UUID, but older event
@@ -79,6 +84,11 @@ const FIELD_MAP: Record<string, string> = {
   agent_id: "_agentId", agentid: "_agentId",
   agent_email: "_agentEmail",
 };
+
+// Ad attribution is deliberately NOT in FIELD_MAP. normalisePayload would
+// rename the keys, and readAdAttribution has to see the raw payload so it can
+// tell an absent key from a blank one, which is the whole basis of
+// blank-never-overwrites. See shared/adAttribution.ts.
 
 function normalisePayload(raw: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -268,6 +278,11 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     endpoint.defaultLeadSourceId
   );
 
+  // Read from the raw payload, not the normalised one: see the note by
+  // FIELD_MAP above.
+  const adAttribution = readAdAttribution(rawPayload);
+  const campaignSource = campaignSourceFrom(adAttribution);
+
   // Find or create contact
   const existingId = await findExistingContact(email, phone ?? undefined);
 
@@ -288,6 +303,10 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     if (p.state) updates.state = p.state as string;
     if (p.zip) updates.zip = p.zip as string;
     if (p.notes) updates.notes = p.notes as string;
+    // Last touch. Only non-empty values are present here, so an organic
+    // booking adds nothing and an attribution recorded months ago survives.
+    Object.assign(updates, adAttributionUpdates(adAttribution));
+    if (campaignSource) updates.campaignSource = campaignSource;
     if (smsMarketingConsentProvided) {
       updates.smsMarketingConsentAt = new Date();
       updates.smsMarketingConsentSource = `Webhook: ${endpoint.name}`;
@@ -316,6 +335,12 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
       zip: (p.zip as string) || null,
       notes: (p.notes as string) || null,
       leadSourceId: newLeadSourceId,
+      ...adAttributionUpdates(adAttribution),
+      // campaignSource is read by reporting, the duplicate finder and the
+      // merge fingerprint, and the landing page handler already fills it the
+      // same way. Written here so a webhook lead is not the one path that
+      // leaves it empty.
+      ...(campaignSource ? { campaignSource } : {}),
       spouseFirstName: (p.spouseFirstName as string) || null,
       spouseLastName: (p.spouseLastName as string) || null,
       spouseEmail: (p.spouseEmail as string) || null,
@@ -454,6 +479,14 @@ const contactUpdateHandler: HandlerFn = async (rawPayload, endpoint) => {
   if (p.state) updates.state = p.state;
   if (p.zip) updates.zip = p.zip;
   if (p.notes) updates.notes = p.notes;
+  // Same last-touch policy as lead ingest. An endpoint configured as
+  // contact_update rather than lead_ingest would otherwise silently drop ad
+  // attribution, which is the kind of gap nobody notices until a month of
+  // campaign data is missing.
+  const attribution = readAdAttribution(rawPayload);
+  Object.assign(updates, adAttributionUpdates(attribution));
+  const campaign = campaignSourceFrom(attribution);
+  if (campaign) updates.campaignSource = campaign;
 
   if (Object.keys(updates).length > 0) {
     await db.update(contacts).set(updates).where(eq(contacts.id, existingId));
