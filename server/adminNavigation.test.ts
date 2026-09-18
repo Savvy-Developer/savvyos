@@ -74,7 +74,14 @@ describe("admin navigation consolidation", () => {
     expect(hrSection).toContain('path: "/onboarding"');
     expect(hrSection).toContain('path: "/org-chart"');
     expect(hrSection).toContain('path: "/agent-directory"');
+    expect(hrSection).toContain('path: "/job-board"');
+    expect(hrSection).toContain('path: "/talent-profile-admin"');
     expect(hrSection).toContain('path: "/roles-responsibilities"');
+    expect(workSection).toContain('path: "/operations-escalations"');
+    expect(workSection).not.toContain('path: "/roles-responsibilities"');
+    expect(workSection).not.toContain('path: "/job-board"');
+    expect(workSection).not.toContain('path: "/talent-profile-admin"');
+    expect(adminSection).not.toContain('path: "/operations-escalations"');
     expect(agentSuccessSection).not.toContain('path: "/admin/market-match-quiz"');
     expect(adminSection).toContain('path: "/admin/market-match-quiz"');
   });
@@ -98,5 +105,8 @@ describe("admin navigation consolidation", () => {
     expect(permissionsRouter).toContain('{ key: "canViewMarketMatchQuiz",        label: "Market Match Quiz",          group: "Admin" }');
     expect(permissionsRouter).toContain('{ key: "canViewTechRequests",           label: "Tech Requests",              group: "Tech" }');
     expect(permissionsRouter).toContain('{ key: "canViewTransactionChecklists",  label: "Transaction Checklists",     group: "Agent Success Team" }');
+    expect(permissionsRouter).toContain('{ key: "canViewOperationsEscalations",  label: "Operations Escalations",     group: "Work" }');
+    expect(permissionsRouter).toContain('{ key: "canViewJobBoard",               label: "Job Board",                  group: "HR" }');
+    expect(permissionsRouter).toContain('{ key: "canViewTalentProfile",          label: "Talent Profiles",            group: "HR" }');
   });
 });

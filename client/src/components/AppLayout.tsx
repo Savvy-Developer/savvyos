@@ -523,16 +523,10 @@ function buildAdminNav(
         { icon: MessageSquare, label: "Chat", path: "/chat" },
         { icon: Activity, label: "Pulse", path: "/pulse" },
         { icon: Layers, label: "Projects", path: "/projects" },
-        { icon: Briefcase, label: "Job Board", path: "/job-board" },
         {
-          icon: Activity,
-          label: "Talent Profiles",
-          path: "/talent-profile-admin",
-        },
-        {
-          icon: ClipboardList,
-          label: "Roles and Responsibilities",
-          path: "/roles-responsibilities",
+          icon: Shield,
+          label: "Operations Escalations",
+          path: "/operations-escalations",
         },
         { icon: BookOpen, label: "Knowledgebase", path: "/kb" },
       ],
@@ -609,6 +603,12 @@ function buildAdminNav(
         { icon: UserCheck, label: "On/Offboarding", path: "/onboarding" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
         { icon: Users, label: "Agent Directory", path: "/agent-directory" },
+        { icon: Briefcase, label: "Job Board", path: "/job-board" },
+        {
+          icon: Activity,
+          label: "Talent Profiles",
+          path: "/talent-profile-admin",
+        },
         {
           icon: ClipboardList,
           label: "Roles and Responsibilities",
@@ -627,7 +627,6 @@ function buildAdminNav(
         { icon: Link2, label: "Affiliate Links", path: "/affiliate-links" },
         { icon: Tag, label: "Lead Sources", path: "/lead-sources" },
         { icon: Activity, label: "Activity Log", path: "/admin/activity" },
-        { icon: Shield, label: "Operations Escalations", path: "/operations-escalations" },
         {
           icon: Settings,
           label: "Market Match Settings",

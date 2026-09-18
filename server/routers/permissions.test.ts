@@ -151,8 +151,18 @@ describe("HR and Tech permissions", () => {
       { key: "canViewOnboarding", label: "On/Offboarding", group: "HR" },
       { key: "canViewOrgChart", label: "Org Chart", group: "HR" },
       { key: "canViewAgentDirectory", label: "Agent Directory", group: "HR" },
+      { key: "canViewJobBoard", label: "Job Board", group: "HR" },
+      { key: "canViewTalentProfile", label: "Talent Profiles", group: "HR" },
       { key: "canViewRolesResponsibilities", label: "Roles and Responsibilities", group: "HR" },
     ]);
+  });
+
+  it("registers Operations Escalations in the Work group", () => {
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({
+      key: "canViewOperationsEscalations",
+      label: "Operations Escalations",
+      group: "Work",
+    });
   });
 
   it("replaces the Website category with Tech and retains its controls", () => {

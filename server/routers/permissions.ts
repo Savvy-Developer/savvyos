@@ -90,7 +90,6 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewRecruiting",             label: "Recruiting",                 group: "Agent Success Team" },
   { key: "canViewReviews",                label: "Reviews",                    group: "Agent Success Team" },
   { key: "canViewCoachingHub",            label: "Coaching Hub",               group: "Agent Success Team" },
-  { key: "canViewOperationsEscalations",  label: "Operations Escalations",     group: "Admin" },
   { key: "canViewLeadershipDashboard",    label: "Leadership Dashboard",       group: "Agent Success Team" },
   { key: "canViewCoachFeedback",          label: "Coach Feedback",             group: "Agent Success Team" },
   { key: "canViewGoals",                  label: "Goals",                      group: "Agent Success Team" },
@@ -101,8 +100,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewPulseSettings",          label: "Pulse Settings",             group: "Pulse" },
   // Work
   { key: "canViewProjects",               label: "Projects",                   group: "Work" },
-  { key: "canViewJobBoard",               label: "Job Board",                  group: "Work" },
-  { key: "canViewTalentProfile",          label: "Talent Profiles",            group: "Work" },
+  { key: "canViewOperationsEscalations",  label: "Operations Escalations",     group: "Work" },
   { key: "canViewKnowledgeBase",          label: "Knowledgebase",              group: "Work" },
   // Events
   { key: "canViewEvents",                 label: "Events Console",             group: "Events" },
@@ -138,6 +136,8 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewOnboarding",             label: "On/Offboarding",             group: "HR" },
   { key: "canViewOrgChart",               label: "Org Chart",                  group: "HR" },
   { key: "canViewAgentDirectory",         label: "Agent Directory",            group: "HR" },
+  { key: "canViewJobBoard",               label: "Job Board",                  group: "HR" },
+  { key: "canViewTalentProfile",          label: "Talent Profiles",            group: "HR" },
   { key: "canViewRolesResponsibilities",  label: "Roles and Responsibilities", group: "HR" },
   // Admin
   { key: "canViewMarketMatchQuiz",        label: "Market Match Quiz",          group: "Admin" },
