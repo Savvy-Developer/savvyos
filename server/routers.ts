@@ -89,6 +89,7 @@ import { agentCelebrationsRouter } from "./routers/agentCelebrations";
 import { checklistsRouter } from "./routers/checklists";
 import { recruitingRouter } from "./routers/recruiting";
 import { chatRouter } from "./routers/chat";
+import { mobileRouter } from "./routers/mobile";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -120,6 +121,7 @@ export const appRouter = router({
   system: systemRouter,
   marketMatchQuiz: marketMatchQuizRouter,
   chat: chatRouter,
+  mobile: mobileRouter,
 
   auth: router({
     me: publicProcedure.query(opts => {
@@ -204,7 +206,16 @@ export const appRouter = router({
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         void db.logActivity({ userId: user.id, action: "user_login", entityType: "user", entityId: user.id, details: { email: user.email, name: user.name } });
-        return { success: true };
+        return {
+          success: true,
+          token,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          },
+        };
       }),
 
     /** Request a password reset email */

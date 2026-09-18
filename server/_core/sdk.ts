@@ -257,12 +257,24 @@ class SDKServer {
   }
 
   async authenticateRequest(req: Request): Promise<User> {
+    const authHeader = req.headers.authorization;
+    const bearerToken =
+      typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7).trim()
+        : null;
+    const headerToken =
+      typeof req.headers["x-session-token"] === "string"
+        ? (req.headers["x-session-token"] as string).trim()
+        : null;
+
     const cookies = this.parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);
-    const session = await this.verifySession(sessionCookie);
+    const tokenToVerify = bearerToken || headerToken || sessionCookie;
+
+    const session = await this.verifySession(tokenToVerify);
 
     if (!session) {
-      throw ForbiddenError("Invalid session cookie");
+      throw ForbiddenError("Invalid session token or cookie");
     }
 
     const user = await db.getUserByOpenId(session.openId);

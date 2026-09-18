@@ -10862,3 +10862,29 @@ export const websiteAccountPropertyViews = mysqlTable(
   ]
 );
 export type WebsiteAccountPropertyView = typeof websiteAccountPropertyViews.$inferSelect;
+
+// ─── Mobile Devices ──────────────────────────────────────────────────────────
+export const mobileDevices = mysqlTable(
+  "mobile_devices",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    deviceToken: varchar("deviceToken", { length: 255 }).notNull(),
+    platform: mysqlEnum("platform", ["ios", "android"]).notNull(),
+    appVersion: varchar("appVersion", { length: 32 }),
+    deviceModel: varchar("deviceModel", { length: 128 }),
+    osVersion: varchar("osVersion", { length: 32 }),
+    isActive: boolean("isActive").default(true).notNull(),
+    lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("mobile_devices_token_unique").on(table.deviceToken),
+    index("mobile_devices_user_active_idx").on(table.userId, table.isActive),
+  ]
+);
+export type MobileDevice = typeof mobileDevices.$inferSelect;
+export type InsertMobileDevice = typeof mobileDevices.$inferInsert;

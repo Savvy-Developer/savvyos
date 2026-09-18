@@ -86,6 +86,21 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
+  // Enable CORS for mobile clients, webviews, and preflight requests
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Session-Token,x-trpc-source");
+    }
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
   // `home.savvy-agents.com` serves only public Landing Pages. The SPA still
   // serves public documents on that host, while all protected/admin API calls
   // are rejected before they can reach authentication or application routers.
