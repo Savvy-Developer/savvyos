@@ -4,6 +4,7 @@ import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { auditLogMutation, shouldAuditLog } from "./auditMiddleware";
 import { accountFromRequest } from "./websiteAccountAuth";
+import { stripSensitiveUserFields } from "./userResponse";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -27,6 +28,16 @@ const auditMiddleware = t.middleware(async (opts) => {
       path: opts.path,
       input: opts.input,
     });
+  }
+
+  // Endpoint DTOs are the primary contract. This recursive scrub is a final
+  // guardrail for nested user joins so authentication records never reach a
+  // browser if a future procedure accidentally returns a raw user row.
+  if (result.ok) {
+    return {
+      ...result,
+      data: stripSensitiveUserFields(result.data),
+    };
   }
 
   return result;

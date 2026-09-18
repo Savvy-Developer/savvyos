@@ -14,6 +14,7 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import { storagePut } from "../storage";
 import { invokeLLM } from "../_core/llm";
+import { toAdminUser, toProfileUser, toUserListItem } from "../_core/userResponse";
 import { syncScheduledRenewalWithOnboardedDate } from "../agentRenewalSchedule";
 import { nanoid } from "nanoid";
 import {
@@ -339,16 +340,20 @@ export const usersRouter = router({
         const requestedRole = input?.role;
         if (requestedRole === "admin")
           throw new TRPCError({ code: "FORBIDDEN" });
-        if (requestedRole) return getUsersByRole(requestedRole);
+        if (requestedRole) {
+          return (await getUsersByRole(requestedRole)).map(toUserListItem);
+        }
         const [agents, isas] = await Promise.all([
           getUsersByRole("agent"),
           getUsersByRole("isa"),
         ]);
-        return [...agents, ...isas];
+        return [...agents, ...isas].map(toUserListItem);
       }
 
-      if (input?.role) return getUsersByRole(input.role);
-      return getAllUsers();
+      if (input?.role) {
+        return (await getUsersByRole(input.role)).map(toUserListItem);
+      }
+      return (await getAllUsers()).map(toUserListItem);
     }),
 
   // List users with document counts (admin only)
@@ -379,8 +384,8 @@ export const usersRouter = router({
     const profileMap = new Map(
       profiles.map(profile => [profile.userId, profile])
     );
-    return (users as any[]).map((u: any) => ({
-      ...u,
+    return users.map((u) => ({
+      ...toAdminUser(u),
       documentCount: countMap.get(u.id) ?? 0,
       profilePhotoUrl: profileMap.get(u.id)?.profilePhotoUrl ?? null,
       backgroundlessHeadshotUrl:
@@ -682,7 +687,7 @@ export const usersRouter = router({
       const all = await getAllUsers();
       const user = all.find((u: any) => u.id === input.id);
       if (!user) throw new TRPCError({ code: "NOT_FOUND" });
-      return user;
+      return toProfileUser(user);
     }),
 
   // ── Extended Profile Procedures ─────────────────────────────────────────────

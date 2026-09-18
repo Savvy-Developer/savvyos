@@ -28,8 +28,7 @@ import { scheduleDailyCoachingTips } from "../dailyCoachingTipsScheduler";
 import { scheduleCoachFeedback } from "../coachingFeedback";
 import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "../analytics/workspace";
 import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../analytics/businessInsights";
-import { verifyResendWebhookSignature } from "./resendWebhook";
-import { describeResendWebhookEvent, enqueueResendWebhookEvent } from "../resendWebhookInbox";
+import { registerResendWebhookRoute } from "../resendWebhookRoute";
 import { registerWebhookRoute } from "../webhookRoute";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
 import { scheduleTempGrantExpiry } from "../tempGrantExpiryScheduler";
@@ -125,30 +124,7 @@ async function startServer() {
   // Resend (via Svix) signs the raw request body. If express.json() parses it
   // first, req.body becomes a JS object and .toString("utf8") yields
   // "[object Object]", causing HMAC verification to always fail (401).
-  app.post("/api/webhooks/resend", express.raw({ type: "application/json" }), async (req, res) => {
-    try {
-      const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : JSON.stringify(req.body);
-      const signature = req.headers["svix-signature"] as string | undefined;
-      const svixId = req.headers["svix-id"] as string | undefined;
-      const svixTimestamp = req.headers["svix-timestamp"] as string | undefined;
-      const secret = process.env.RESEND_WEBHOOK_SECRET || "";
-
-      // Verify signature if secret is configured
-      if (secret && !verifyResendWebhookSignature(rawBody, signature, secret, svixId, svixTimestamp)) {
-        console.warn("[Resend Webhook] Signature verification FAILED");
-        return res.status(401).json({ error: "Invalid webhook signature" });
-      }
-
-      // Persist first and return immediately. The dedicated worker performs all
-      // CRM matching, analytics projection, and campaign rollups outside the
-      // interactive SavvyOS process.
-      await enqueueResendWebhookEvent(describeResendWebhookEvent(rawBody, svixId));
-      return res.status(200).json({ ok: true, queued: true });
-    } catch (err: any) {
-      console.error("[Resend Webhook] Error:", err.message);
-      return res.status(500).json({ error: "Webhook processing failed" });
-    }
-  });
+  registerResendWebhookRoute(app);
 
   // Stripe signs the original request body. Keep this route before express.json()
   // so signature verification remains valid and duplicate events can be handled safely.

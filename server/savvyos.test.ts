@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import { hasSensitiveUserFields } from "./_core/userResponse";
 
 // ─── Mock DB helpers ────────────────────────────────────────────────────────
 vi.mock("./db", () => ({
@@ -130,6 +131,50 @@ describe("auth", () => {
     const me = await caller.auth.me();
     expect(me).toBeTruthy();
     expect(me?.email).toBe("test@savvy.com");
+  });
+
+  it("never returns authentication material for a current or simulated user", async () => {
+    const ctx = makeCtx({
+      passwordHash: "bcrypt-hash",
+      passwordResetToken: "active-reset-token",
+      passwordResetExpiry: new Date(),
+    });
+    ctx.realUser = ctx.user;
+    const caller = appRouter.createCaller(ctx);
+
+    const me = await caller.auth.me();
+
+    expect(hasSensitiveUserFields(me)).toBe(false);
+    expect(me).not.toHaveProperty("passwordHash");
+    expect(me).not.toHaveProperty("passwordResetToken");
+    expect(me?.realUser).not.toHaveProperty("passwordResetExpiry");
+  });
+
+  it("never returns authentication material from the simulation mutation", async () => {
+    const { getUserById } = await import("./db");
+    (getUserById as any).mockResolvedValueOnce({
+      id: 25,
+      openId: "target-user",
+      name: "Target User",
+      email: "target@example.com",
+      role: "agent",
+      isActive: true,
+      employmentType: "1099",
+      commissionSplit: 80,
+      passwordHash: "bcrypt-hash",
+      passwordResetToken: "active-reset-token",
+      passwordResetExpiry: new Date(),
+    });
+    const ctx = makeCtx();
+    ctx.realUser = ctx.user;
+    (ctx.res as any).cookie = vi.fn();
+    const caller = appRouter.createCaller(ctx);
+
+    const result = await caller.auth.simulateAs({ userId: 25 });
+
+    expect(hasSensitiveUserFields(result)).toBe(false);
+    expect(result.simulatedUser).not.toHaveProperty("passwordHash");
+    expect(result.simulatedUser).not.toHaveProperty("passwordResetToken");
   });
 
   it("logout clears session cookie", async () => {
@@ -269,6 +314,52 @@ describe("users", () => {
     const caller = appRouter.createCaller(makeCtx());
     const result = await caller.users.list({});
     expect(Array.isArray(result)).toBe(true);
+  });
+
+  it("serializes user lists with an explicit safe field allow-list", async () => {
+    const { getAllUsers } = await import("./db");
+    (getAllUsers as any).mockResolvedValueOnce([{
+      id: 5,
+      openId: "internal-user-id",
+      name: "Agent User",
+      email: "agent@example.com",
+      role: "agent",
+      isActive: true,
+      passwordHash: "bcrypt-hash",
+      passwordResetToken: "active-reset-token",
+      passwordResetExpiry: new Date(),
+    }]);
+    const caller = appRouter.createCaller(makeCtx());
+
+    const result = await caller.users.list({});
+
+    expect(hasSensitiveUserFields(result)).toBe(false);
+    expect(result[0]).not.toHaveProperty("openId");
+    expect(result[0]).not.toHaveProperty("passwordHash");
+    expect(result[0]).not.toHaveProperty("passwordResetToken");
+  });
+
+  it("serializes a self-profile without authentication material", async () => {
+    const { getAllUsers } = await import("./db");
+    (getAllUsers as any).mockResolvedValueOnce([{
+      id: 1,
+      openId: "internal-user-id",
+      name: "Test User",
+      email: "test@savvy.com",
+      role: "admin",
+      isActive: true,
+      passwordHash: "bcrypt-hash",
+      passwordResetToken: "active-reset-token",
+      passwordResetExpiry: new Date(),
+    }]);
+    const caller = appRouter.createCaller(makeCtx());
+
+    const result = await caller.users.getById({ id: 1 });
+
+    expect(hasSensitiveUserFields(result)).toBe(false);
+    expect(result).not.toHaveProperty("openId");
+    expect(result).not.toHaveProperty("passwordHash");
+    expect(result).not.toHaveProperty("passwordResetToken");
   });
 
   describe("toggleActive", () => {

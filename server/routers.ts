@@ -8,6 +8,7 @@ import { SIMULATE_COOKIE, SIMULATE_OWNER_EMAIL, WORK_AS_COOKIE } from "./_core/c
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
 import { EMAIL_NOTIFICATION_TYPES, sendTransactionalEmail, getEmailPreview } from "./_core/resendEmail";
+import { toSessionUser } from "./_core/userResponse";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { ENV } from "./_core/env";
@@ -128,10 +129,10 @@ export const appRouter = router({
       // Expose realUser for admins simulating AND for agent_support working as agent
       const exposeRealUser = realRole === "admin" || realRole === "agent_support";
       return {
-        ...opts.ctx.user,
+        ...toSessionUser(opts.ctx.user),
         isSimulating,
         isWorkingAsAgent: realRole === "agent_support" && isSimulating,
-        realUser: exposeRealUser ? opts.ctx.realUser : null,
+        realUser: exposeRealUser && opts.ctx.realUser ? toSessionUser(opts.ctx.realUser) : null,
       };
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -151,7 +152,7 @@ export const appRouter = router({
         if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(SIMULATE_COOKIE, String(input.userId), { ...cookieOptions, maxAge: ONE_YEAR_MS });
-        return { success: true, simulatedUser: target };
+        return { success: true, simulatedUser: toSessionUser(target) };
       }),
     stopSimulation: protectedProcedure
       .mutation(({ ctx }) => {
