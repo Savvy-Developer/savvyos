@@ -51,9 +51,6 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewReporting",              label: "Reporting",                  group: "Overview" },
   { key: "canViewCustomReports",          label: "Custom Reports",             group: "Overview" },
   { key: "canViewLeaderboard",            label: "Agent Leaderboard",          group: "Overview" },
-  // Chat
-  { key: "canViewChat",                   label: "Chat",                       group: "Chat" },
-  { key: "canManageChat",                 label: "Chat Admin",                 group: "Chat" },
   // CRM
   { key: "canViewContacts",               label: "All Contacts",               group: "CRM" },
   { key: "canEditContactLeadSource",      label: "Edit Contact Lead Source",   group: "CRM" },
@@ -82,8 +79,8 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canUpdateReferralPayments",     label: "Update Referral Payments",   group: "Transactions" },
   { key: "canManageReferralAgreements",   label: "Manage Agreements",          group: "Transactions" },
   { key: "canEditHistoricalReferrals",    label: "Edit Historical Referrals",  group: "Transactions" },
-  { key: "canAdministerTransactions",      label: "Transactions Admin",         group: "Transactions Admin" },
-  { key: "canEditTransactionLeadSource",  label: "Edit Transaction Lead Source", group: "Transactions Admin" },
+  { key: "canAdministerTransactions",      label: "Transactions Admin",         group: "Transactions" },
+  { key: "canEditTransactionLeadSource",  label: "Edit Transaction Lead Source", group: "Transactions" },
   // Agent Success Team
   { key: "canViewAgentMarkets",           label: "Agent Markets",              group: "Agent Success Team" },
   { key: "canViewAgentCelebrations",      label: "Agent Celebration",          group: "Agent Success Team" },
@@ -95,10 +92,11 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewGoals",                  label: "Goals",                      group: "Agent Success Team" },
   { key: "canViewVendorLists",            label: "Vendors",                    group: "Agent Success Team" },
   { key: "canViewTransactionChecklists",  label: "Transaction Checklists",     group: "Agent Success Team" },
-  // Pulse
-  { key: "canViewPulse",                  label: "Pulse",                      group: "Pulse" },
-  { key: "canViewPulseSettings",          label: "Pulse Settings",             group: "Pulse" },
   // Work
+  { key: "canViewChat",                   label: "Chat",                       group: "Work" },
+  { key: "canManageChat",                 label: "Chat Admin",                 group: "Work" },
+  { key: "canViewPulse",                  label: "Pulse",                      group: "Work" },
+  { key: "canViewPulseSettings",          label: "Pulse Settings",             group: "Work" },
   { key: "canViewProjects",               label: "Projects",                   group: "Work" },
   { key: "canViewOperationsEscalations",  label: "Operations Escalations",     group: "Work" },
   { key: "canViewKnowledgeBase",          label: "Knowledgebase",              group: "Work" },

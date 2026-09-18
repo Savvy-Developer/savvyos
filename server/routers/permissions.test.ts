@@ -112,14 +112,14 @@ describe("Super Permissions active-admin eligibility", () => {
   });
 });
 
-describe("Transactions Admin permission", () => {
-  it("registers the settled-payout override toggle in its own Super Permissions category", () => {
-    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canAdministerTransactions", label: "Transactions Admin", group: "Transactions Admin" });
+describe("Transaction permissions", () => {
+  it("keeps transaction controls in the Transactions navigation category", () => {
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canAdministerTransactions", label: "Transactions Admin", group: "Transactions" });
   });
 
   it("registers separate attribution-correction permissions for contacts and transactions", () => {
     expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canEditContactLeadSource", label: "Edit Contact Lead Source", group: "CRM" });
-    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canEditTransactionLeadSource", label: "Edit Transaction Lead Source", group: "Transactions Admin" });
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canEditTransactionLeadSource", label: "Edit Transaction Lead Source", group: "Transactions" });
   });
 });
 
@@ -165,6 +165,15 @@ describe("HR and Tech permissions", () => {
       label: "Operations Escalations",
       group: "Work",
     });
+  });
+
+  it("keeps Chat and Pulse in the Work navigation category", () => {
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canViewChat", label: "Chat", group: "Work" });
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canManageChat", label: "Chat Admin", group: "Work" });
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canViewPulse", label: "Pulse", group: "Work" });
+    expect(ADMIN_NAV_PERMISSIONS.some(permission => permission.group === "Chat")).toBe(false);
+    expect(ADMIN_NAV_PERMISSIONS.some(permission => permission.group === "Pulse")).toBe(false);
+    expect(ADMIN_NAV_PERMISSIONS.some(permission => permission.group === "Transactions Admin")).toBe(false);
   });
 
   it("replaces the Website category with Tech and retains its controls", () => {
