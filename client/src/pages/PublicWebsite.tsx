@@ -1167,10 +1167,13 @@ function FilterSelect({
 
 function PropertiesPage() {
   usePageTitle("Short-Term Rental Properties for Sale");
-  const initial =
-    new URLSearchParams(window.location.search).get("search") || "";
+  const params = new URLSearchParams(window.location.search);
+  const initial = params.get("search") || "";
+  // The markets page links here with a market already chosen, so the filter
+  // opens on that market rather than making the visitor pick it again.
+  const initialMarket = params.get("market") || "";
   const [search, setSearch] = useState(initial);
-  const [state, setState] = useState("");
+  const [market, setMarket] = useState(initialMarket);
   const [propertyType, setPropertyType] = useState("");
   const [minBeds, setMinBeds] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
@@ -1178,17 +1181,17 @@ function PropertiesPage() {
   const facets = trpc.website.publicPropertyFacets.useQuery();
   const query = trpc.website.publicProperties.useQuery({
     search: search || undefined,
-    state: state || undefined,
+    marketId: market ? Number(market) : undefined,
     propertyType: propertyType || undefined,
     minBeds: minBeds ? Number(minBeds) : undefined,
     maxPrice: maxPrice ? Number(maxPrice) : undefined,
     sort: sort as any,
   });
-  const activeFilters = [state, propertyType, minBeds, maxPrice].filter(
+  const activeFilters = [market, propertyType, minBeds, maxPrice].filter(
     Boolean
   ).length;
   const clearFilters = () => {
-    setState("");
+    setMarket("");
     setPropertyType("");
     setMinBeds("");
     setMaxPrice("");
@@ -1225,12 +1228,12 @@ function PropertiesPage() {
             />
           </div>
           <div className="mx-auto mt-4 flex max-w-5xl flex-wrap items-end justify-center gap-3 text-left">
-            {facets.data?.states?.length ? (
-              <FilterSelect label="Market" value={state} onChange={setState}>
+            {facets.data?.markets?.length ? (
+              <FilterSelect label="Market" value={market} onChange={setMarket}>
                 <option value="">All markets</option>
-                {facets.data.states.map((code: string) => (
-                  <option key={code} value={code}>
-                    {code}
+                {facets.data.markets.map((item: any) => (
+                  <option key={item.id} value={String(item.id)}>
+                    {item.name} ({item.propertyCount})
                   </option>
                 ))}
               </FilterSelect>
@@ -2558,45 +2561,84 @@ function ContactPage() {
   );
 }
 
+/**
+ * The markets Savvy covers, from the market records themselves.
+ *
+ * Built on ZIP territories rather than the free text each agent types into
+ * their profile, so "Asheville", "Asheville NC" and "asheville" are one market
+ * and the count under it is a real number. A market appears here once it has
+ * territories drawn, which is also the moment its properties become findable,
+ * so the page never offers a market that opens onto nothing.
+ */
 function MarketsPage() {
   usePageTitle("STR Markets");
-  const agents = trpc.website.publicAgents.useQuery();
-  const markets = useMemo(
-    () =>
-      Array.from(
-        new Set((agents.data || []).flatMap((item: any) => item.markets || []))
-      ).sort(),
-    [agents.data]
-  );
-  if (agents.isLoading) return <LoadingPage />;
+  const markets = trpc.website.publicMarketDirectory.useQuery();
+  const items: any[] = markets.data || [];
+  if (markets.isLoading) return <LoadingPage />;
   return (
     <Shell>
       <section className="bg-[#05314a] py-20 text-center text-white">
         <h1 className="text-5xl font-black">STR Markets</h1>
         <p className="mx-auto mt-4 max-w-2xl text-cyan-50">
-          Explore active markets through the specialists who work in them.
+          The markets we cover, and what is on the market in each one today.
         </p>
       </section>
       <section className="bg-slate-50 py-16">
-        <div className="mx-auto grid max-w-[1100px] gap-4 px-5 sm:grid-cols-2 lg:grid-cols-3">
-          {markets.map(market => (
-            <a
-              key={market}
-              href={`${path("/properties")}?search=${encodeURIComponent(String(market))}`}
-              className="group flex items-center justify-between rounded-2xl border bg-white p-6 shadow-sm"
-            >
-              <div>
-                <MapPin className="h-5 w-5 text-cyan-600" />
-                <h2 className="mt-3 text-xl font-bold text-[#05314a]">
-                  {String(market)}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Browse properties and specialists
-                </p>
+        <div className="mx-auto max-w-[1100px] px-5">
+          {items.length ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map(item => (
+                <a
+                  key={item.id}
+                  href={`${path("/properties")}?market=${item.id}`}
+                  className="group flex items-center justify-between rounded-2xl border bg-white p-6 shadow-sm transition hover:border-cyan-200 hover:shadow"
+                >
+                  <div>
+                    <MapPin className="h-5 w-5 text-cyan-600" />
+                    <h2 className="mt-3 text-xl font-bold text-[#05314a]">
+                      {item.name}
+                    </h2>
+                    <p className="text-sm text-slate-500">{item.state}</p>
+                    <p className="mt-2 text-sm font-semibold text-cyan-700">
+                      {item.propertyCount === 1
+                        ? "1 property"
+                        : `${item.propertyCount} properties`}
+                    </p>
+                  </div>
+                  <ArrowRight className="h-5 w-5 shrink-0 text-cyan-600 transition group-hover:translate-x-1" />
+                </a>
+              ))}
+            </div>
+          ) : (
+            // Markets exist in SavvyOS before their territories are drawn. Until
+            // then we cannot say what is in one, and saying nothing is better
+            // than a page of markets with nothing behind them.
+            <div className="rounded-2xl border border-dashed bg-white p-16 text-center">
+              <MapPin className="mx-auto h-8 w-8 text-slate-300" />
+              <h2 className="mt-4 text-xl font-bold text-[#05314a]">
+                Market coverage is being mapped
+              </h2>
+              <p className="mx-auto mt-2 max-w-md text-slate-500">
+                Our specialists are active across the Southeast. Browse
+                everything on the market, or talk to us about where you want to
+                buy.
+              </p>
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
+                <a
+                  className="rounded-lg bg-[#10c0df] px-5 py-2.5 font-bold text-[#03293c]"
+                  href={path("/properties")}
+                >
+                  Browse properties
+                </a>
+                <a
+                  className="rounded-lg border border-slate-200 px-5 py-2.5 font-semibold text-[#05314a]"
+                  href={path("/contact")}
+                >
+                  Talk to a specialist
+                </a>
               </div>
-              <ArrowRight className="h-5 w-5 text-cyan-600 transition group-hover:translate-x-1" />
-            </a>
-          ))}
+            </div>
+          )}
         </div>
       </section>
     </Shell>
