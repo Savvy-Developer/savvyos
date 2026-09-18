@@ -1116,7 +1116,7 @@ export default function SuperPermissionsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[220px]">
+                      <TableHead className="sticky left-0 z-20 min-w-[220px] border-r bg-card shadow-[2px_0_4px_-3px_rgba(15,23,42,0.35)]">
                         Administrator
                       </TableHead>
                       {selectedGroupDefinitions.map(definition => (
@@ -1133,7 +1133,7 @@ export default function SuperPermissionsPage() {
                   <TableBody>
                     {allAdmins.map(admin => (
                       <TableRow key={admin.userId}>
-                        <TableCell className="py-3">
+                        <TableCell className="sticky left-0 z-10 min-w-[220px] border-r bg-card py-3 shadow-[2px_0_4px_-3px_rgba(15,23,42,0.35)] group-hover:bg-muted/50">
                           <AdminIdentity admin={admin} />
                         </TableCell>
                         {selectedGroupDefinitions.map(definition => {
