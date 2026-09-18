@@ -1159,14 +1159,15 @@ export default function SuperPermissionsPage() {
                 data-super-permissions-matrix
                 className="isolate max-h-[62vh] overflow-auto bg-card"
               >
-                <div className="min-w-max">
+                <div className="sticky top-0 left-0 z-[60] flex h-[76px] w-[320px] items-center border-r border-b bg-card px-5 text-sm font-medium shadow-[3px_2px_5px_-4px_rgba(15,23,42,0.45)]">
+                  Administrator
+                </div>
+                <div className="min-w-max -mt-[76px]">
                   <div
                     className="sticky top-0 z-50 grid isolate border-b bg-card shadow-[0_2px_5px_-3px_rgba(15,23,42,0.45)] before:absolute before:inset-0 before:z-0 before:bg-card"
                     style={{ gridTemplateColumns: matrixGridTemplateColumns }}
                   >
-                    <div className="sticky left-0 z-10 flex min-h-[76px] items-center border-r bg-card px-5 text-sm font-medium shadow-[3px_0_5px_-4px_rgba(15,23,42,0.45)]">
-                      Administrator
-                    </div>
+                    <div className="min-h-[76px] border-r bg-card" aria-hidden="true" />
                     {selectedGroupDefinitions.map(definition => (
                       <div
                         key={definition.key}

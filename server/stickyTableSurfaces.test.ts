@@ -82,9 +82,10 @@ describe("sticky table surfaces", () => {
 
     expect(matrixSource).toContain("matrixGridTemplateColumns");
     expect(matrixSource).toContain("isolate max-h-[62vh] overflow-auto bg-card");
+    expect(matrixSource).toContain("sticky top-0 left-0 z-[60]");
+    expect(matrixSource).toContain("min-w-max -mt-[76px]");
     expect(matrixSource).toContain("sticky top-0 z-50 grid isolate border-b bg-card");
     expect(matrixSource).toContain("before:absolute before:inset-0 before:z-0 before:bg-card");
-    expect(matrixSource).toContain("sticky left-0 z-10");
     expect(matrixSource).toContain("sticky left-0 z-20");
     expect(matrixSource).toContain("relative z-0 divide-y");
     expect(matrixSource).not.toMatch(/<(?:table|TableHead|TableCell|TableRow)\b/);
