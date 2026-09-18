@@ -100,7 +100,7 @@ export const mobileRouter = router({
       .where(
         and(
           eq(tasks.assignedToId, ctx.user.id),
-          sql`${tasks.status} IN ('todo', 'in_progress')`,
+          sql`${tasks.status} IN ('pending', 'in_progress')`,
           sql`${tasks.dueDate} <= ${todayEnd}`
         )
       );

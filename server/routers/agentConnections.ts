@@ -17,6 +17,7 @@ import { sendEmailAlert } from "../_core/emailAlerts";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { buildLeadAssignmentContext } from "../contactClientContext";
 import { NO_EXCLUDED_FIELDS, shouldResetLeadAging } from "../leadAging";
+import { notifyMobileUsers } from "../mobileNotifications";
 
 const relationshipType = z.enum(["buyer", "seller", "both"]);
 
@@ -342,6 +343,11 @@ export const agentConnectionsRouter = router({
           clientContextSummary,
         });
       } catch (_) {}
+      void notifyMobileUsers([input.agentId], {
+        title: "New lead assigned",
+        body: activityContactName,
+        data: { path: "/leads", connectionId: id, contactId: input.contactId },
+      });
 
       // Introduce client to agent via email (CC the agent)
       if (input.introduceClient) {

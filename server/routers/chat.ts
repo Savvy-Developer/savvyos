@@ -21,6 +21,7 @@ import {
   type ChatRole,
 } from "../chatAccess";
 import { getDb } from "../db";
+import { notifyMobileUsers } from "../mobileNotifications";
 import { canAdminUsePermission } from "./permissions";
 import { protectedProcedure, router } from "../_core/trpc";
 
@@ -713,6 +714,18 @@ export const chatRouter = router({
         }
         return id;
       });
+      const recipients = await state.db
+        .select({ userId: chatChannelMembers.userId })
+        .from(chatChannelMembers)
+        .where(eq(chatChannelMembers.channelId, input.channelId));
+      void notifyMobileUsers(
+        recipients.map((recipient) => recipient.userId).filter((userId) => userId !== ctx.user.id),
+        {
+          title: state.channel.name || "Savvy Chat",
+          body: `${ctx.user.name ?? "Teammate"}: ${input.body || "Shared an attachment"}`,
+          data: { path: "/chat", channelId: input.channelId },
+        }
+      );
       return { id: messageId };
     }),
 

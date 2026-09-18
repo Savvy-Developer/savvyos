@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createTask, getTasks, getAllTasks, getDb, logActivity, updateTask, getTaskNotes, createTaskNote, getTaskById, getMyOverdueTaskCount, resetLeadAgingByConnectionId } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
+import { notifyMobileUsers } from "../mobileNotifications";
 import { onboardingInstanceTasks, onboardingInstances, tasks as tasksTable } from "../../drizzle/schema";
 import { and, eq, sql } from "drizzle-orm";
 
@@ -145,6 +146,11 @@ export const tasksRouter = router({
             taskId: id,
           });
         } catch (_) {}
+        void notifyMobileUsers([input.assignedToId], {
+          title: "New task assigned",
+          body: input.title,
+          data: { path: "/work", taskId: id },
+        });
       }
 
       // Reset the stale/aging clock when an agent creates a task on a connection
