@@ -344,7 +344,7 @@ export default function CoachingAgentPortfolio() {
                   <TableHeader>
                     <TableRow className="bg-muted/30">
                       {/* Always visible: Agent Name */}
-                      <TableHead className="text-[10px] sticky left-0 bg-muted/30 z-10 min-w-[150px] font-semibold cursor-pointer select-none" onClick={() => handleSort("name")}>
+                      <TableHead className="sticky sticky-surface-muted left-0 z-10 min-w-[150px] cursor-pointer select-none text-[10px] font-semibold" onClick={() => handleSort("name")}>
                         <span className="inline-flex items-center">Agent <SortIcon col="name" /></span>
                       </TableHead>
                       {/* Core columns */}
@@ -398,7 +398,7 @@ export default function CoachingAgentPortfolio() {
                           onClick={() => navigate(`/coaching/agent/${agent.id}`)}
                         >
                           {/* Agent Name - always visible */}
-                          <TableCell className="sticky left-0 bg-background z-10">
+                          <TableCell className="sticky sticky-surface-background left-0 z-10">
                             <div className="flex items-center gap-1.5">
                               <div>
                                 <p className="font-medium text-[11px] leading-tight truncate max-w-[130px]">{agent.name ?? "—"}</p>

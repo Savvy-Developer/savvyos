@@ -1675,8 +1675,8 @@ function SmartPlanHistoryDialog({
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
-            <table className="w-full min-w-[1240px] text-left text-[14px]">
-              <thead className="sticky top-0 z-10 bg-muted text-xs text-muted-foreground">
+            <table className="sticky-table w-full min-w-[1240px] text-left text-[14px]">
+              <thead className="sticky sticky-surface-muted top-0 z-10 text-xs text-muted-foreground">
                 <tr>
                   <th className="p-3.5 font-medium">Sent / attempted</th>
                   {!plan && <th className="p-3.5 font-medium">Smart Plan</th>}
@@ -1851,8 +1851,8 @@ function LeadSourcesWithoutPlansDialog({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
-            <table className="w-full min-w-[980px] text-left text-sm">
-              <thead className="sticky top-0 z-10 bg-muted text-xs text-muted-foreground">
+            <table className="sticky-table w-full min-w-[980px] text-left text-sm">
+              <thead className="sticky sticky-surface-muted top-0 z-10 text-xs text-muted-foreground">
                 <tr>
                   <th className="p-3.5 font-medium">Lead source</th>
                   {periods.map(([label]) => (

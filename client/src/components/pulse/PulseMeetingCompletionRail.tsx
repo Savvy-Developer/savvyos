@@ -29,7 +29,7 @@ export function PulseMeetingCompletionRail({ meetingId, type, canRecall, onChang
   const Icon = type === "issue" ? ClipboardCheck : CheckCircle2;
   const items = history.data ?? [];
 
-  return <aside className="rounded-md border border-emerald-200/80 bg-emerald-50/25 xl:sticky xl:top-3">
+  return <aside className="rounded-md border border-emerald-200/80 bg-emerald-50 xl:sticky xl:top-3">
     <div className="border-b border-emerald-200/70 px-3 py-2">
       <h3 className="flex items-center gap-1.5 text-sm font-semibold text-emerald-950"><Icon className="h-4 w-4 text-emerald-700" />{noun}</h3>
       <p className="mt-0.5 text-xs leading-4 text-emerald-900/70">Live completed work in this L10. Recall the same record instantly when needed.</p>

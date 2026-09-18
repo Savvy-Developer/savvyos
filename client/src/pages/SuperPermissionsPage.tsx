@@ -1158,16 +1158,16 @@ export default function SuperPermissionsPage() {
                 />
               </div>
               <div className="max-h-[62vh] overflow-auto p-3 sm:p-5">
-                <table className="min-w-max w-full caption-bottom text-sm">
+                <table className="sticky-table min-w-max w-full caption-bottom text-sm">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="sticky top-0 left-0 z-30 min-w-[220px] border-r bg-card shadow-[2px_2px_4px_-3px_rgba(15,23,42,0.35)]">
+                      <TableHead className="sticky sticky-surface top-0 left-0 z-30 min-w-[220px] border-r shadow-[2px_2px_4px_-3px_rgba(15,23,42,0.35)]">
                         Administrator
                       </TableHead>
                       {selectedGroupDefinitions.map(definition => (
                         <TableHead
                           key={definition.key}
-                          className="sticky top-0 z-20 min-w-[132px] bg-card whitespace-normal text-center text-xs shadow-[0_2px_4px_-3px_rgba(15,23,42,0.35)]"
+                          className="sticky sticky-surface top-0 z-20 min-w-[132px] whitespace-normal text-center text-xs shadow-[0_2px_4px_-3px_rgba(15,23,42,0.35)]"
                           title={definition.label}
                         >
                           {definition.label}
@@ -1178,7 +1178,7 @@ export default function SuperPermissionsPage() {
                   <TableBody>
                     {allAdmins.map(admin => (
                       <TableRow key={admin.userId}>
-                        <TableCell className="sticky left-0 z-10 min-w-[220px] border-r bg-card py-3 shadow-[2px_0_4px_-3px_rgba(15,23,42,0.35)] group-hover:bg-muted/50">
+                        <TableCell className="sticky sticky-surface left-0 z-10 min-w-[220px] border-r py-3 shadow-[2px_0_4px_-3px_rgba(15,23,42,0.35)] group-hover:bg-muted">
                           <AdminIdentity admin={admin} />
                         </TableCell>
                         {selectedGroupDefinitions.map(definition => {
@@ -1222,7 +1222,7 @@ export default function SuperPermissionsPage() {
       )}
 
       {dirty && (
-        <div className="sticky bottom-4 flex items-center justify-between gap-3 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur">
+        <div className="sticky sticky-surface-background bottom-4 flex items-center justify-between gap-3 rounded-xl border p-3 shadow-lg">
           <p className="text-sm text-muted-foreground">
             You have unsaved permission changes.
           </p>

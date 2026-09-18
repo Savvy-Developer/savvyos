@@ -298,7 +298,7 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-2 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />Data updated {data?.generatedAt ? new Date(data.generatedAt).toLocaleString() : "—"}<Button variant="outline" size="sm" className="ml-2" onClick={() => refetch()}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Refresh</Button></div>
         </header>
 
-        <Card className="sticky top-0 z-40 border-slate-200 bg-white/98 shadow-md backdrop-blur supports-[backdrop-filter]:bg-white/90">
+        <Card className="sticky top-0 z-40 border-slate-200 bg-white shadow-md">
           <CardContent className="p-3">
             <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500"><Filter className="h-3.5 w-3.5" />Global dashboard filters</div>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">

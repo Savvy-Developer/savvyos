@@ -199,6 +199,38 @@
   .bg-brand {
     background-color: oklch(0.74 0.130 215.1);
   }
+  /* Sticky surfaces must be opaque so scrolling content cannot bleed through. */
+  .sticky-surface {
+    background-color: var(--card);
+    background-clip: padding-box;
+  }
+  .sticky-surface > tr > th,
+  .sticky-surface > tr > td {
+    background-color: var(--card);
+    background-clip: padding-box;
+  }
+  .sticky-surface-muted {
+    background-color: var(--muted);
+    background-clip: padding-box;
+  }
+  .sticky-surface-muted > tr > th,
+  .sticky-surface-muted > tr > td {
+    background-color: var(--muted);
+    background-clip: padding-box;
+  }
+  .sticky-surface-background {
+    background-color: var(--background);
+    background-clip: padding-box;
+  }
+  .sticky-surface-background > tr > th,
+  .sticky-surface-background > tr > td {
+    background-color: var(--background);
+    background-clip: padding-box;
+  }
+  .sticky-table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
 }
 
 @layer components {

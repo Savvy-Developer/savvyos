@@ -249,7 +249,7 @@ function Shell({
   return (
     <div className="h-full overflow-y-auto bg-white text-slate-950 selection:bg-cyan-200">
       <header
-        className={`sticky top-0 z-50 border-b backdrop-blur-xl ${darkHeader ? "border-white/10 bg-[#052d43]/95" : "border-slate-200 bg-white/95"}`}
+        className={`sticky top-0 z-50 border-b ${darkHeader ? "border-white/10 bg-[#052d43]" : "border-slate-200 bg-white"}`}
       >
         {siteSettings?.announcementText && (
           <div className="bg-[#10c0df] px-4 py-1.5 text-center text-[11px] font-bold tracking-wide text-[#03293c]">

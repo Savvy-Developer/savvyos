@@ -75,7 +75,7 @@ function minutesRemaining(index: number, total: number) {
 }
 function PublicShell({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
   const logo = dark ? SAVVY_LOGO_DARK_BACKGROUND : SAVVY_LOGO_LIGHT_BACKGROUND;
-  return <main className={`fixed inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain ${dark ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-950"}`}><header className={`sticky top-0 z-40 border-b backdrop-blur ${dark ? "border-white/10 bg-slate-950/90" : "border-slate-200 bg-white/95"}`}><div className="mx-auto flex h-14 max-w-6xl items-center px-4 sm:px-6"><img src={logo} alt="Savvy STR Agents" className={dark ? "h-auto w-32 object-contain sm:w-36" : "h-7 w-auto object-contain"} /></div></header>{children}</main>;
+  return <main className={`fixed inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain ${dark ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-950"}`}><header className={`sticky top-0 z-40 border-b ${dark ? "border-white/10 bg-slate-950" : "border-slate-200 bg-white"}`}><div className="mx-auto flex h-14 max-w-6xl items-center px-4 sm:px-6"><img src={logo} alt="Savvy STR Agents" className={dark ? "h-auto w-32 object-contain sm:w-36" : "h-7 w-auto object-contain"} /></div></header>{children}</main>;
 }
 function MarketFactCard({ fact, compact = false, light = false }: { fact?: MarketFact | null; compact?: boolean; light?: boolean }) {
   if (!fact) return <div className={`animate-pulse rounded-xl border ${light ? "border-white/15 bg-white/10" : "border-cyan-100 bg-cyan-50"} ${compact ? "h-[74px]" : "h-[94px]"}`} />;

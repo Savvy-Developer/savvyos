@@ -629,8 +629,8 @@ export default function ShortLinksPage() {
                   </p>
                 ) : (
                   <div className="max-h-64 overflow-auto rounded-lg border">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-muted/80 text-left text-xs uppercase text-muted-foreground">
+                    <table className="sticky-table w-full text-sm">
+                      <thead className="sticky sticky-surface-muted top-0 text-left text-xs uppercase text-muted-foreground">
                         <tr>
                           <th className="px-3 py-2 font-medium">When</th>
                           <th className="px-3 py-2 font-medium">Device</th>

@@ -365,8 +365,8 @@ function QueueDialog({
         </DialogHeader>
         <div className="max-h-[calc(85vh-8rem)] overflow-auto">
           {selected.rows.length ? (
-            <table className="w-full min-w-[760px] text-sm">
-              <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
+            <table className="sticky-table w-full min-w-[760px] text-sm">
+              <thead className="sticky sticky-surface-muted top-0 z-10">
                 <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3 text-left">
                     {isTask ? "Task" : "Contact"}
@@ -1209,8 +1209,8 @@ export default function IsmDashboardPage() {
           </CardHeader>
           <CardContent className="p-0">
             <div className="max-h-[360px] overflow-auto">
-              <table className="w-full min-w-[560px] text-sm">
-                <thead className="sticky top-0 bg-muted/95">
+              <table className="sticky-table w-full min-w-[560px] text-sm">
+                <thead className="sticky sticky-surface-muted top-0">
                   <tr className="border-y text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-4 py-3 text-left">Source</th>
                     <th className="px-3 py-3 text-right">Leads</th>

@@ -1042,8 +1042,8 @@ export default function CustomReportsPage() {
                     </div>
                   )}
                   <div className="max-h-[520px] overflow-auto rounded-md border">
-                    <table className="w-full min-w-[680px] text-sm">
-                      <thead className="sticky top-0 bg-muted/95 text-left">
+                    <table className="sticky-table w-full min-w-[680px] text-sm">
+                      <thead className="sticky sticky-surface-muted top-0 text-left">
                         <tr>
                           {report.columns.map(column => (
                             <th
