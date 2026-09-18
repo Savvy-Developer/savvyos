@@ -84,6 +84,7 @@ describe("admin navigation consolidation", () => {
     expect(adminSection).not.toContain('path: "/operations-escalations"');
     expect(agentSuccessSection).not.toContain('path: "/admin/market-match-quiz"');
     expect(adminSection).toContain('path: "/admin/market-match-quiz"');
+    expect(adminSection).toContain('path: "/admin/market-match-settings"');
   });
 
   it("renders category labels as expanded-by-default accessible collapse controls", () => {
@@ -103,6 +104,8 @@ describe("admin navigation consolidation", () => {
     expect(permissionsRouter).toContain('{ key: "canViewTransactionExports",     label: "Transaction Exports",        group: "Transactions" }');
     expect(permissionsRouter).toContain('{ key: "canViewAgentCelebrations",      label: "Agent Celebration",          group: "Agent Success Team" }');
     expect(permissionsRouter).toContain('{ key: "canViewMarketMatchQuiz",        label: "Market Match Quiz",          group: "Admin" }');
+    expect(permissionsRouter).toContain('{ key: "canViewMarketMatchSettings",    label: "Market Match Settings",      group: "Admin" }');
+    expect(permissionsRouter).not.toContain('{ key: "canViewSuperPermissions",       label: "Super Permissions",          group: "Admin" }');
     expect(permissionsRouter).toContain('{ key: "canViewTechRequests",           label: "Tech Requests",              group: "Tech" }');
     expect(permissionsRouter).toContain('{ key: "canViewTransactionChecklists",  label: "Transaction Checklists",     group: "Agent Success Team" }');
     expect(permissionsRouter).toContain('{ key: "canViewOperationsEscalations",  label: "Operations Escalations",     group: "Work" }');

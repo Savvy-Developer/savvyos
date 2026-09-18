@@ -27,7 +27,8 @@ import {
   MIN_RECOMMENDED_MARKETS,
   saveMarketMatchSettings,
 } from "../marketMatchSettings";
-import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
+import { canAdminUsePermission } from "./permissions";
 
 const SESSION_TTL_MS = 30 * 60_000;
 const ACTIVE_CALL_LOOKBACK_SECONDS = 2 * 60 * 60;
@@ -51,6 +52,19 @@ function requireMarketMatchAccess(role: string): void {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Market Match calls are available to ISA and admin users only.",
+    });
+  }
+}
+
+async function requireMarketMatchSettingsAccess(user: {
+  id: number;
+  role: string;
+  email?: string | null;
+}): Promise<void> {
+  if (!(await canAdminUsePermission(user, "canViewMarketMatchSettings"))) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Market Match Settings permission is required.",
     });
   }
 }
@@ -449,10 +463,13 @@ export const marketMatchRouter = router({
       };
     }),
 
-  /** Admin-only controls for the organization-wide Market Match call experience. */
-  settings: adminProcedure.query(async () => getMarketMatchSettings()),
+  /** Explicitly delegated controls for the organization-wide Market Match call experience. */
+  settings: protectedProcedure.query(async ({ ctx }) => {
+    await requireMarketMatchSettingsAccess(ctx.user);
+    return getMarketMatchSettings();
+  }),
 
-  saveSettings: adminProcedure
+  saveSettings: protectedProcedure
     .input(
       z.object({
         enabled: z.boolean(),
@@ -464,6 +481,7 @@ export const marketMatchRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireMarketMatchSettingsAccess(ctx.user);
       return saveMarketMatchSettings({ ...input, updatedById: ctx.user.id });
     }),
 });

@@ -66,6 +66,7 @@ import {
   Webhook,
   LayoutDashboard,
   Link2,
+  Loader2,
   Target,
   Activity,
   ArrowLeft,
@@ -356,6 +357,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewAgentCelebrations: "/agent-celebrations",
   canViewRecruiting: "/recruiting",
   canViewMarketMatchQuiz: "/admin/market-match-quiz",
+  canViewMarketMatchSettings: "/admin/market-match-settings",
   canViewOrgChart: "/org-chart",
   canViewRolesResponsibilities: "/roles-responsibilities",
   canViewFeedback: "/feedback",
@@ -376,7 +378,6 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewResendInbox: "/resend-inbox",
   canViewMarketingTextInbox: "/marketing-text-inbox",
   canViewPasswords: "/passwords",
-  canViewSuperPermissions: "/admin/super-permissions",
   canViewAgentDirectory: "/agent-directory",
   canViewAffiliateLinks: "/affiliate-links",
   canViewVendorLists: "/admin/vendors",
@@ -417,7 +418,8 @@ function buildAdminNav(
   pendingMarketing: number = 0,
   resendInboxUnread: number = 0,
   marketingTextInboxUnread: number = 0,
-  pendingPtoApprovals: number = 0
+  pendingPtoApprovals: number = 0,
+  canManageSuperPermissions: boolean = false
 ): NavGroup[] {
   return [
     {
@@ -638,11 +640,9 @@ function buildAdminNav(
           path: "/feedback",
           badge: pendingFeedback > 0 ? pendingFeedback : undefined,
         },
-        {
-          icon: ShieldCheck,
-          label: "Super Permissions",
-          path: "/admin/super-permissions",
-        },
+        ...(canManageSuperPermissions
+          ? [{ icon: ShieldCheck, label: "Super Permissions", path: "/admin/super-permissions" }]
+          : []),
         { icon: Lock, label: "Passwords", path: "/passwords" },
       ],
     },
@@ -1053,7 +1053,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   );
 
   // Fetch admin permissions for nav filtering
-  const { data: adminPerms } = trpc.permissions.getMyPermissions.useQuery(
+  const { data: adminPerms, isLoading: loadingAdminPerms } = trpc.permissions.getMyPermissions.useQuery(
+    undefined,
+    { enabled: role === "admin", staleTime: 30000 }
+  );
+  const { data: canManageSuperPermissions } = trpc.permissions.canManagePermissions.useQuery(
     undefined,
     { enabled: role === "admin", staleTime: 30000 }
   );
@@ -1125,6 +1129,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const marketingTextInboxUnreadCount =
     (marketingTextInboxUnreadData as any)?.count ?? 0;
   const chatUnreadCount = chatWorkspace?.totalUnreadCount ?? 0;
+  const currentAdminPermissionKey = isAdmin
+    ? Object.entries(PERM_PATH_MAP).find(([, path]) => path === currentPath)?.[0]
+    : null;
+  const isCheckingCurrentAdminPath = !!currentAdminPermissionKey && loadingAdminPerms;
+  const currentAdminPathDenied =
+    !!currentAdminPermissionKey &&
+    !loadingAdminPerms &&
+    !(adminPerms as Record<string, boolean> | null | undefined)?.[currentAdminPermissionKey];
 
   const standardNavGroups =
     role === "admin"
@@ -1139,7 +1151,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           pendingMarketingCount,
           resendInboxUnreadCount,
           marketingTextInboxUnreadCount,
-          pendingPtoApprovalsCount
+          pendingPtoApprovalsCount,
+          !!canManageSuperPermissions
         )
       : role === "isa"
         ? buildIsaNav(
@@ -1573,7 +1586,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             tabIndex={-1}
             className="flex-1 overflow-y-auto overscroll-y-contain p-4 md:p-6 bg-background pb-safe"
           >
-            {children}
+            {isCheckingCurrentAdminPath ? (
+              <div className="flex min-h-[40vh] items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : currentAdminPathDenied ? (
+              <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
+                <Lock className="h-10 w-10 text-muted-foreground/50" />
+                <div>
+                  <p className="font-semibold">Access Restricted</p>
+                  <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                    This SavvyOS area is not enabled for your administrator account.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              children
+            )}
           </main>
 
           {/* This remains outside routed page content so the embedded Aircall Workspace and text drafts survive navigation. */}

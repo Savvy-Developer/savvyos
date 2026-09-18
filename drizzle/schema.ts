@@ -6682,6 +6682,10 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewMarketMatchQuiz: boolean("canViewMarketMatchQuiz")
     .default(true)
     .notNull(),
+  // Market Match configuration changes are separately delegated from quiz visibility.
+  canViewMarketMatchSettings: boolean("canViewMarketMatchSettings")
+    .default(false)
+    .notNull(),
   // Every admin sidebar entry must have a matching Super Permissions flag.
   canViewWebinars: boolean("canViewWebinars").default(true).notNull(),
   canViewEvents: boolean("canViewEvents").default(true).notNull(),

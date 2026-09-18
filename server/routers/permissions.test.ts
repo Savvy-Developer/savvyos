@@ -127,6 +127,8 @@ describe("Agent Celebration and Market Match permissions", () => {
   it("registers each navigation destination in the requested Super Permissions group", () => {
     expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canViewAgentCelebrations", label: "Agent Celebration", group: "Agent Success Team" });
     expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canViewMarketMatchQuiz", label: "Market Match Quiz", group: "Admin" });
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canViewMarketMatchSettings", label: "Market Match Settings", group: "Admin" });
+    expect(ADMIN_NAV_PERMISSIONS).not.toContainEqual({ key: "canViewSuperPermissions", label: "Super Permissions", group: "Admin" });
   });
 });
 

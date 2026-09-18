@@ -43,7 +43,7 @@ async function findActiveAdmin(db: NonNullable<Awaited<ReturnType<typeof getDb>>
 }
 
 // ── All permission keys with their labels and group ───────────────────────────
-// Required convention: every left-sidebar admin link must be registered here, mapped in
+// Required convention: every permissioned admin link must be registered here, mapped in
 // AppLayout's PERM_PATH_MAP, persisted in admin_permissions, and enforced by its feature route/API.
 export const ADMIN_NAV_PERMISSIONS = [
   // Overview
@@ -141,11 +141,11 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewRolesResponsibilities",  label: "Roles and Responsibilities", group: "HR" },
   // Admin
   { key: "canViewMarketMatchQuiz",        label: "Market Match Quiz",          group: "Admin" },
+  { key: "canViewMarketMatchSettings",    label: "Market Match Settings",      group: "Admin" },
   { key: "canViewAffiliateLinks",         label: "Affiliate Links",            group: "Admin" },
   { key: "canViewLeadSources",            label: "Lead Sources",               group: "Admin" },
   { key: "canViewActivityLog",            label: "Activity Log",               group: "Admin" },
   { key: "canViewFeedback",               label: "Feedback and Requests",      group: "Admin" },
-  { key: "canViewSuperPermissions",       label: "Super Permissions",          group: "Admin" },
   { key: "canViewPasswords",              label: "Passwords",                  group: "Admin" },
 ] as const;
 
@@ -158,11 +158,11 @@ export type PermissionKey = typeof ADMIN_NAV_PERMISSIONS[number]["key"];
 const DEFAULT_OFF_PERMISSIONS = new Set<PermissionKey>([
   "canViewChat",
   "canManageChat",
+  "canViewMarketMatchSettings",
   "canViewPulse",
   "canViewProjects",
   "canViewSmartPlans",
   "canViewEmailNotifications",
-  "canViewSuperPermissions",
   "canViewResendInbox",
   "canViewPulseSettings",
   "canViewCoachFeedback",
@@ -309,11 +309,11 @@ export const permissionsRouter = router({
 
       const callerEmail = (ctx.user as any).email as string;
 
-      // Only Tyler, Elana, Dyl can manage permissions
+      // Permission managers are intentionally fixed outside the matrix.
       if (!PERMISSION_MANAGERS.includes(callerEmail)) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Only Tyler, Elana, and Dyl can manage admin permissions",
+          message: "Only designated SavvyOS permission managers can manage admin permissions",
         });
       }
 
@@ -373,7 +373,7 @@ export const permissionsRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const callerEmail = (ctx.user as any).email as string;
       if (!PERMISSION_MANAGERS.includes(callerEmail)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only Tyler, Elana, and Dyl can view the super permissions matrix" });
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only designated SavvyOS permission managers can view the Super Permissions matrix" });
       }
 
       const db = await getDb();
@@ -433,7 +433,7 @@ export const permissionsRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const callerEmail = (ctx.user as any).email as string;
       if (!PERMISSION_MANAGERS.includes(callerEmail)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only Tyler, Elana, and Dyl can update permissions" });
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only designated SavvyOS permission managers can update permissions" });
       }
 
       const db = await getDb();
