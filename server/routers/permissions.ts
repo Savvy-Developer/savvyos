@@ -4,6 +4,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { adminPermissions, adminProfiles, users } from "../../drizzle/schema";
 import { and, eq, isNull, or } from "drizzle-orm";
+import { dependentPermissionKeys, enforcePagePermissionDependencies } from "@shared/permissionDependencies";
 
 // ── Who can manage admin permissions ─────────────────────────────────────────
 const PERMISSION_MANAGERS = [
@@ -187,6 +188,17 @@ const DEFAULT_OFF_PERMISSIONS = new Set<PermissionKey>([
 
 function readPermission(row: unknown, permission: PermissionKey): boolean {
   const values = (row ?? {}) as Record<string, unknown>;
+
+  // An explicitly disabled page always wins over any capability stored beneath it.
+  for (const parent of ADMIN_NAV_PERMISSIONS) {
+    if (
+      values[parent.key] === false &&
+      dependentPermissionKeys(parent.key, ADMIN_NAV_PERMISSIONS).includes(permission)
+    ) {
+      return false;
+    }
+  }
+
   const direct = values[permission];
   const value =
     typeof direct === "boolean"
@@ -196,6 +208,7 @@ function readPermission(row: unknown, permission: PermissionKey): boolean {
   // Chat Admin necessarily includes basic Chat access. This avoids granting an
   // administrator moderation powers without an actual route into the module.
   if (permission === "canViewChat") {
+    if (values.canViewChat === false) return false;
     return value || values.canManageChat === true;
   }
   return value;
@@ -338,13 +351,23 @@ export const permissionsRouter = router({
           updateData[key] = val;
         }
       }
+      // Normalize against the stored state so partial or stale requests cannot
+      // re-enable a capability under a page that remains disabled.
+      const existing = await db.select().from(adminPermissions).where(eq(adminPermissions.userId, input.userId)).limit(1);
+      const currentPermissions: Record<string, boolean> = {};
+      for (const permission of ADMIN_NAV_PERMISSIONS) {
+        currentPermissions[permission.key] = readPermission(existing[0], permission.key);
+      }
+      const normalizedUpdateData = enforcePagePermissionDependencies(
+        { ...currentPermissions, ...updateData },
+        ADMIN_NAV_PERMISSIONS
+      );
 
       // Upsert
-      const existing = await db.select({ id: adminPermissions.id }).from(adminPermissions).where(eq(adminPermissions.userId, input.userId)).limit(1);
       if (existing.length > 0) {
-        await db.update(adminPermissions).set(updateData as any).where(eq(adminPermissions.userId, input.userId));
+        await db.update(adminPermissions).set(normalizedUpdateData as any).where(eq(adminPermissions.userId, input.userId));
       } else {
-        await db.insert(adminPermissions).values({ userId: input.userId, ...updateData } as any);
+        await db.insert(adminPermissions).values({ userId: input.userId, ...normalizedUpdateData } as any);
       }
 
       return { success: true };
@@ -448,14 +471,31 @@ export const permissionsRouter = router({
         for (const [key, val] of Object.entries(item.permissions)) {
           if (validKeys.has(key as PermissionKey)) updateData[key] = val;
         }
+        // Merge current state before normalizing dependencies. This prevents a
+        // partial request from re-enabling an action under an unavailable page.
+        const existingRows = await db.select().from(adminPermissions).where(eq(adminPermissions.userId, item.userId)).limit(1);
+        const currentPermissions: Record<string, boolean> = {};
+        for (const permission of ADMIN_NAV_PERMISSIONS) {
+          currentPermissions[permission.key] = readPermission(existingRows[0], permission.key);
+        }
+        const normalizedUpdateData = enforcePagePermissionDependencies(
+          { ...currentPermissions, ...updateData },
+          ADMIN_NAV_PERMISSIONS
+        );
+        const expiryKeysToClear = new Set(Object.keys(updateData));
+        for (const [pageKey, enabled] of Object.entries(updateData)) {
+          if (enabled !== false) continue;
+          for (const dependentKey of dependentPermissionKeys(pageKey, ADMIN_NAV_PERMISSIONS)) {
+            expiryKeysToClear.add(dependentKey);
+          }
+        }
 
         // Merge tempExpiry: fetch existing, remove keys that are now permanent, add new temp keys
-        const existingRows = await db.select({ id: adminPermissions.id, tempGrantExpiry: adminPermissions.tempGrantExpiry }).from(adminPermissions).where(eq(adminPermissions.userId, item.userId)).limit(1);
         const existingExpiry: Record<string, string> = (existingRows[0]?.tempGrantExpiry as Record<string, string>) ?? {};
 
         // Remove expiry entries for keys that are now being set permanently (no tempExpiry entry)
         const newTempExpiry: Record<string, string> = { ...existingExpiry };
-        for (const key of Object.keys(updateData)) {
+        for (const key of Array.from(expiryKeysToClear)) {
           if (!item.tempExpiry?.[key]) {
             // Being set permanently — remove any existing temp expiry for this key
             delete newTempExpiry[key];
@@ -471,9 +511,9 @@ export const permissionsRouter = router({
         const finalExpiry = Object.keys(newTempExpiry).length > 0 ? newTempExpiry : null;
 
         if (existingRows.length > 0) {
-          await db.update(adminPermissions).set({ ...updateData, tempGrantExpiry: finalExpiry } as any).where(eq(adminPermissions.userId, item.userId));
+          await db.update(adminPermissions).set({ ...normalizedUpdateData, tempGrantExpiry: finalExpiry } as any).where(eq(adminPermissions.userId, item.userId));
         } else {
-          await db.insert(adminPermissions).values({ userId: item.userId, ...updateData, tempGrantExpiry: finalExpiry } as any);
+          await db.insert(adminPermissions).values({ userId: item.userId, ...normalizedUpdateData, tempGrantExpiry: finalExpiry } as any);
         }
       }
 

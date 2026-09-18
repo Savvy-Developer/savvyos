@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import {
+  enforcePagePermissionDependencies,
+  parentPagePermissionKey,
+} from "@shared/permissionDependencies";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +29,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -545,12 +548,35 @@ export default function SuperPermissionsPage() {
     return localPerms[admin.userId] ?? admin.permissions;
   }
 
+  function applyPermissionChange(
+    permissions: Record<string, boolean>,
+    key: string,
+    value: boolean
+  ) {
+    return enforcePagePermissionDependencies(
+      { ...permissions, [key]: value },
+      definitions
+    );
+  }
+
+  function isPermissionLocked(
+    permissions: Record<string, boolean>,
+    key: string
+  ) {
+    const parentKey = parentPagePermissionKey(key);
+    return Boolean(parentKey && permissions[parentKey] === false);
+  }
+
   function updatePermission(userId: number, key: string, value: boolean) {
     const admin = allAdmins.find(item => item.userId === userId);
     if (!admin || admin.isProtected) return;
     setLocalPerms(current => ({
       ...current,
-      [userId]: { ...(current[userId] ?? admin.permissions), [key]: value },
+      [userId]: applyPermissionChange(
+        current[userId] ?? admin.permissions,
+        key,
+        value
+      ),
     }));
     setDirty(true);
   }
@@ -578,10 +604,11 @@ export default function SuperPermissionsPage() {
       const next = { ...current };
       for (const admin of allAdmins) {
         if (admin.isProtected) continue;
-        next[admin.userId] = {
-          ...(current[admin.userId] ?? admin.permissions),
-          [selectedPage.key]: value,
-        };
+        next[admin.userId] = applyPermissionChange(
+          current[admin.userId] ?? admin.permissions,
+          selectedPage.key,
+          value
+        );
       }
       return next;
     });
@@ -897,7 +924,13 @@ export default function SuperPermissionsPage() {
                             checked={Boolean(
                               selectedPermissions[definition.key]
                             )}
-                            disabled={selectedAdmin.isProtected}
+                            disabled={
+                              selectedAdmin.isProtected ||
+                              isPermissionLocked(
+                                selectedPermissions,
+                                definition.key
+                              )
+                            }
                             onChange={value =>
                               updatePermission(
                                 selectedAdmin.userId,
@@ -939,7 +972,13 @@ export default function SuperPermissionsPage() {
                                     checked={Boolean(
                                       selectedPermissions[definition.key]
                                     )}
-                                    disabled={selectedAdmin.isProtected}
+                                    disabled={
+                                      selectedAdmin.isProtected ||
+                                      isPermissionLocked(
+                                        selectedPermissions,
+                                        definition.key
+                                      )
+                                    }
                                     onChange={value =>
                                       updatePermission(
                                         selectedAdmin.userId,
@@ -1076,7 +1115,13 @@ export default function SuperPermissionsPage() {
                             <span>{granted ? "Has access" : "No access"}</span>
                             <Checkbox
                               checked={granted}
-                              disabled={admin.isProtected}
+                              disabled={
+                                admin.isProtected ||
+                                isPermissionLocked(
+                                  permissionsFor(admin),
+                                  selectedPage.key
+                                )
+                              }
                               onCheckedChange={value =>
                                 updatePermission(
                                   admin.userId,
@@ -1112,17 +1157,17 @@ export default function SuperPermissionsPage() {
                   onChange={selectGroup}
                 />
               </div>
-              <div className="p-3 sm:p-5">
-                <Table>
+              <div className="max-h-[62vh] overflow-auto p-3 sm:p-5">
+                <table className="min-w-max w-full caption-bottom text-sm">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="sticky left-0 z-20 min-w-[220px] border-r bg-card shadow-[2px_0_4px_-3px_rgba(15,23,42,0.35)]">
+                      <TableHead className="sticky top-0 left-0 z-30 min-w-[220px] border-r bg-card shadow-[2px_2px_4px_-3px_rgba(15,23,42,0.35)]">
                         Administrator
                       </TableHead>
                       {selectedGroupDefinitions.map(definition => (
                         <TableHead
                           key={definition.key}
-                          className="min-w-[132px] whitespace-normal text-center text-xs"
+                          className="sticky top-0 z-20 min-w-[132px] bg-card whitespace-normal text-center text-xs shadow-[0_2px_4px_-3px_rgba(15,23,42,0.35)]"
                           title={definition.label}
                         >
                           {definition.label}
@@ -1147,7 +1192,13 @@ export default function SuperPermissionsPage() {
                             >
                               <Checkbox
                                 checked={granted}
-                                disabled={admin.isProtected}
+                                disabled={
+                                  admin.isProtected ||
+                                  isPermissionLocked(
+                                    permissionsFor(admin),
+                                    definition.key
+                                  )
+                                }
                                 onCheckedChange={value =>
                                   updatePermission(
                                     admin.userId,
@@ -1163,7 +1214,7 @@ export default function SuperPermissionsPage() {
                       </TableRow>
                     ))}
                   </TableBody>
-                </Table>
+                </table>
               </div>
             </div>
           </TabsContent>
