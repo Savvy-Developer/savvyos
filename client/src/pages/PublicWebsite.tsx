@@ -2598,7 +2598,9 @@ function MarketsPage() {
                     <h2 className="mt-3 text-xl font-bold text-[#05314a]">
                       {item.name}
                     </h2>
-                    <p className="text-sm text-slate-500">{item.state}</p>
+                    {item.state ? (
+                      <p className="text-sm text-slate-500">{item.state}</p>
+                    ) : null}
                     <p className="mt-2 text-sm font-semibold text-cyan-700">
                       {item.propertyCount === 1
                         ? "1 property"

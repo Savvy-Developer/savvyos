@@ -893,6 +893,7 @@ export const WEBSITE_PUBLIC_TRPC_PATHS = new Set([
   "website.publicCaseStudy",
   "website.publicPosts",
   "website.publicPost",
+  "website.recordArticleView",
   "website.submitLead",
 ]);
 

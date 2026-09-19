@@ -117,6 +117,36 @@ describe("the public markets directory", () => {
     expect(directory.map(entry => entry.id).sort()).toEqual([10, 13]);
   });
 
+  it("treats a placeholder state as no state rather than printing it", () => {
+    const directory = marketDirectory(
+      [
+        market({ id: 10, name: "Western North Carolina", state: "N/A" }),
+        market({ id: 11, name: "Blank", state: "  " }),
+        market({ id: 12, name: "Lowercase", state: "n/a" }),
+      ],
+      [...zips(10, "28801"), ...zips(11, "28802"), ...zips(12, "28803")],
+      []
+    );
+    expect(directory.map(entry => entry.state)).toEqual([null, null, null]);
+  });
+
+  it("sorts markets with no state last rather than under the letter N", () => {
+    const directory = marketDirectory(
+      [
+        market({ id: 1, name: "Western North Carolina", state: "N/A" }),
+        market({ id: 2, name: "Asheville", state: "NC" }),
+        market({ id: 3, name: "Panama City Beach", state: "FL" }),
+      ],
+      [...zips(1, "28701"), ...zips(2, "28801"), ...zips(3, "32413")],
+      []
+    );
+    expect(directory.map(entry => entry.name)).toEqual([
+      "Panama City Beach",
+      "Asheville",
+      "Western North Carolina",
+    ]);
+  });
+
   it("orders by state then name, the order preferences already uses", () => {
     const directory = marketDirectory(
       [
