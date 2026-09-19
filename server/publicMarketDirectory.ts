@@ -48,7 +48,12 @@ export type PlacedProperty = { zip: string | null };
 export type MarketDirectoryEntry = {
   id: number;
   name: string;
-  state: string;
+  /**
+   * Null when the market record has no usable state. Several markets span
+   * states and carry the literal string "N/A", which is a placeholder rather
+   * than a place, and printing it under a market name reads as a bug.
+   */
+  state: string | null;
   /** How many ZIPs this market owns. Never zero: zero is not listed. */
   zipCount: number;
   /** Published properties whose ZIP falls in this market. May be zero. */
@@ -97,10 +102,26 @@ export function marketZipSet(assignments: ZipAssignment[]): Set<string> {
 }
 
 /**
+ * A market's state, or null when the record does not really have one.
+ *
+ * "N/A" is what a multi-state market carries in this column: Western North
+ * Carolina and the Florida Keys both do. It is the absence of a state, so it
+ * is treated as absent rather than printed.
+ */
+export function displayState(state: string | null | undefined): string | null {
+  const trimmed = (state || "").trim();
+  if (!trimmed) return null;
+  return trimmed.toUpperCase() === "N/A" ? null : trimmed;
+}
+
+/**
  * Every market the public site will show, with its property count.
  *
  * Ordered by state then name, the same order as the preferences list, so a
- * market sits in the same place wherever an investor meets it.
+ * market sits in the same place wherever an investor meets it. Markets with no
+ * real state sort last: they have nothing to sort on, and interleaving them by
+ * the literal "N/A" would drop them between Florida and North Carolina for a
+ * reason no visitor can see.
  */
 export function marketDirectory(
   markets: MarketRow[],
@@ -133,13 +154,16 @@ export function marketDirectory(
     .map(market => ({
       id: market.id,
       name: market.name,
-      state: market.state,
+      state: displayState(market.state),
       zipCount: zipCounts.get(market.id) || 0,
       propertyCount: propertyCounts.get(market.id) || 0,
     }))
     .filter(entry => entry.zipCount > 0)
     .sort(
-      (a, b) => a.state.localeCompare(b.state) || a.name.localeCompare(b.name)
+      (a, b) =>
+        Number(a.state === null) - Number(b.state === null) ||
+        (a.state || "").localeCompare(b.state || "") ||
+        a.name.localeCompare(b.name)
     );
 }
 
