@@ -863,11 +863,30 @@ function findJsonLd(html: string) {
   return null;
 }
 
+/**
+ * The procedures the public website host may call.
+ *
+ * `home.savvy-agents.com` rejects every tRPC path that is not in here, before
+ * the request reaches a router. That is worth keeping: it means an admin
+ * procedure cannot be reached from the public host even if something else
+ * goes wrong. The cost is that adding a `publicProcedure` to this router is
+ * only half the work, and forgetting the other half fails in the one place
+ * nobody is looking — the procedure works in development and on the admin
+ * host, and 404s only on the public site.
+ *
+ * `websitePublicProcedureAllowlist.test.ts` pins both directions, so the next
+ * public procedure cannot be added without a decision being made here.
+ */
 export const WEBSITE_PUBLIC_TRPC_PATHS = new Set([
   "website.publicHome",
   "website.publicSettings",
   "website.publicProperties",
+  "website.publicPropertyFacets",
   "website.publicProperty",
+  "website.publicPropertyEvidence",
+  "website.publicPage",
+  "website.publicMarkets",
+  "website.publicMarketDirectory",
   "website.publicAgents",
   "website.publicAgent",
   "website.publicCaseStudies",
