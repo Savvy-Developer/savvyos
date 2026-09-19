@@ -1,12 +1,13 @@
 import { TRPCError } from "@trpc/server";
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, gte, like, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, like, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   agentConnections,
   agentProfiles,
   contacts,
   marketProfiles,
+  marketZipCodes,
   proformas,
   properties,
   userProfiles,
@@ -48,6 +49,13 @@ import {
 } from "../proformaPublicFigures";
 import { accountFromRequest } from "../_core/websiteAccountAuth";
 import { gateEvidence, gateProperties, gateProperty } from "../websiteGating";
+import {
+  PUBLIC_MARKET_STATUSES,
+  filterableMarkets,
+  marketDirectory,
+  marketZipSet,
+  zipInMarket,
+} from "../publicMarketDirectory";
 import { publishedTestimonials } from "@shared/websiteTestimonials";
 
 /**
@@ -597,6 +605,39 @@ const settingsInput = z.object({
   footerText: nullableText,
 });
 
+/**
+ * Every public market with its ZIP territory size and published property count.
+ *
+ * One loader for both callers: the markets page shows all of it, the property
+ * filter shows the subset that would return something. Keeping it in one place
+ * is what stops the page and the filter from having different ideas about what
+ * a market contains.
+ */
+async function loadMarketDirectory(db: any) {
+  const [markets, assignments, published] = await Promise.all([
+    db
+      .select({
+        id: marketProfiles.id,
+        name: marketProfiles.name,
+        state: marketProfiles.state,
+        status: marketProfiles.status,
+      })
+      .from(marketProfiles),
+    db
+      .select({
+        zipCode: marketZipCodes.zipCode,
+        marketProfileId: marketZipCodes.marketProfileId,
+      })
+      .from(marketZipCodes),
+    db
+      .select({ zip: properties.zip })
+      .from(websiteProperties)
+      .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
+      .where(eq(websiteProperties.status, "published")),
+  ]);
+  return marketDirectory(markets, assignments, published);
+}
+
 const propertyProjection = {
   id: websiteProperties.id,
   propertyId: websiteProperties.propertyId,
@@ -862,6 +903,7 @@ export const websiteRouter = router({
         .object({
           search: z.string().trim().max(200).optional(),
           agentSlug: z.string().optional(),
+          marketId: z.number().int().positive().optional(),
           state: z.string().trim().max(2).optional(),
           city: z.string().trim().max(120).optional(),
           minPrice: z.number().nonnegative().optional(),
@@ -934,7 +976,31 @@ export const websiteRouter = router({
         )
         .where(and(...conditions))
         .orderBy(...order);
-      return gateProperties(rows, signedIn);
+
+      // The market filter runs here rather than in the SQL above, so that a
+      // property is placed by the same ZIP rule the daily investor email uses.
+      // Pushing it into the query would mean a second rule written in SQL, and
+      // the two would drift on the first ZIP+4 anybody imports.
+      const scoped =
+        input?.marketId == null
+          ? rows
+          : await (async () => {
+              const territory = marketZipSet(
+                await db
+                  .select({
+                    zipCode: marketZipCodes.zipCode,
+                    marketProfileId: marketZipCodes.marketProfileId,
+                  })
+                  .from(marketZipCodes)
+                  .where(eq(marketZipCodes.marketProfileId, input.marketId!))
+              );
+              // A market with no territory drawn yet matches nothing. Returning
+              // everything would be worse: the visitor would believe they were
+              // looking at one market.
+              return rows.filter(row => zipInMarket(row.zip, territory));
+            })();
+
+      return gateProperties(scoped, signedIn);
     }),
 
   /**
@@ -944,7 +1010,15 @@ export const websiteRouter = router({
    */
   publicPropertyFacets: publicProcedure.query(async () => {
     const db = await getDb();
-    if (!db) return { states: [], cities: [], propertyTypes: [], priceRange: null };
+    if (!db)
+      return {
+        markets: [],
+        states: [],
+        cities: [],
+        propertyTypes: [],
+        priceRange: null,
+      };
+    const markets = filterableMarkets(await loadMarketDirectory(db));
     const rows = await db
       .select({
         state: properties.state,
@@ -967,6 +1041,7 @@ export const websiteRouter = router({
       .map(r => (r.listPrice == null ? null : Number(r.listPrice)))
       .filter((n): n is number => n != null && !Number.isNaN(n));
     return {
+      markets,
       states,
       cities,
       propertyTypes,
@@ -1384,12 +1459,24 @@ export const websiteRouter = router({
       })
       .from(marketProfiles)
       .where(
-        or(
-          eq(marketProfiles.status, "active"),
-          eq(marketProfiles.status, "recruiting")
-        )!
+        inArray(marketProfiles.status, [...PUBLIC_MARKET_STATUSES] as any)
       )
       .orderBy(asc(marketProfiles.state), asc(marketProfiles.name));
+  }),
+
+  /**
+   * The markets to show on the markets page and offer as a property filter.
+   *
+   * Separate from `publicMarkets`, which backs the subscription checkboxes in
+   * email preferences and must keep listing every market somebody can ask to
+   * hear about, territories drawn or not. This one describes what a visitor can
+   * actually browse today, so it is limited to markets with ZIP territories and
+   * carries the published property count for each.
+   */
+  publicMarketDirectory: publicProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return loadMarketDirectory(db);
   }),
 
   publicAgents: publicProcedure

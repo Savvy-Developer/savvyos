@@ -57,7 +57,14 @@ function toNumber(value: string | number | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function normalizeZip(zip: string | null | undefined): string | null {
+/**
+ * A property's ZIP reduced to the five digits a territory is keyed on.
+ *
+ * Exported because the public website resolves markets the same way. One rule
+ * in one place is the only way the site and these emails can agree about which
+ * market a property is in.
+ */
+export function normalizeZip(zip: string | null | undefined): string | null {
   if (!zip) return null;
   const digits = String(zip).replace(/\D/g, "").slice(0, 5);
   return digits.length === 5 ? digits : null;
