@@ -29,6 +29,7 @@ import {
   campaignSourceFrom,
   readAdAttribution,
 } from "@shared/adAttribution";
+import { appendContactNote } from "./contactNotes";
 
 // The public savvy-agents.com client already uses this publishable key for
 // property reads. Website lead events contain a property UUID, but older event
@@ -302,7 +303,14 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     if (p.city) updates.city = p.city as string;
     if (p.state) updates.state = p.state as string;
     if (p.zip) updates.zip = p.zip as string;
-    if (p.notes) updates.notes = p.notes as string;
+    // Appended, never replaced. Assigning here meant each booking wiped the
+    // previous one's answers and anything an agent had written in between.
+    const [current] = await db
+      .select({ notes: contacts.notes })
+      .from(contacts)
+      .where(eq(contacts.id, existingId));
+    const notes = appendContactNote(current?.notes, p.notes as string | undefined);
+    if (notes !== null) updates.notes = notes;
     // Last touch. Only non-empty values are present here, so an organic
     // booking adds nothing and an attribution recorded months ago survives.
     Object.assign(updates, adAttributionUpdates(adAttribution));
@@ -478,7 +486,16 @@ const contactUpdateHandler: HandlerFn = async (rawPayload, endpoint) => {
   if (p.city) updates.city = p.city;
   if (p.state) updates.state = p.state;
   if (p.zip) updates.zip = p.zip;
-  if (p.notes) updates.notes = p.notes;
+  // Same as lead ingest: add to the contact's notes, never replace them.
+  const [currentNotes] = await db
+    .select({ notes: contacts.notes })
+    .from(contacts)
+    .where(eq(contacts.id, existingId));
+  const mergedNotes = appendContactNote(
+    currentNotes?.notes,
+    p.notes as string | undefined
+  );
+  if (mergedNotes !== null) updates.notes = mergedNotes;
   // Same last-touch policy as lead ingest. An endpoint configured as
   // contact_update rather than lead_ingest would otherwise silently drop ad
   // attribution, which is the kind of gap nobody notices until a month of
