@@ -201,6 +201,10 @@ export const marketingRequestsRouter = router({
       }
 
       if (!bannerbearResponse.ok) {
+        const errorBody = await bannerbearResponse.text().catch(() => "");
+        console.error(
+          `[AutomaticGraphics] Bannerbear rejected ${type} (template ${template.template}): HTTP ${bannerbearResponse.status} ${errorBody.slice(0, 2000)}`,
+        );
         if (bannerbearResponse.status === 402) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
@@ -218,6 +222,9 @@ export const marketingRequestsRouter = router({
         image_url?: string | null;
       };
       if (rendered.status !== "completed" || !rendered.image_url) {
+        console.error(
+          `[AutomaticGraphics] Bannerbear returned an incomplete render for ${type} (template ${template.template}): ${JSON.stringify(rendered).slice(0, 2000)}`,
+        );
         throw new TRPCError({
           code: "TIMEOUT",
           message: "The graphic took too long to generate. Please try again.",
