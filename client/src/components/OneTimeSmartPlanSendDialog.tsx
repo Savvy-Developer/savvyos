@@ -24,6 +24,10 @@ import RichEmailEditor from "@/components/RichEmailEditor";
 import EmailMessagePreviewDialog from "@/components/EmailMessagePreviewDialog";
 import SmartPlanTestSendDialog from "@/components/SmartPlanTestSendDialog";
 import OneTimeLeadSourceAudiencePicker from "@/components/OneTimeLeadSourceAudiencePicker";
+import OneTimeTagAudiencePicker from "@/components/OneTimeTagAudiencePicker";
+import OneTimeContactAudiencePicker, {
+  type PickedContact,
+} from "@/components/OneTimeContactAudiencePicker";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -44,7 +48,9 @@ type TriggerType =
   | "seller_under_contract"
   | "new_listing"
   | "buyer_closed"
-  | "seller_closed";
+  | "seller_closed"
+  | "tag"
+  | "manual_contacts";
 type Channel = "email" | "sms";
 type ScheduleMode = "now" | "scheduled";
 type LeadSource = { id: number; name: string; parentId: number | null };
@@ -88,6 +94,19 @@ const TRIGGERS: Array<{
     value: "seller_closed",
     label: "Seller Transaction Closed",
     audienceLabel: "current seller contacts with a closed transaction",
+  },
+  // The two audiences below are not Smart Plan triggers: they describe who is
+  // already here rather than who keeps arriving, so they exist for a broadcast
+  // only. See server/oneTimeSendAudience.ts.
+  {
+    value: "tag",
+    label: "Tag",
+    audienceLabel: "contacts carrying any of the selected tags",
+  },
+  {
+    value: "manual_contacts",
+    label: "Specific Contacts",
+    audienceLabel: "the contacts picked below",
   },
 ];
 
@@ -147,6 +166,10 @@ export default function OneTimeSmartPlanSendDialog({
   const [body, setBody] = useState("");
   const [triggerType, setTriggerType] = useState<TriggerType>("lead_source");
   const [triggerLeadSourceIds, setTriggerLeadSourceIds] = useState<number[]>([]);
+  const [triggerTags, setTriggerTags] = useState<string[]>([]);
+  // Names are kept alongside the ids so the chips and the review step can
+  // still say who was picked; only the ids are sent.
+  const [pickedContacts, setPickedContacts] = useState<PickedContact[]>([]);
   const [dateAddedFilterEnabled, setDateAddedFilterEnabled] = useState(false);
   const [dateAddedFrom, setDateAddedFrom] = useState("");
   const [dateAddedTo, setDateAddedTo] = useState("");
@@ -160,6 +183,17 @@ export default function OneTimeSmartPlanSendDialog({
   const [testSendOpen, setTestSendOpen] = useState(false);
 
   const isLeadSourceTrigger = triggerType === "lead_source";
+  const isTagTrigger = triggerType === "tag";
+  const isManualContactsTrigger = triggerType === "manual_contacts";
+  const tagOptions = trpc.smartPlans.oneTimeSends.tagOptions.useQuery(undefined, {
+    enabled: isTagTrigger,
+  });
+  // Memoised: this goes into the preview query key, and a fresh array every
+  // render would make the key change every render and refetch forever.
+  const pickedContactIds = useMemo(
+    () => pickedContacts.map(contact => contact.id),
+    [pickedContacts]
+  );
   const supportsDateAddedFilter =
     triggerType === "lead_source" || triggerType === "all_lead_sources";
   const dateAddedFilterAvailable =
@@ -202,6 +236,8 @@ export default function OneTimeSmartPlanSendDialog({
     !!body.trim() &&
     (channel === "sms" || !!subject.trim()) &&
     (!isLeadSourceTrigger || triggerLeadSourceIds.length > 0) &&
+    (!isTagTrigger || triggerTags.length > 0) &&
+    (!isManualContactsTrigger || pickedContactIds.length > 0) &&
     (channel === "email" || body.length <= 160) &&
     dateAddedRangeIsValid &&
     scheduleIsValid &&
@@ -215,6 +251,8 @@ export default function OneTimeSmartPlanSendDialog({
       body: body || " ",
       triggerType,
       triggerLeadSourceIds: isLeadSourceTrigger ? triggerLeadSourceIds : null,
+      triggerTags: isTagTrigger ? triggerTags : null,
+      triggerContactIds: isManualContactsTrigger ? pickedContactIds : null,
       dateAddedFrom: activeDateAddedFrom,
       dateAddedTo: activeDateAddedTo,
       scheduledAt,
@@ -227,12 +265,16 @@ export default function OneTimeSmartPlanSendDialog({
       activeDateAddedFrom,
       activeDateAddedTo,
       isLeadSourceTrigger,
+      isManualContactsTrigger,
+      isTagTrigger,
       name,
+      pickedContactIds,
       scheduledAt,
       staggerEnabled,
       staggerRate,
       subject,
       triggerLeadSourceIds,
+      triggerTags,
       triggerType,
     ]
   );
@@ -276,6 +318,10 @@ export default function OneTimeSmartPlanSendDialog({
         return toast.error("Text messages are limited to 160 characters");
       if (isLeadSourceTrigger && !triggerLeadSourceIds.length)
         return toast.error("Choose at least one lead source");
+      if (isTagTrigger && !triggerTags.length)
+        return toast.error("Choose at least one tag");
+      if (isManualContactsTrigger && !pickedContactIds.length)
+        return toast.error("Choose at least one contact");
       if (!dateAddedRangeIsValid) {
         if (!dateAddedFrom && !dateAddedTo)
           return toast.error("Choose a date added range or turn off the filter");
@@ -318,7 +364,7 @@ export default function OneTimeSmartPlanSendDialog({
           <DialogDescription>
             {isReviewing
               ? "Review the audience and confirm before any messages are queued."
-              : "Compose one email or text blast using the same Smart Plan trigger audiences."}
+              : "Compose one email or text blast to a Smart Plan audience, a tag, or a hand-picked list."}
           </DialogDescription>
         </DialogHeader>
 
@@ -359,7 +405,7 @@ export default function OneTimeSmartPlanSendDialog({
               <div>
                 <Label>Audience trigger</Label>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Choose the same current-contact audience used by Smart Plans.
+                  Choose a Smart Plan audience, a tag, or pick contacts one by one.
                 </p>
               </div>
               <Select
@@ -386,6 +432,32 @@ export default function OneTimeSmartPlanSendDialog({
                     selectedIds={triggerLeadSourceIds}
                     onSelectedIdsChange={ids => {
                       setTriggerLeadSourceIds(ids);
+                      resetReview();
+                    }}
+                  />
+                </div>
+              )}
+              {isTagTrigger && (
+                <div className="space-y-2 pt-1">
+                  <Label>Tags</Label>
+                  <OneTimeTagAudiencePicker
+                    options={tagOptions.data ?? []}
+                    isLoading={tagOptions.isLoading}
+                    selectedTags={triggerTags}
+                    onSelectedTagsChange={tags => {
+                      setTriggerTags(tags);
+                      resetReview();
+                    }}
+                  />
+                </div>
+              )}
+              {isManualContactsTrigger && (
+                <div className="space-y-2 pt-1">
+                  <Label>Contacts</Label>
+                  <OneTimeContactAudiencePicker
+                    selectedContacts={pickedContacts}
+                    onSelectedContactsChange={contacts => {
+                      setPickedContacts(contacts);
                       resetReview();
                     }}
                   />

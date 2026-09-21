@@ -2673,8 +2673,17 @@ export const oneTimeSends = mysqlTable(
       "appointment_confirmed",
       "appointment_rescheduled",
       "appointment_canceled",
+      // Broadcast-only audiences. Deliberately absent from smart_plans, which
+      // enrols contacts as they arrive: a hand-picked list cannot arrive.
+      "tag",
+      "manual_contacts",
     ]).notNull(),
     triggerLeadSourceIds: json("triggerLeadSourceIds").$type<number[]>(),
+    // The chosen tags, and the chosen contacts, for the two audiences above.
+    // Recorded so the history shows what a send was actually aimed at after
+    // the tag has been renamed or a contact has been archived.
+    triggerTags: json("triggerTags").$type<string[]>(),
+    triggerContactIds: json("triggerContactIds").$type<number[]>(),
     // Calendar-date constraints used only when a one-time send targets a lead
     // source or all lead sources. They preserve the original audience intent.
     dateAddedFrom: date("dateAddedFrom", { mode: "string" }),

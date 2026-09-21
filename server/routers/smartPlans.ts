@@ -35,6 +35,13 @@ import { renderMergeTags } from "../_core/smartPlanMergeTags";
 import { getResendEmailStatus } from "../_core/resendEmailStatus";
 import { refreshOneTimeSendMetrics } from "../oneTimeSendTracking";
 import {
+  BROADCAST_ONLY_AUDIENCES,
+  contactIdsForBroadcastAudience,
+  isBroadcastOnlyAudience,
+  normalizedAudienceContactIds,
+  normalizedAudienceTags,
+} from "../oneTimeSendAudience";
+import {
   SMART_PLAN_TRIGGER_TYPES,
   enrollContactInPlan,
   countContactsMatchingPlan,
@@ -44,6 +51,7 @@ import {
   processOneTimeSmartPlanSends,
   contactChannelAddresses,
   bulkEnrollExistingContacts,
+  type TriggerConfiguration,
 } from "../smartPlanScheduler";
 import {
   DEFAULT_SMART_PLAN_DELIVERY_WINDOW,
@@ -60,6 +68,17 @@ import { sendTransactionalEmail } from "../_core/resendEmail";
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 const smartPlanTriggerSchema = z.enum(SMART_PLAN_TRIGGER_TYPES);
+
+/**
+ * A One Time Send can aim at two audiences no Smart Plan can have: a tag, and
+ * a hand-picked list. Kept as a separate schema rather than widening
+ * smartPlanTriggerSchema, because smart_plans.triggerType is a narrower column
+ * and a plan saved with one of these would fail on write.
+ */
+const oneTimeAudienceSchema = z.enum([
+  ...SMART_PLAN_TRIGGER_TYPES,
+  ...BROADCAST_ONLY_AUDIENCES,
+]);
 
 async function rescheduleActivePlanEnrollments(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
@@ -125,14 +144,16 @@ const planInput = z.object({
   status: z.enum(["active", "paused", "draft"]).optional(),
 });
 
-const oneTimeSendInput = z
+export const oneTimeSendInput = z
   .object({
     name: z.string().trim().min(1).max(255),
     channel: z.enum(["email", "sms"]),
     subject: z.string().trim().max(255).optional().nullable(),
     body: z.string().trim().min(1).max(100_000),
-    triggerType: smartPlanTriggerSchema,
+    triggerType: oneTimeAudienceSchema,
     triggerLeadSourceIds: z.array(z.number()).optional().nullable(),
+    triggerTags: z.array(z.string().trim().min(1).max(64)).max(50).optional().nullable(),
+    triggerContactIds: z.array(z.number().int().positive()).max(5_000).optional().nullable(),
     dateAddedFrom: calendarDateInput.optional().nullable(),
     dateAddedTo: calendarDateInput.optional().nullable(),
     scheduledAt: z.coerce.date().optional(),
@@ -145,6 +166,28 @@ const oneTimeSendInput = z
         code: z.ZodIssueCode.custom,
         message: "Enter the number of messages to send per hour.",
         path: ["staggerPerHour"],
+      });
+    }
+    // Checked after normalization, so a list of blanks is rejected the same
+    // way an empty list is rather than queueing a send that matches nobody.
+    if (
+      input.triggerType === "tag" &&
+      !normalizedAudienceTags(input.triggerTags).length
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Choose at least one tag.",
+        path: ["triggerTags"],
+      });
+    }
+    if (
+      input.triggerType === "manual_contacts" &&
+      !normalizedAudienceContactIds(input.triggerContactIds).length
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Choose at least one contact.",
+        path: ["triggerContactIds"],
       });
     }
     const supportsDateAddedFilter =
@@ -173,6 +216,23 @@ const oneTimeSendInput = z
       });
     }
   });
+
+type OneTimeSendConfiguration = z.infer<typeof oneTimeSendInput>;
+
+/**
+ * The contacts an audience picks out, whichever kind of audience it is.
+ *
+ * The preview and the queue must agree on this or the count shown is not the
+ * count sent, so both go through here rather than each choosing a resolver.
+ */
+async function oneTimeSendContactIds(input: OneTimeSendConfiguration): Promise<number[]> {
+  if (isBroadcastOnlyAudience(input.triggerType)) {
+    return contactIdsForBroadcastAudience(input);
+  }
+  // Narrowed by the check above: what is left is a Smart Plan trigger, which
+  // the shared resolver types more tightly than this input can express.
+  return getCurrentContactIdsMatchingTrigger(input as TriggerConfiguration);
+}
 
 const CONTACT_QUERY_BATCH_SIZE = 1_000;
 const PROVIDER_STATUS_REFRESH_LIMIT = 100;
@@ -684,6 +744,37 @@ export const smartPlansRouter = router({
 
   // ── One Time Sends ─────────────────────────────────────────────────────────
   oneTimeSends: router({
+    /**
+     * Every tag in use, for the tag audience picker.
+     *
+     * Tags live in a JSON array on the contact with no table of their own, so
+     * there is nothing to list but the contacts themselves. DISTINCT on the
+     * column does the heavy lifting: tags travel in sets, and thousands of
+     * contacts share a few hundred distinct sets.
+     *
+     * Typed tags are not offered. A tag that matches nothing produces a send
+     * to nobody, and the point of the picker is that what is chosen exists.
+     */
+    tagOptions: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const rows = await db
+        .selectDistinct({ tags: contacts.tags })
+        .from(contacts)
+        .where(isNotNull(contacts.tags));
+      const tags = new Set<string>();
+      for (const row of rows) {
+        for (const tag of row.tags ?? []) {
+          const trimmed = typeof tag === "string" ? tag.trim() : "";
+          if (trimmed) tags.add(trimmed);
+        }
+      }
+      // Alphabetical, because the picker is scanned for a known tag rather
+      // than browsed for a popular one.
+      return Array.from(tags).sort((a, b) => a.localeCompare(b));
+    }),
+
     preview: protectedProcedure
       .input(oneTimeSendInput)
       .query(async ({ input, ctx }) => {
@@ -712,7 +803,7 @@ export const smartPlansRouter = router({
             message: "Choose at least one lead source.",
           });
         }
-        const contactIds = await getCurrentContactIdsMatchingTrigger(input);
+        const contactIds = await oneTimeSendContactIds(input);
         if (!contactIds.length)
           return {
             matchingCount: 0,
@@ -789,7 +880,7 @@ export const smartPlansRouter = router({
             ? input.staggerPerHour!
             : null;
 
-        const contactIds = await getCurrentContactIdsMatchingTrigger(input);
+        const contactIds = await oneTimeSendContactIds(input);
         const audience = await oneTimeAudience(db, contactIds, input.channel);
         if (!audience.recipientTargets.length) {
           throw new TRPCError({
@@ -808,6 +899,18 @@ export const smartPlansRouter = router({
           triggerLeadSourceIds:
             input.triggerType === "lead_source"
               ? (input.triggerLeadSourceIds ?? null)
+              : null,
+          // Stored only for the audience they belong to, matching the line
+          // above. A stale tab can send tags with a lead-source audience, and
+          // recording them would leave a history row that says a send was
+          // aimed at a tag it ignored.
+          triggerTags:
+            input.triggerType === "tag"
+              ? normalizedAudienceTags(input.triggerTags)
+              : null,
+          triggerContactIds:
+            input.triggerType === "manual_contacts"
+              ? normalizedAudienceContactIds(input.triggerContactIds)
               : null,
           dateAddedFrom: input.dateAddedFrom ?? null,
           dateAddedTo: input.dateAddedTo ?? null,
@@ -851,6 +954,14 @@ export const smartPlansRouter = router({
           details: {
             channel: input.channel,
             triggerType: input.triggerType,
+            tags: input.triggerType === "tag" ? normalizedAudienceTags(input.triggerTags) : null,
+            // The count, not the ids: an activity row is read by a person, and
+            // a list of eleven contact ids tells them nothing the recipient
+            // rows do not already record.
+            pickedContacts:
+              input.triggerType === "manual_contacts"
+                ? normalizedAudienceContactIds(input.triggerContactIds).length
+                : null,
             dateAddedFrom: input.dateAddedFrom ?? null,
             dateAddedTo: input.dateAddedTo ?? null,
             matchingContacts: contactIds.length,
