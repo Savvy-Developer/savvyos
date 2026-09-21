@@ -31,6 +31,7 @@ import { useAppBack } from "@/lib/navigationHistory";
 import { ProjectTodoBoard, type ProjectTodoLayoutItem } from "@/components/ProjectTodoBoard";
 import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelector";
 import { currentProjectRockQuarter, ProjectRockQuarterSelect } from "@/components/ProjectRockQuarterSelect";
+import { hasDatedProjectRockMilestone, prepareProjectRockMilestones } from "@shared/projectRockMilestones";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -557,9 +558,10 @@ export default function ProjectDetailPage() {
       toast.error("A due date is required for a Rock unless the project is ongoing");
       return;
     }
-    const rockMilestones: Array<{ title: string; dueDate: string }> = (editForm.rockMilestones ?? []).map((milestone: { title: string; dueDate: string }) => ({ title: milestone.title.trim(), dueDate: milestone.dueDate }));
+    const { milestones: rockMilestones, hasIncompleteMilestone } = prepareProjectRockMilestones(editForm.rockMilestones ?? []);
     const becomingRock = editForm.isRock && !project.isRock;
-    if (becomingRock && (!editForm.rockQuarter || !editForm.definitionOfDone.trim() || rockMilestones.length === 0 || rockMilestones.some((milestone) => !milestone.title || !milestone.dueDate))) {
+    const hasDatedMilestone = hasDatedProjectRockMilestone(project.todoSections ?? [], rockMilestones);
+    if (becomingRock && (!editForm.rockQuarter || !editForm.definitionOfDone.trim() || hasIncompleteMilestone || !hasDatedMilestone)) {
       toast.error("Every Rock needs a quarter, a definition of done, and at least one dated milestone");
       return;
     }

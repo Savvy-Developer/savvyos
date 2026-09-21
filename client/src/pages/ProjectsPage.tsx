@@ -26,6 +26,7 @@ import ProjectNotificationsPanel from "@/components/ProjectNotificationsPanel";
 import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelector";
 import { currentProjectRockQuarter, ProjectRockQuarterSelect } from "@/components/ProjectRockQuarterSelect";
 import ProjectSortList from "@/components/ProjectSortList";
+import { hasDatedProjectRockMilestone, prepareProjectRockMilestones } from "@shared/projectRockMilestones";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -347,8 +348,8 @@ function CreateProjectDialog({
       toast.error("A due date is required for a Rock unless the project is ongoing");
       return;
     }
-    const rockMilestones = form.rockMilestones.map((milestone) => ({ title: milestone.title.trim(), dueDate: milestone.dueDate }));
-    if (form.isRock && (!form.rockQuarter || !form.definitionOfDone.trim() || rockMilestones.length === 0 || rockMilestones.some((milestone) => !milestone.title || !milestone.dueDate))) {
+    const { milestones: rockMilestones, hasIncompleteMilestone } = prepareProjectRockMilestones(form.rockMilestones);
+    if (form.isRock && (!form.rockQuarter || !form.definitionOfDone.trim() || hasIncompleteMilestone || !hasDatedProjectRockMilestone([], rockMilestones))) {
       toast.error("Every Rock needs a quarter, a definition of done, and at least one dated milestone");
       return;
     }

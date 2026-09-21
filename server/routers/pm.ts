@@ -32,6 +32,7 @@ import { invokeLLM } from "../_core/llm";
 import { collectTaskFamilyIds, normalizeProjectTodoLayout, type ProjectTodoLayoutItem } from "../pmTodoSections";
 import { visible_meeting_ids } from "../pulse/access";
 import { hasPulseCapability } from "../pulse/authorization";
+import { hasDatedProjectRockMilestone } from "@shared/projectRockMilestones";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
 const ROCK_MILESTONE_LIMIT = 20;
@@ -537,19 +538,19 @@ export const pmRouter = router({
         }
         const becomingRock = finalIsRock && !existingProject.isRock;
         const rockMilestones = input.rockMilestones ?? [];
-        if (becomingRock && rockMilestones.length === 0) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock needs at least one milestone." });
-        }
         if (becomingRock && hasDuplicateMilestoneTitles(rockMilestones)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Rock milestones must have unique titles." });
         }
-        if (becomingRock) {
-          const existingSections = await db.select({ id: pmTodoSections.id, dueDate: pmTodoSections.dueDate })
+        const existingSections = becomingRock
+          ? await db.select({ id: pmTodoSections.id, dueDate: pmTodoSections.dueDate })
             .from(pmTodoSections)
-            .where(eq(pmTodoSections.projectId, input.id));
-          if (existingSections.some((section) => !section.dueDate)) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Add a due date to every existing section before converting this project into a Rock." });
-          }
+            .where(eq(pmTodoSections.projectId, input.id))
+          : [];
+        if (becomingRock && existingSections.some((section) => !section.dueDate)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Add a due date to every existing section before converting this project into a Rock." });
+        }
+        if (becomingRock && !hasDatedProjectRockMilestone(existingSections, rockMilestones)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock needs at least one milestone." });
         }
         if (!finalIsRock && input.routedMeetingIds?.length) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Only Rocks can be routed to Pulse meetings." });

@@ -95,4 +95,16 @@ describe("project todo section UI", () => {
       '<span className="flex items-center gap-1.5">{statusCfg.icon}<SelectValue /></span>'
     );
   });
+
+  it("allows a dated existing section to satisfy Rock conversion milestones", () => {
+    expect(projectDetailPage).toContain(
+      'hasDatedProjectRockMilestone(project.todoSections ?? [], rockMilestones)'
+    );
+    expect(projectDetailPage).toContain(
+      'prepareProjectRockMilestones(editForm.rockMilestones ?? [])'
+    );
+    expect(projectRouter).toContain(
+      'hasDatedProjectRockMilestone(existingSections, rockMilestones)'
+    );
+  });
 });
