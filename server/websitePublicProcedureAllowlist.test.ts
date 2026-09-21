@@ -20,6 +20,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { WEBSITE_PUBLIC_TRPC_PATHS, websiteRouter } from "./routers/website";
+import {
+  WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS,
+  websiteAccountRouter,
+} from "./routers/websiteAccount";
 
 /**
  * Every file the public site is built from. Add an entry here when the public
@@ -47,31 +51,36 @@ const calledProcedures = Array.from(
 /**
  * Called by the public site and knowingly not reachable from the public host.
  *
- * Every investor account procedure. The host guard rejects protected calls
- * "before they can reach authentication", which reads as a deliberate decision
- * about staff authentication — but investor sign-in is a separate auth system,
- * so whether it was meant to be covered is an open question for the repo owner.
- * Until that is answered, sign in, sign up, saved properties, email
- * preferences, view history and My Transactions do not work on the public site.
- *
- * This list is not permission for the gap. It is a record of it, kept in code
- * so it cannot be forgotten the way it was found.
+ * Empty. The investor account procedures sat here until they were allowlisted
+ * in WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS. Anything added back needs a reason next
+ * to it, since it means a page on the public site that cannot work there.
  */
-const KNOWN_UNREACHABLE_ON_PUBLIC_HOST = [
-  "websiteAccount.me",
-  "websiteAccount.myTransactions",
-  "websiteAccount.preferences",
-  "websiteAccount.recordView",
-  "websiteAccount.requestPasswordReset",
-  "websiteAccount.resetPassword",
-  "websiteAccount.savePreferences",
-  "websiteAccount.savedProperties",
-  "websiteAccount.setSaved",
-  "websiteAccount.signIn",
-  "websiteAccount.signOut",
-  "websiteAccount.signUp",
-  "websiteAccount.viewHistory",
-].sort();
+const KNOWN_UNREACHABLE_ON_PUBLIC_HOST: string[] = [];
+
+/** Everything the public host will serve from the website and account routers. */
+const PUBLIC_HOST_PATHS = new Set([
+  ...Array.from(WEBSITE_PUBLIC_TRPC_PATHS),
+  ...Array.from(WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS),
+]);
+
+/**
+ * The staff procedures in the account router, read from its source.
+ *
+ * Derived rather than listed by hand, so a new adminProcedure added to that
+ * router is protected by this test without anyone remembering to add it here.
+ */
+const accountAdminProcedures = Array.from(
+  readFileSync(
+    path.join(repoRoot, "server/routers/websiteAccount.ts"),
+    "utf8"
+  )
+    .replace(/\r\n/g, "\n")
+    .matchAll(/^\s{2}([a-zA-Z]+):\s*adminProcedure\b/gm)
+).map(match => `websiteAccount.${match[1]}`);
+
+const accountProcedureNames = Object.keys(
+  (websiteAccountRouter as any)._def.procedures
+);
 
 const procedureNames = Object.keys((websiteRouter as any)._def.procedures);
 
@@ -93,7 +102,7 @@ describe("the public website host allowlist", () => {
 
   it("covers every procedure the public site actually calls", () => {
     const unreachable = calledProcedures.filter(
-      procedure => !WEBSITE_PUBLIC_TRPC_PATHS.has(procedure)
+      procedure => !PUBLIC_HOST_PATHS.has(procedure)
     );
     // Exact equality in both directions. A new call site that nobody
     // allowlisted fails here, and so does an entry left behind after the gap
@@ -121,5 +130,44 @@ describe("the public website host allowlist", () => {
       path => !path.startsWith("website.")
     );
     expect(foreign).toEqual([]);
+  });
+
+  it("found the staff procedures it is guarding against", () => {
+    // If the source scan breaks, the next test passes vacuously.
+    expect(accountAdminProcedures).toEqual(
+      expect.arrayContaining([
+        "websiteAccount.accountsForContact",
+        "websiteAccount.linkAccountToContact",
+        "websiteAccount.unlinkAccount",
+      ])
+    );
+  });
+
+  /**
+   * The safety property. The public host exists to keep staff calls off it,
+   * and opening investor accounts must not open the staff tools that live in
+   * the same router.
+   */
+  it("never allows a staff procedure from the account router", () => {
+    const exposed = accountAdminProcedures.filter(procedure =>
+      WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS.has(procedure)
+    );
+    expect(exposed).toEqual([]);
+  });
+
+  it("allows exactly the account procedures the public site calls", () => {
+    // Nothing the site does not use, so the public surface stays as small as
+    // the feature needs.
+    const called = calledProcedures.filter(procedure =>
+      procedure.startsWith("websiteAccount.")
+    );
+    expect(Array.from(WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS).sort()).toEqual(called);
+  });
+
+  it("does not allow account paths whose procedure no longer exists", () => {
+    const orphaned = Array.from(WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS).filter(
+      path => !accountProcedureNames.includes(path.replace(/^websiteAccount\./, ""))
+    );
+    expect(orphaned).toEqual([]);
   });
 });

@@ -64,6 +64,41 @@ const NEUTRAL_RESET_REPLY = {
   message: "If that email has an account, a reset link is on its way.",
 };
 
+/**
+ * The investor account procedures the public website host may serve.
+ *
+ * `home.savvy-agents.com` rejects every tRPC path not on an allowlist before
+ * the request reaches a router, so none of these worked there until they were
+ * listed: sign in, sign up and everything behind them 404'd on the one host an
+ * investor actually uses, while working perfectly on the admin host.
+ *
+ * The guard exists to keep staff and admin calls off the public host, and this
+ * list does not weaken that. Investor auth is a separate system: its own
+ * cookie, its own table, and `websiteAccountProcedure` rejects a request with
+ * no investor session rather than falling through, and never accepts a staff
+ * session. Sign in, sign up, sign out and the two password reset calls are
+ * public by nature.
+ *
+ * The three `adminProcedure`s in this router are staff tools for linking an
+ * account to a contact, and must never appear here. The allowlist test derives
+ * them from this file's source and fails if one is ever added.
+ */
+export const WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS = new Set([
+  "websiteAccount.me",
+  "websiteAccount.signUp",
+  "websiteAccount.signIn",
+  "websiteAccount.signOut",
+  "websiteAccount.requestPasswordReset",
+  "websiteAccount.resetPassword",
+  "websiteAccount.savedProperties",
+  "websiteAccount.setSaved",
+  "websiteAccount.preferences",
+  "websiteAccount.savePreferences",
+  "websiteAccount.recordView",
+  "websiteAccount.viewHistory",
+  "websiteAccount.myTransactions",
+]);
+
 export const websiteAccountRouter = router({
   /** Who is signed in, or null. Safe to call on every page. */
   me: publicProcedure.query(async ({ ctx }) => {
