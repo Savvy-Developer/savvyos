@@ -102,3 +102,37 @@ export function campaignSourceFrom(attribution: AdAttribution): string | null {
   const value = attribution.utmCampaign || attribution.utmSource;
   return value ? value.slice(0, AD_ATTRIBUTION_MAX_LENGTH) : null;
 }
+
+/**
+ * The attribution a website visit should carry, given what is in the address
+ * bar now and what the visit has already seen.
+ *
+ * Every link on the public site is a full page load that drops the query
+ * string, so an ad's parameters existed only on the landing page. A visitor who
+ * clicked through to a property and booked a showing arrived with none. The
+ * visit's attribution is therefore held for the session and sent with any form.
+ *
+ * Last touch within the visit, blank never overwrites: a page with UTMs
+ * replaces what was held, and a page without them leaves it alone. Returns
+ * null when there is nothing to hold.
+ */
+export function sessionAdAttribution(
+  current: Record<string, unknown>,
+  held: AdAttribution | null | undefined
+): AdAttribution | null {
+  const fresh = readAdAttribution(current);
+  if (Object.keys(fresh).length) return fresh;
+  const kept = held ? adAttributionUpdates(held) : {};
+  return Object.keys(kept).length ? kept : null;
+}
+
+/** The snake_case parameters a form sends, the same keys the Zaps use. */
+export function adAttributionParams(attribution: AdAttribution | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!attribution) return out;
+  for (const [key, field] of Object.entries(AD_ATTRIBUTION_KEYS)) {
+    const value = attribution[field];
+    if (value) out[key] = value;
+  }
+  return out;
+}
