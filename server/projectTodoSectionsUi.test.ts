@@ -83,4 +83,16 @@ describe("project todo section UI", () => {
       'onUpdate({ title: section.title, dueDate: null })'
     );
   });
+
+  it("renders a project status icon only through the selected option", () => {
+    expect(projectDetailPage).toContain(
+      '<SelectTrigger aria-label="Project status"'
+    );
+    expect(projectDetailPage).toContain(
+      'disabled={updateProjectOverview.isPending}>\n                    <SelectValue />\n                  </SelectTrigger>'
+    );
+    expect(projectDetailPage).not.toContain(
+      '<span className="flex items-center gap-1.5">{statusCfg.icon}<SelectValue /></span>'
+    );
+  });
 });

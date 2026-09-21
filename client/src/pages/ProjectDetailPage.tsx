@@ -752,12 +752,12 @@ export default function ProjectDetailPage() {
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <h1 className="text-xl font-bold text-foreground">{project.title}</h1>
                   {project.isRock ? (() => { const rockStatus = (project.rockStatus ?? "on_track") as keyof typeof ROCK_STATUS_CONFIG; const config = ROCK_STATUS_CONFIG[rockStatus] ?? ROCK_STATUS_CONFIG.on_track; return <Select value={rockStatus} onValueChange={value => updateProjectOverview.mutate({ id: projectId, rockStatus: value as any })}><SelectTrigger aria-label="Rock status" className={`h-7 w-[8.75rem] gap-1.5 border px-2 text-xs font-medium ${config.color}`} disabled={updateProjectOverview.isPending}><SelectValue /></SelectTrigger><SelectContent>{Object.entries(ROCK_STATUS_CONFIG).map(([value, option]) => <SelectItem key={value} value={value}>{option.label}</SelectItem>)}</SelectContent></Select>; })() : <Select value={project.status} onValueChange={value => updateProjectOverview.mutate({ id: projectId, status: value as Status })}>
-                    <SelectTrigger aria-label="Project status" className={`h-7 w-[8.75rem] gap-1.5 border px-2 text-xs font-medium ${statusCfg.color}`} disabled={updateProjectOverview.isPending}>
-                      <span className="flex items-center gap-1.5">{statusCfg.icon}<SelectValue /></span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(STATUS_CONFIG).map(([value, config]) => <SelectItem key={value} value={value}><span className="flex items-center gap-1.5">{config.icon}{config.label}</span></SelectItem>)}
-                    </SelectContent>
+                  <SelectTrigger aria-label="Project status" className={`h-7 w-[8.75rem] gap-1.5 border px-2 text-xs font-medium ${statusCfg.color}`} disabled={updateProjectOverview.isPending}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(STATUS_CONFIG).map(([value, config]) => <SelectItem key={value} value={value}><span className="flex items-center gap-1.5">{config.icon}{config.label}</span></SelectItem>)}
+                  </SelectContent>
                   </Select>}
                   <Select value={project.priority} onValueChange={value => updateProjectOverview.mutate({ id: projectId, priority: value as Priority })}>
                     <SelectTrigger aria-label="Project priority" className={`h-7 w-[6.5rem] gap-1.5 border px-2 text-xs font-medium ${priorityCfg.badge}`} disabled={updateProjectOverview.isPending}>
