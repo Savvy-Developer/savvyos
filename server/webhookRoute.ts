@@ -11,33 +11,12 @@
  *  5. Return a JSON response to the caller
  */
 
-import crypto from "crypto";
 import type { Express, Request, Response } from "express";
 import { getDb } from "./db";
 import { webhookEndpoints, webhookLogs } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { HANDLERS } from "./webhookHandlers";
-
-// ─── Signature Verification ───────────────────────────────────────────────────
-
-function verifyHmac(
-  rawBody: string,
-  secret: string,
-  headerValue: string | undefined
-): boolean {
-  if (!headerValue) return false;
-  // Support "sha256=<hex>" prefix (GitHub style) or plain hex
-  const sig = headerValue.startsWith("sha256=") ? headerValue.slice(7) : headerValue;
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(rawBody, "utf8")
-    .digest("hex");
-  try {
-    return crypto.timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"));
-  } catch {
-    return false;
-  }
-}
+import { inboundRawBody, verifyInboundSignature } from "./webhookSignature";
 
 // ─── Log Writer ───────────────────────────────────────────────────────────────
 
@@ -74,22 +53,11 @@ async function writeLog(entry: {
 // ─── Route Registration ───────────────────────────────────────────────────────
 
 export function registerWebhookRoute(app: Express) {
-  // Use express.raw so we can verify the HMAC over the original bytes
+  // The body parsers in server/_core/index.ts keep the original bytes for
+  // this path (captureInboundRawBody), so the HMAC is checked against exactly
+  // what the sender signed.
   app.post(
     "/api/inbound/:slug",
-    (req, res, next) => {
-      // express.json() has already parsed the body upstream.
-      // Reconstruct _rawBody from the already-parsed req.body for HMAC verification.
-      // This avoids re-reading the consumed stream (which would hang forever).
-      if (req.body && typeof req.body === "object") {
-        (req as any)._rawBody = JSON.stringify(req.body);
-      } else if (typeof req.body === "string") {
-        (req as any)._rawBody = req.body;
-      } else {
-        (req as any)._rawBody = "{}";
-      }
-      next();
-    },
     async (req: Request, res: Response) => {
       const slug = req.params.slug;
       const sourceIp =
@@ -129,10 +97,9 @@ export function registerWebhookRoute(app: Express) {
 
       // ── 2. Verify HMAC signature ─────────────────────────────────────────
       if (endpoint.secret) {
-        const rawBody = (req as any)._rawBody ?? JSON.stringify(req.body);
         const sigHeader = endpoint.signatureHeader ?? "x-savvy-signature";
         const sigValue = req.headers[sigHeader.toLowerCase()] as string | undefined;
-        if (!verifyHmac(rawBody, endpoint.secret, sigValue)) {
+        if (!verifyInboundSignature(endpoint.secret, sigValue, inboundRawBody(req), req.body)) {
           const body = { ok: false, error: "Invalid signature" };
           await writeLog({
             endpointId: endpoint.id,

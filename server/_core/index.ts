@@ -30,6 +30,7 @@ import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "..
 import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../analytics/businessInsights";
 import { registerResendWebhookRoute } from "../resendWebhookRoute";
 import { registerWebhookRoute } from "../webhookRoute";
+import { captureInboundRawBody } from "../webhookSignature";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
 import { scheduleTempGrantExpiry } from "../tempGrantExpiryScheduler";
 import { scheduleEmailBehaviorsSync } from "../emailBehaviorsSync";
@@ -172,8 +173,10 @@ async function startServer() {
   registerZoomWebhook(app);
 
   // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // captureInboundRawBody keeps the original bytes for /api/inbound/* so the
+  // inbound webhook HMAC is checked against what the sender actually signed.
+  app.use(express.json({ limit: "50mb", verify: captureInboundRawBody }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true, verify: captureInboundRawBody }));
 
   // Campaign emails are sent through the Resend Emails API, so SavvyOS owns the
   // browser and RFC 8058 one-click unsubscribe flow for Smart Plan outreach.
@@ -213,7 +216,7 @@ async function startServer() {
   // Exposes all current SavvyOS data tables through the OAuth-protected,
   // strictly read-only Streamable HTTP MCP endpoint.
   registerReadOnlyMcpRoute(app);
-  // Inbound webhook route — must be before express.json to capture raw body for HMAC
+  // Inbound webhook route. HMAC is checked against the raw bytes kept by the body parsers above.
   registerWebhookRoute(app);
 
   // Calendly sends provider-confirmed Market Match bookings and cancellations.
