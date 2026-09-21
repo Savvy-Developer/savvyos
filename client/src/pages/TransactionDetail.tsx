@@ -333,10 +333,6 @@ export default function TransactionDetail() {
   const [splitPreviewOpen, setSplitPreviewOpen] = useState(false);
 
   const { data: txData, refetch } = trpc.transactions.get.useQuery({ id: txId });
-  const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(
-    undefined,
-    { enabled: isAdmin, staleTime: 30_000 },
-  );
   const { data: outboundReferrals = [] } = trpc.referrals.byTransaction.useQuery({ transactionId: txId }, { enabled: canViewOutboundReferrals });
   const { data: payouts, refetch: refetchPayouts } = trpc.transactions.getPayouts.useQuery({ transactionId: txId });
   const { data: tasksData } = trpc.tasks.list.useQuery({ relatedTransactionId: txId });
@@ -639,8 +635,7 @@ export default function TransactionDetail() {
       ? `${transactionLeadSourceParent.name} › ${transactionLeadSource.name}`
       : transactionLeadSource.name)
     : null;
-  const canEditTransactionLeadSource = isAdmin
-    && !!(adminPermissions as Record<string, boolean> | undefined)?.canEditTransactionLeadSource;
+  const canEditTransactionLeadSource = isAdmin;
 
   const totalPct = (payouts?.items ?? []).reduce((s, { payout: p }) => s + Number(p.percentage), 0);
 

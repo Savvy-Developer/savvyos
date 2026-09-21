@@ -542,10 +542,6 @@ export default function ContactDetail() {
 
   const utils = trpc.useUtils();
   const { data: contactData, refetch } = trpc.contacts.get.useQuery({ id: contactId });
-  const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(
-    undefined,
-    { enabled: isAdmin, staleTime: 30_000 },
-  );
   const { data: connectionsData } = trpc.agentConnections.list.useQuery({ contactId, limit: 50 });
   const connections = connectionsData?.rows;
   const { data: contactTxData } = trpc.transactions.byContact.useQuery({ contactId });
@@ -911,8 +907,7 @@ export default function ContactDetail() {
   };
 
   const canAssign = user?.role === "admin" || user?.role === "isa";
-  const canEditContactLeadSource = isAdmin
-    && !!(adminPermissions as Record<string, boolean> | undefined)?.canEditContactLeadSource;
+  const canEditContactLeadSource = isAdmin;
   const isIsa = user?.role === "isa";
   const aircallCallBlockedReason = !contact.phone
     ? "Add a primary phone number before calling."
