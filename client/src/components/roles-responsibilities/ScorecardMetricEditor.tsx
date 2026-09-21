@@ -200,12 +200,12 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
 
   const selectItems = (items: Array<[string, string]>) => items.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>);
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="h-[min(92dvh,92vw,56rem)] w-[min(92dvh,92vw,56rem)] max-w-none overflow-y-auto">
+    <DialogContent className="flex h-[min(92dvh,92vw,56rem)] w-[min(92dvh,92vw,56rem)] max-w-none flex-col overflow-hidden sm:max-w-none">
       <DialogHeader>
         <DialogTitle>{metric?.id ? "Edit scorecard metric" : "Create scorecard metric"}</DialogTitle>
         <DialogDescription>Start with the outcome, owner, target, and review cadence. Calculation settings stay out of the way until needed.</DialogDescription>
       </DialogHeader>
-      <div className="space-y-6 py-1">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-1 pr-1">
         <section className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2"><Label>Metric name *</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} placeholder="Eligible booking conversion rate" /></div>
           <div className="space-y-1.5"><Label>Accountable owner *</Label><Select value={form.ownerId} onValueChange={(value) => update({ ownerId: value })}><SelectTrigger><SelectValue placeholder="Choose a person" /></SelectTrigger><SelectContent>{metricOwners.map((owner) => <SelectItem key={owner.id} value={String(owner.id)}>{owner.name ?? owner.email}{owner.title ? ` · ${owner.title}` : ""}</SelectItem>)}</SelectContent></Select></div>
@@ -252,7 +252,7 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
 
         <section className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3"><div><Label>Show in weekly scorecard reviews</Label><p className="mt-1 text-xs text-muted-foreground">Adding a metric to an L10 changes only where it is reviewed. The metric and its history remain here.</p></div>{l10Meetings.length ? <div className="grid gap-2 sm:grid-cols-2">{l10Meetings.map((meeting) => <label key={meeting.id} className="flex min-h-11 items-center gap-2 rounded-md border bg-background px-3 text-sm"><Checkbox checked={form.l10MeetingIds.includes(meeting.id)} onCheckedChange={(checked) => update({ l10MeetingIds: checked ? [...form.l10MeetingIds, meeting.id] : form.l10MeetingIds.filter((id: string) => id !== meeting.id) })} />{meeting.name}</label>)}</div> : <p className="text-sm text-muted-foreground">Create an L10 in Pulse Settings before assigning a metric to weekly review.</p>}</section>
       </div>
-      <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={saveMetric.isPending} onClick={save}>{saveMetric.isPending ? "Saving…" : "Save metric"}</Button></DialogFooter>
+      <DialogFooter className="shrink-0"><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={saveMetric.isPending} onClick={save}>{saveMetric.isPending ? "Saving…" : "Save metric"}</Button></DialogFooter>
     </DialogContent>
   </Dialog>;
 }
