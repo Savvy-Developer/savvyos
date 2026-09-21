@@ -49,6 +49,7 @@ import { scheduleMonthlyFeaturedVendorEarningsReport } from "../monthlyFeaturedV
 import { ENV } from "./env";
 import { LANDING_PAGE_PUBLIC_TRPC_PATHS } from "../routers/landingPages";
 import { WEBSITE_PUBLIC_TRPC_PATHS } from "../routers/website";
+import { WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS } from "../routers/websiteAccount";
 import { RECRUITING_PUBLIC_TRPC_PATHS } from "../routers/recruiting";
 import { registerShortLinkRedirects } from "../shortLinkRedirects";
 import { getLandingPageMetadata } from "../landingPageHtml";
@@ -101,14 +102,18 @@ async function startServer() {
     next();
   });
 
-  // `home.savvy-agents.com` serves only public Landing Pages. The SPA still
-  // serves public documents on that host, while all protected/admin API calls
-  // are rejected before they can reach authentication or application routers.
+  // `home.savvy-agents.com` serves the public site and Landing Pages. Every
+  // tRPC path not on an allowlist is rejected here, before it reaches a router,
+  // so no staff or admin procedure can be called from this host whatever else
+  // goes wrong. Investor accounts are allowlisted deliberately: they are a
+  // separate auth system with their own cookie and table, and never accept a
+  // staff session. See WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS.
   const landingHost = (process.env.PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
   const landingHosts = new Set([landingHost, `www.${landingHost}`]);
   const landingHostPublicProcedures = new Set([
     ...Array.from(LANDING_PAGE_PUBLIC_TRPC_PATHS),
     ...Array.from(WEBSITE_PUBLIC_TRPC_PATHS),
+    ...Array.from(WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS),
     ...Array.from(RECRUITING_PUBLIC_TRPC_PATHS),
   ]);
   app.use((req, res, next) => {
