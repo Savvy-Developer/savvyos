@@ -200,7 +200,7 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
 
   const selectItems = (items: Array<[string, string]>) => items.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>);
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
+    <DialogContent className="h-[min(92dvh,92vw,56rem)] w-[min(92dvh,92vw,56rem)] max-w-none overflow-y-auto">
       <DialogHeader>
         <DialogTitle>{metric?.id ? "Edit scorecard metric" : "Create scorecard metric"}</DialogTitle>
         <DialogDescription>Start with the outcome, owner, target, and review cadence. Calculation settings stay out of the way until needed.</DialogDescription>
