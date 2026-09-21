@@ -38,6 +38,7 @@ import { transactionPayoutItems, transactions, listings, contacts, properties, c
 import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
 import { eq, and, sql, desc, aliasedTable, or, inArray, ne, isNull } from "drizzle-orm";
 import { applyAutomaticChecklists, recalculateChecklistDueDates } from "../checklistService";
+import { canAdminUsePermission } from "./permissions";
 
 const NON_MANUAL_LEAD_SOURCE_NAMES = new Set([
   "unattributed",
@@ -680,17 +681,19 @@ export const transactionsRouter = router({
 
   // A transaction retains the contact source captured at creation. This is the
   // sole correction path and is intentionally isolated from the normal update
-  // mutation so only administrators can change historical attribution.
+  // mutation so only explicitly authorized admins can change historical attribution.
   updateLeadSource: protectedProcedure
     .input(z.object({
       id: z.number().int().positive(),
       leadSourceId: z.number().int().positive(),
     }))
     .mutation(async ({ input, ctx }) => {
-      if (ctx.user.role !== "admin") {
+      const permitted = ctx.user.role === "admin"
+        && await canAdminUsePermission(ctx.user, "canEditTransactionLeadSource");
+      if (!permitted) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Only administrators can edit a transaction's lead source.",
+          message: "You do not have permission to edit a transaction's lead source.",
         });
       }
 

@@ -29,6 +29,7 @@ import { sendTransactionalEmail } from "../_core/resendEmail";
 import { shouldResetLeadAging } from "../leadAging";
 import { isValidOptionalUsPhone, normalizeOptionalUsPhone } from "@shared/phone";
 import { AD_ATTRIBUTION_MAX_LENGTH } from "@shared/adAttribution";
+import { canAdminUsePermission } from "./permissions";
 
 const optionalUsPhone = z
   .string()
@@ -401,18 +402,20 @@ export const contactsRouter = router({
     }),
 
   // Attribution is immutable through the ordinary contact editor. This narrow
-  // correction path is available to administrators and retains a durable audit
-  // entry for every change.
+  // correction path is available only to admins explicitly granted the Super
+  // Permission, and retains a durable audit entry for every change.
   updateLeadSource: protectedProcedure
     .input(z.object({
       id: z.number().int().positive(),
       leadSourceId: z.number().int().positive(),
     }))
     .mutation(async ({ input, ctx }) => {
-      if (ctx.user.role !== "admin") {
+      const permitted = ctx.user.role === "admin"
+        && await canAdminUsePermission(ctx.user, "canEditContactLeadSource");
+      if (!permitted) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Only administrators can edit a contact's lead source.",
+          message: "You do not have permission to edit a contact's lead source.",
         });
       }
 

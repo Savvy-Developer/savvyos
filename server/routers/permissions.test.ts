@@ -117,9 +117,9 @@ describe("Transaction permissions", () => {
     expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canAdministerTransactions", label: "Transactions Admin", group: "Transactions" });
   });
 
-  it("keeps lead-source attribution corrections outside the Super Permissions matrix", () => {
-    expect(ADMIN_NAV_PERMISSIONS.some(permission => permission.key === "canEditContactLeadSource")).toBe(false);
-    expect(ADMIN_NAV_PERMISSIONS.some(permission => permission.key === "canEditTransactionLeadSource")).toBe(false);
+  it("registers separate attribution-correction permissions for contacts and transactions", () => {
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canEditContactLeadSource", label: "Edit Contact Lead Source", group: "CRM" });
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canEditTransactionLeadSource", label: "Edit Transaction Lead Source", group: "Transactions" });
   });
 });
 
