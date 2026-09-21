@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   AD_ATTRIBUTION_MAX_LENGTH,
+  adAttributionParams,
   adAttributionUpdates,
   campaignSourceFrom,
   readAdAttribution,
+  sessionAdAttribution,
 } from "@shared/adAttribution";
 
 const META = {
@@ -106,5 +108,51 @@ describe("campaignSourceFrom", () => {
   it("returns null when there is nothing, so nothing is written", () => {
     expect(campaignSourceFrom({})).toBeNull();
     expect(campaignSourceFrom({ utmMedium: "paid" })).toBeNull();
+  });
+});
+
+describe("sessionAdAttribution", () => {
+  const AD = { utm_source: "fb", utm_medium: "paid", utm_campaign: "120248019387630701" };
+
+  it("holds the ad parameters from the landing page", () => {
+    expect(sessionAdAttribution(AD, null)).toEqual({
+      utmSource: "fb",
+      utmMedium: "paid",
+      utmCampaign: "120248019387630701",
+    });
+  });
+
+  /** The bug: the second page had no query string, so the ad was lost. */
+  it("keeps the held attribution on a page without parameters", () => {
+    const held = sessionAdAttribution(AD, null);
+    expect(sessionAdAttribution({}, held)).toEqual(held);
+    expect(sessionAdAttribution({ fbclid: "x" }, held)).toEqual(held);
+  });
+
+  it("replaces it when a later page carries a different ad", () => {
+    const held = sessionAdAttribution(AD, null);
+    expect(sessionAdAttribution({ utm_source: "google" }, held)).toEqual({
+      utmSource: "google",
+    });
+  });
+
+  it("returns nothing for an organic visit", () => {
+    expect(sessionAdAttribution({}, null)).toBeNull();
+    expect(sessionAdAttribution({ utm_source: "" }, {})).toBeNull();
+  });
+});
+
+describe("adAttributionParams", () => {
+  it("round-trips to the keys the intake reads", () => {
+    const params = adAttributionParams({ utmSource: "fb", utmCampaign: "120248019387630701" });
+    expect(params).toEqual({ utm_source: "fb", utm_campaign: "120248019387630701" });
+    expect(readAdAttribution(params)).toEqual({
+      utmSource: "fb",
+      utmCampaign: "120248019387630701",
+    });
+  });
+
+  it("is empty for nothing", () => {
+    expect(adAttributionParams(null)).toEqual({});
   });
 });

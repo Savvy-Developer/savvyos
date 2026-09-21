@@ -57,6 +57,11 @@ import {
   zipInMarket,
 } from "../publicMarketDirectory";
 import { publishedTestimonials } from "@shared/websiteTestimonials";
+import {
+  adAttributionUpdates,
+  campaignSourceFrom,
+  readAdAttribution,
+} from "@shared/adAttribution";
 
 /**
  * Whether the visitor making this request has an investor account session.
@@ -1755,6 +1760,10 @@ export const websiteRouter = router({
         .from(contacts)
         .where(eq(contacts.email, normalizedEmail))
         .limit(1);
+      // Same last-touch rule as the Calendly intake, so a lead reads the same
+      // whichever door they came through: blank never overwrites.
+      const adAttribution = readAdAttribution(input.attribution || {});
+      const adCampaign = campaignSourceFrom(adAttribution);
       let contactId = existing[0]?.id;
       if (!contactId) {
         const result = await db.insert(contacts).values({
@@ -1766,8 +1775,18 @@ export const websiteRouter = router({
           isaStatus: "new_lead",
           tags: ["Savvy website"],
           notes: input.message || "Savvy website inquiry",
+          ...adAttributionUpdates(adAttribution),
+          ...(adCampaign ? { campaignSource: adCampaign } : {}),
         });
         contactId = Number((result as any)[0]?.insertId);
+      } else {
+        const updates: Record<string, unknown> = {
+          ...adAttributionUpdates(adAttribution),
+        };
+        if (adCampaign) updates.campaignSource = adCampaign;
+        if (Object.keys(updates).length) {
+          await db.update(contacts).set(updates).where(eq(contacts.id, contactId));
+        }
       }
       await db.insert(websiteLeads).values({
         contactId: contactId || null,

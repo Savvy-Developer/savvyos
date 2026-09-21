@@ -42,6 +42,7 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
+import { captureVisitAttribution, formAttribution } from "@/lib/visitAttribution";
 import {
   attributionLine,
   publishedTestimonials,
@@ -887,9 +888,10 @@ function LeadForm({
             propertyId,
             agentUserId,
             sourcePath: window.location.pathname,
-            attribution: Object.fromEntries(
-              new URLSearchParams(window.location.search)
-            ),
+            // The visit's ad parameters, not just this page's. Links on this
+            // site drop the query string, so the landing page's UTMs were gone
+            // by the time anyone reached a form.
+            attribution: formAttribution(),
           })
         }
       >
@@ -2714,6 +2716,11 @@ function AccountPage({
 }
 
 export default function PublicWebsite() {
+  // Every page load, since every link here is one. Holds a landing page's ad
+  // parameters for the rest of the visit.
+  useEffect(() => {
+    captureVisitAttribution();
+  }, []);
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
   const relative = pathname.startsWith(BASE)
     ? pathname.slice(BASE.length) || "/"
