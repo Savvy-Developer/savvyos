@@ -28,6 +28,7 @@ import {
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { shouldResetLeadAging } from "../leadAging";
 import { isValidOptionalUsPhone, normalizeOptionalUsPhone } from "@shared/phone";
+import { AD_ATTRIBUTION_MAX_LENGTH } from "@shared/adAttribution";
 import { canAdminUsePermission } from "./permissions";
 
 const optionalUsPhone = z
@@ -108,7 +109,7 @@ function buildContactSummaryFallback({
   return `${identity}\n\n${engagement}\n\n${currentBusiness}\n\nRecommended next action: Review the most recent conversation and open task context, confirm the current investment criteria, and set one specific next outreach action with a date. This source-based summary was prepared while AI generation was temporarily unavailable.`;
 }
 
-const contactInput = z.object({
+export const contactInput = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   email: z.union([z.string().email("Please enter a valid email address"), z.literal("")]).optional().nullable(),
@@ -127,6 +128,15 @@ const contactInput = z.object({
   referralPartnerId: z.number().optional().nullable(),
   campaignSource: z.string().optional().nullable(),
   partnershipName: z.string().optional().nullable(),
+  // Last-touch ad campaign, and editable on purpose while campaignSource above
+  // is locked. They are different questions: campaignSource is part of lead
+  // source attribution, which answers "how did this person first find us" and
+  // is fixed at creation; utmCampaign answers "which ad brought them in this
+  // time", which changes every time they come back. See shared/adAttribution.ts.
+  //
+  // A later ad click still overwrites a hand-typed value. That is last touch
+  // working, not the edit being lost: the newer ad is the newer answer.
+  utmCampaign: z.string().max(AD_ATTRIBUTION_MAX_LENGTH).optional().nullable(),
   assignedIsaId: z.number().optional().nullable(),
   notes: z.string().optional().nullable(),
   tags: z.array(z.string()).optional().nullable(),
@@ -267,6 +277,12 @@ export const contactsRouter = router({
 
       // Auto-set isaStatus to 'new_lead' when an ISA is first assigned and no status is set
       const updateData = { ...input.data } as any;
+      // Clearing the box means "no campaign", so store nothing rather than an
+      // empty string. Reporting groups on this column and would otherwise show
+      // a blank group next to the real campaigns.
+      if (input.data.utmCampaign !== undefined) {
+        updateData.utmCampaign = input.data.utmCampaign?.trim() || null;
+      }
       if (
         input.data.assignedIsaId != null &&
         !oldData.assignedIsaId &&
@@ -301,6 +317,7 @@ export const contactsRouter = router({
         leadSourceId: "Lead source",
         leadSourceType: "Lead source type",
         campaignSource: "Campaign source",
+        utmCampaign: "Ad campaign",
         partnershipName: "Partnership name",
         tags: "Tags",
         isaStatus: "ISA pipeline status",

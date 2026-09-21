@@ -15,7 +15,7 @@ import PageHeader from "@/components/PageHeader";
 import { CreateReferralDialog } from "@/components/CreateReferralDialog";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Plus, Phone, PhoneCall, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake, ShieldCheck, BrainCircuit, XCircle } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Phone, PhoneCall, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake, ShieldCheck, BrainCircuit, XCircle, Megaphone } from "lucide-react";
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import { openCommunicationsHub } from "@/components/CommunicationsHub";
 import { ContactWebsiteBehaviorsTab } from "@/components/WebsiteBehaviorsTab";
@@ -720,6 +720,7 @@ export default function ContactDetail() {
         assignedIsaId: editIsaId ? Number(editIsaId) : null,
         isaStatus: (editIsaId && editIsaStatus && editIsaStatus !== "none") ? editIsaStatus as any : null,
         timezone: editForm.timezone || null,
+        utmCampaign: editForm.utmCampaign?.trim() || null,
       }
     });
   }
@@ -902,6 +903,7 @@ export default function ContactDetail() {
       leadSourceId: contact.leadSourceId ?? null,
       notes: contact.notes ?? "",
       timezone: (contact as any).timezone ?? "",
+      utmCampaign: (contact as any).utmCampaign ?? "",
     });
     setEditIsaId(String((contact as any).assignedIsaId ?? ""));
     setEditIsaStatus((contact as any).isaStatus ?? "none");
@@ -1230,6 +1232,15 @@ export default function ContactDetail() {
                       {contact.leadSourceType?.replace(/_/g, " ")}
                     </span>
                   )}
+                </div>
+              )}
+              {(contact as any).utmCampaign && (
+                <div className="flex items-center gap-2 text-sm pt-1.5">
+                  <Megaphone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs text-muted-foreground">Ad campaign</span>
+                  <span className="truncate text-xs font-medium" title={(contact as any).utmCampaign}>
+                    {(contact as any).utmCampaign}
+                  </span>
                 </div>
               )}
               {/* Spouse / Partner inline */}
@@ -1796,6 +1807,23 @@ export default function ContactDetail() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  {/* Last-touch ad campaign. Editable, unlike the lead source
+                      below it, because it records which ad brought this person
+                      in most recently rather than how they first found us. */}
+                  <div className="sm:col-span-2">
+                    <Label>Ad Campaign</Label>
+                    <Input
+                      className="mt-1"
+                      maxLength={255}
+                      value={editForm.utmCampaign ?? ""}
+                      onChange={e => setEditForm({ ...editForm, utmCampaign: e.target.value })}
+                      placeholder="e.g. spring-investor-meta"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Filled in automatically from the ad a lead clicks. Edit it to correct a
+                      campaign; a later ad click will replace it again.
+                    </p>
                   </div>
                 </div>
                 {/* ISA assignment — visible to admins and ISAs */}
