@@ -16,16 +16,22 @@ function randomSuffix() {
   return Math.random().toString(36).substring(2, 10);
 }
 
+// Template IDs and layer names come from the "Savvy STR Agents" project in
+// Bannerbear (the three "Savvy - ... FINAL" templates). Bannerbear matches
+// modifications to layers by exact name and silently drops any that do not
+// exist, so these must track the templates. Status text matches each
+// template's own default so the API output looks the same as the editor.
 const AUTOMATIC_MARKETING_TYPES = {
   under_contract: {
-    template: "Kp21rAZjovRl56eLnd",
+    template: "A37YJe5qwKAlbmpvWK",
     label: "Under Contract",
     fileSlug: "under-contract",
     requiresPrice: false,
     primaryLayer: "Contract",
-    primaryText: "Contract",
+    primaryText: "CONTRACT",
     secondaryLayer: "Under",
-    secondaryText: "Under",
+    secondaryText: "UNDER",
+    agentImageLayer: "Agent Photo",
   },
   just_closed: {
     template: "7wpnPQZz0roEDdOgxo",
@@ -34,18 +40,20 @@ const AUTOMATIC_MARKETING_TYPES = {
     requiresPrice: true,
     primaryLayer: "Contract",
     primaryText: "",
-    secondaryLayer: "Under",
-    secondaryText: "Just closed!",
+    secondaryLayer: "Listing Status",
+    secondaryText: "JUST CLOSED",
+    agentImageLayer: "image_container_rectangle_12",
   },
   just_listed: {
-    template: "RnxGpW5l0BAq5EXrJ1",
+    template: "E9YaWrZM8RQabnRd74",
     label: "Just Listed",
     fileSlug: "just-listed",
     requiresPrice: true,
     primaryLayer: "Price",
     primaryText: "",
     secondaryLayer: "Property Status",
-    secondaryText: "Just Listed!",
+    secondaryText: "JUST LISTED",
+    agentImageLayer: "Agent Photo",
   },
 } as const;
 
@@ -180,7 +188,7 @@ export const marketingRequestsRouter = router({
             modifications: [
               { name: "Property Image", image_url: sourceImageUrl },
               { name: "rectangle_10", color: null },
-              { name: "Agent Image", image_url: agentImageUrl },
+              { name: template.agentImageLayer, image_url: agentImageUrl },
               { name: "location", text: input.location },
               {
                 name: template.primaryLayer,
