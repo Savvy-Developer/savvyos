@@ -16,16 +16,22 @@ function randomSuffix() {
   return Math.random().toString(36).substring(2, 10);
 }
 
+// Template IDs and layer names come from the "Savvy STR Agents" project in
+// Bannerbear (the three "Savvy - ... FINAL" templates). Bannerbear matches
+// modifications to layers by exact name and silently drops any that do not
+// exist, so these must track the templates. Status text matches each
+// template's own default so the API output looks the same as the editor.
 const AUTOMATIC_MARKETING_TYPES = {
   under_contract: {
-    template: "Kp21rAZjovRl56eLnd",
+    template: "Rqg32K5QjJNBD8V07Y",
     label: "Under Contract",
     fileSlug: "under-contract",
     requiresPrice: false,
     primaryLayer: "Contract",
-    primaryText: "Contract",
-    secondaryLayer: "Under",
-    secondaryText: "Under",
+    primaryText: "CONTRACT",
+    secondaryLayer: "Listing Status",
+    secondaryText: "UNDER",
+    agentImageLayer: "image_container_rectangle_12",
   },
   just_closed: {
     template: "7wpnPQZz0roEDdOgxo",
@@ -34,18 +40,20 @@ const AUTOMATIC_MARKETING_TYPES = {
     requiresPrice: true,
     primaryLayer: "Contract",
     primaryText: "",
-    secondaryLayer: "Under",
-    secondaryText: "Just closed!",
+    secondaryLayer: "Listing Status",
+    secondaryText: "JUST CLOSED",
+    agentImageLayer: "image_container_rectangle_12",
   },
   just_listed: {
-    template: "RnxGpW5l0BAq5EXrJ1",
+    template: "wvgMNmDoEzpzZyARK0",
     label: "Just Listed",
     fileSlug: "just-listed",
     requiresPrice: true,
-    primaryLayer: "Price",
+    primaryLayer: "Contract",
     primaryText: "",
-    secondaryLayer: "Property Status",
-    secondaryText: "Just Listed!",
+    secondaryLayer: "Listing Status",
+    secondaryText: "JUST LISTED",
+    agentImageLayer: "image_container_rectangle_12",
   },
 } as const;
 
@@ -180,7 +188,7 @@ export const marketingRequestsRouter = router({
             modifications: [
               { name: "Property Image", image_url: sourceImageUrl },
               { name: "rectangle_10", color: null },
-              { name: "Agent Image", image_url: agentImageUrl },
+              { name: template.agentImageLayer, image_url: agentImageUrl },
               { name: "location", text: input.location },
               {
                 name: template.primaryLayer,
@@ -201,6 +209,10 @@ export const marketingRequestsRouter = router({
       }
 
       if (!bannerbearResponse.ok) {
+        const errorBody = await bannerbearResponse.text().catch(() => "");
+        console.error(
+          `[AutomaticGraphics] Bannerbear rejected ${type} (template ${template.template}): HTTP ${bannerbearResponse.status} ${errorBody.slice(0, 2000)}`,
+        );
         if (bannerbearResponse.status === 402) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
@@ -218,6 +230,9 @@ export const marketingRequestsRouter = router({
         image_url?: string | null;
       };
       if (rendered.status !== "completed" || !rendered.image_url) {
+        console.error(
+          `[AutomaticGraphics] Bannerbear returned an incomplete render for ${type} (template ${template.template}): ${JSON.stringify(rendered).slice(0, 2000)}`,
+        );
         throw new TRPCError({
           code: "TIMEOUT",
           message: "The graphic took too long to generate. Please try again.",
