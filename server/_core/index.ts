@@ -55,6 +55,7 @@ import { RECRUITING_PUBLIC_TRPC_PATHS } from "../routers/recruiting";
 import { registerShortLinkRedirects } from "../shortLinkRedirects";
 import { getLandingPageMetadata } from "../landingPageHtml";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
+import { registerLegacySiteRedirects } from "../legacySiteRedirects";
 import { registerReleaseNotificationRoute } from "../releaseNotificationRoute";
 import { registerMarketingEmailUnsubscribeRoutes } from "../marketingEmailUnsubscribe";
 import { registerReadOnlyMcpRoute } from "../readOnlyMcp";
@@ -197,6 +198,9 @@ async function startServer() {
   // Legacy GHL paths resolve first so a migration redirect never competes with
   // a landing-page slug or a branded short link.
   registerLandingPageRedirects(app);
+  // Old savvy-agents.com addresses, for when that domain points here. After
+  // the hand-made redirects above, so those always win.
+  registerLegacySiteRedirects(app);
   // Public short links are checked before the SPA fallback so links shared from
   // home.savvy-agents.com redirect without showing the SavvyOS hostname.
   registerShortLinkRedirects(app);
