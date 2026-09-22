@@ -78,6 +78,7 @@ import {
   getLeadCohortConversionReport,
   refreshLeadCohortConversionInsights,
 } from "../analytics/leadCohortConversion";
+import { getLeadFlowByAdReport } from "../analytics/leadFlowByAd";
 import {
   getConversationIntelligenceDrilldown,
   getConversationIntelligenceReport,
@@ -159,6 +160,13 @@ const conversationIntelligenceDrilldownInput = conversationIntelligenceInput.ext
   ]),
   page: z.number().int().min(1).default(1),
   limit: z.number().int().min(10).max(100).default(50),
+});
+
+const leadFlowByAdInput = z.object({
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  level: z.enum(["campaign", "adSet", "ad"]).default("campaign"),
+  utmSource: z.string().trim().min(1).max(255).optional(),
 });
 
 const leadCohortDrilldownInput = leadCohortConversionInput.extend({
@@ -1060,6 +1068,19 @@ Return only valid JSON array.`;
    * The selected date range always applies to contact acquisition / cohort dates,
    * while downstream contract and close outcomes are observed to date.
    */
+  /**
+   * Leads per ad campaign, ad set or ad, and what happened to them: booked
+   * calls, contracts and closes. Administrators only, since it lists contacts.
+   */
+  leadFlowByAd: protectedProcedure
+    .input(leadFlowByAdInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("Lead Flow by Ad is currently available to administrators only.");
+      }
+      return getLeadFlowByAdReport(input ?? { level: "campaign" });
+    }),
+
   leadCohortConversion: protectedProcedure
     .input(leadCohortConversionInput.optional())
     .query(async ({ ctx, input }) => {
