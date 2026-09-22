@@ -23,15 +23,15 @@ function randomSuffix() {
 // template's own default so the API output looks the same as the editor.
 const AUTOMATIC_MARKETING_TYPES = {
   under_contract: {
-    template: "A37YJe5qwKAlbmpvWK",
+    template: "Rqg32K5QjJNBD8V07Y",
     label: "Under Contract",
     fileSlug: "under-contract",
     requiresPrice: false,
     primaryLayer: "Contract",
     primaryText: "CONTRACT",
-    secondaryLayer: "Under",
+    secondaryLayer: "Listing Status",
     secondaryText: "UNDER",
-    agentImageLayer: "Agent Photo",
+    agentImageLayer: "image_container_rectangle_12",
   },
   just_closed: {
     template: "7wpnPQZz0roEDdOgxo",
@@ -45,15 +45,15 @@ const AUTOMATIC_MARKETING_TYPES = {
     agentImageLayer: "image_container_rectangle_12",
   },
   just_listed: {
-    template: "E9YaWrZM8RQabnRd74",
+    template: "wvgMNmDoEzpzZyARK0",
     label: "Just Listed",
     fileSlug: "just-listed",
     requiresPrice: true,
-    primaryLayer: "Price",
+    primaryLayer: "Contract",
     primaryText: "",
-    secondaryLayer: "Property Status",
+    secondaryLayer: "Listing Status",
     secondaryText: "JUST LISTED",
-    agentImageLayer: "Agent Photo",
+    agentImageLayer: "image_container_rectangle_12",
   },
 } as const;
 
