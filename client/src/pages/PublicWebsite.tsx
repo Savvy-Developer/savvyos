@@ -241,6 +241,7 @@ function Shell({
   const { data: siteSettings } = trpc.website.publicSettings.useQuery();
   const nav = [
     ["Properties", "/properties"],
+    ["Markets", "/markets"],
     ["Our Agents", "/agents"],
     ["Case Studies", "/case-studies"],
     ["About", "/about"],
@@ -334,6 +335,11 @@ function Shell({
 }
 
 function SiteFooter({ settings }: { settings?: any }) {
+  // Legal and Privacy are CMS pages, not built-in ones, so a link is shown
+  // only once the page is published. A footer link to "Page not found" on a
+  // legal page is worse than no link.
+  const legal = trpc.website.publicPage.useQuery({ slug: "legal" }, { staleTime: 10 * 60_000 });
+  const privacy = trpc.website.publicPage.useQuery({ slug: "privacy" }, { staleTime: 10 * 60_000 });
   return (
     <footer className="border-t border-slate-200 bg-white">
       <div className="mx-auto max-w-[1280px] px-4 py-10 sm:px-6 lg:px-8">
@@ -347,11 +353,14 @@ function SiteFooter({ settings }: { settings?: any }) {
           </div>
           <div className="grid grid-cols-2 gap-x-10 gap-y-3 text-sm font-medium text-[#05314a]">
             <a href={path("/properties")}>Properties</a>
+            <a href={path("/markets")}>Markets</a>
             <a href={path("/agents")}>Our Agents</a>
             <a href={path("/case-studies")}>Case Studies</a>
             <a href={path("/resources")}>Resources</a>
             <a href={path("/about")}>About</a>
             <a href={path("/contact")}>Contact</a>
+            {legal.data && <a href={path("/legal")}>Legal</a>}
+            {privacy.data && <a href={path("/privacy")}>Privacy Policy</a>}
             {/* Staff sign in is a different door from the investor account in
                 the header, and it belongs down here rather than competing with
                 it. Agents still need the link, so it is kept rather than
