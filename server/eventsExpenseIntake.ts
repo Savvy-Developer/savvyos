@@ -127,9 +127,16 @@ function findInvoiceDate(text: string) {
     /(?:invoice\s*date|date\s*issued|issued)\s*:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\w{3,9}\s+\d{1,2},?\s+\d{4})/i
   );
   if (!match) return null;
+  // These formats ("Oct 5, 2026", "10/5/2026") parse as local midnight, so
+  // the date has to be read back in local time. toISOString() converts to UTC
+  // first, which moves the date back a day anywhere east of UTC (India, for
+  // one): Oct 5 came out as Oct 4.
   const parsed = new Date(match[1]);
   if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /** Deterministic, explainable invoice suggestion. Operators can edit every value. */

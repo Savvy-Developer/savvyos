@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { categorizeExpenseInvoice } from "./eventsExpenseIntake";
 
 describe("categorizeExpenseInvoice", () => {
@@ -20,5 +20,26 @@ describe("categorizeExpenseInvoice", () => {
     expect(result.category).toBe("Production & A/V");
     expect(result.amount).toBeNull();
     expect(result.categorizationNote).toContain("filename");
+  });
+
+  describe("invoice date in any time zone", () => {
+    const originalTz = process.env.TZ;
+    afterEach(() => {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    });
+
+    // East of UTC is where toISOString() used to move the date back a day.
+    for (const tz of ["Asia/Kolkata", "America/New_York", "UTC", "Pacific/Auckland"]) {
+      it(`keeps the printed date in ${tz}`, () => {
+        process.env.TZ = tz;
+        expect(
+          categorizeExpenseInvoice("invoice.pdf", "Invoice Date: Oct 5, 2026").expenseDate
+        ).toBe("2026-10-05");
+        expect(
+          categorizeExpenseInvoice("invoice.pdf", "Invoice Date: 1/31/2026").expenseDate
+        ).toBe("2026-01-31");
+      });
+    }
   });
 });
