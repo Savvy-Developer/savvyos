@@ -214,6 +214,9 @@ export function SignUpBody() {
     email: "",
     phone: "",
     password: "",
+    // Spam trap, the same one the contact forms use: hidden from people,
+    // filled by bots that fill every input. The server refuses a filled one.
+    website: "",
   });
   const set = (key: string, value: string) =>
     setForm(prior => ({ ...prior, [key]: value }));
@@ -248,6 +251,7 @@ export function SignUpBody() {
             firstName: form.firstName.trim() || undefined,
             lastName: form.lastName.trim() || undefined,
             phone: form.phone.trim() || undefined,
+            website: form.website || undefined,
           });
         }}
       >
@@ -288,6 +292,15 @@ export function SignUpBody() {
         <p className="text-xs text-slate-500">
           At least 10 characters. Avoid anything you use elsewhere.
         </p>
+        <input
+          aria-hidden="true"
+          tabIndex={-1}
+          autoComplete="off"
+          name="website"
+          className="hidden"
+          value={form.website}
+          onChange={event => set("website", event.target.value)}
+        />
         <SubmitButton pending={signUp.isPending} disabled={!ready}>
           Create account
         </SubmitButton>
