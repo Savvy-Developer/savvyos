@@ -4,20 +4,21 @@ import { describe, expect, it } from "vitest";
 const contactDetail = () => readFileSync("client/src/pages/ContactDetail.tsx", "utf-8");
 
 describe("contact lead-source save flow", () => {
-  it("persists an authorized lead-source correction from the primary Save Changes action", () => {
+  it("sends an authorized lead-source correction in the primary Save Changes request", () => {
     const source = contactDetail();
     const handlerStart = source.indexOf("async function handleSaveContactEdit()");
     const handlerEnd = source.indexOf("\n  const createConnection", handlerStart);
     const handler = source.slice(handlerStart, handlerEnd);
 
-    expect(handler).toContain("const leadSourceChanged = canEditContactLeadSource");
-    expect(handler).toMatch(/if \(leadSourceChanged\) \{\s*await updateContactLeadSource\.mutateAsync\(/);
-    expect(handler).toMatch(/await updateContactLeadSource\.mutateAsync\([\s\S]*await updateContact\.mutateAsync\(/);
+    expect(handler).toContain("updateContact.mutate({");
+    expect(handler).toContain("leadSourceId: canEditContactLeadSource ? editForm.leadSourceId ?? undefined : undefined");
+    expect(handler).not.toContain("updateContactLeadSource");
   });
 
-  it("locks the primary Save Changes action while either contact mutation is running", () => {
+  it("uses Save Changes as the only contact attribution action", () => {
     const source = contactDetail();
 
-    expect(source).toContain("updateContact.isPending || updateContactLeadSource.isPending || checkDupMut.isPending");
+    expect(source).not.toContain("Save Lead Source");
+    expect(source).toContain("Save Changes applies it with the rest of this form");
   });
 });

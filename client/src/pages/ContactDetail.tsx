@@ -638,15 +638,6 @@ export default function ContactDetail() {
     onSuccess: () => { toast.success("Contact updated"); setEditOpen(false); refetch(); },
     onError: (e) => toast.error(e.message),
   });
-  const updateContactLeadSource = trpc.contacts.updateLeadSource.useMutation({
-    onSuccess: (data, variables) => {
-      toast.success(data.unchanged ? "Lead source is already up to date" : "Contact lead source updated");
-      setEditForm((form: any) => ({ ...form, leadSourceId: variables.leadSourceId }));
-      refetch();
-      utils.contacts.list.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
-  });
   const checkDupMut = trpc.contacts.checkDuplicate.useMutation();
   const markDoNotContact = trpc.contacts.markDoNotContact.useMutation({
     onSuccess: () => {
@@ -681,9 +672,6 @@ export default function ContactDetail() {
     if (editForm.secondaryPhone && !isValidPhone(editForm.secondaryPhone)) { toast.error("Please enter a valid secondary phone number (9+ digits)"); return; }
     if (editForm.thirdPhone && !isValidPhone(editForm.thirdPhone)) { toast.error("Please enter a valid third phone number (9+ digits)"); return; }
     if (editForm.spousePhone && !isValidPhone(editForm.spousePhone)) { toast.error("Please enter a valid spouse phone number (9+ digits)"); return; }
-    const leadSourceChanged = canEditContactLeadSource
-      && !!editForm.leadSourceId
-      && editForm.leadSourceId !== contact?.leadSourceId;
     // Hard block: email or phone matches a DIFFERENT contact.
     // Only check fields that actually changed — if the user didn't edit the
     // email or phone, there is no need to re-validate them (and doing so would
@@ -704,38 +692,29 @@ export default function ContactDetail() {
         }
       } catch { /* non-blocking — proceed if check fails */ }
     }
-    try {
-      if (leadSourceChanged) {
-        await updateContactLeadSource.mutateAsync({
-          id: contactId,
-          leadSourceId: Number(editForm.leadSourceId),
-        });
-      }
-      await updateContact.mutateAsync({
-        id: contactId,
-        data: {
-          firstName: editForm.firstName,
-          lastName: editForm.lastName,
-          email: editForm.email,
-          phone: editForm.phone || null,
-          secondaryEmail: editForm.secondaryEmail || null,
-          secondaryPhone: editForm.secondaryPhone || null,
-          thirdEmail: editForm.thirdEmail || null,
-          thirdPhone: editForm.thirdPhone || null,
-          spouseFirstName: editForm.spouseFirstName || null,
-          spouseLastName: editForm.spouseLastName || null,
-          spouseEmail: editForm.spouseEmail || null,
-          spousePhone: editForm.spousePhone || null,
-          notes: editForm.notes || null,
-          assignedIsaId: editIsaId ? Number(editIsaId) : null,
-          isaStatus: (editIsaId && editIsaStatus && editIsaStatus !== "none") ? editIsaStatus as any : null,
-          timezone: editForm.timezone || null,
-          utmCampaign: editForm.utmCampaign?.trim() || null,
-        },
-      });
-    } catch {
-      // Each mutation reports its own actionable error and leaves the dialog open.
-    }
+    updateContact.mutate({
+      id: contactId,
+      data: {
+        firstName: editForm.firstName,
+        lastName: editForm.lastName,
+        email: editForm.email,
+        phone: editForm.phone || null,
+        secondaryEmail: editForm.secondaryEmail || null,
+        secondaryPhone: editForm.secondaryPhone || null,
+        thirdEmail: editForm.thirdEmail || null,
+        thirdPhone: editForm.thirdPhone || null,
+        spouseFirstName: editForm.spouseFirstName || null,
+        spouseLastName: editForm.spouseLastName || null,
+        spouseEmail: editForm.spouseEmail || null,
+        spousePhone: editForm.spousePhone || null,
+        leadSourceId: canEditContactLeadSource ? editForm.leadSourceId ?? undefined : undefined,
+        notes: editForm.notes || null,
+        assignedIsaId: editIsaId ? Number(editIsaId) : null,
+        isaStatus: (editIsaId && editIsaStatus && editIsaStatus !== "none") ? editIsaStatus as any : null,
+        timezone: editForm.timezone || null,
+        utmCampaign: editForm.utmCampaign?.trim() || null,
+      },
+    });
   }
 
   const createConnection = trpc.agentConnections.create.useMutation({
@@ -1906,20 +1885,9 @@ export default function ContactDetail() {
                         value={editForm.leadSourceId}
                         onChange={(leadSourceId) => setEditForm({ ...editForm, leadSourceId })}
                       />
-                      <div className="mt-3 flex items-center justify-between gap-3">
-                        <p className="text-xs text-amber-800">
-                          This corrects the contact's attribution only. Existing transaction attribution does not change.
-                        </p>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateContactLeadSource.mutate({ id: contactId, leadSourceId: Number(editForm.leadSourceId) })}
-                          disabled={!editForm.leadSourceId || editForm.leadSourceId === contact.leadSourceId || updateContactLeadSource.isPending}
-                        >
-                          {updateContactLeadSource.isPending ? "Saving..." : "Save Lead Source"}
-                        </Button>
-                      </div>
+                      <p className="mt-3 text-xs text-amber-800">
+                        This corrects the contact's attribution only. Save Changes applies it with the rest of this form; existing transaction attribution does not change.
+                      </p>
                     </div>
                   ) : (
                     <p className="mt-1 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
@@ -1936,10 +1904,10 @@ export default function ContactDetail() {
             <DialogFooter className="mt-4">
               <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
               <Button
-                disabled={updateContact.isPending || updateContactLeadSource.isPending || checkDupMut.isPending}
+                disabled={updateContact.isPending || checkDupMut.isPending}
                 onClick={handleSaveContactEdit}
               >
-                {(updateContact.isPending || updateContactLeadSource.isPending || checkDupMut.isPending) ? "Saving..." : "Save Changes"}
+                {(updateContact.isPending || checkDupMut.isPending) ? "Saving..." : "Save Changes"}
               </Button>
             </DialogFooter>
           </DialogContent>

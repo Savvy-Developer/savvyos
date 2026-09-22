@@ -1,20 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockCreateContact, mockGetDb, mockLogActivity } = vi.hoisted(() => ({
+const { mockCanAdminUsePermission, mockCreateContact, mockGetContactById, mockGetDb, mockLogActivity, mockUpdateContact } = vi.hoisted(() => ({
+  mockCanAdminUsePermission: vi.fn(),
   mockCreateContact: vi.fn(),
+  mockGetContactById: vi.fn(),
   mockGetDb: vi.fn(),
   mockLogActivity: vi.fn(),
+  mockUpdateContact: vi.fn(),
 }));
 
 vi.mock("../db", () => ({
   createContact: mockCreateContact,
   createCommunication: vi.fn(),
   getCommunications: vi.fn(),
-  getContactById: vi.fn(),
+  getContactById: mockGetContactById,
   getContacts: vi.fn(),
   getDb: mockGetDb,
   logActivity: mockLogActivity,
-  updateContact: vi.fn(),
+  updateContact: mockUpdateContact,
   resetLeadAgingForAgent: vi.fn(),
   archiveContact: vi.fn(),
   deleteContact: vi.fn(),
@@ -22,6 +25,7 @@ vi.mock("../db", () => ({
 
 vi.mock("../_core/llm", () => ({ invokeLLM: vi.fn() }));
 vi.mock("../_core/resendEmail", () => ({ sendTransactionalEmail: vi.fn() }));
+vi.mock("./permissions", () => ({ canAdminUsePermission: mockCanAdminUsePermission }));
 
 import { contactsRouter } from "./contacts";
 
@@ -45,7 +49,7 @@ function makeDb(sourceName: string | undefined) {
   };
   sourceQuery.from.mockReturnValue(sourceQuery);
   sourceQuery.where.mockReturnValue(sourceQuery);
-  sourceQuery.limit.mockResolvedValue(sourceName ? [{ name: sourceName }] : []);
+  sourceQuery.limit.mockResolvedValue(sourceName ? [{ id: 360006, name: sourceName, parentId: null, isActive: true }] : []);
 
   const duplicateQuery = {
     from: vi.fn(),
@@ -178,4 +182,56 @@ describe("contacts.create source and phone policies", () => {
       expect(mockCreateContact).not.toHaveBeenCalled();
     }
   );
+});
+
+describe("contacts.update lead-source corrections", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCanAdminUsePermission.mockResolvedValue(true);
+    mockGetContactById.mockResolvedValue({
+      contact: { id: 88, firstName: "Taylor", lastName: "Morgan", leadSourceId: 360005 },
+      leadSource: { id: 360005, name: "Agent Sourced", parentName: null },
+    });
+    mockGetDb.mockResolvedValue(makeDb("Referral"));
+    mockUpdateContact.mockResolvedValue(undefined);
+  });
+
+  it("persists a permitted lead-source correction through the standard contact update", async () => {
+    const caller = contactsRouter.createCaller(context("admin"));
+
+    await expect(caller.update({ id: 88, data: { leadSourceId: 360006 } })).resolves.toEqual({ success: true });
+
+    expect(mockCanAdminUsePermission).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "admin" }),
+      "canEditContactLeadSource",
+    );
+    expect(mockUpdateContact).toHaveBeenCalledWith(
+      88,
+      expect.objectContaining({ leadSourceId: 360006 }),
+      { allowLeadSourceUpdate: true },
+    );
+  });
+
+  it("blocks a lead-source correction when the Super Permission is not granted", async () => {
+    mockCanAdminUsePermission.mockResolvedValue(false);
+    const caller = contactsRouter.createCaller(context("admin"));
+
+    await expect(caller.update({ id: 88, data: { leadSourceId: 360006 } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: expect.stringContaining("permission"),
+    });
+
+    expect(mockUpdateContact).not.toHaveBeenCalled();
+  });
+
+  it("requires a concrete manual lead source for a correction", async () => {
+    const caller = contactsRouter.createCaller(context("admin"));
+
+    await expect(caller.update({ id: 88, data: { leadSourceId: null } })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("active manual lead source"),
+    });
+
+    expect(mockUpdateContact).not.toHaveBeenCalled();
+  });
 });

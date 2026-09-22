@@ -262,9 +262,48 @@ export const contactsRouter = router({
       // Fetch old values before updating so we can log a proper diff
       const oldContact = await getContactById(input.id);
       const oldData = (oldContact as any)?.contact ?? oldContact ?? {};
+      const leadSourceChanged = input.data.leadSourceId !== undefined
+        && input.data.leadSourceId !== oldData.leadSourceId;
+      if (leadSourceChanged) {
+        if (!Number.isInteger(input.data.leadSourceId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active manual lead source." });
+        }
+        const permitted = ctx.user.role === "admin"
+          && await canAdminUsePermission(ctx.user, "canEditContactLeadSource");
+        if (!permitted) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have permission to edit a contact's lead source.",
+          });
+        }
 
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+        const [selectedLeadSource] = await db
+          .select({
+            id: leadSources.id,
+            name: leadSources.name,
+            parentId: leadSources.parentId,
+            isActive: leadSources.isActive,
+          })
+          .from(leadSources)
+          .where(eq(leadSources.id, input.data.leadSourceId!))
+          .limit(1);
+        if (!selectedLeadSource || !selectedLeadSource.isActive || isNonManualLeadSource(selectedLeadSource.name)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active manual lead source." });
+        }
+        if (selectedLeadSource.parentId) {
+          const [parent] = await db
+            .select({ name: leadSources.name, isActive: leadSources.isActive })
+            .from(leadSources)
+            .where(eq(leadSources.id, selectedLeadSource.parentId))
+            .limit(1);
+          if (!parent?.isActive) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a lead source under an active category." });
+          }
+        }
+      }
       if (
-        (input.data.leadSourceId !== undefined && input.data.leadSourceId !== oldData.leadSourceId) ||
         (input.data.leadSourceType !== undefined && input.data.leadSourceType !== oldData.leadSourceType) ||
         (input.data.campaignSource !== undefined && input.data.campaignSource !== oldData.campaignSource) ||
         (input.data.partnershipName !== undefined && input.data.partnershipName !== oldData.partnershipName)
@@ -296,7 +335,7 @@ export const contactsRouter = router({
         updateData.isaStatus = null;
       }
 
-      await updateContact(input.id, updateData);
+      await updateContact(input.id, updateData, { allowLeadSourceUpdate: leadSourceChanged });
 
       // Build a human-readable diff of only the fields that actually changed
       const FIELD_LABELS: Record<string, string> = {
