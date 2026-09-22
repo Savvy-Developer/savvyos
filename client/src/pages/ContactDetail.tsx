@@ -681,6 +681,9 @@ export default function ContactDetail() {
     if (editForm.secondaryPhone && !isValidPhone(editForm.secondaryPhone)) { toast.error("Please enter a valid secondary phone number (9+ digits)"); return; }
     if (editForm.thirdPhone && !isValidPhone(editForm.thirdPhone)) { toast.error("Please enter a valid third phone number (9+ digits)"); return; }
     if (editForm.spousePhone && !isValidPhone(editForm.spousePhone)) { toast.error("Please enter a valid spouse phone number (9+ digits)"); return; }
+    const leadSourceChanged = canEditContactLeadSource
+      && !!editForm.leadSourceId
+      && editForm.leadSourceId !== contact?.leadSourceId;
     // Hard block: email or phone matches a DIFFERENT contact.
     // Only check fields that actually changed — if the user didn't edit the
     // email or phone, there is no need to re-validate them (and doing so would
@@ -701,28 +704,38 @@ export default function ContactDetail() {
         }
       } catch { /* non-blocking — proceed if check fails */ }
     }
-    updateContact.mutate({
-      id: contactId,
-      data: {
-        firstName: editForm.firstName,
-        lastName: editForm.lastName,
-        email: editForm.email,
-        phone: editForm.phone || null,
-        secondaryEmail: editForm.secondaryEmail || null,
-        secondaryPhone: editForm.secondaryPhone || null,
-        thirdEmail: editForm.thirdEmail || null,
-        thirdPhone: editForm.thirdPhone || null,
-        spouseFirstName: editForm.spouseFirstName || null,
-        spouseLastName: editForm.spouseLastName || null,
-        spouseEmail: editForm.spouseEmail || null,
-        spousePhone: editForm.spousePhone || null,
-        notes: editForm.notes || null,
-        assignedIsaId: editIsaId ? Number(editIsaId) : null,
-        isaStatus: (editIsaId && editIsaStatus && editIsaStatus !== "none") ? editIsaStatus as any : null,
-        timezone: editForm.timezone || null,
-        utmCampaign: editForm.utmCampaign?.trim() || null,
+    try {
+      if (leadSourceChanged) {
+        await updateContactLeadSource.mutateAsync({
+          id: contactId,
+          leadSourceId: Number(editForm.leadSourceId),
+        });
       }
-    });
+      await updateContact.mutateAsync({
+        id: contactId,
+        data: {
+          firstName: editForm.firstName,
+          lastName: editForm.lastName,
+          email: editForm.email,
+          phone: editForm.phone || null,
+          secondaryEmail: editForm.secondaryEmail || null,
+          secondaryPhone: editForm.secondaryPhone || null,
+          thirdEmail: editForm.thirdEmail || null,
+          thirdPhone: editForm.thirdPhone || null,
+          spouseFirstName: editForm.spouseFirstName || null,
+          spouseLastName: editForm.spouseLastName || null,
+          spouseEmail: editForm.spouseEmail || null,
+          spousePhone: editForm.spousePhone || null,
+          notes: editForm.notes || null,
+          assignedIsaId: editIsaId ? Number(editIsaId) : null,
+          isaStatus: (editIsaId && editIsaStatus && editIsaStatus !== "none") ? editIsaStatus as any : null,
+          timezone: editForm.timezone || null,
+          utmCampaign: editForm.utmCampaign?.trim() || null,
+        },
+      });
+    } catch {
+      // Each mutation reports its own actionable error and leaves the dialog open.
+    }
   }
 
   const createConnection = trpc.agentConnections.create.useMutation({
@@ -1923,10 +1936,10 @@ export default function ContactDetail() {
             <DialogFooter className="mt-4">
               <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
               <Button
-                disabled={updateContact.isPending || checkDupMut.isPending}
+                disabled={updateContact.isPending || updateContactLeadSource.isPending || checkDupMut.isPending}
                 onClick={handleSaveContactEdit}
               >
-                {(updateContact.isPending || checkDupMut.isPending) ? "Saving..." : "Save Changes"}
+                {(updateContact.isPending || updateContactLeadSource.isPending || checkDupMut.isPending) ? "Saving..." : "Save Changes"}
               </Button>
             </DialogFooter>
           </DialogContent>
