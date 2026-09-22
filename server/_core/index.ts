@@ -64,6 +64,7 @@ import { scheduleInactiveQuizFollowUps } from "../marketMatchQuiz";
 import { registerCalendarOAuthRoutes } from "../calendarOAuthRoutes";
 import { registerSwoogoEventsWebhook } from "../eventsSwoogoWebhook";
 import { startSwoogoTokenRefresh } from "../swoogoEvents";
+import { ensureProjectTodoWorkflowSchema } from "../projectTodoWorkflowSchema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -85,6 +86,11 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // The schema guard is idempotent and completes before Railway marks a new
+  // instance healthy, so this release never serves its new project To-Do fields
+  // against a pre-migration database.
+  await ensureProjectTodoWorkflowSchema();
+
   const app = express();
   const server = createServer(app);
 

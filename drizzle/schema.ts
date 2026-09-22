@@ -5088,7 +5088,9 @@ export const pmTasks = mysqlTable(
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
     dueDate: timestamp("dueDate"),
+    recurrence: varchar("recurrence", { length: 16 }).notNull().default("none"), // none | daily | weekdays | weekly | monthly
     priority: varchar("priority", { length: 16 }).notNull().default("medium"), // high | medium | low
+    status: varchar("status", { length: 16 }).notNull().default("not_started"), // not_started | in_progress | blocked | completed
     completed: boolean("completed").notNull().default(false),
     completedAt: timestamp("completedAt"),
     notes: text("notes"),
@@ -5104,6 +5106,7 @@ export const pmTasks = mysqlTable(
     }).onDelete("set null"),
     index("pm_tasks_parent_idx").on(table.parentTaskId),
     index("pm_tasks_section_order_idx").on(table.sectionId, table.sortOrder, table.createdAt),
+    index("pm_tasks_project_status_idx").on(table.projectId, table.status, table.dueDate),
   ]
 );
 export type PmTask = typeof pmTasks.$inferSelect;

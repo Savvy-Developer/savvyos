@@ -19,6 +19,14 @@ const projectRouter = readFileSync(
   path.join(root, "server/routers/pm.ts"),
   "utf8"
 );
+const serverEntry = readFileSync(
+  path.join(root, "server/_core/index.ts"),
+  "utf8"
+);
+const todoSchemaGuard = readFileSync(
+  path.join(root, "server/projectTodoWorkflowSchema.ts"),
+  "utf8"
+);
 
 describe("project todo section UI", () => {
   it("renders standalone todos and titled sections in one draggable root order", () => {
@@ -106,5 +114,23 @@ describe("project todo section UI", () => {
     expect(projectRouter).toContain(
       'hasDatedProjectRockMilestone(existingSections, rockMilestones)'
     );
+  });
+
+  it("shows Pulse-style project todo statuses and repeating schedules", () => {
+    expect(projectDetailPage).toContain('aria-label="To-Do status"');
+    expect(projectDetailPage).toContain("TODO_STATUS_CONFIG");
+    expect(projectDetailPage).toContain("Repeats");
+    expect(projectDetailPage).toContain("RECURRENCE_LABELS");
+    expect(projectRouter).toContain("recurrence: z.enum(TODO_RECURRENCES)");
+    expect(projectRouter).toContain('status: z.enum(["not_started", "in_progress", "blocked", "completed"])');
+    expect(projectRouter).toContain("completionUpdate");
+  });
+
+  it("makes the production schema ready before serving the new workflow", () => {
+    expect(serverEntry).toContain("ensureProjectTodoWorkflowSchema");
+    expect(serverEntry).toContain("await ensureProjectTodoWorkflowSchema()");
+    expect(todoSchemaGuard).toContain("ALTER TABLE `pm_tasks` ADD COLUMN `status`");
+    expect(todoSchemaGuard).toContain("ALTER TABLE `pm_tasks` ADD COLUMN `recurrence`");
+    expect(todoSchemaGuard).toContain("pm_tasks_project_status_idx");
   });
 });

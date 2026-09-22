@@ -30,6 +30,7 @@ import { and, eq, desc, asc, isNull, sql, inArray } from "drizzle-orm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { invokeLLM } from "../_core/llm";
 import { collectTaskFamilyIds, normalizeProjectTodoLayout, type ProjectTodoLayoutItem } from "../pmTodoSections";
+import { completionUpdate, reopenUpdate, TODO_RECURRENCES, type TodoRecurrence } from "../projectTodoLifecycle";
 import { visible_meeting_ids } from "../pulse/access";
 import { hasPulseCapability } from "../pulse/authorization";
 import { hasDatedProjectRockMilestone } from "@shared/projectRockMilestones";
@@ -324,7 +325,9 @@ export const pmRouter = router({
             ownerId: pmTasks.ownerId,
             ownerName: users.name,
             dueDate: pmTasks.dueDate,
+            recurrence: pmTasks.recurrence,
             priority: pmTasks.priority,
+            status: pmTasks.status,
             completed: pmTasks.completed,
             completedAt: pmTasks.completedAt,
             notes: pmTasks.notes,
@@ -934,8 +937,13 @@ export const pmRouter = router({
         title: z.string().min(1).max(5000),
         ownerId: z.number(),
         dueDate: z.date().nullable().optional(),
+        recurrence: z.enum(TODO_RECURRENCES).default("none"),
         priority: z.enum(["high", "medium", "low"]).default("medium"),
         notes: z.string().optional(),
+      }).superRefine((input, refinement) => {
+        if (input.recurrence !== "none" && !input.dueDate) {
+          refinement.addIssue({ code: "custom", path: ["dueDate"], message: "A recurring To-Do needs a first due date." });
+        }
       }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
@@ -988,6 +996,7 @@ export const pmRouter = router({
           title: input.title,
           ownerId: input.ownerId,
           dueDate: input.dueDate ?? null,
+          recurrence: input.recurrence,
           priority: input.priority,
           notes: input.notes ?? null,
           sortOrder,
@@ -1003,18 +1012,34 @@ export const pmRouter = router({
         sectionId: z.number().nullable().optional(),
         ownerId: z.number().optional(),
         dueDate: z.date().nullable().optional(),
+        recurrence: z.enum(TODO_RECURRENCES).optional(),
         priority: z.enum(["high", "medium", "low"]).optional(),
+        status: z.enum(["not_started", "in_progress", "blocked", "completed"]).optional(),
         notes: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const [task] = await db.select({ projectId: pmTasks.projectId, parentTaskId: pmTasks.parentTaskId, sectionId: pmTasks.sectionId, title: pmTasks.title })
+        const [task] = await db.select({ projectId: pmTasks.projectId, parentTaskId: pmTasks.parentTaskId, sectionId: pmTasks.sectionId, title: pmTasks.title, recurrence: pmTasks.recurrence, dueDate: pmTasks.dueDate, status: pmTasks.status })
           .from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
         const { id, sectionId, ...fields } = input;
+        const finalRecurrence = input.recurrence ?? task.recurrence;
+        const finalDueDate = input.dueDate === undefined ? task.dueDate : input.dueDate;
+        if (finalRecurrence !== "none" && !finalDueDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A recurring To-Do needs a due date." });
+        }
+        const completion = input.status === "completed" && task.status !== "completed"
+          ? completionUpdate({ dueDate: finalDueDate, recurrence: finalRecurrence as TodoRecurrence })
+          : null;
+        if (completion) {
+          const { rolledForward: _rolledForward, ...completionFields } = completion;
+          Object.assign(fields, completionFields);
+        } else if (input.status && input.status !== "completed") {
+          Object.assign(fields, { completed: false, completedAt: null });
+        }
         const updates = {
           ...fields,
           dueDate: fields.dueDate === null ? sql`NULL` : fields.dueDate,
@@ -1069,8 +1094,16 @@ export const pmRouter = router({
             await transaction.update(pmTasks).set({ sortOrder: destinationSortOrder }).where(eq(pmTasks.id, id));
           }
         });
-        await logActivity(task.projectId, ctx.user.id, sectionChanged ? "task_moved" : "task_updated", sectionChanged ? `Moved todo "${task.title}" to ${destinationSectionTitle ? `section "${destinationSectionTitle}"` : "the main To-Do list"}` : "Updated todo", id);
-        return { success: true };
+        const statusChanged = input.status !== undefined && input.status !== task.status;
+        const statusLabel = input.status?.replaceAll("_", " ") ?? "not started";
+        const action = sectionChanged ? "task_moved" : statusChanged && input.status === "completed" ? "task_completed" : statusChanged && task.status === "completed" ? "task_reopened" : "task_updated";
+        const detail = sectionChanged
+          ? `Moved todo "${task.title}" to ${destinationSectionTitle ? `section "${destinationSectionTitle}"` : "the main To-Do list"}`
+          : statusChanged
+            ? `${input.status === "completed" ? "Completed" : "Set status to"} ${statusLabel} for "${task.title}"`
+            : "Updated todo";
+        await logActivity(task.projectId, ctx.user.id, action, detail, id);
+        return { success: true, rolledForward: completion?.rolledForward ?? false };
       }),
 
     toggleComplete: protectedProcedure
@@ -1079,15 +1112,14 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const [task] = await db.select({ projectId: pmTasks.projectId, title: pmTasks.title }).from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
+        const [task] = await db.select({ projectId: pmTasks.projectId, title: pmTasks.title, recurrence: pmTasks.recurrence, dueDate: pmTasks.dueDate }).from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
-        await db.update(pmTasks).set({
-          completed: input.completed,
-          completedAt: input.completed ? new Date() : null,
-        }).where(eq(pmTasks.id, input.id));
-        await logActivity(task.projectId, ctx.user.id, input.completed ? "task_completed" : "task_reopened", `"${task.title}"`, input.id);
-        return { success: true };
+        const update = input.completed ? completionUpdate({ ...task, recurrence: task.recurrence as TodoRecurrence }) : reopenUpdate();
+        const { rolledForward, ...updateFields } = update;
+        await db.update(pmTasks).set(updateFields).where(eq(pmTasks.id, input.id));
+        await logActivity(task.projectId, ctx.user.id, input.completed ? "task_completed" : "task_reopened", rolledForward ? `Completed recurring To-Do "${task.title}" and moved it to its next due date` : `"${task.title}"`, input.id);
+        return { success: true, rolledForward };
       }),
 
     delete: protectedProcedure

@@ -21,7 +21,7 @@ import { format } from "date-fns";
 import {
   ArrowLeft, ArrowRightLeft, Plus, Check, CheckCircle2, Circle, CornerDownRight, History, MessageCircle, Pencil, AlertTriangle, TrendingUp,
   Clock, Calendar, User, Edit2, Trash2, MessageSquare, Sparkles,
-  ChevronDown, ChevronUp, Save, X, MoreHorizontal, Activity,
+  ChevronDown, ChevronUp, Save, X, MoreHorizontal, Activity, Repeat2,
   BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks, GripVertical, Flag,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -37,6 +37,8 @@ import { hasDatedProjectRockMilestone, prepareProjectRockMilestones } from "@sha
 
 type Priority = "high" | "medium" | "low";
 type Status = "not_started" | "in_progress" | "at_risk" | "completed";
+type TodoStatus = "not_started" | "in_progress" | "blocked" | "completed";
+type Recurrence = "none" | "daily" | "weekdays" | "weekly" | "monthly";
 type UpdateStatus = "on_track" | "at_risk" | "off_track";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -52,6 +54,21 @@ const PRIORITY_CONFIG: Record<Priority, { label: string; dot: string; badge: str
   high: { label: "High", dot: "bg-red-500", badge: "bg-red-50 text-red-700 border-red-200" },
   medium: { label: "Medium", dot: "bg-amber-500", badge: "bg-amber-50 text-amber-700 border-amber-200" },
   low: { label: "Low", dot: "bg-slate-400", badge: "bg-slate-50 text-slate-700 border-slate-200" },
+};
+
+const TODO_STATUS_CONFIG: Record<TodoStatus, { label: string; color: string }> = {
+  not_started: { label: "Not Started", color: "bg-slate-50 text-slate-700 border-slate-200" },
+  in_progress: { label: "In Progress", color: "bg-blue-50 text-blue-800 border-blue-200" },
+  blocked: { label: "Blocked", color: "bg-rose-50 text-rose-800 border-rose-200" },
+  completed: { label: "Completed", color: "bg-emerald-50 text-emerald-800 border-emerald-200" },
+};
+
+const RECURRENCE_LABELS: Record<Recurrence, string> = {
+  none: "One-time",
+  daily: "Daily",
+  weekdays: "Weekdays",
+  weekly: "Weekly",
+  monthly: "Monthly",
 };
 
 const ROCK_STATUS_CONFIG = {
@@ -92,13 +109,17 @@ const NO_SECTION_VALUE = "no-section";
 function ProjectQuickWorkControls({ task, adminUsers, onUpdate }: { task: any; adminUsers: any[]; onUpdate: (id: number, data: any) => void }) {
   const [dueDate, setDueDate] = useState(task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "");
   const people = useMemo(() => [...adminUsers].sort((left: any, right: any) => (left.name ?? left.email ?? "").localeCompare(right.name ?? right.email ?? "")), [adminUsers]);
+  const status = (task.status ?? (task.completed ? "completed" : "not_started")) as TodoStatus;
+  const statusConfig = TODO_STATUS_CONFIG[status] ?? TODO_STATUS_CONFIG.not_started;
   useEffect(() => {
     setDueDate(task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "");
   }, [task.dueDate]);
   return <div className="order-last flex basis-full flex-wrap items-center gap-1 border-t border-border/60 pt-1 pl-6 xl:order-none xl:basis-auto xl:border-t-0 xl:pt-0 xl:pl-0" onClick={(event) => event.stopPropagation()}>
+    <Select value={status} onValueChange={(value) => onUpdate(task.id, { status: value as TodoStatus })}><SelectTrigger aria-label="To-Do status" className={`h-7 w-[8rem] px-2 text-xs ${statusConfig.color}`}><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TODO_STATUS_CONFIG).map(([value, config]) => <SelectItem key={value} value={value}>{config.label}</SelectItem>)}</SelectContent></Select>
     <Input aria-label="To-Do due date" type="date" value={dueDate} onChange={(event) => { const value = event.target.value; setDueDate(value); onUpdate(task.id, { dueDate: value ? new Date(`${value}T12:00:00`) : null }); }} className="h-7 w-[8.35rem] bg-background px-1.5 text-xs" />
     <Select value={task.priority ?? "medium"} onValueChange={(value) => onUpdate(task.id, { priority: value as Priority })}><SelectTrigger aria-label="To-Do priority" className={`h-7 w-[6.6rem] px-2 text-xs ${PRIORITY_CONFIG[task.priority as Priority]?.badge ?? PRIORITY_CONFIG.medium.badge}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent></Select>
     <Select value={task.ownerId ? String(task.ownerId) : undefined} onValueChange={(value) => onUpdate(task.id, { ownerId: Number(value) })}><SelectTrigger aria-label="To-Do assignee" className="h-7 w-[8.5rem] bg-background px-2 text-xs"><SelectValue placeholder="Assignee" /></SelectTrigger><SelectContent>{people.map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{person.name ?? person.email ?? `User #${person.id}`}</SelectItem>)}</SelectContent></Select>
+    {task.recurrence && task.recurrence !== "none" ? <span className="inline-flex h-7 items-center gap-1 rounded border border-primary/20 bg-primary/[0.04] px-2 text-xs text-primary"><Repeat2 className="h-3.5 w-3.5" />{RECURRENCE_LABELS[task.recurrence as Recurrence]}</span> : null}
   </div>;
 }
 
@@ -165,6 +186,7 @@ function TaskItem({
     title: task.title,
     ownerId: String(task.ownerId ?? ""),
     dueDate: task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "",
+    recurrence: (task.recurrence ?? "none") as Recurrence,
     priority: task.priority as Priority,
     notes: task.notes ?? "",
   });
@@ -212,10 +234,15 @@ function TaskItem({
     return () => window.clearTimeout(timeout);
   }, [comments, highlightedCommentId, task.id]);
   function handleSaveEdit() {
+    if (editForm.recurrence !== "none" && !editForm.dueDate) {
+      toast.error("Recurring To-Dos need a first due date");
+      return;
+    }
     onUpdate(task.id, {
       title: editForm.title,
       ownerId: Number(editForm.ownerId),
       dueDate: editForm.dueDate ? new Date(`${editForm.dueDate}T12:00:00`) : null,
+      recurrence: editForm.recurrence,
       priority: editForm.priority,
       notes: editForm.notes || undefined,
     });
@@ -266,7 +293,7 @@ function TaskItem({
       <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button><ProjectQuickWorkControls task={task} adminUsers={adminUsers} onUpdate={onUpdate} />
     </div>
     {expanded ? <div className="border-t border-primary/20 bg-primary/[0.025] p-2">
-      {editing ? <div className="mt-2 rounded-md border bg-muted/20 p-2"><div className="grid gap-2 sm:grid-cols-3"><div className="sm:col-span-3"><Label className="text-xs">Title</Label><Input value={editForm.title} onChange={event => setEditForm((form) => ({ ...form, title: event.target.value }))} className="mt-1 h-8 text-sm" autoFocus /></div><div><Label className="text-xs">Assignee</Label><SearchableSelect className="mt-1 h-8 w-full text-xs" options={(adminUsers as any[]).map((person: any) => ({ value: String(person.id), label: person.name ?? `User #${person.id}` }))} value={editForm.ownerId} onValueChange={value => setEditForm((form) => ({ ...form, ownerId: value }))} placeholder="Select assignee" searchPlaceholder="Search users…" /></div><div><Label className="text-xs">Priority</Label><Select value={editForm.priority} onValueChange={value => setEditForm((form) => ({ ...form, priority: value as Priority }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent></Select></div><div><Label className="text-xs">Due date</Label><Input type="date" value={editForm.dueDate} onChange={event => setEditForm((form) => ({ ...form, dueDate: event.target.value }))} className="mt-1 h-8 text-xs" /></div></div><div className="mt-2"><Label className="text-xs">Details</Label><Textarea value={editForm.notes} onChange={event => setEditForm((form) => ({ ...form, notes: event.target.value }))} rows={2} className="mt-1 text-sm" /></div><div className="mt-2 flex justify-end gap-1.5"><Button type="button" size="sm" className="h-8" onClick={handleSaveEdit}><Save className="mr-1.5 h-3.5 w-3.5" />Save</Button><Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setEditing(false)}>Cancel</Button></div></div> : null}
+      {editing ? <div className="mt-2 rounded-md border bg-muted/20 p-2"><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><div className="sm:col-span-2 lg:col-span-4"><Label className="text-xs">Title</Label><Input value={editForm.title} onChange={event => setEditForm((form) => ({ ...form, title: event.target.value }))} className="mt-1 h-8 text-sm" autoFocus /></div><div><Label className="text-xs">Assignee</Label><SearchableSelect className="mt-1 h-8 w-full text-xs" options={(adminUsers as any[]).map((person: any) => ({ value: String(person.id), label: person.name ?? `User #${person.id}` }))} value={editForm.ownerId} onValueChange={value => setEditForm((form) => ({ ...form, ownerId: value }))} placeholder="Select assignee" searchPlaceholder="Search users…" /></div><div><Label className="text-xs">Priority</Label><Select value={editForm.priority} onValueChange={value => setEditForm((form) => ({ ...form, priority: value as Priority }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent></Select></div><div><Label className="text-xs">Due date</Label><Input type="date" value={editForm.dueDate} onChange={event => setEditForm((form) => ({ ...form, dueDate: event.target.value }))} className="mt-1 h-8 text-xs" /></div><div><Label className="text-xs">Repeats</Label><Select value={editForm.recurrence} onValueChange={value => setEditForm((form) => ({ ...form, recurrence: value as Recurrence }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(RECURRENCE_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div></div><div className="mt-2"><Label className="text-xs">Details</Label><Textarea value={editForm.notes} onChange={event => setEditForm((form) => ({ ...form, notes: event.target.value }))} rows={2} className="mt-1 text-sm" /></div><div className="mt-2 flex justify-end gap-1.5"><Button type="button" size="sm" className="h-8" onClick={handleSaveEdit}><Save className="mr-1.5 h-3.5 w-3.5" />Save</Button><Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setEditing(false)}>Cancel</Button></div></div> : null}
       <section className="mt-2 rounded-md border bg-background p-2 sm:p-2.5"><h4 className="text-sm font-semibold">Details</h4>{task.notes ? <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{task.notes}</p> : <p className="mt-1 text-sm text-muted-foreground">No details added.</p>}</section>
       {hasSubtodos && subtasksExpanded ? <section className="mt-2 ml-2 border-l-4 border-primary/30 pl-3"><div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-primary"><CornerDownRight className="h-3.5 w-3.5" strokeWidth={2.75} />Sub-To-Dos</div><div className="space-y-1.5">{children}</div></section> : null}
       <section id={`todo-${task.id}-comments`} className="mt-2 overflow-hidden rounded-md border bg-background">
@@ -367,7 +394,7 @@ export default function ProjectDetailPage() {
   const [sectionTitle, setSectionTitle] = useState("");
   const [sectionDueDate, setSectionDueDate] = useState("");
   const [parentTodo, setParentTodo] = useState<any>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", dueDate: "", priority: "medium" as Priority, notes: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", dueDate: "", recurrence: "none" as Recurrence, priority: "medium" as Priority, notes: "" });
   const [editingProject, setEditingProject] = useState(false);
   const [editForm, setEditForm] = useState<any>(null);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -387,7 +414,7 @@ export default function ProjectDetailPage() {
   const [selectedMentions, setSelectedMentions] = useState<{ id: number; name: string }[]>([]);
 
   const createTask = trpc.pm.tasks.create.useMutation({
-    onSuccess: () => { toast.success(parentTodo ? "Sub-todo added" : "Todo added"); refetch(); setShowAddTask(false); setParentTodo(null); setTaskForm({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", dueDate: "", priority: "medium", notes: "" }); },
+    onSuccess: () => { toast.success(parentTodo ? "Sub-todo added" : "Todo added"); refetch(); setShowAddTask(false); setParentTodo(null); setTaskForm({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", dueDate: "", recurrence: "none", priority: "medium", notes: "" }); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -419,7 +446,7 @@ export default function ProjectDetailPage() {
   });
 
   const toggleTask = trpc.pm.tasks.toggleComplete.useMutation({
-    onSuccess: () => refetch(),
+    onSuccess: (result) => { if (result.rolledForward) toast.success("Recurring To-Do moved to its next due date"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -429,7 +456,7 @@ export default function ProjectDetailPage() {
   });
 
   const updateTask = trpc.pm.tasks.update.useMutation({
-    onSuccess: () => { toast.success("Todo updated"); refetch(); },
+    onSuccess: (result) => { toast.success(result.rolledForward ? "Recurring To-Do moved to its next due date" : "Todo updated"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
   const saveTodoLayout = trpc.pm.tasks.saveLayout.useMutation({
@@ -595,6 +622,10 @@ export default function ProjectDetailPage() {
       toast.error("Title and owner are required");
       return;
     }
+    if (taskForm.recurrence !== "none" && !taskForm.dueDate) {
+      toast.error("Recurring To-Dos need a first due date");
+      return;
+    }
     createTask.mutate({
       projectId,
       parentTaskId: parentTodo?.id ?? null,
@@ -602,6 +633,7 @@ export default function ProjectDetailPage() {
       title: taskForm.title,
       ownerId: Number(taskForm.ownerId),
       dueDate: taskForm.dueDate ? new Date(taskForm.dueDate) : null,
+      recurrence: taskForm.recurrence,
       priority: taskForm.priority,
       notes: taskForm.notes || undefined,
     });
@@ -664,6 +696,7 @@ export default function ProjectDetailPage() {
       sectionId: String(parent?.sectionId ?? sectionId ?? NO_SECTION_VALUE),
       ownerId: parent?.ownerId ? String(parent.ownerId) : "",
       dueDate: parent?.dueDate ? format(new Date(parent.dueDate), "yyyy-MM-dd") : "",
+      recurrence: (parent?.recurrence ?? "none") as Recurrence,
       priority: (parent?.priority as Priority) ?? "medium",
       notes: "",
     });
@@ -1007,6 +1040,13 @@ export default function ProjectDetailPage() {
                 <div>
                   <Label className="text-xs">Due Date (optional)</Label>
                   <Input type="date" value={taskForm.dueDate} onChange={e => setTaskForm(f => ({ ...f, dueDate: e.target.value }))} />
+                </div>
+                <div>
+                  <Label className="text-xs">Repeats</Label>
+                  <Select value={taskForm.recurrence} onValueChange={v => setTaskForm(f => ({ ...f, recurrence: v as Recurrence }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{Object.entries(RECURRENCE_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label className="text-xs">Priority</Label>
