@@ -15,8 +15,10 @@ export type LandingTrackingSettings = {
   customHeadCode?: string | null;
 };
 
-type LandingMetadata = {
+export type LandingMetadata = {
   slug: string;
+  /** Full canonical URL. Landing pages leave it unset and get /<slug>. */
+  canonicalUrl?: string;
   pageTitle: string;
   metaDescription: string | null;
   socialImageUrl: string | null;
@@ -105,7 +107,7 @@ function trackingTags(settings: LandingTrackingSettings) {
 /** Injects crawlable metadata and configured vendor tags before the client application starts. */
 export function injectLandingPageHtml(html: string, metadata: LandingMetadata | null) {
   if (!metadata) return html;
-  const canonicalUrl = `https://${publicHost}/${metadata.slug}`;
+  const canonicalUrl = metadata.canonicalUrl ?? `https://${publicHost}/${metadata.slug}`;
   const title = metadata.pageTitle || "Savvy STR Agents";
   const tags = [
     metaTag("name", "description", metadata.metaDescription || ""),
