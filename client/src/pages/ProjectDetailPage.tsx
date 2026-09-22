@@ -182,14 +182,18 @@ function TaskItem({
   const [selectedCommentMentions, setSelectedCommentMentions] = useState<{ id: number; name: string }[]>([]);
   const subTodoCount = Children.count(children);
   const hasSubtodos = subTodoCount > 0;
-  const [editForm, setEditForm] = useState({
-    title: task.title,
-    ownerId: String(task.ownerId ?? ""),
-    dueDate: task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "",
-    recurrence: (task.recurrence ?? "none") as Recurrence,
-    priority: task.priority as Priority,
-    notes: task.notes ?? "",
-  });
+  function taskEditForm() {
+    return {
+      title: task.title,
+      status: (task.status ?? (task.completed ? "completed" : "not_started")) as TodoStatus,
+      ownerId: String(task.ownerId ?? ""),
+      dueDate: task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "",
+      recurrence: (task.recurrence ?? "none") as Recurrence,
+      priority: task.priority as Priority,
+      notes: task.notes ?? "",
+    };
+  }
+  const [editForm, setEditForm] = useState(taskEditForm);
   const { data: comments = [], refetch: refetchComments } = trpc.pm.tasks.getComments.useQuery(
     { taskId: task.id },
     { enabled: expanded && commentsExpanded },
@@ -240,12 +244,22 @@ function TaskItem({
     }
     onUpdate(task.id, {
       title: editForm.title,
+      status: editForm.status,
       ownerId: Number(editForm.ownerId),
       dueDate: editForm.dueDate ? new Date(`${editForm.dueDate}T12:00:00`) : null,
       recurrence: editForm.recurrence,
       priority: editForm.priority,
       notes: editForm.notes || undefined,
     });
+    setEditing(false);
+  }
+  function startEditing() {
+    setEditForm(taskEditForm());
+    setExpanded(true);
+    setEditing(true);
+  }
+  function cancelEditing() {
+    setEditForm(taskEditForm());
     setEditing(false);
   }
   function insertCommentMention(person: { id: number; name: string }) {
@@ -285,15 +299,57 @@ function TaskItem({
       <button type="button" onClick={() => onToggle(task.id, !task.completed)} aria-label={task.completed ? "Completed. Reopen To-Do." : "Complete To-Do"} title={task.completed ? "Completed" : "Complete To-Do"} className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50", task.completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-700")}>
         {task.completed ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
       </button>
-      <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+      {editing ? <Input aria-label="To-Do title" value={editForm.title} onChange={event => setEditForm((form) => ({ ...form, title: event.target.value }))} onClick={event => event.stopPropagation()} className="h-8 min-w-0 flex-1 bg-background text-sm" autoFocus /> : <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
         <span className="min-w-0 flex-1"><span className={cn("block truncate text-sm font-medium", task.completed && "text-muted-foreground line-through")}>{task.title}</span></span>
         <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
-      </button>
+      </button>}
       {hasSubtodos ? <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs text-primary" onClick={toggleSubtodos} title={`${subtasksExpanded && expanded ? "Hide" : "Show"} ${subTodoCount} sub-To-Do${subTodoCount === 1 ? "" : "s"}`} aria-label={`${subtasksExpanded && expanded ? "Hide" : "Show"} ${subTodoCount} sub-To-Do${subTodoCount === 1 ? "" : "s"}`}><CornerDownRight className="h-4 w-4" strokeWidth={2.75} /><span>{subTodoCount}</span></Button> : null}
-      <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button><ProjectQuickWorkControls task={task} adminUsers={adminUsers} onUpdate={onUpdate} />
+      <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button>{editing ? null : <ProjectQuickWorkControls task={task} adminUsers={adminUsers} onUpdate={onUpdate} />}
     </div>
     {expanded ? <div className="border-t border-primary/20 bg-primary/[0.025] p-2">
-      {editing ? <div className="mt-2 rounded-md border bg-muted/20 p-2"><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><div className="sm:col-span-2 lg:col-span-4"><Label className="text-xs">Title</Label><Input value={editForm.title} onChange={event => setEditForm((form) => ({ ...form, title: event.target.value }))} className="mt-1 h-8 text-sm" autoFocus /></div><div><Label className="text-xs">Assignee</Label><SearchableSelect className="mt-1 h-8 w-full text-xs" options={(adminUsers as any[]).map((person: any) => ({ value: String(person.id), label: person.name ?? `User #${person.id}` }))} value={editForm.ownerId} onValueChange={value => setEditForm((form) => ({ ...form, ownerId: value }))} placeholder="Select assignee" searchPlaceholder="Search users…" /></div><div><Label className="text-xs">Priority</Label><Select value={editForm.priority} onValueChange={value => setEditForm((form) => ({ ...form, priority: value as Priority }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent></Select></div><div><Label className="text-xs">Due date</Label><Input type="date" value={editForm.dueDate} onChange={event => setEditForm((form) => ({ ...form, dueDate: event.target.value }))} className="mt-1 h-8 text-xs" /></div><div><Label className="text-xs">Repeats</Label><Select value={editForm.recurrence} onValueChange={value => setEditForm((form) => ({ ...form, recurrence: value as Recurrence }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(RECURRENCE_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div></div><div className="mt-2"><Label className="text-xs">Details</Label><Textarea value={editForm.notes} onChange={event => setEditForm((form) => ({ ...form, notes: event.target.value }))} rows={2} className="mt-1 text-sm" /></div><div className="mt-2 flex justify-end gap-1.5"><Button type="button" size="sm" className="h-8" onClick={handleSaveEdit}><Save className="mr-1.5 h-3.5 w-3.5" />Save</Button><Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setEditing(false)}>Cancel</Button></div></div> : null}
+      {editing ? (
+        <div className="mt-2 rounded-md border bg-muted/20 p-2">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={editForm.status} onValueChange={value => setEditForm((form) => ({ ...form, status: value as TodoStatus }))}>
+                <SelectTrigger aria-label="To-Do status" className={`mt-1 h-8 text-xs ${TODO_STATUS_CONFIG[editForm.status].color}`}><SelectValue /></SelectTrigger>
+                <SelectContent>{Object.entries(TODO_STATUS_CONFIG).map(([value, config]) => <SelectItem key={value} value={value}>{config.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Assignee</Label>
+              <SearchableSelect className="mt-1 h-8 w-full text-xs" options={(adminUsers as any[]).map((person: any) => ({ value: String(person.id), label: person.name ?? `User #${person.id}` }))} value={editForm.ownerId} onValueChange={value => setEditForm((form) => ({ ...form, ownerId: value }))} placeholder="Select assignee" searchPlaceholder="Search users…" />
+            </div>
+            <div>
+              <Label className="text-xs">Priority</Label>
+              <Select value={editForm.priority} onValueChange={value => setEditForm((form) => ({ ...form, priority: value as Priority }))}>
+                <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Due date</Label>
+              <Input type="date" value={editForm.dueDate} onChange={event => setEditForm((form) => ({ ...form, dueDate: event.target.value }))} className="mt-1 h-8 text-xs" />
+            </div>
+            <div>
+              <Label className="text-xs">Repeats</Label>
+              <Select value={editForm.recurrence} onValueChange={value => setEditForm((form) => ({ ...form, recurrence: value as Recurrence }))}>
+                <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>{Object.entries(RECURRENCE_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="mt-2">
+            <Label className="text-xs">Details</Label>
+            <Textarea value={editForm.notes} onChange={event => setEditForm((form) => ({ ...form, notes: event.target.value }))} rows={2} className="mt-1 text-sm" />
+          </div>
+          <div className="mt-2 flex justify-end gap-1.5">
+            <Button type="button" size="sm" className="h-8" onClick={handleSaveEdit}><Save className="mr-1.5 h-3.5 w-3.5" />Save</Button>
+            <Button type="button" size="sm" variant="ghost" className="h-8" onClick={cancelEditing}>Cancel</Button>
+          </div>
+        </div>
+      ) : null}
       {!editing ? <section className="mt-2 rounded-md border bg-background p-2 sm:p-2.5"><h4 className="text-sm font-semibold">Details</h4>{task.notes ? <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{task.notes}</p> : <p className="mt-1 text-sm text-muted-foreground">No details added.</p>}</section> : null}
       {hasSubtodos && subtasksExpanded ? <section className="mt-2 ml-2 border-l-4 border-primary/30 pl-3"><div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-primary"><CornerDownRight className="h-3.5 w-3.5" strokeWidth={2.75} />Sub-To-Dos</div><div className="space-y-1.5">{children}</div></section> : null}
       <section id={`todo-${task.id}-comments`} className="mt-2 overflow-hidden rounded-md border bg-background">
@@ -303,7 +359,7 @@ function TaskItem({
         </button>
         {commentsExpanded ? <div className="border-t px-2 py-2">{(comments as any[]).length ? <div className="divide-y">{(comments as any[]).map((comment: any) => <article id={`todo-${task.id}-comment-${comment.id}`} key={comment.id} className={cn("flex gap-2 py-1.5 first:pt-0 last:pb-0", highlightedCommentId === comment.id && "rounded bg-amber-100 ring-2 ring-amber-400/70 shadow-sm")}><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">{(comment.authorName ?? "?").split(/\s+/).filter(Boolean).slice(0, 2).map((part: string) => part[0]).join("").toUpperCase()}</span><div className="min-w-0 flex-1"><div className="flex min-h-6 flex-wrap items-center gap-x-2 gap-y-0.5"><span className="text-xs font-semibold">{comment.authorName ?? "Teammate"}</span><span className="text-[11px] text-muted-foreground">{format(new Date(comment.createdAt), "MMM d, h:mm a")}</span>{comment.canDelete ? <Button type="button" variant="ghost" size="icon" className="ml-auto h-6 w-6 text-muted-foreground hover:text-destructive" disabled={deleteComment.isPending} aria-label="Delete comment" title="Delete comment" onClick={() => { if (window.confirm("Delete this comment?")) deleteComment.mutate({ commentId: comment.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button> : null}</div><p className="mt-0.5 whitespace-pre-wrap text-sm">{comment.content}</p>{comment.mentions?.length ? <div className="mt-1 flex flex-wrap gap-1">{comment.mentions.map((mention: any) => <span key={mention.userId} className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">@{mention.name ?? "Teammate"}</span>)}</div> : null}</div></article>)}</div> : <p className="text-sm text-muted-foreground">No comments yet. Add context or @mention a project collaborator.</p>}{composerOpen ? <div className="mt-2 rounded border bg-muted/20 p-1.5"><div className="relative"><Textarea placeholder="Add a comment… Type @ to mention a collaborator." value={commentText} onChange={event => { const value = event.target.value; setCommentText(value); const match = value.match(/(?:^|\s)@([^\s@]*)$/); setCommentMentionQuery(match ? match[1] : null); }} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && commentText.trim()) { event.preventDefault(); submitComment(); } }} className="min-h-16 resize-none text-sm" autoFocus />{commentMentionQuery !== null ? <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">{commentMentionCandidates.length === 0 ? <p className="px-3 py-2 text-xs text-muted-foreground">No matching collaborators. Add them to the project first.</p> : <div className="max-h-44 overflow-y-auto py-1">{commentMentionCandidates.map((person: any) => <button key={person.userId} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => insertCommentMention({ id: person.userId, name: person.name ?? person.email })}><span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">{(person.name ?? person.email ?? "?")[0]}</span><span>{person.name ?? person.email}</span></button>)}</div>}</div> : null}</div>{selectedCommentMentions.length ? <div className="mt-1 flex flex-wrap gap-1">{selectedCommentMentions.map((mention) => <span key={mention.id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">@{mention.name}<button type="button" onClick={() => setSelectedCommentMentions((current) => current.filter((item) => item.id !== mention.id))} aria-label={`Remove ${mention.name} mention`}><X className="h-3 w-3" /></button></span>)}</div> : null}<div className="mt-1.5 flex items-center justify-end gap-1.5"><Button type="button" variant="ghost" size="sm" className="h-7" onClick={() => { setComposerOpen(false); setCommentText(""); setCommentMentionQuery(null); setSelectedCommentMentions([]); }}>Cancel</Button><Button type="button" size="sm" className="h-7" disabled={!commentText.trim() || addComment.isPending} onClick={submitComment}>{addComment.isPending ? "Posting…" : <><MessageCircle className="mr-1.5 h-3.5 w-3.5" />Post</>}</Button></div></div> : <Button type="button" variant="ghost" size="sm" className="mt-2 h-7 px-1.5 text-xs" onClick={() => setComposerOpen(true)}><MessageCircle className="mr-1.5 h-3.5 w-3.5" />Add comment</Button>}</div> : null}
       </section>
-      <section className="mt-2 rounded-md border bg-background"><div className="flex flex-wrap items-center justify-between gap-1.5 px-2 py-1.5"><button type="button" className="inline-flex items-center gap-1.5 rounded px-0.5 py-0.5 text-left hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => setShowActivity((current) => !current)} aria-expanded={showActivity}><History className="h-4 w-4 text-primary" /><span className="text-sm font-semibold">Activity</span><span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{taskActivity.length}</span><ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", showActivity && "rotate-180")} /><span className="sr-only">{showActivity ? "Hide activity" : "Show activity"}</span></button><div className="flex flex-wrap items-center justify-end gap-1.5"><Button type="button" size="sm" variant="outline" className="h-8" onClick={() => { setExpanded(true); setEditing(true); }}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit To-Do</Button>{onMoveSection && !task.parentTaskId && todoSections.length ? <ProjectTodoMoveSectionDialog task={task} sections={todoSections} childCount={subTodoCount} isPending={moveSectionPending} onMove={sectionId => onMoveSection(task.id, sectionId)} /> : null}{onAddSubtask ? <Button type="button" size="sm" className="h-8" onClick={() => onAddSubtask(task)}>Add sub-To-Do</Button> : null}{hasSubtodos ? <Button type="button" size="icon" variant="outline" className="relative h-8 w-8" onClick={toggleSubtodos} aria-label={`${subtasksExpanded ? "Hide" : "View"} ${subTodoCount} sub-To-Dos`} title={`${subtasksExpanded ? "Hide" : "View"} ${subTodoCount} sub-To-Dos`}><CornerDownRight className="h-4 w-4" strokeWidth={2.75} /><span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">{subTodoCount}</span></Button> : null}<Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => { if (window.confirm(`Delete “${task.title}”?`)) onDelete(task.id); }} aria-label="Delete To-Do" title="Delete To-Do"><Trash2 className="h-4 w-4" /></Button></div></div>{showActivity ? <div className="border-t px-2 py-2"><div className="space-y-1.5 border-l border-border pl-2.5">{taskActivity.map((entry: any) => <article key={entry.id} className="relative text-sm"><span className="absolute -left-[1.22rem] top-0.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground"><History className="h-3.5 w-3.5" /></span><p>{activityLabel(entry)}</p>{entry.detail && entry.action !== "task_created" ? <p className="mt-0.5 whitespace-pre-wrap text-xs text-muted-foreground">{entry.detail}</p> : null}<p className="mt-0.5 text-[11px] text-muted-foreground">{format(new Date(entry.createdAt), "MMM d, h:mm a")}</p></article>)}</div></div> : null}</section>
+      <section className="mt-2 rounded-md border bg-background"><div className="flex flex-wrap items-center justify-between gap-1.5 px-2 py-1.5"><button type="button" className="inline-flex items-center gap-1.5 rounded px-0.5 py-0.5 text-left hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => setShowActivity((current) => !current)} aria-expanded={showActivity}><History className="h-4 w-4 text-primary" /><span className="text-sm font-semibold">Activity</span><span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{taskActivity.length}</span><ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", showActivity && "rotate-180")} /><span className="sr-only">{showActivity ? "Hide activity" : "Show activity"}</span></button><div className="flex flex-wrap items-center justify-end gap-1.5"><Button type="button" size="sm" variant="outline" className="h-8" onClick={startEditing}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit To-Do</Button>{onMoveSection && !task.parentTaskId && todoSections.length ? <ProjectTodoMoveSectionDialog task={task} sections={todoSections} childCount={subTodoCount} isPending={moveSectionPending} onMove={sectionId => onMoveSection(task.id, sectionId)} /> : null}{onAddSubtask ? <Button type="button" size="sm" className="h-8" onClick={() => onAddSubtask(task)}>Add sub-To-Do</Button> : null}{hasSubtodos ? <Button type="button" size="icon" variant="outline" className="relative h-8 w-8" onClick={toggleSubtodos} aria-label={`${subtasksExpanded ? "Hide" : "View"} ${subTodoCount} sub-To-Dos`} title={`${subtasksExpanded ? "Hide" : "View"} ${subTodoCount} sub-To-Dos`}><CornerDownRight className="h-4 w-4" strokeWidth={2.75} /><span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">{subTodoCount}</span></Button> : null}<Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => { if (window.confirm(`Delete “${task.title}”?`)) onDelete(task.id); }} aria-label="Delete To-Do" title="Delete To-Do"><Trash2 className="h-4 w-4" /></Button></div></div>{showActivity ? <div className="border-t px-2 py-2"><div className="space-y-1.5 border-l border-border pl-2.5">{taskActivity.map((entry: any) => <article key={entry.id} className="relative text-sm"><span className="absolute -left-[1.22rem] top-0.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground"><History className="h-3.5 w-3.5" /></span><p>{activityLabel(entry)}</p>{entry.detail && entry.action !== "task_created" ? <p className="mt-0.5 whitespace-pre-wrap text-xs text-muted-foreground">{entry.detail}</p> : null}<p className="mt-0.5 text-[11px] text-muted-foreground">{format(new Date(entry.createdAt), "MMM d, h:mm a")}</p></article>)}</div></div> : null}</section>
     </div> : null}
   </div>;
 }

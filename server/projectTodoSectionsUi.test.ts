@@ -127,9 +127,12 @@ describe("project todo section UI", () => {
   });
 
   it("uses one expanded todo card as the direct edit surface", () => {
-    expect(projectDetailPage).toContain("{editing ? <div className=\"mt-2 rounded-md border bg-muted/20 p-2\">");
+    expect(projectDetailPage).toContain('{editing ? <Input aria-label="To-Do title"');
+    expect(projectDetailPage).toContain('{editing ? (\n        <div className="mt-2 rounded-md border bg-muted/20 p-2">');
     expect(projectDetailPage).toContain("{!editing ? <section className=\"mt-2 rounded-md border bg-background p-2 sm:p-2.5\">");
-    expect(projectDetailPage).toContain("setExpanded(true); setEditing(true);");
+    expect(projectDetailPage).toContain("{editing ? null : <ProjectQuickWorkControls");
+    expect(projectDetailPage).toContain("status: editForm.status");
+    expect(projectDetailPage).toContain("function startEditing()");
   });
 
   it("makes the production schema ready before serving the new workflow", () => {
