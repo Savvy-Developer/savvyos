@@ -54,6 +54,7 @@ import { WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS } from "../routers/websiteAccount";
 import { RECRUITING_PUBLIC_TRPC_PATHS } from "../routers/recruiting";
 import { registerShortLinkRedirects } from "../shortLinkRedirects";
 import { getLandingPageMetadata } from "../landingPageHtml";
+import { getWebsitePageMetadata, registerWebsiteSeoRoutes } from "../websiteSeo";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
 import { registerReleaseNotificationRoute } from "../releaseNotificationRoute";
 import { registerMarketingEmailUnsubscribeRoutes } from "../marketingEmailUnsubscribe";
@@ -139,7 +140,10 @@ async function startServer() {
   app.use(async (req, res, next) => {
     if (req.method !== "GET" && req.method !== "HEAD") return next();
     try {
-      res.locals.landingPageMetadata = await getLandingPageMetadata(req);
+      // Landing pages first; /newsite addresses never match a landing slug
+      // (they contain a slash), so the two never compete for a request.
+      res.locals.landingPageMetadata =
+        (await getLandingPageMetadata(req)) ?? (await getWebsitePageMetadata(req));
     } catch (error) {
       console.error("[LandingPages] Metadata lookup failed:", error);
       res.locals.landingPageMetadata = null;
@@ -200,6 +204,9 @@ async function startServer() {
   // Public short links are checked before the SPA fallback so links shared from
   // home.savvy-agents.com redirect without showing the SavvyOS hostname.
   registerShortLinkRedirects(app);
+  // sitemap.xml and robots.txt for the public host, before the SPA fallback
+  // would answer them with index.html.
+  registerWebsiteSeoRoutes(app);
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // Per-user Google Calendar OAuth connection and callback.
