@@ -7,6 +7,7 @@ import {
   leadSources,
   users,
   webinarAttendees,
+  webinarGuestHeadshots,
   webinars,
   zoomWebhookEvents,
 } from "../../drizzle/schema";
@@ -14,7 +15,17 @@ import { createCommunication, createContact, getDb, logActivity } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission } from "./permissions";
 import { resolveNotificationRecipients, sendTransactionalEmail } from "../_core/resendEmail";
+import { storageDelete, storagePut } from "../storage";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
+import {
+  formatWebinarDate,
+  formatWebinarDateTime,
+  formatWebinarTime,
+  hasMinimumWebinarLeadTime,
+  isSupportedWebinarTimezone,
+  webinarDateTimeToUtc,
+  webinarTimezoneLabel,
+} from "@shared/webinarTime";
 import {
   createZoomWebinar,
   deleteZoomWebinar,
@@ -33,6 +44,10 @@ const DEFAULT_MARKETING_EMAIL_TEMPLATE = {
   subject: "New Webinar Marketing Request: {{webinar_title}}",
   bodyText: "A new webinar has been created in SavvyOS. Please coordinate the promotional plan with {{webinar_creator_name}} and use the registration link below in approved marketing.",
 };
+const WEBINAR_LEAD_TIME_DAYS = 14;
+const WEBINAR_HEADSHOT_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+const MAX_WEBINAR_HEADSHOT_BYTES = 2 * 1024 * 1024;
+const MAX_WEBINAR_HEADSHOTS = 10;
 
 async function requireWebinarAccess(user: { id: number; role: string; email?: string | null }) {
   if (user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin access is required." });
@@ -47,10 +62,43 @@ async function getDatabase() {
   return db;
 }
 
-function parseDateTime(value: string): Date {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a valid webinar date and time." });
-  return date;
+function parseWebinarDateTime(value: string, timezone: string): Date {
+  try {
+    return webinarDateTimeToUtc(value, timezone);
+  } catch (error) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: error instanceof Error ? error.message : "Enter a valid webinar date and time.",
+    });
+  }
+}
+
+function validateWebinarHeadshot(input: { mimeType: string; base64Data: string }): Buffer {
+  const encoded = input.base64Data.trim();
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Each guest headshot must be a valid image file." });
+  }
+  const buffer = Buffer.from(encoded, "base64");
+  if (!buffer.length || buffer.length > MAX_WEBINAR_HEADSHOT_BYTES) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Each guest headshot must be a JPG, PNG, or WEBP image no larger than 2 MB." });
+  }
+  const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const isWebp = buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+  const matchesMimeType =
+    (input.mimeType === "image/jpeg" && isJpeg) ||
+    (input.mimeType === "image/png" && isPng) ||
+    (input.mimeType === "image/webp" && isWebp);
+  if (!matchesMimeType) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Each guest headshot must be a real JPG, PNG, or WEBP image." });
+  }
+  return buffer;
+}
+
+function webinarHeadshotExtension(mimeType: string): "jpg" | "png" | "webp" {
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/webp") return "webp";
+  return "jpg";
 }
 
 function webinarRegistrationEnabled(approval: "automatically" | "manually" | "no_registration") {
@@ -295,30 +343,53 @@ export const webinarsRouter = router({
       total: sql<number>`COUNT(*)`.as("total"),
     }).from(webinarAttendees).where(eq(webinarAttendees.webinarId, input.id));
 
-    return { ...value, attendeeCounts: { registered: Number(counts[0]?.registered ?? 0), attended: Number(counts[0]?.attended ?? 0), total: Number(counts[0]?.total ?? 0) } };
+    const guestHeadshots = await db.select().from(webinarGuestHeadshots)
+      .where(eq(webinarGuestHeadshots.webinarId, input.id))
+      .orderBy(webinarGuestHeadshots.createdAt);
+    return { ...value, guestHeadshots, attendeeCounts: { registered: Number(counts[0]?.registered ?? 0), attended: Number(counts[0]?.attended ?? 0), total: Number(counts[0]?.total ?? 0) } };
   }),
 
   create: protectedProcedure.input(z.object({
     title: z.string().trim().min(1).max(255),
-    description: z.string().trim().max(5000).optional().nullable(),
-    startTime: z.string().min(1),
+    description: z.string().trim().min(1).max(5000),
+    partnerGuestInfo: z.string().trim().min(1).max(5000),
+    guestBios: z.string().trim().min(1).max(12000),
+    startTime: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
     durationMinutes: z.number().int().min(15).max(480).default(60),
-    timezone: z.string().trim().min(1).max(64).default("America/New_York"),
+    timezone: z.string().trim().refine(isSupportedWebinarTimezone, "Select a supported webinar timezone."),
     registrationApproval: approvalSchema.default("automatically"),
+    guestHeadshots: z.array(z.object({
+      fileName: z.string().trim().min(1).max(255),
+      mimeType: z.enum(WEBINAR_HEADSHOT_MIME_TYPES),
+      base64Data: z.string().min(1).max(3 * 1024 * 1024),
+    })).min(1, "Upload at least one guest headshot.").max(MAX_WEBINAR_HEADSHOTS),
   })).mutation(async ({ input, ctx }) => {
     await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
-    const startTime = parseDateTime(input.startTime);
+    const startTime = parseWebinarDateTime(input.startTime, input.timezone);
+    if (!hasMinimumWebinarLeadTime(startTime, new Date(), WEBINAR_LEAD_TIME_DAYS)) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Webinars require at least two weeks of lead time. Choose a date at least 14 days from today." });
+    }
+    const creatorEmail = ctx.user.email?.trim();
+    if (!creatorEmail) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A submitter email address is required before creating a webinar request." });
+    }
+    const guestHeadshots = input.guestHeadshots.map(headshot => ({ ...headshot, buffer: validateWebinarHeadshot(headshot) }));
     const configuration = getZoomConfigurationStatus();
     if (!configuration.configured) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Zoom is not configured. Add ${configuration.missing.join(", ")} to the SavvyOS service configuration first.` });
     }
 
     const zoomWebinar = await createZoomWebinar({ ...input, startTime });
+    let webinarId: number | null = null;
+    const uploadedHeadshotKeys: string[] = [];
+    const uploadedHeadshots: Array<{ fileName: string; fileUrl: string }> = [];
     try {
       const [result] = await db.insert(webinars).values({
         title: input.title,
-        description: input.description ?? null,
+        description: input.description,
+        partnerGuestInfo: input.partnerGuestInfo,
+        guestBios: input.guestBios,
         startTime,
         durationMinutes: input.durationMinutes,
         timezone: input.timezone,
@@ -333,49 +404,65 @@ export const webinarsRouter = router({
         zoomStartUrl: zoomWebinar.start_url ?? null,
         zoomCreatedAt: parseZoomDate(zoomWebinar.created_at) ?? new Date(),
       });
-      const webinarId = result.insertId;
-      const creatorName = ctx.user.name ?? ctx.user.email ?? "SavvyOS user";
-      const creatorEmail = ctx.user.email ?? undefined;
-      const webinarRegistrationUrl = zoomWebinar.registration_url ?? zoomWebinar.join_url ?? undefined;
-      const marketingRecipients = await resolveNotificationRecipients("webinar_marketing_request", [{
-        name: "Marketing Team",
-        email: MARKETING_EMAIL,
-      }]);
-      const [primaryMarketingRecipient, ...copiedMarketingRecipients] = marketingRecipients;
-      if (!primaryMarketingRecipient) throw new TRPCError({ code: "BAD_REQUEST", message: "At least one webinar marketing recipient is required." });
-      const marketingEmail = await sendTransactionalEmail("webinar_marketing_request", {
-        recipientEmail: primaryMarketingRecipient.email,
-        recipientName: primaryMarketingRecipient.name,
-        ccEmails: Array.from(new Set([
-          ...copiedMarketingRecipients.map(recipient => recipient.email),
-          ...(creatorEmail ? [creatorEmail] : []),
-        ].filter(email => email !== primaryMarketingRecipient.email))),
-        webinarTitle: input.title,
-        webinarDescription: input.description ?? undefined,
-        webinarStartTime: startTime.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short", timeZone: input.timezone }),
-        webinarDuration: `${input.durationMinutes} minutes`,
-        webinarRegistrationUrl,
-        webinarCreatorName: creatorName,
-        webinarCreatorEmail: creatorEmail,
-      }, { injectMagicLinks: false, idempotencyKey: `webinar-marketing-request-${webinarId}` });
-      await logActivity({
-        userId: ctx.user.id,
-        action: "webinar_created",
-        entityType: "webinar",
-        entityId: webinarId,
-        details: {
-          title: input.title,
-          zoomWebinarId: zoomWebinar.id,
-          marketingEmailSent: marketingEmail.sent,
-          marketingEmailSkipped: marketingEmail.skipped,
-          marketingEmailReason: marketingEmail.reason ?? null,
-        },
-      });
-      return { id: webinarId, zoomRegistrationUrl: webinarRegistrationUrl ?? null, marketingEmailSent: marketingEmail.sent, marketingEmailSkipped: marketingEmail.skipped, marketingEmailReason: marketingEmail.reason ?? null };
+      webinarId = Number(result.insertId);
+      for (let index = 0; index < guestHeadshots.length; index += 1) {
+        const headshot = guestHeadshots[index];
+        const fileKey = `webinars/${webinarId}/guest-headshots/${Date.now()}-${index}.${webinarHeadshotExtension(headshot.mimeType)}`;
+        const { url } = await storagePut(fileKey, headshot.buffer, headshot.mimeType);
+        uploadedHeadshotKeys.push(fileKey);
+        uploadedHeadshots.push({ fileName: headshot.fileName, fileUrl: url });
+        await db.insert(webinarGuestHeadshots).values({ webinarId, fileUrl: url, fileKey, fileName: headshot.fileName, mimeType: headshot.mimeType });
+      }
     } catch (error) {
+      await Promise.allSettled(uploadedHeadshotKeys.map(key => storageDelete(key)));
+      if (webinarId) await db.delete(webinars).where(eq(webinars.id, webinarId));
       try { await deleteZoomWebinar(String(zoomWebinar.id)); } catch { /* Preserve the original persistence failure. */ }
       throw error;
     }
+    if (!webinarId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Webinar creation did not complete." });
+
+    const creatorName = ctx.user.name ?? creatorEmail;
+    const webinarRegistrationUrl = zoomWebinar.registration_url ?? zoomWebinar.join_url ?? undefined;
+    const emailContext = {
+      webinarTitle: input.title,
+      webinarDescription: input.description,
+      webinarPartnerGuestInfo: input.partnerGuestInfo,
+      webinarGuestBios: input.guestBios,
+      webinarGuestHeadshots: uploadedHeadshots,
+      webinarStartTime: formatWebinarDateTime(startTime, input.timezone, { includeWeekday: true }),
+      webinarDate: formatWebinarDate(startTime, input.timezone),
+      webinarTime: formatWebinarTime(startTime, input.timezone),
+      webinarTimezone: webinarTimezoneLabel(input.timezone, startTime),
+      webinarDuration: `${input.durationMinutes} minutes`,
+      webinarRegistrationApproval: input.registrationApproval === "automatically" ? "Approve registrations automatically" : input.registrationApproval === "manually" ? "Approve registrations manually" : "No registration required",
+      webinarRegistrationUrl,
+      webinarCreatorName: creatorName,
+      webinarCreatorEmail: creatorEmail,
+    };
+    const marketingRecipients = await resolveNotificationRecipients("webinar_marketing_request", [{ name: "Marketing Team", email: MARKETING_EMAIL }]);
+    const [primaryMarketingRecipient, ...copiedMarketingRecipients] = marketingRecipients;
+    const marketingEmail = primaryMarketingRecipient
+      ? await sendTransactionalEmail("webinar_marketing_request", {
+        recipientEmail: primaryMarketingRecipient.email,
+        recipientName: primaryMarketingRecipient.name,
+        ccEmails: Array.from(new Set([...copiedMarketingRecipients.map(recipient => recipient.email), creatorEmail].filter(email => email !== primaryMarketingRecipient.email))),
+        ...emailContext,
+      }, { injectMagicLinks: false, idempotencyKey: `webinar-marketing-request-${webinarId}` })
+      : { sent: false, skipped: true, reason: "No marketing recipient is configured." };
+    const confirmationEmail = await sendTransactionalEmail("webinar_request_confirmation", {
+      recipientEmail: creatorEmail,
+      recipientName: creatorName,
+      replyToEmail: MARKETING_EMAIL,
+      ...emailContext,
+    }, { injectMagicLinks: false, allowTemplateOverride: false, idempotencyKey: `webinar-request-confirmation-${webinarId}` });
+    await logActivity({
+      userId: ctx.user.id,
+      action: "webinar_created",
+      entityType: "webinar",
+      entityId: webinarId,
+      details: { title: input.title, zoomWebinarId: zoomWebinar.id, marketingEmailSent: marketingEmail.sent, marketingEmailSkipped: marketingEmail.skipped, marketingEmailReason: marketingEmail.reason ?? null, confirmationEmailSent: confirmationEmail.sent, confirmationEmailSkipped: confirmationEmail.skipped, confirmationEmailReason: confirmationEmail.reason ?? null },
+    });
+    return { id: webinarId, zoomRegistrationUrl: webinarRegistrationUrl ?? null, marketingEmailSent: marketingEmail.sent, marketingEmailSkipped: marketingEmail.skipped, marketingEmailReason: marketingEmail.reason ?? null, confirmationEmailSent: confirmationEmail.sent, confirmationEmailSkipped: confirmationEmail.skipped, confirmationEmailReason: confirmationEmail.reason ?? null };
   }),
 
   update: protectedProcedure.input(z.object({
@@ -383,9 +470,9 @@ export const webinarsRouter = router({
     data: z.object({
       title: z.string().trim().min(1).max(255).optional(),
       description: z.string().trim().max(5000).optional().nullable(),
-      startTime: z.string().optional(),
+      startTime: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/).optional(),
       durationMinutes: z.number().int().min(15).max(480).optional(),
-      timezone: z.string().trim().min(1).max(64).optional(),
+      timezone: z.string().trim().refine(isSupportedWebinarTimezone, "Select a supported webinar timezone.").optional(),
       registrationApproval: approvalSchema.optional(),
     }),
   })).mutation(async ({ input, ctx }) => {
@@ -393,12 +480,13 @@ export const webinarsRouter = router({
     const db = await getDatabase();
     const [current] = await db.select().from(webinars).where(eq(webinars.id, input.id));
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Webinar not found." });
+    const timezone = input.data.timezone ?? current.timezone;
     const next = {
       title: input.data.title ?? current.title,
       description: input.data.description !== undefined ? input.data.description : current.description,
-      startTime: input.data.startTime ? parseDateTime(input.data.startTime) : current.startTime,
+      startTime: input.data.startTime ? parseWebinarDateTime(input.data.startTime, timezone) : current.startTime,
       durationMinutes: input.data.durationMinutes ?? current.durationMinutes,
-      timezone: input.data.timezone ?? current.timezone,
+      timezone,
       registrationApproval: input.data.registrationApproval ?? current.registrationApproval,
     };
     if (current.zoomWebinarId) await updateZoomWebinar(current.zoomWebinarId, next);
@@ -409,7 +497,7 @@ export const webinarsRouter = router({
 
   reschedule: protectedProcedure.input(z.object({
     id: z.number().int().positive(),
-    startTime: z.string().min(1),
+    startTime: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
   })).mutation(async ({ input, ctx }) => {
     await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
@@ -422,7 +510,7 @@ export const webinarsRouter = router({
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This webinar is not linked to Zoom, so it cannot be rescheduled safely." });
     }
 
-    const startTime = parseDateTime(input.startTime);
+    const startTime = parseWebinarDateTime(input.startTime, current.timezone);
     if (startTime <= new Date()) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a future date and time for the webinar." });
     }

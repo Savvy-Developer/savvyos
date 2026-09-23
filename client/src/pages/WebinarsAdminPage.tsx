@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addMonths,
   eachDayOfInterval,
@@ -61,11 +61,13 @@ import {
   Plus,
   RefreshCw,
   Settings2,
+  Upload,
   Users,
   Video,
+  X,
 } from "lucide-react";
+import { WEBINAR_TIMEZONES, formatWebinarDateTime, formatWebinarTime, hasMinimumWebinarLeadTime, webinarDateKey, webinarDateTimeLocalValue, webinarDateTimeToUtc, webinarTimezoneLabel } from "@shared/webinarTime";
 
-const ET_TIMEZONE = "America/New_York";
 const MARKETING_EMAIL = "marketing@savvy.realty";
 const TEMPLATE_TOKENS = [
   "{{webinar_title}}",
@@ -77,105 +79,16 @@ const TEMPLATE_TOKENS = [
   "{{webinar_creator_email}}",
 ];
 
-function easternOffsetMilliseconds(instant: Date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: ET_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(instant);
-  const read = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find(part => part.type === type)?.value ?? 0);
-  const easternWallTimeAsUtc = Date.UTC(
-    read("year"),
-    read("month") - 1,
-    read("day"),
-    read("hour"),
-    read("minute"),
-    read("second")
-  );
-  return easternWallTimeAsUtc - instant.getTime();
-}
-
-/** Converts a datetime-local value into an instant while treating its wall time as Eastern. */
-function easternWallTimeToIso(value: string) {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
-  if (!match) return "";
-  const [, year, month, day, hour, minute] = match;
-  const wallTimeAsUtc = Date.UTC(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute)
-  );
-  // Recalculate once to account for the DST offset at the selected instant.
-  let instant = new Date(
-    wallTimeAsUtc - easternOffsetMilliseconds(new Date(wallTimeAsUtc))
-  );
-  instant = new Date(wallTimeAsUtc - easternOffsetMilliseconds(instant));
-  return instant.toISOString();
-}
-
-/** Formats an instant for a datetime-local field while preserving Eastern wall time. */
-function easternDateTimeLocalValue(value: Date | string) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: ET_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const read = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find(part => part.type === type)?.value ?? "";
-  return `${read("year")}-${read("month")}-${read("day")}T${read("hour")}:${read("minute")}`;
-}
-
-function easternZoneName(value: Date | string) {
-  const date = value instanceof Date ? value : new Date(value);
-  return (
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: ET_TIMEZONE,
-      timeZoneName: "short",
-    })
-      .formatToParts(date)
-      .find(part => part.type === "timeZoneName")?.value ?? "ET"
-  );
-}
-
-function formatEasternDateTime(value: Date | string, includeWeekday = false) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  const formatted = new Intl.DateTimeFormat("en-US", {
-    timeZone: ET_TIMEZONE,
-    ...(includeWeekday ? { weekday: "long" as const } : {}),
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-  return `${formatted} ${easternZoneName(date)}`;
-}
-
-function formatEasternTime(value: Date | string) {
-  const date = value instanceof Date ? value : new Date(value);
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: ET_TIMEZONE,
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
 type WebinarListItem = any;
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 function statusBadge(status: string) {
   const classes: Record<string, string> = {
@@ -224,9 +137,9 @@ function WebinarRescheduleDialog({
   const [startTime, setStartTime] = useState("");
   useEffect(() => {
     if (open && webinar) {
-      setStartTime(easternDateTimeLocalValue(webinar.startTime));
+      setStartTime(webinarDateTimeLocalValue(webinar.startTime, webinar.timezone));
     }
-  }, [open, webinar?.id, webinar?.startTime]);
+  }, [open, webinar?.id, webinar?.startTime, webinar?.timezone]);
 
   const rescheduleMutation = trpc.webinars.reschedule.useMutation({
     onSuccess: async () => {
@@ -238,16 +151,22 @@ function WebinarRescheduleDialog({
   });
 
   function submit() {
-    const startTimeIso = easternWallTimeToIso(startTime);
-    if (!startTimeIso) {
+    let submittedTime: Date;
+    try {
+      submittedTime = webinarDateTimeToUtc(startTime, webinar.timezone);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Enter a valid new webinar date and time.");
+      return;
+    }
+    if (!startTime) {
       toast.error("Enter a valid new webinar date and time.");
       return;
     }
-    if (new Date(startTimeIso) <= new Date()) {
+    if (submittedTime <= new Date()) {
       toast.error("Choose a future date and time for the webinar.");
       return;
     }
-    rescheduleMutation.mutate({ id: webinar.id, startTime: startTimeIso });
+    rescheduleMutation.mutate({ id: webinar.id, startTime });
   }
 
   return (
@@ -264,12 +183,12 @@ function WebinarRescheduleDialog({
           <div className="rounded-lg border bg-muted/30 p-3 text-sm">
             <p className="font-medium">{webinar?.title}</p>
             <p className="mt-1 text-muted-foreground">
-              Currently scheduled for {formatEasternDateTime(webinar?.startTime)}
+              Currently scheduled for {formatWebinarDateTime(webinar?.startTime, webinar?.timezone)}
             </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="reschedule-webinar-start">
-              New start date and time (Eastern Time)
+              New start date and time ({webinarTimezoneLabel(webinar?.timezone, webinar?.startTime)})
             </Label>
             <Input
               id="reschedule-webinar-start"
@@ -279,7 +198,7 @@ function WebinarRescheduleDialog({
               disabled={rescheduleMutation.isPending}
             />
             <p className="text-xs text-muted-foreground">
-              SavvyOS accounts for EST and EDT automatically.
+              The local date and time stays in this webinar&apos;s selected timezone.
             </p>
           </div>
         </div>
@@ -311,92 +230,107 @@ function WebinarCreateDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const utils = trpc.useUtils();
-  const createMutation = trpc.webinars.create.useMutation({
-    onSuccess: async result => {
-      await utils.webinars.list.invalidate();
-      if (result.marketingEmailSent) {
-        toast.success(
-          "Webinar created and the marketing handoff email was sent."
-        );
-      } else {
-        toast.success(
-          "Webinar created. The marketing handoff needs attention."
-        );
-        if (result.marketingEmailReason)
-          toast.message(result.marketingEmailReason);
-      }
-      onOpenChange(false);
-    },
-    onError: error => toast.error(error.message),
-  });
+  const createMutation = trpc.webinars.create.useMutation();
+  const headshotInput = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [partnerGuestInfo, setPartnerGuestInfo] = useState("");
+  const [guestBios, setGuestBios] = useState("");
+  const [guestHeadshots, setGuestHeadshots] = useState<File[]>([]);
   const [startTime, setStartTime] = useState("");
+  const [timezone, setTimezone] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [approval, setApproval] = useState<
     "automatically" | "manually" | "no_registration"
   >("automatically");
+  const [isPreparing, setIsPreparing] = useState(false);
+  const submittedStart = useMemo(() => {
+    if (!startTime || !timezone) return null;
+    try { return webinarDateTimeToUtc(startTime, timezone); } catch { return null; }
+  }, [startTime, timezone]);
+  const hasMinimumLeadTime = Boolean(submittedStart && hasMinimumWebinarLeadTime(submittedStart));
+  const ready = Boolean(title.trim() && description.trim() && partnerGuestInfo.trim() && guestBios.trim() && guestHeadshots.length && startTime && timezone && submittedStart && hasMinimumLeadTime);
+  const busy = createMutation.isPending || isPreparing;
 
-  function submit() {
-    if (!title.trim() || !startTime) {
-      toast.error("Enter a webinar title and start date/time.");
+  function addHeadshots(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    const invalid = files.find(file => !["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 2 * 1024 * 1024);
+    if (invalid) { toast.error("Guest headshots must be JPG, PNG, or WEBP images no larger than 2 MB."); event.target.value = ""; return; }
+    setGuestHeadshots(current => {
+      const next = [...current, ...files];
+      if (next.length > 10) { toast.error("Upload no more than 10 guest headshots."); return current; }
+      return next;
+    });
+    event.target.value = "";
+  }
+
+  async function submit() {
+    if (!ready) {
+      toast.error(submittedStart && !hasMinimumLeadTime ? "Webinars require at least two weeks of lead time. Choose a date at least 14 days from today." : "Complete every required webinar request field before submitting.");
       return;
     }
-    createMutation.mutate({
-      title: title.trim(),
-      description: description.trim() || null,
-      startTime: easternWallTimeToIso(startTime),
-      durationMinutes: Number(durationMinutes) || 60,
-      timezone: ET_TIMEZONE,
-      registrationApproval: approval,
-    });
+    try {
+      setIsPreparing(true);
+      const encodedHeadshots = await Promise.all(guestHeadshots.map(async file => ({ fileName: file.name, mimeType: file.type as "image/jpeg" | "image/png" | "image/webp", base64Data: await fileToBase64(file) })));
+      const result = await createMutation.mutateAsync({ title: title.trim(), description: description.trim(), partnerGuestInfo: partnerGuestInfo.trim(), guestBios: guestBios.trim(), guestHeadshots: encodedHeadshots, startTime, durationMinutes: Number(durationMinutes) || 60, timezone, registrationApproval: approval });
+      await utils.webinars.list.invalidate();
+      toast.success(result.marketingEmailSent && result.confirmationEmailSent ? "Webinar created. Marketing was notified and your confirmation email was sent." : "Webinar created. The email handoff needs attention.");
+      if (!result.marketingEmailSent && result.marketingEmailReason) toast.message(result.marketingEmailReason);
+      if (!result.confirmationEmailSent && result.confirmationEmailReason) toast.message(result.confirmationEmailReason);
+      onOpenChange(false);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not create the webinar."); }
+    finally { setIsPreparing(false); }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto p-6 sm:max-w-5xl sm:rounded-xl">
         <DialogHeader>
-          <DialogTitle>Create Webinar</DialogTitle>
+          <DialogTitle>New Webinar Request</DialogTitle>
           <DialogDescription>
-            Publishing creates the Zoom webinar, returns a shareable
-            registration link, and emails the marketing handoff to{" "}
-            {MARKETING_EMAIL} with you copied.
+            Requests need at least two weeks of lead time. Marketing receives the complete request, and the submitter receives a confirmation email.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2 md:grid-cols-2">
           <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="webinar-title">Title</Label>
+            <Label htmlFor="webinar-title">Webinar title *</Label>
             <Input
               id="webinar-title"
               placeholder="e.g., How to Evaluate a Short-Term Rental Market"
               value={title}
               onChange={event => setTitle(event.target.value)}
+              disabled={busy}
             />
           </div>
           <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="webinar-description">Description</Label>
+            <Label htmlFor="webinar-description">Description / details *</Label>
             <Textarea
               id="webinar-description"
               placeholder="The Zoom webinar agenda and promotional summary."
               value={description}
               onChange={event => setDescription(event.target.value)}
               rows={4}
+              disabled={busy}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="webinar-start">
-              Start date and time (Eastern Time)
-            </Label>
+            <Label htmlFor="webinar-start">Date and time *</Label>
             <Input
               id="webinar-start"
               type="datetime-local"
               value={startTime}
               onChange={event => setStartTime(event.target.value)}
+              disabled={busy}
             />
-            <p className="text-xs text-muted-foreground">
-              Enter the local webinar time in Eastern Time. SavvyOS accounts for
-              EST/EDT automatically.
-            </p>
+            {submittedStart && !hasMinimumLeadTime && <p className="text-xs text-destructive">Webinars require at least two weeks of lead time. Choose a date at least 14 days from today.</p>}
+          </div>
+          <div className="space-y-2">
+            <Label>Timezone *</Label>
+            <Select value={timezone} onValueChange={setTimezone} disabled={busy}>
+              <SelectTrigger><SelectValue placeholder="Select the webinar timezone" /></SelectTrigger>
+              <SelectContent>{WEBINAR_TIMEZONES.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">SavvyOS will store and display this exact local time with its timezone label.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="webinar-duration">Duration (minutes)</Label>
@@ -407,13 +341,15 @@ function WebinarCreateDialog({
               max={480}
               value={durationMinutes}
               onChange={event => setDurationMinutes(event.target.value)}
+              disabled={busy}
             />
           </div>
-          <div className="space-y-2 md:col-span-2">
+          <div className="space-y-2">
             <Label>Registration approval</Label>
             <Select
               value={approval}
               onValueChange={value => setApproval(value as typeof approval)}
+              disabled={busy}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -431,20 +367,35 @@ function WebinarCreateDialog({
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="webinar-partner-guest">Partner or guest information *</Label>
+            <Textarea id="webinar-partner-guest" placeholder="List the partner or guests, their roles, and anything Marketing should know." value={partnerGuestInfo} onChange={event => setPartnerGuestInfo(event.target.value)} rows={3} disabled={busy} />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="webinar-guest-bios">Guest bios *</Label>
+            <Textarea id="webinar-guest-bios" placeholder="Provide the bio copy Marketing should use for every guest." value={guestBios} onChange={event => setGuestBios(event.target.value)} rows={5} disabled={busy} />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>Guest headshots *</Label>
+            <input ref={headshotInput} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={addHeadshots} disabled={busy} />
+            <Button type="button" variant="outline" className="w-full border-dashed" onClick={() => headshotInput.current?.click()} disabled={busy}><Upload className="mr-2 h-4 w-4" />Upload guest headshots</Button>
+            <p className="text-xs text-muted-foreground">JPG, PNG, or WEBP. Up to 2 MB each, 10 files maximum.</p>
+            {guestHeadshots.length > 0 && <ul className="rounded-md border p-2 text-sm">{guestHeadshots.map((file, index) => <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2"><span className="truncate">{file.name}</span><button type="button" onClick={() => setGuestHeadshots(current => current.filter((_, itemIndex) => itemIndex !== index))} disabled={busy} aria-label={`Remove ${file.name}`}><X className="h-4 w-4" /></button></li>)}</ul>}
+          </div>
         </div>
         <DialogFooter>
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={createMutation.isPending}
+            disabled={busy}
           >
             Cancel
           </Button>
-          <Button onClick={submit} disabled={createMutation.isPending}>
-            {createMutation.isPending && (
+          <Button onClick={submit} disabled={!ready || busy}>
+            {busy && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
-            Create Zoom Webinar
+            Submit Webinar Request
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -647,7 +598,7 @@ function WebinarDetailDialog({
                 {statusBadge(detail.webinar.status)}
               </div>
               <DialogDescription>
-                {formatEasternDateTime(detail.webinar.startTime, true)} ·{" "}
+                {formatWebinarDateTime(detail.webinar.startTime, detail.webinar.timezone, { includeWeekday: true })} ·{" "}
                 {detail.webinar.durationMinutes} minutes
               </DialogDescription>
             </DialogHeader>
@@ -730,6 +681,15 @@ function WebinarDetailDialog({
                   Latest Zoom sync error: {detail.webinar.lastZoomSyncError}
                 </p>
               )}
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">Webinar request details</h3><span className="text-xs text-muted-foreground">{webinarTimezoneLabel(detail.webinar.timezone, detail.webinar.startTime)}</span></div>
+              <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                <div><p className="text-xs font-medium uppercase text-muted-foreground">Description / details</p><p className="mt-1 whitespace-pre-wrap text-sm">{detail.webinar.description || "No description recorded."}</p></div>
+                <div><p className="text-xs font-medium uppercase text-muted-foreground">Partner or guest information</p><p className="mt-1 whitespace-pre-wrap text-sm">{detail.webinar.partnerGuestInfo || "No partner or guest information recorded."}</p></div>
+                <div className="lg:col-span-2"><p className="text-xs font-medium uppercase text-muted-foreground">Guest bios</p><p className="mt-1 whitespace-pre-wrap text-sm">{detail.webinar.guestBios || "No guest bios recorded."}</p></div>
+                <div className="lg:col-span-2"><p className="text-xs font-medium uppercase text-muted-foreground">Guest headshots</p>{(detail.guestHeadshots ?? []).length ? <div className="mt-2 flex flex-wrap gap-3">{detail.guestHeadshots.map((headshot: any) => <a key={headshot.id} href={headshot.fileUrl} target="_blank" rel="noreferrer" className="flex w-28 flex-col overflow-hidden rounded-md border"><img src={headshot.fileUrl} alt={headshot.fileName} className="h-24 w-full object-cover" /><span className="truncate px-2 py-1 text-xs">{headshot.fileName}</span></a>)}</div> : <p className="mt-1 text-sm text-muted-foreground">No guest headshots were recorded.</p>}</div>
+              </div>
             </div>
             <div className="grid gap-5 lg:grid-cols-2">
               <div className="space-y-3">
@@ -821,10 +781,9 @@ function WebinarDetailDialog({
                   SavvyOS tasks.
                 </p>
                 <p className="mt-3 text-sm text-muted-foreground">
-                  The webinar creation email goes to{" "}
+                  The complete request, including guest bios and headshots, goes to{" "}
                   <strong className="text-foreground">{MARKETING_EMAIL}</strong>
-                  , with the creator copied, and includes this Zoom registration
-                  link.
+                  . The submitter also receives a confirmation email with a reply-to address of {MARKETING_EMAIL}.
                 </p>
               </div>
             </div>
@@ -1038,8 +997,7 @@ export default function WebinarsAdminPage() {
                 Webinar calendar
               </CardTitle>
               <CardDescription>
-                Scheduled, live, and completed webinar dates in Eastern Time.
-                Cancelled webinars are retained in history only.
+                Scheduled, live, and completed webinar dates in each webinar&apos;s selected timezone. Cancelled webinars are retained in history only.
               </CardDescription>
             </div>
             <div className="flex items-center gap-1">
@@ -1076,7 +1034,7 @@ export default function WebinarsAdminPage() {
               </>
               {calendarDays.map(day => {
                 const dayWebinars = calendarWebinars.filter(value =>
-                  isSameDay(new Date(value.webinar.startTime), day)
+                  webinarDateKey(value.webinar.startTime, value.webinar.timezone) === format(day, "yyyy-MM-dd")
                 );
                 return (
                   <div
@@ -1096,7 +1054,7 @@ export default function WebinarsAdminPage() {
                           title={value.webinar.title}
                           onClick={() => setSelectedWebinarId(value.webinar.id)}
                         >
-                          {formatEasternTime(value.webinar.startTime)} ·{" "}
+                          {formatWebinarTime(value.webinar.startTime, value.webinar.timezone)} ·{" "}
                           {value.webinar.title}
                         </button>
                       ))}
@@ -1147,7 +1105,7 @@ export default function WebinarsAdminPage() {
                     {statusBadge(value.webinar.status)}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {formatEasternDateTime(value.webinar.startTime)}
+                    {formatWebinarDateTime(value.webinar.startTime, value.webinar.timezone)}
                   </p>
                   <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
@@ -1236,7 +1194,7 @@ export default function WebinarsAdminPage() {
                         </p>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-sm">
-                        {formatEasternDateTime(value.webinar.startTime)}
+                        {formatWebinarDateTime(value.webinar.startTime, value.webinar.timezone)}
                       </TableCell>
                       <TableCell>{statusBadge(value.webinar.status)}</TableCell>
                       <TableCell className="text-right text-sm">

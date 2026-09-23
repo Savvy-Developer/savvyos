@@ -1957,6 +1957,8 @@ export const webinars = mysqlTable(
     id: int("id").autoincrement().primaryKey(),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
+    partnerGuestInfo: text("partnerGuestInfo"),
+    guestBios: text("guestBios"),
     startTime: timestamp("startTime").notNull(),
     durationMinutes: int("durationMinutes").default(60).notNull(),
     timezone: varchar("timezone", { length: 64 })
@@ -2001,6 +2003,25 @@ export const webinars = mysqlTable(
 );
 export type Webinar = typeof webinars.$inferSelect;
 export type InsertWebinar = typeof webinars.$inferInsert;
+
+export const webinarGuestHeadshots = mysqlTable(
+  "webinar_guest_headshots",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    webinarId: int("webinarId")
+      .notNull()
+      .references(() => webinars.id, { onDelete: "cascade" }),
+    fileUrl: text("fileUrl").notNull(),
+    fileKey: varchar("fileKey", { length: 512 }).notNull(),
+    fileName: varchar("fileName", { length: 255 }).notNull(),
+    mimeType: varchar("mimeType", { length: 128 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [index("webinar_guest_headshots_webinar_idx").on(table.webinarId)]
+);
+export type WebinarGuestHeadshot = typeof webinarGuestHeadshots.$inferSelect;
+export type InsertWebinarGuestHeadshot =
+  typeof webinarGuestHeadshots.$inferInsert;
 
 export const webinarTaskLinks = mysqlTable(
   "webinar_task_links",

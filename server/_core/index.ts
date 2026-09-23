@@ -67,6 +67,7 @@ import { registerCalendarOAuthRoutes } from "../calendarOAuthRoutes";
 import { registerSwoogoEventsWebhook } from "../eventsSwoogoWebhook";
 import { startSwoogoTokenRefresh } from "../swoogoEvents";
 import { ensureProjectTodoWorkflowSchema } from "../projectTodoWorkflowSchema";
+import { ensureWebinarRequestSchema } from "../webinarRequestSchema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -92,6 +93,7 @@ async function startServer() {
   // instance healthy, so this release never serves its new project To-Do fields
   // against a pre-migration database.
   await ensureProjectTodoWorkflowSchema();
+  await ensureWebinarRequestSchema();
 
   const app = express();
   const server = createServer(app);

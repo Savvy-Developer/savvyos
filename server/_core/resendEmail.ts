@@ -127,6 +127,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "welcome",
   "password_reset",
   "webinar_marketing_request",
+  "webinar_request_confirmation",
   "website_deeper_analysis_request",
   "website_financing_request",
   "website_showing_request",
@@ -289,10 +290,17 @@ interface EmailContext {
   webinarTitle?: string;
   webinarDescription?: string;
   webinarStartTime?: string;
+  webinarDate?: string;
+  webinarTime?: string;
+  webinarTimezone?: string;
   webinarDuration?: string;
+  webinarRegistrationApproval?: string;
   webinarRegistrationUrl?: string;
   webinarCreatorName?: string;
   webinarCreatorEmail?: string;
+  webinarPartnerGuestInfo?: string;
+  webinarGuestBios?: string;
+  webinarGuestHeadshots?: Array<{ fileName: string; fileUrl: string }>;
   // Featured vendor billing fields
   vendorBusinessName?: string;
   vendorContactName?: string;
@@ -346,6 +354,21 @@ function replaceWebinarTemplateBody(
   const end = html.indexOf(WEBINAR_TEMPLATE_BODY_END);
   if (start === -1 || end === -1) return html;
   return `${html.slice(0, start)}${webinarTemplateBody(text, ctx)}${html.slice(end + WEBINAR_TEMPLATE_BODY_END.length)}`;
+}
+
+function webinarRequestDetails(ctx: EmailContext, includeCreator = true): string {
+  const rows = [
+    `<strong style="color:${BLACK};">Webinar</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarTitle ?? "—")}`,
+    ...(ctx.webinarDate ? [`<strong style="color:${BLACK};">Date</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarDate)}`] : []),
+    ...(ctx.webinarTime ? [`<strong style="color:${BLACK};">Time</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarTime)}`] : ctx.webinarStartTime ? [`<strong style="color:${BLACK};">Start</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarStartTime)}`] : []),
+    ...(ctx.webinarTimezone ? [`<strong style="color:${BLACK};">Timezone</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarTimezone)}`] : []),
+    ...(ctx.webinarDuration ? [`<strong style="color:${BLACK};">Duration</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarDuration)}`] : []),
+    ...(ctx.webinarRegistrationApproval ? [`<strong style="color:${BLACK};">Registration</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarRegistrationApproval)}`] : []),
+    ...(includeCreator && ctx.webinarCreatorName ? [`<strong style="color:${BLACK};">Submitted by</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarCreatorName)}${ctx.webinarCreatorEmail ? ` (${escapeHtml(ctx.webinarCreatorEmail)})` : ""}`] : []),
+  ];
+  const detail = (label: string, value?: string) => value ? `<p style="margin:20px 0 4px;font-size:14px;font-weight:600;color:${BLACK};">${label}</p><p style="margin:0;font-size:14px;color:#374151;line-height:1.6;background:#F9FAFB;border-radius:6px;padding:12px 16px;">${escapeHtml(value).replace(/\n/g, "<br />")}</p>` : "";
+  const headshots = ctx.webinarGuestHeadshots?.length ? `<p style="margin:20px 0 4px;font-size:14px;font-weight:600;color:${BLACK};">Guest headshots</p>${infoCard(ctx.webinarGuestHeadshots.map(headshot => `<a href="${escapeHtml(headshot.fileUrl)}" style="color:${CYAN};font-weight:600;text-decoration:none;">${escapeHtml(headshot.fileName)}</a>`))}` : "";
+  return `${infoCard(rows)}${detail("Webinar description", ctx.webinarDescription)}${detail("Partner or guest information", ctx.webinarPartnerGuestInfo)}${detail("Guest bios", ctx.webinarGuestBios)}${headshots}`;
 }
 
 // ─── Shared Layout Wrapper ────────────────────────────────────────────────────
@@ -1639,28 +1662,24 @@ const TEMPLATES: Record<
       ${subheading("SavvyOS Event Operations")}
       ${greeting(ctx.recipientName ?? "Marketing Team")}
       ${webinarTemplateBody("A new webinar has been created in SavvyOS. Please coordinate the promotional plan with {{webinar_creator_name}} and use the registration link below in approved marketing.", ctx)}
-      ${infoCard([
-        `<strong style="color:${BLACK};">Webinar</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarTitle ?? "—")}`,
-        ...(ctx.webinarStartTime
-          ? [
-              `<strong style="color:${BLACK};">Start</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarStartTime)}`,
-            ]
-          : []),
-        ...(ctx.webinarDuration
-          ? [
-              `<strong style="color:${BLACK};">Duration</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarDuration)}`,
-            ]
-          : []),
-        ...(ctx.webinarCreatorName
-          ? [
-              `<strong style="color:${BLACK};">Created by</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarCreatorName)}${ctx.webinarCreatorEmail ? ` (${escapeHtml(ctx.webinarCreatorEmail)})` : ""}`,
-            ]
-          : []),
-      ])}
-      ${ctx.webinarDescription ? `<p style="margin:20px 0 4px;font-size:14px;font-weight:600;color:${BLACK};">Webinar description</p><p style="margin:0;font-size:14px;color:#374151;line-height:1.6;background:#F9FAFB;border-radius:6px;padding:12px 16px;">${escapeHtml(ctx.webinarDescription)}</p>` : ""}
+      ${webinarRequestDetails(ctx)}
       ${ctx.webinarRegistrationUrl ? ctaButton("Open Registration Link", ctx.webinarRegistrationUrl) : ""}
       ${bodyText("Reply all to coordinate the marketing plan and any promotion requirements.")}`,
       `New webinar marketing request — ${ctx.webinarTitle ?? "Webinar"}`
+    ),
+  }),
+
+  webinar_request_confirmation: ctx => ({
+    subject: `Webinar request received: ${ctx.webinarTitle ?? "Webinar"}`,
+    html: emailLayout(
+      `${heading("Your webinar request is in", CYAN)}
+      ${subheading("SavvyOS Event Operations")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("Marketing has received your webinar request. The date, time, timezone, and description below are the details they will use.")}
+      ${webinarRequestDetails(ctx, false)}
+      ${ctx.webinarRegistrationUrl ? ctaButton("Open Registration Link", ctx.webinarRegistrationUrl) : ""}
+      ${bodyText(`If anything is incorrect, please reply right away. Your reply goes directly to <a href="mailto:marketing@savvy.realty" style="color:${CYAN};font-weight:600;">marketing@savvy.realty</a>.`)}`,
+      `Webinar request received — ${ctx.webinarTitle ?? "Webinar"}`
     ),
   }),
 

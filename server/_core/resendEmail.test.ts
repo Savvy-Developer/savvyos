@@ -142,6 +142,33 @@ describe("transaction created email", () => {
   });
 });
 
+describe("webinar request confirmation email", () => {
+  it("puts the submitted date, time, timezone, and description first and routes corrections to Marketing", () => {
+    const preview = getEmailPreview("webinar_request_confirmation", {
+      recipientEmail: "submitter@example.com",
+      recipientName: "Avery Submitter",
+      webinarTitle: "Build a Better STR Portfolio",
+      webinarDate: "Tue, Oct 6, 2026",
+      webinarTime: "2:00 PM EDT",
+      webinarTimezone: "Eastern Time (EDT)",
+      webinarRegistrationApproval: "Approve registrations automatically",
+      webinarDescription: "A practical session on portfolio strategy.",
+      webinarPartnerGuestInfo: "Guest: Jordan Lee, operator and investor.",
+      webinarGuestBios: "Jordan has operated vacation rentals for 12 years.",
+      webinarGuestHeadshots: [{ fileName: "jordan-lee.png", fileUrl: "https://example.com/jordan-lee.png" }],
+    });
+
+    expect(preview.subject).toBe("Webinar request received: Build a Better STR Portfolio");
+    expect(preview.html).toContain("2:00 PM EDT");
+    expect(preview.html).toContain("Eastern Time (EDT)");
+    expect(preview.html).toContain("Approve registrations automatically");
+    expect(preview.html).toContain("A practical session on portfolio strategy.");
+    expect(preview.html).toContain("jordan-lee.png");
+    expect(preview.html).toContain("please reply right away");
+    expect(preview.html).toContain("mailto:marketing@savvy.realty");
+  });
+});
+
 describe("configured notification recipients", () => {
   it("preserves the event-specific recipient when legacy recipient settings are present", async () => {
     mockSend.mockClear();

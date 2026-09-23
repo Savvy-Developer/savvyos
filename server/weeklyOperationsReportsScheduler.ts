@@ -12,6 +12,7 @@ import {
 } from "../drizzle/schema";
 import { getDb } from "./db";
 import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
+import { formatWebinarDate, formatWebinarTime } from "@shared/webinarTime";
 import {
   addEasternDays,
   easternDateKey,
@@ -129,15 +130,6 @@ function formatDate(value: Date | null | undefined, options: Intl.DateTimeFormat
     year: "numeric",
     ...options,
   }).format(value);
-}
-
-function formatWebinarTime(value: Date, timezone: string): string {
-  const options: Intl.DateTimeFormatOptions = { timeZone: timezone || EASTERN_TIME_ZONE, hour: "numeric", minute: "2-digit", timeZoneName: "short" };
-  try {
-    return new Intl.DateTimeFormat("en-US", options).format(value);
-  } catch {
-    return new Intl.DateTimeFormat("en-US", { ...options, timeZone: EASTERN_TIME_ZONE }).format(value);
-  }
 }
 
 function formatCurrency(value: number): string {
@@ -342,7 +334,7 @@ function metricCard(label: string, value: string, color: string): string {
 
 /** Render the company-wide upcoming webinar listing for the shared email layout. */
 export function renderWeeklyWebinarReport(report: WeeklyWebinarReport): string {
-  const rows = report.rows.map((row, index) => `<tr style="background:${index % 2 ? "#F9FAFB" : "#FFFFFF"};"><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;font-weight:600;color:#111827;">${escapeHtml(row.title)}</td><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#374151;white-space:nowrap;">${escapeHtml(formatDate(row.startTime, { weekday: "short", month: "short", day: "numeric", year: "numeric" }))}</td><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#374151;white-space:nowrap;">${escapeHtml(formatWebinarTime(row.startTime, row.timezone))}</td><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#374151;">${escapeHtml(row.createdBy)}</td><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;text-align:center;font-weight:700;color:#0891B2;">${escapeHtml(row.registeredAttendees)}</td></tr>`).join("");
+  const rows = report.rows.map((row, index) => `<tr style="background:${index % 2 ? "#F9FAFB" : "#FFFFFF"};"><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;font-weight:600;color:#111827;">${escapeHtml(row.title)}</td><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#374151;white-space:nowrap;">${escapeHtml(formatWebinarDate(row.startTime, row.timezone))}</td><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#374151;white-space:nowrap;">${escapeHtml(formatWebinarTime(row.startTime, row.timezone))}</td><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#374151;">${escapeHtml(row.createdBy)}</td><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;text-align:center;font-weight:700;color:#0891B2;">${escapeHtml(row.registeredAttendees)}</td></tr>`).join("");
 
   return `<div style="font-size:20px;font-weight:700;line-height:1.3;color:#111827;">Upcoming Webinars</div>
     <div style="margin:5px 0 20px;font-size:12px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.45px;">Monday webinar briefing · generated ${escapeHtml(report.asOfLabel)}</div>
