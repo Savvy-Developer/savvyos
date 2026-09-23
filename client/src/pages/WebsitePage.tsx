@@ -24,6 +24,7 @@ import { CmsPagesEditor } from "@/components/website/CmsPagesEditor";
 import { TestimonialsEditor } from "@/components/website/TestimonialsEditor";
 import { normalizeTestimonials } from "@shared/websiteTestimonials";
 import { ContentViewsPanel } from "@/components/website/ContentViewsPanel";
+import { AgentProfilesPanel } from "@/components/website/AgentProfilesPanel";
 import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ type TabKey =
   | "overview"
   | "case-studies"
   | "blog"
+  | "agents"
   | "leads"
   | "settings";
 type Status = "draft" | "published" | "archived";
@@ -66,6 +68,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ElementType }> = [
   { key: "overview", label: "Overview", icon: Globe2 },
   { key: "case-studies", label: "Case Studies", icon: Sparkles },
   { key: "blog", label: "Blog", icon: BookOpen },
+  { key: "agents", label: "Agents", icon: UserRound },
   { key: "leads", label: "Leads", icon: Mail },
   { key: "settings", label: "CMS", icon: Settings2 },
 ];
@@ -887,6 +890,13 @@ export default function WebsitePage() {
           columns={["title", "category"]}
           onEdit={item => setEditor({ type: "post", initial: item })}
           preview={item => `${PUBLIC_PREVIEW_URL}resources/${item.slug}`}
+        />
+      )}
+      {tab === "agents" && (
+        <AgentProfilesPanel
+          agents={data?.agents || []}
+          canManage={can("canManageWebsiteAgents")}
+          previewUrl={slug => `${PUBLIC_PREVIEW_URL}agents/${slug}`}
         />
       )}
       {tab === "leads" && can("canViewWebsiteLeads") && (
