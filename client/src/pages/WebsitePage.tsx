@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { parseTagText } from "@shared/websiteContentFilters";
 
 const PUBLIC_PREVIEW_URL = "https://home.savvy-agents.com/newsite/";
 type TabKey =
@@ -243,8 +244,18 @@ function ContentEditor({
 }) {
   const utils = trpc.useUtils();
   const isCase = kind === "case";
-  const [draft, setDraft] = useState<any>(
-    initial || {
+  const [draft, setDraft] = useState<any>(() =>
+    initial
+      ? {
+          ...initial,
+          // Stored as a decimal string ("1140000.00"); edited as a plain number.
+          investmentAmount:
+            initial.investmentAmount == null
+              ? ""
+              : String(Number(initial.investmentAmount)),
+          tagsText: Array.isArray(initial.tags) ? initial.tags.join(", ") : "",
+        }
+      : {
       slug: "",
       title: "",
       eyebrow: "",
@@ -259,7 +270,9 @@ function ContentEditor({
       primaryMetricValue: "",
       secondaryMetricLabel: "",
       secondaryMetricValue: "",
+      investmentAmount: "",
       category: "STR Investing",
+      tagsText: "",
       metaTitle: "",
       metaDescription: "",
       status: "draft",
@@ -267,6 +280,11 @@ function ContentEditor({
       sortOrder: 0,
     }
   );
+  // Digits only, so "$1,140,000" pastes in as 1140000.
+  const investmentNumber = (() => {
+    const digits = String(draft.investmentAmount ?? "").replace(/[^\d.]/g, "");
+    return digits ? Number(digits) : null;
+  })();
   const saveCase = trpc.website.saveCaseStudy.useMutation({
     onSuccess: async () => {
       await utils.website.adminOverview.invalidate();
@@ -308,12 +326,17 @@ function ContentEditor({
         primaryMetricValue: draft.primaryMetricValue || null,
         secondaryMetricLabel: draft.secondaryMetricLabel || null,
         secondaryMetricValue: draft.secondaryMetricValue || null,
+        investmentAmount:
+          investmentNumber != null && Number.isFinite(investmentNumber)
+            ? investmentNumber
+            : null,
       } as any);
     else
       savePost.mutate({
         ...common,
         coverImageUrl: draft.coverImageUrl || null,
         category: draft.category || null,
+        tags: parseTagText(draft.tagsText || ""),
         authorUserId: draft.authorUserId ? Number(draft.authorUserId) : null,
         metaTitle: draft.metaTitle || null,
         metaDescription: draft.metaDescription || null,
@@ -353,11 +376,18 @@ function ContentEditor({
             onChange={value => set("eyebrow", value)}
           />
         ) : (
-          <Field
-            label="Category"
-            value={draft.category || ""}
-            onChange={value => set("category", value)}
-          />
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Category"
+              value={draft.category || ""}
+              onChange={value => set("category", value)}
+            />
+            <Field
+              label="Tags (comma separated)"
+              value={draft.tagsText || ""}
+              onChange={value => set("tagsText", value)}
+            />
+          </div>
         )}
         <Area
           label="Excerpt"
@@ -454,6 +484,11 @@ function ContentEditor({
                 label="Secondary metric value"
                 value={draft.secondaryMetricValue || ""}
                 onChange={value => set("secondaryMetricValue", value)}
+              />
+              <Field
+                label="Investment amount ($, usually the purchase price)"
+                value={draft.investmentAmount || ""}
+                onChange={value => set("investmentAmount", value)}
               />
             </div>
           </>

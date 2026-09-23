@@ -44,6 +44,16 @@ import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
 import { captureVisitAttribution, formAttribution } from "@/lib/visitAttribution";
 import {
+  INVESTMENT_BANDS,
+  cleanTags,
+  compactMoney,
+  hasAnyTag,
+  inInvestmentBand,
+  isInvestmentBand,
+  popularTags,
+  tagKey,
+} from "@shared/websiteContentFilters";
+import {
   attributionLine,
   publishedTestimonials,
 } from "@shared/websiteTestimonials";
@@ -818,6 +828,14 @@ function StoryCard({ item }: { item: any }) {
             )}
             <p className="mt-1 text-xs text-slate-500">
               {item.agentName ? `with ${item.agentName}` : "Savvy STR Agents"}
+              {compactMoney(item.investmentAmount) ? (
+                <>
+                  {" · "}Investment{" "}
+                  <span className="font-semibold text-[#05314a]">
+                    {compactMoney(item.investmentAmount)}
+                  </span>
+                </>
+              ) : null}
             </p>
           </div>
           <ArrowRight className="h-5 w-5 text-cyan-600" />
@@ -2284,42 +2302,120 @@ function AgentDetailPage({ slug }: { slug: string }) {
   );
 }
 
+/** Read and write one query-string value without reloading the page. */
+function useQueryParam(key: string): [string, (value: string) => void] {
+  const [value, setValue] = useState(
+    () => new URLSearchParams(window.location.search).get(key) || ""
+  );
+  const update = (next: string) => {
+    setValue(next);
+    const params = new URLSearchParams(window.location.search);
+    if (next) params.set(key, next);
+    else params.delete(key);
+    const qs = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${qs ? `?${qs}` : ""}`
+    );
+  };
+  return [value, update];
+}
+
 function CaseStudiesPage() {
   usePageTitle("STR Investment Case Studies");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useQueryParam("search");
+  const [bandParam, setBand] = useQueryParam("investment");
+  const band = isInvestmentBand(bandParam) ? bandParam : "";
   const query = trpc.website.publicCaseStudies.useQuery();
   if (query.isLoading) return <LoadingPage />;
-  const items = (query.data || []).filter(
+  const all = query.data || [];
+  const needle = search.trim().toLowerCase();
+  const items = all.filter(
     (item: any) =>
-      !search ||
-      `${item.title} ${item.excerpt}`
-        .toLowerCase()
-        .includes(search.toLowerCase())
+      (!needle ||
+        `${item.title} ${item.excerpt || ""} ${item.agentName || ""}`
+          .toLowerCase()
+          .includes(needle)) &&
+      (!band || inInvestmentBand(item.investmentAmount, band))
   );
+  const filtered = !!(needle || band);
+  const clear = () => {
+    setSearch("");
+    setBand("");
+  };
   return (
     <Shell>
-      <section className="border-b bg-slate-50 py-16 text-center">
-        <h1 className="text-5xl font-black text-[#05314a]">Case Studies</h1>
-        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
-          The decisions, relationships, and execution behind successful STR
-          purchases.
-        </p>
-        <div className="mx-auto mt-8 flex max-w-2xl items-center gap-2 rounded-xl border bg-white px-4 shadow-sm">
-          <Search className="h-5 w-5 text-cyan-600" />
-          <input
-            className="w-full py-4 text-sm outline-none"
-            placeholder="Search case studies"
-            value={search}
-            onChange={event => setSearch(event.target.value)}
-          />
+      <section className="border-b bg-slate-50 py-16">
+        <div className="mx-auto max-w-[1180px] px-4 text-center sm:px-6">
+          <h1 className="text-5xl font-black text-[#05314a]">Case Studies</h1>
+          <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
+            The decisions, relationships, and execution behind successful STR
+            purchases.
+          </p>
+          <div className="mx-auto mt-8 flex max-w-4xl flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm md:flex-row md:items-center">
+            <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-cyan-500 focus-within:bg-white">
+              <Search className="h-5 w-5 shrink-0 text-cyan-600" />
+              <input
+                className="w-full bg-transparent py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                placeholder="Search case studies by title, summary or agent"
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+              />
+            </div>
+            <select
+              aria-label="Investment amount"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-[#05314a] outline-none focus:border-cyan-500 md:w-60"
+              value={band}
+              onChange={event => setBand(event.target.value)}
+            >
+              <option value="">Any investment amount</option>
+              {INVESTMENT_BANDS.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {filtered ? (
+            <p className="mt-4 text-sm text-slate-500">
+              Showing {items.length} of {all.length}{" "}
+              <button
+                type="button"
+                onClick={clear}
+                className="ml-1 font-semibold text-cyan-700 hover:underline"
+              >
+                Clear filters
+              </button>
+            </p>
+          ) : null}
         </div>
       </section>
       <section className="py-16">
-        <div className="mx-auto grid max-w-[1180px] gap-6 px-4 sm:px-6 lg:grid-cols-2">
-          {items.map((item: any) => (
-            <StoryCard key={item.id} item={item} />
-          ))}
-        </div>
+        {items.length ? (
+          <div className="mx-auto grid max-w-[1180px] gap-6 px-4 sm:px-6 lg:grid-cols-2">
+            {items.map((item: any) => (
+              <StoryCard key={item.id} item={item} />
+            ))}
+          </div>
+        ) : (
+          <div className="mx-auto max-w-[1180px] px-4 sm:px-6">
+            <div className="rounded-2xl border border-dashed bg-slate-50 p-16 text-center">
+              <Search className="mx-auto h-8 w-8 text-slate-300" />
+              <h3 className="mt-4 text-xl font-bold text-[#05314a]">
+                No case studies match
+              </h3>
+              <p className="mt-2 text-slate-500">Try a different search or amount.</p>
+              <button
+                type="button"
+                onClick={clear}
+                className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-cyan-700 hover:bg-slate-50"
+              >
+                Clear filters
+              </button>
+            </div>
+          </div>
+        )}
       </section>
     </Shell>
   );
@@ -2424,16 +2520,55 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
 
 function ResourcesPage() {
   usePageTitle("Insights & Resources");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useQueryParam("search");
+  const [category, setCategory] = useQueryParam("category");
+  const [tagParam, setTagParam] = useQueryParam("tags");
+  const chosenTags = tagParam ? tagParam.split("|").filter(Boolean) : [];
+  const toggleTag = (key: string) => {
+    const next = chosenTags.includes(key)
+      ? chosenTags.filter(tag => tag !== key)
+      : [...chosenTags, key];
+    setTagParam(next.join("|"));
+  };
   const query = trpc.website.publicPosts.useQuery();
   if (query.isLoading) return <LoadingPage />;
-  const items = (query.data || []).filter(
-    (item: any) =>
-      !search ||
-      `${item.title} ${item.excerpt} ${item.category}`
-        .toLowerCase()
-        .includes(search.toLowerCase())
+  const all: any[] = query.data || [];
+
+  // Categories with at least one published post, most used first.
+  const categoryCounts = new Map<string, number>();
+  for (const item of all) {
+    if (item.category)
+      categoryCounts.set(item.category, (categoryCounts.get(item.category) || 0) + 1);
+  }
+  const categories = Array.from(categoryCounts.entries()).sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
   );
+  const tags = popularTags(all);
+  const tagName = (key: string) =>
+    tags.find(tag => tag.key === key)?.label || key;
+
+  const needle = search.trim().toLowerCase();
+  const items = all.filter(
+    item =>
+      (!category || item.category === category) &&
+      hasAnyTag(item.tags, chosenTags) &&
+      (!needle ||
+        `${item.title} ${item.excerpt || ""} ${item.category || ""} ${cleanTags(item.tags).join(" ")}`
+          .toLowerCase()
+          .includes(needle))
+  );
+  const filtered = !!(needle || category || chosenTags.length);
+  const clear = () => {
+    setSearch("");
+    setCategory("");
+    setTagParam("");
+  };
+  const pill = (active: boolean) =>
+    `rounded-full border px-3.5 py-1.5 text-sm font-semibold transition ${
+      active
+        ? "border-[#05314a] bg-[#05314a] text-white"
+        : "border-slate-200 bg-white text-[#05314a] hover:border-cyan-400"
+    }`;
   return (
     <Shell>
       <section className="border-b bg-white py-16">
@@ -2448,27 +2583,102 @@ function ResourcesPage() {
             Investment strategies, market analysis, and STR guidance from
             specialist agents.
           </p>
-          <div className="mt-8 flex max-w-2xl items-center gap-2 rounded-xl border bg-slate-50 px-4">
+          <div className="mt-8 flex max-w-2xl items-center gap-2 rounded-xl border bg-slate-50 px-4 focus-within:border-cyan-500 focus-within:bg-white">
             <Search className="h-5 w-5 text-cyan-600" />
             <input
-              className="w-full bg-transparent py-4 text-sm outline-none"
+              className="w-full bg-transparent py-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
               placeholder="Search articles, topics, tags…"
               value={search}
               onChange={event => setSearch(event.target.value)}
             />
           </div>
+          {categories.length > 1 ? (
+            <div className="mt-6 flex flex-wrap gap-2" aria-label="Categories">
+              <button type="button" className={pill(!category)} onClick={() => setCategory("")}>
+                All
+              </button>
+              {categories.map(([name, count]) => (
+                <button
+                  key={name}
+                  type="button"
+                  className={pill(category === name)}
+                  onClick={() => setCategory(category === name ? "" : name)}
+                >
+                  {name}
+                  <span className="ml-1.5 text-xs opacity-60">{count}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {tags.length ? (
+            <div className="mt-5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Topics
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Topics">
+                {tags.map(tag => {
+                  const active = chosenTags.includes(tag.key);
+                  return (
+                    <button
+                      key={tag.key}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => toggleTag(tag.key)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                        active
+                          ? "bg-cyan-600 text-white"
+                          : "bg-cyan-50 text-cyan-900 hover:bg-cyan-100"
+                      }`}
+                    >
+                      #{tag.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          {filtered ? (
+            <p className="mt-5 text-sm text-slate-500">
+              Showing {items.length} of {all.length}
+              {chosenTags.length
+                ? ` tagged ${chosenTags.map(tagName).join(" or ")}`
+                : ""}{" "}
+              <button
+                type="button"
+                onClick={clear}
+                className="ml-1 font-semibold text-cyan-700 hover:underline"
+              >
+                Clear filters
+              </button>
+            </p>
+          ) : null}
         </div>
       </section>
       <section className="bg-slate-50 py-16">
         <div className="mx-auto max-w-[1180px] px-4 sm:px-6">
           <h2 className="border-l-4 border-cyan-400 pl-3 text-2xl font-bold text-[#05314a]">
-            Featured intelligence
+            {category || (filtered ? "Matching articles" : "Featured intelligence")}
           </h2>
-          <div className="mt-7 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {items.map((item: any) => (
-              <ArticleCard key={item.id} item={item} />
-            ))}
-          </div>
+          {items.length ? (
+            <div className="mt-7 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {items.map((item: any) => (
+                <ArticleCard key={item.id} item={item} />
+              ))}
+            </div>
+          ) : (
+            <div className="mt-7 rounded-2xl border border-dashed bg-white p-16 text-center">
+              <Search className="mx-auto h-8 w-8 text-slate-300" />
+              <h3 className="mt-4 text-xl font-bold text-[#05314a]">No articles match</h3>
+              <p className="mt-2 text-slate-500">Try another topic or search.</p>
+              <button
+                type="button"
+                onClick={clear}
+                className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-cyan-700 hover:bg-slate-50"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
         </div>
       </section>
     </Shell>
@@ -2524,6 +2734,19 @@ function ResourceDetailPage({ slug }: { slug: string }) {
             markdown={item.body || ""}
             className="prose prose-lg prose-slate max-w-none prose-headings:text-[#05314a] prose-a:text-cyan-700"
           />
+          {cleanTags(item.tags).length ? (
+            <div className="mt-10 flex flex-wrap gap-2 border-t border-slate-200 pt-6">
+              {cleanTags(item.tags).map(tag => (
+                <a
+                  key={tag}
+                  href={`${path("/resources")}?tags=${encodeURIComponent(tagKey(tag))}`}
+                  className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-900 hover:bg-cyan-100"
+                >
+                  #{tag}
+                </a>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-12 rounded-2xl bg-[#05314a] p-8 text-white">
             <h2 className="text-3xl font-bold">Put the insight to work.</h2>
             <p className="mt-3 text-cyan-50">

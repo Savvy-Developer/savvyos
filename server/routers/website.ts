@@ -57,6 +57,7 @@ import {
   zipInMarket,
 } from "../publicMarketDirectory";
 import { publishedTestimonials } from "@shared/websiteTestimonials";
+import { cleanTags } from "@shared/websiteContentFilters";
 import {
   adAttributionUpdates,
   campaignSourceFrom,
@@ -567,6 +568,7 @@ const caseStudyInput = z.object({
   primaryMetricValue: nullableText,
   secondaryMetricLabel: nullableText,
   secondaryMetricValue: nullableText,
+  investmentAmount: z.number().nonnegative().max(1e11).nullable().optional(),
   status: statusSchema.default("draft"),
   isFeatured: z.boolean().default(false),
   sortOrder: z.number().int().default(0),
@@ -580,6 +582,7 @@ const postInput = z.object({
   body: nullableText,
   coverImageUrl: nullableText,
   category: nullableText,
+  tags: z.array(z.string().max(80)).max(60).optional(),
   authorUserId: z.number().int().positive().nullable().optional(),
   status: statusSchema.default("draft"),
   isFeatured: z.boolean().default(false),
@@ -779,6 +782,7 @@ async function getPublishedHome(signedIn: boolean) {
           body: websiteBlogPosts.body,
           coverImageUrl: websiteBlogPosts.coverImageUrl,
           category: websiteBlogPosts.category,
+          tags: websiteBlogPosts.tags,
           publishedAt: websiteBlogPosts.publishedAt,
           authorName: users.name,
           authorImageUrl: userProfiles.profilePhotoUrl,
@@ -1617,6 +1621,7 @@ export const websiteRouter = router({
         primaryMetricValue: websiteCaseStudies.primaryMetricValue,
         secondaryMetricLabel: websiteCaseStudies.secondaryMetricLabel,
         secondaryMetricValue: websiteCaseStudies.secondaryMetricValue,
+        investmentAmount: websiteCaseStudies.investmentAmount,
         agentName: users.name,
       })
       .from(websiteCaseStudies)
@@ -1646,6 +1651,7 @@ export const websiteRouter = router({
           primaryMetricValue: websiteCaseStudies.primaryMetricValue,
           secondaryMetricLabel: websiteCaseStudies.secondaryMetricLabel,
           secondaryMetricValue: websiteCaseStudies.secondaryMetricValue,
+          investmentAmount: websiteCaseStudies.investmentAmount,
           propertyId: websiteCaseStudies.propertyId,
           agentUserId: websiteCaseStudies.agentUserId,
           agentName: users.name,
@@ -1679,6 +1685,7 @@ export const websiteRouter = router({
         body: websiteBlogPosts.body,
         coverImageUrl: websiteBlogPosts.coverImageUrl,
         category: websiteBlogPosts.category,
+        tags: websiteBlogPosts.tags,
         publishedAt: websiteBlogPosts.publishedAt,
         authorName: users.name,
         authorImageUrl: userProfiles.profilePhotoUrl,
@@ -1708,6 +1715,7 @@ export const websiteRouter = router({
           body: websiteBlogPosts.body,
           coverImageUrl: websiteBlogPosts.coverImageUrl,
           category: websiteBlogPosts.category,
+          tags: websiteBlogPosts.tags,
           publishedAt: websiteBlogPosts.publishedAt,
           authorName: users.name,
           authorImageUrl: userProfiles.profilePhotoUrl,
@@ -2271,6 +2279,14 @@ export const websiteRouter = router({
         ...input,
         id: undefined,
         slug: cleanSlug(input.slug),
+        // decimal columns take a string. Left out (undefined) when the form
+        // did not send it, so an older client never clears a stored amount.
+        investmentAmount:
+          input.investmentAmount === undefined
+            ? undefined
+            : input.investmentAmount === null
+              ? null
+              : String(input.investmentAmount),
         publishedAt: input.status === "published" ? new Date() : null,
         updatedById: ctx.user.id,
       };
@@ -2297,6 +2313,7 @@ export const websiteRouter = router({
         id: undefined,
         slug: cleanSlug(input.slug),
         category: input.category || "STR Investing",
+        tags: input.tags === undefined ? undefined : cleanTags(input.tags),
         publishedAt: input.status === "published" ? new Date() : null,
         updatedById: ctx.user.id,
       };
