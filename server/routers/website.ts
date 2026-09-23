@@ -61,6 +61,7 @@ import {
   adAttributionUpdates,
   campaignSourceFrom,
   readAdAttribution,
+  isPaidAttribution,
 } from "@shared/adAttribution";
 
 /**
@@ -1771,7 +1772,9 @@ export const websiteRouter = router({
           lastName: input.lastName,
           email: normalizedEmail,
           phone: input.phone || null,
-          leadSourceType: "organic",
+          // First touch, locked after this. A lead that arrived through an
+          // ad is a paid lead; anything else on the site is organic.
+          leadSourceType: isPaidAttribution(adAttribution) ? "paid_lead" : "organic",
           isaStatus: "new_lead",
           tags: ["Savvy website"],
           notes: input.message || "Savvy website inquiry",
