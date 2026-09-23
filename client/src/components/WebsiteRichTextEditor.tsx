@@ -264,7 +264,14 @@ export default function WebsiteRichTextEditor({
       </div>
       <EditorContent
         editor={editor}
-        className="prose prose-slate max-w-none px-4 py-3 [&_.ProseMirror]:outline-none"
+        className={cn(
+          "prose prose-slate max-w-none px-4 py-3 [&_.ProseMirror]:outline-none",
+          // Tables: give cells room and borders so figures don't run together.
+          "[&_table]:my-4 [&_table]:w-full [&_table]:border-collapse [&_table]:text-sm",
+          "[&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
+          "[&_td]:border [&_td]:border-slate-300 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top",
+          "[&_th_p]:m-0 [&_td_p]:m-0",
+        )}
         style={{ minHeight }}
       />
     </div>
