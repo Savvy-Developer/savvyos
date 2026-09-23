@@ -11,7 +11,9 @@ type AgentProfile = {
   id: number;
   userId: number;
   slug: string;
-  name: string;
+  // Comes from users.name, which is nullable, so an imported profile whose
+  // user record has no name arrives here as null.
+  name: string | null;
   headline: string | null;
   shortBio: string | null;
   markets: string[];
@@ -70,8 +72,8 @@ export function AgentProfilesPanel({
     const q = search.trim().toLowerCase();
     return agents
       .filter(a => filter === "all" || a.status === filter)
-      .filter(a => !q || `${a.name} ${a.slug} ${(a.markets || []).join(" ")}`.toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .filter(a => !q || `${a.name ?? ""} ${a.slug} ${(a.markets || []).join(" ")}`.toLowerCase().includes(q))
+      .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
   }, [agents, filter, search]);
 
   const setStatus = (agent: AgentProfile, status: "draft" | "published") => {
@@ -153,7 +155,9 @@ export function AgentProfilesPanel({
                           </span>
                         )}
                         <div>
-                          <div className="font-semibold text-slate-950">{agent.name}</div>
+                          <div className="font-semibold text-slate-950">
+                            {agent.name ?? <span className="text-slate-400">Name missing</span>}
+                          </div>
                           <div className="text-xs text-slate-500">/{agent.slug}</div>
                         </div>
                       </div>
