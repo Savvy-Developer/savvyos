@@ -378,6 +378,23 @@ export async function handleResendWebhook(
     return { handled: true, action: "duplicate_ignored", emailId, recipientId: oneTimeSendResult.recipientId, oneTimeSendId: oneTimeSendResult.sendId };
   }
 
+  // Opens and clicks on the daily property email, for its Analytics section.
+  // A no-op for every other email. Never allowed to fail the webhook.
+  if (
+    (type === "email.opened" || type === "email.clicked") &&
+    emailId &&
+    ((data as any).tags || data.broadcast_id)
+  ) {
+    try {
+      // Loaded on demand: the daily email module pulls in the sending code,
+      // which the rest of this webhook has no need for.
+      const { recordDailyEmailEvent } = await import("../websiteDailyEmail");
+      await recordDailyEmailEvent(event);
+    } catch (error) {
+      console.warn("[ResendWebhook] Daily email engagement not recorded.", error);
+    }
+  }
+
   const db = await getDb();
   if (!db) return { handled: false, reason: "db_unavailable" };
 

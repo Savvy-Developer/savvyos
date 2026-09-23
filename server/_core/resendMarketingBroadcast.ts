@@ -175,6 +175,21 @@ export async function createResendSegment(
   });
 }
 
+/** The segments in the Resend account, for choosing who gets the daily email. */
+export async function listResendSegments(): Promise<
+  ResendApiResult<Array<{ id: string; name: string }>>
+> {
+  const result = await resendJson<{ data?: Array<{ id: string; name?: string }> }>(
+    "/segments"
+  );
+  if (!result.success) return result;
+  const rows = Array.isArray(result.data?.data) ? result.data.data : [];
+  return {
+    success: true,
+    data: rows.map(row => ({ id: row.id, name: row.name || row.id })),
+  };
+}
+
 export async function createResendContactImport(params: {
   csv: string;
   segmentId: string;

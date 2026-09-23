@@ -12,6 +12,7 @@ import {
   Mail,
   Pencil,
   Plus,
+  Send,
   Settings2,
   Sparkles,
   Trash2,
@@ -25,6 +26,7 @@ import { TestimonialsEditor } from "@/components/website/TestimonialsEditor";
 import { normalizeTestimonials } from "@shared/websiteTestimonials";
 import { ContentViewsPanel } from "@/components/website/ContentViewsPanel";
 import { AgentProfilesPanel } from "@/components/website/AgentProfilesPanel";
+import { DailyEmailPanel } from "@/components/website/DailyEmailPanel";
 import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,6 +64,7 @@ type TabKey =
   | "blog"
   | "agents"
   | "leads"
+  | "daily-email"
   | "settings";
 type Status = "draft" | "published" | "archived";
 
@@ -71,6 +74,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ElementType }> = [
   { key: "blog", label: "Blog", icon: BookOpen },
   { key: "agents", label: "Agents", icon: UserRound },
   { key: "leads", label: "Leads", icon: Mail },
+  { key: "daily-email", label: "Daily Email", icon: Send },
   { key: "settings", label: "CMS", icon: Settings2 },
 ];
 
@@ -739,7 +743,11 @@ export default function WebsitePage() {
     (permissions.data as Record<string, boolean> | undefined)?.[key] === true;
   // Website inquiries are routed straight into SavvyOS contacts and the
   // agent's pipeline, so there is no separate lead queue to manage here.
-  const visibleTabs = tabs.filter(item => item.key !== "leads");
+  const visibleTabs = tabs.filter(
+    item =>
+      item.key !== "leads" &&
+      (item.key !== "daily-email" || can("canManageWebsiteSettings"))
+  );
   const data = overview.data;
   const counts = useMemo(
     () => ({
@@ -986,6 +994,9 @@ export default function WebsitePage() {
             )}
           </CardContent>
         </Card>
+      )}
+      {tab === "daily-email" && can("canManageWebsiteSettings") && (
+        <DailyEmailPanel />
       )}
       {tab === "settings" && (
         <div className="space-y-6">

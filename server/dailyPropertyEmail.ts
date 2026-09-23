@@ -1,55 +1,36 @@
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Resend } from "resend";
 
 import {
   marketZipCodes,
-  properties,
-  scheduledReportRuns,
   websiteAccountEmailSends,
   websiteAccountPreferences,
   websiteAccounts,
-  websiteProperties,
 } from "../drizzle/schema";
 import { getDb } from "./db";
 import { ENV } from "./_core/env";
 import { createMarketingUnsubscribeUrl } from "./marketingEmailUnsubscribe";
 import {
-  dailyPropertyEmailEnabled,
-  newSince,
   selectListingsFor,
   shouldEmailToday,
   type Listing,
   type Preferences,
 } from "./dailyPropertyEmailMatching";
-import {
-  addEasternDays,
-  easternDateKey,
-  easternDateTimeToUtc,
-  getEasternTimeParts,
-} from "./agentProductionReportScheduler";
+import { DAILY_EMAIL_TAG, PUBLIC_SITE_BASE } from "./websiteDailyEmailLogic";
 
 /**
- * The new-property email for investors with a website account.
+ * The personal new-property email for investors with a new-site account.
  *
  * The decisions about who gets what live in dailyPropertyEmailMatching, which
- * is pure and tested. This file is the plumbing: read the candidates once, ask
- * that module per investor, render, send, and record what happened.
- *
- * Reuses scheduled_report_runs rather than adding another runs table. It
- * already tracks reportKey, date, status and per-recipient counts, which is
- * exactly what is needed, and one place to look when someone asks whether the
- * email went out is better than two.
+ * is pure and tested. This file renders and sends. Scheduling, the review
+ * queue and the record of each send belong to the daily email run in
+ * websiteDailyEmail.ts, which calls sendPersonalPropertyEmails with the
+ * listings an admin approved.
  */
 
-const EASTERN_TIME_ZONE = "America/New_York";
-const REPORT_HOUR = 8;
-const DAILY_KEY = "website_daily_property_email";
-const SITE_URL = "https://os.savvy-agents.com";
 const FROM_ADDRESS = "Savvy STR Agents <properties@savvy-agents.com>";
-const SITE_BASE = `${SITE_URL}/newsite`;
-
-let schedulerTimer: NodeJS.Timeout | null = null;
-let startupRecoveryTimer: NodeJS.Timeout | null = null;
+// Links go to the public site host, not the SavvyOS app host.
+const SITE_BASE = PUBLIC_SITE_BASE;
 
 export type EmailListing = Listing & {
   headline: string | null;
@@ -178,34 +159,7 @@ async function loadZipToMarket(db: any): Promise<Map<string, number>> {
   return map;
 }
 
-/** Every published listing that could go in an email today. */
-async function loadCandidates(db: any): Promise<EmailListing[]> {
-  return db
-    .select({
-      propertyId: websiteProperties.propertyId,
-      slug: websiteProperties.slug,
-      headline: websiteProperties.headline,
-      heroImageUrl: websiteProperties.heroImageUrl,
-      publishedAt: websiteProperties.publishedAt,
-      address: properties.address,
-      city: properties.city,
-      state: properties.state,
-      zip: properties.zip,
-      listPrice: properties.listPrice,
-      beds: properties.beds,
-    })
-    .from(websiteProperties)
-    .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
-    .where(
-      and(
-        eq(websiteProperties.status, "published"),
-        isNotNull(websiteProperties.publishedAt)
-      )
-    );
-}
-
-export type DailyRunSummary = {
-  reportDate: string;
+export type PersonalSendSummary = {
   considered: number;
   sent: number;
   skippedNoMatches: number;
@@ -217,18 +171,23 @@ export type DailyRunSummary = {
 };
 
 /**
- * Send today's emails.
+ * The personal email to investors with a new-site account: the listings in
+ * today's approved batch that match each person's budget, bedrooms and
+ * markets. Called by the daily email run in websiteDailyEmail.ts, which owns
+ * scheduling, the review queue and the run record.
  *
  * One pass over the accounts. A failure to send to one person is recorded and
  * the run continues: one bad address must not stop everyone else's email.
  */
-export async function sendDailyPropertyEmails(
-  cadence: "daily" | "weekly" = "daily",
-  asOf = new Date()
-): Promise<DailyRunSummary> {
-  const reportDate = easternDateKey(getEasternTimeParts(asOf));
-  const summary: DailyRunSummary = {
-    reportDate,
+export async function sendPersonalPropertyEmails(params: {
+  candidates: EmailListing[];
+  runId: number;
+  cadence?: "daily" | "weekly";
+  asOf?: Date;
+}): Promise<PersonalSendSummary> {
+  const cadence = params.cadence ?? "daily";
+  const asOf = params.asOf ?? new Date();
+  const summary: PersonalSendSummary = {
     considered: 0,
     sent: 0,
     skippedNoMatches: 0,
@@ -236,163 +195,90 @@ export async function sendDailyPropertyEmails(
     failed: 0,
     unresolvableMarketPreferences: 0,
   };
-
-  // Paused. Checked before the run row is written, so a day spent paused is
-  // not marked as already sent: switching the email back on later the same day
-  // still sends, rather than silently skipping until tomorrow.
-  if (!dailyPropertyEmailEnabled(ENV.dailyPropertyEmailEnabled)) {
-    console.info(
-      `[DailyPropertyEmail] ${reportDate}: paused, nothing sent. Set DAILY_PROPERTY_EMAIL_ENABLED=true to resume.`
-    );
-    return summary;
-  }
-
   const db = await getDb();
-  if (!db) return summary;
+  if (!db || !params.candidates.length) return summary;
 
-  // One run per key per day. If a restart re-triggers this, the insert fails
-  // on the unique key and we stop, rather than emailing everyone twice.
-  const runKey = `${DAILY_KEY}_${cadence}`;
-  const [existing] = await db
-    .select({ id: scheduledReportRuns.id, status: scheduledReportRuns.status })
-    .from(scheduledReportRuns)
-    .where(
-      and(
-        eq(scheduledReportRuns.reportKey, runKey),
-        eq(scheduledReportRuns.reportDate, reportDate)
+  const [zipToMarket, accounts] = await Promise.all([
+    loadZipToMarket(db),
+    db
+      .select({
+        id: websiteAccounts.id,
+        email: websiteAccounts.email,
+        firstName: websiteAccounts.firstName,
+        notificationsEnabled: websiteAccountPreferences.notificationsEnabled,
+        emailFrequency: websiteAccountPreferences.emailFrequency,
+        budgetMin: websiteAccountPreferences.budgetMin,
+        budgetMax: websiteAccountPreferences.budgetMax,
+        minBedrooms: websiteAccountPreferences.minBedrooms,
+        marketProfileIds: websiteAccountPreferences.marketProfileIds,
+      })
+      .from(websiteAccounts)
+      .leftJoin(
+        websiteAccountPreferences,
+        eq(websiteAccountPreferences.accountId, websiteAccounts.id)
       )
-    )
-    .limit(1);
-  if (existing && existing.status !== "failed") {
-    console.info(
-      `[DailyPropertyEmail] ${reportDate} already ran with status ${existing.status}; not sending again.`
+      .where(eq(websiteAccounts.status, "active")),
+  ]);
+
+  for (const account of accounts) {
+    summary.considered += 1;
+
+    const preferences: Preferences | null =
+      account.notificationsEnabled == null
+        ? null
+        : {
+            notificationsEnabled: !!account.notificationsEnabled,
+            emailFrequency: account.emailFrequency as Preferences["emailFrequency"],
+            budgetMin: account.budgetMin,
+            budgetMax: account.budgetMax,
+            minBedrooms: account.minBedrooms,
+            marketProfileIds: Array.isArray(account.marketProfileIds)
+              ? account.marketProfileIds
+              : [],
+          };
+
+    if (!shouldEmailToday(preferences, cadence)) {
+      summary.skippedNotSubscribed += 1;
+      continue;
+    }
+
+    // The batch is the listings an admin approved today, and each listing is
+    // stamped once it goes out, so nobody gets the same listing twice. No
+    // "published since your last email" filter here: that would drop a
+    // listing published on Monday and approved on Wednesday.
+    const outcome = selectListingsFor(params.candidates, preferences!, zipToMarket);
+    if (outcome.marketFilterUnresolvable) {
+      summary.unresolvableMarketPreferences += 1;
+    }
+    if (!outcome.listings.length) {
+      // No email on a quiet day. A "nothing new today" message every morning
+      // is how a subscription gets muted.
+      summary.skippedNoMatches += 1;
+      continue;
+    }
+
+    const { subject, html } = renderDailyPropertyEmail(
+      account.firstName,
+      outcome.listings as EmailListing[],
+      createMarketingUnsubscribeUrl(account.email)
     );
-    return summary;
-  }
 
-  const inserted = await db
-    .insert(scheduledReportRuns)
-    .values({ reportKey: runKey, reportDate, status: "running" });
-  const runId = Number((inserted as any)[0]?.insertId) || existing?.id || null;
-
-  try {
-    const [candidates, zipToMarket, accounts] = await Promise.all([
-      loadCandidates(db),
-      loadZipToMarket(db),
-      db
-        .select({
-          id: websiteAccounts.id,
-          email: websiteAccounts.email,
-          firstName: websiteAccounts.firstName,
-          notificationsEnabled: websiteAccountPreferences.notificationsEnabled,
-          emailFrequency: websiteAccountPreferences.emailFrequency,
-          budgetMin: websiteAccountPreferences.budgetMin,
-          budgetMax: websiteAccountPreferences.budgetMax,
-          minBedrooms: websiteAccountPreferences.minBedrooms,
-          marketProfileIds: websiteAccountPreferences.marketProfileIds,
-          lastSentAt: websiteAccountPreferences.updatedAt,
-        })
-        .from(websiteAccounts)
-        .leftJoin(
-          websiteAccountPreferences,
-          eq(websiteAccountPreferences.accountId, websiteAccounts.id)
-        )
-        .where(eq(websiteAccounts.status, "active")),
-    ]);
-
-    for (const account of accounts) {
-      summary.considered += 1;
-
-      const preferences: Preferences | null =
-        account.notificationsEnabled == null
-          ? null
-          : {
-              notificationsEnabled: !!account.notificationsEnabled,
-              emailFrequency: account.emailFrequency as Preferences["emailFrequency"],
-              budgetMin: account.budgetMin,
-              budgetMax: account.budgetMax,
-              minBedrooms: account.minBedrooms,
-              marketProfileIds: Array.isArray(account.marketProfileIds)
-                ? account.marketProfileIds
-                : [],
-            };
-
-      if (!shouldEmailToday(preferences, cadence)) {
-        summary.skippedNotSubscribed += 1;
-        continue;
-      }
-
-      const since = await lastSendFor(db, account.id);
-      const fresh = newSince(candidates, since);
-      const outcome = selectListingsFor(fresh, preferences!, zipToMarket);
-      if (outcome.marketFilterUnresolvable) {
-        summary.unresolvableMarketPreferences += 1;
-      }
-      if (!outcome.listings.length) {
-        // No email on a quiet day. A "nothing new today" message every morning
-        // is how a subscription gets muted.
-        summary.skippedNoMatches += 1;
-        continue;
-      }
-
-      const { subject, html } = renderDailyPropertyEmail(
-        account.firstName,
-        outcome.listings as EmailListing[],
-        createMarketingUnsubscribeUrl(account.email)
+    const result = await deliver(account.email, subject, html, params.runId);
+    if (result.sent) {
+      await recordSend(db, account.id, outcome.listings.length, asOf);
+      summary.sent += 1;
+    } else {
+      summary.failed += 1;
+      console.error(
+        `[DailyPropertyEmail] Failed for account ${account.id}: ${result.error}`
       );
-
-      const result = await deliver(account.email, subject, html);
-      if (result.sent) {
-        await recordSend(db, account.id, outcome.listings.length, asOf);
-        summary.sent += 1;
-      } else {
-        summary.failed += 1;
-        console.error(
-          `[DailyPropertyEmail] Failed for account ${account.id}: ${result.error}`
-        );
-      }
     }
-
-    if (runId) {
-      await db
-        .update(scheduledReportRuns)
-        .set({
-          status: summary.failed > 0 ? "partial" : "sent",
-          recipientCount: summary.considered,
-          successfulRecipientCount: summary.sent,
-        })
-        .where(eq(scheduledReportRuns.id, runId));
-    }
-  } catch (error) {
-    if (runId) {
-      await db
-        .update(scheduledReportRuns)
-        .set({ status: "failed" })
-        .where(eq(scheduledReportRuns.id, runId));
-    }
-    throw error;
   }
 
   console.info(
-    `[DailyPropertyEmail] ${reportDate}: considered ${summary.considered}, sent ${summary.sent}, quiet ${summary.skippedNoMatches}, unsubscribed ${summary.skippedNotSubscribed}, failed ${summary.failed}, unresolvable markets ${summary.unresolvableMarketPreferences}.`
+    `[DailyPropertyEmail] run ${params.runId}: considered ${summary.considered}, sent ${summary.sent}, quiet ${summary.skippedNoMatches}, unsubscribed ${summary.skippedNotSubscribed}, failed ${summary.failed}, unresolvable markets ${summary.unresolvableMarketPreferences}.`
   );
   return summary;
-}
-
-/**
- * When this account was last emailed.
- *
- * Read from the send log rather than held on the preferences row, so that
- * editing preferences does not look like having been emailed.
- */
-async function lastSendFor(db: any, accountId: number): Promise<Date | null> {
-  const [row] = await db
-    .select({ sentAt: websiteAccountEmailSends.sentAt })
-    .from(websiteAccountEmailSends)
-    .where(eq(websiteAccountEmailSends.accountId, accountId))
-    .orderBy(desc(websiteAccountEmailSends.sentAt))
-    .limit(1);
-  return row?.sentAt ?? null;
 }
 
 async function recordSend(
@@ -407,15 +293,18 @@ async function recordSend(
 }
 
 /**
- * Hand one email to Resend.
+ * Hand one email to Resend, tagged with its run so opens and clicks can be
+ * counted against the send.
  *
  * Returns rather than throws, because one address failing is a fact about that
  * address, not a reason to abandon everyone else still waiting in the loop.
  */
-async function deliver(
+export async function deliver(
   to: string,
   subject: string,
-  html: string
+  html: string,
+  runId: number,
+  text?: string
 ): Promise<{ sent: boolean; error?: string }> {
   if (!ENV.resendApiKey) return { sent: false, error: "Resend is not configured" };
   try {
@@ -425,7 +314,11 @@ async function deliver(
       to,
       subject,
       html,
-      tags: [{ name: "category", value: "website_daily_properties" }],
+      ...(text ? { text } : {}),
+      tags: [
+        { name: "category", value: "website_daily_properties" },
+        { name: DAILY_EMAIL_TAG, value: String(runId) },
+      ],
     });
     if (result.error) {
       return { sent: false, error: result.error.message || "Resend rejected the email" };
@@ -437,60 +330,4 @@ async function deliver(
       error: error instanceof Error ? error.message : String(error),
     };
   }
-}
-
-// ─── Scheduling ──────────────────────────────────────────────────────────────
-
-export function getNextDailyPropertyEmailAt8AmEastern(now = new Date()): Date {
-  const eastern = getEasternTimeParts(now);
-  let targetDate = easternDateKey(eastern);
-  if (
-    eastern.hour > REPORT_HOUR ||
-    (eastern.hour === REPORT_HOUR && (eastern.minute > 0 || eastern.second > 0))
-  ) {
-    targetDate = addEasternDays(targetDate, 1);
-  }
-  return easternDateTimeToUtc(targetDate, REPORT_HOUR);
-}
-
-function scheduleNext(): void {
-  if (schedulerTimer) clearTimeout(schedulerTimer);
-  const nextRun = getNextDailyPropertyEmailAt8AmEastern();
-  const delay = Math.max(nextRun.getTime() - Date.now(), 1000);
-  console.info(
-    `[DailyPropertyEmail] Next run ${nextRun.toLocaleString("en-US", { timeZone: EASTERN_TIME_ZONE })}.`
-  );
-  schedulerTimer = setTimeout(async () => {
-    await sendDailyPropertyEmails("daily").catch(error =>
-      console.error("[DailyPropertyEmail] Run failed.", error)
-    );
-    scheduleNext();
-  }, delay);
-}
-
-/** Daily at 8am Eastern, with same-day recovery after a restart. */
-export function scheduleDailyPropertyEmails(): void {
-  // Nothing is scheduled while paused, so there is no timer to misfire and the
-  // log says plainly why no email went out.
-  if (!dailyPropertyEmailEnabled(ENV.dailyPropertyEmailEnabled)) {
-    console.info(
-      "[DailyPropertyEmail] Paused. No run scheduled. Set DAILY_PROPERTY_EMAIL_ENABLED=true to resume."
-    );
-    if (schedulerTimer) clearTimeout(schedulerTimer);
-    if (startupRecoveryTimer) clearTimeout(startupRecoveryTimer);
-    schedulerTimer = null;
-    startupRecoveryTimer = null;
-    return;
-  }
-
-  scheduleNext();
-  if (startupRecoveryTimer) clearTimeout(startupRecoveryTimer);
-  startupRecoveryTimer = setTimeout(() => {
-    const eastern = getEasternTimeParts();
-    if (eastern.hour >= REPORT_HOUR) {
-      sendDailyPropertyEmails("daily").catch(error =>
-        console.error("[DailyPropertyEmail] Startup recovery failed.", error)
-      );
-    }
-  }, 45_000);
 }
