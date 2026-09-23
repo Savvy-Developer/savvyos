@@ -47,6 +47,15 @@ describe("webinar request workflow", () => {
     expect(webinarRouter).toContain("formatWebinarDateTime(startTime, input.timezone");
   });
 
+  it("keeps webinar form controls inside their containers at narrow widths", () => {
+    expect(webinarPage).toContain("overflow-x-hidden overflow-y-auto");
+    expect(webinarPage).toContain("lg:grid-cols-2");
+    expect(webinarPage).toContain('SelectTrigger className="w-full min-w-0"');
+    expect(webinarPage).toContain("break-words text-xs leading-5");
+    expect(webinarPage).toContain("flex min-w-0 items-center justify-between");
+    expect(webinarPage).toContain("min-w-0 flex-1 break-all");
+  });
+
   it("makes the webinar request schema ready before production traffic", () => {
     expect(serverEntry).toContain("ensureWebinarRequestSchema");
     expect(serverEntry).toContain("await ensureWebinarRequestSchema()");

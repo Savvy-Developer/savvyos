@@ -284,15 +284,15 @@ function WebinarCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto p-6 sm:max-w-5xl sm:rounded-xl">
-        <DialogHeader>
+      <DialogContent className="h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto p-4 sm:h-[calc(100vh-2rem)] sm:w-[calc(100vw-2rem)] sm:max-w-5xl sm:p-6 sm:rounded-xl">
+        <DialogHeader className="min-w-0 pr-8">
           <DialogTitle>New Webinar Request</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="break-words">
             Requests need at least two weeks of lead time. Marketing receives the complete request, and the submitter receives a confirmation email.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-2 md:grid-cols-2">
-          <div className="space-y-2 md:col-span-2">
+        <div className="grid min-w-0 gap-5 py-2 lg:grid-cols-2">
+          <div className="min-w-0 space-y-2 lg:col-span-2">
             <Label htmlFor="webinar-title">Webinar title *</Label>
             <Input
               id="webinar-title"
@@ -302,7 +302,7 @@ function WebinarCreateDialog({
               disabled={busy}
             />
           </div>
-          <div className="space-y-2 md:col-span-2">
+          <div className="min-w-0 space-y-2 lg:col-span-2">
             <Label htmlFor="webinar-description">Description / details *</Label>
             <Textarea
               id="webinar-description"
@@ -313,7 +313,7 @@ function WebinarCreateDialog({
               disabled={busy}
             />
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <Label htmlFor="webinar-start">Date and time *</Label>
             <Input
               id="webinar-start"
@@ -322,17 +322,17 @@ function WebinarCreateDialog({
               onChange={event => setStartTime(event.target.value)}
               disabled={busy}
             />
-            {submittedStart && !hasMinimumLeadTime && <p className="text-xs text-destructive">Webinars require at least two weeks of lead time. Choose a date at least 14 days from today.</p>}
+            {submittedStart && !hasMinimumLeadTime && <p className="break-words text-xs leading-5 text-destructive">Webinars require at least two weeks of lead time. Choose a date at least 14 days from today.</p>}
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <Label>Timezone *</Label>
             <Select value={timezone} onValueChange={setTimezone} disabled={busy}>
-              <SelectTrigger><SelectValue placeholder="Select the webinar timezone" /></SelectTrigger>
+              <SelectTrigger className="w-full min-w-0"><SelectValue className="min-w-0 truncate" placeholder="Select the webinar timezone" /></SelectTrigger>
               <SelectContent>{WEBINAR_TIMEZONES.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">SavvyOS will store and display this exact local time with its timezone label.</p>
+            <p className="break-words text-xs leading-5 text-muted-foreground">SavvyOS will store and display this exact local time with its timezone label.</p>
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <Label htmlFor="webinar-duration">Duration (minutes)</Label>
             <Input
               id="webinar-duration"
@@ -344,15 +344,15 @@ function WebinarCreateDialog({
               disabled={busy}
             />
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <Label>Registration approval</Label>
             <Select
               value={approval}
               onValueChange={value => setApproval(value as typeof approval)}
               disabled={busy}
             >
-              <SelectTrigger>
-                <SelectValue />
+              <SelectTrigger className="w-full min-w-0">
+                <SelectValue className="min-w-0 truncate" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="automatically">
@@ -367,20 +367,20 @@ function WebinarCreateDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2 md:col-span-2">
+          <div className="min-w-0 space-y-2 lg:col-span-2">
             <Label htmlFor="webinar-partner-guest">Partner or guest information *</Label>
             <Textarea id="webinar-partner-guest" placeholder="List the partner or guests, their roles, and anything Marketing should know." value={partnerGuestInfo} onChange={event => setPartnerGuestInfo(event.target.value)} rows={3} disabled={busy} />
           </div>
-          <div className="space-y-2 md:col-span-2">
+          <div className="min-w-0 space-y-2 lg:col-span-2">
             <Label htmlFor="webinar-guest-bios">Guest bios *</Label>
             <Textarea id="webinar-guest-bios" placeholder="Provide the bio copy Marketing should use for every guest." value={guestBios} onChange={event => setGuestBios(event.target.value)} rows={5} disabled={busy} />
           </div>
-          <div className="space-y-2 md:col-span-2">
+          <div className="min-w-0 space-y-2 lg:col-span-2">
             <Label>Guest headshots *</Label>
             <input ref={headshotInput} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={addHeadshots} disabled={busy} />
-            <Button type="button" variant="outline" className="w-full border-dashed" onClick={() => headshotInput.current?.click()} disabled={busy}><Upload className="mr-2 h-4 w-4" />Upload guest headshots</Button>
-            <p className="text-xs text-muted-foreground">JPG, PNG, or WEBP. Up to 2 MB each, 10 files maximum.</p>
-            {guestHeadshots.length > 0 && <ul className="rounded-md border p-2 text-sm">{guestHeadshots.map((file, index) => <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2"><span className="truncate">{file.name}</span><button type="button" onClick={() => setGuestHeadshots(current => current.filter((_, itemIndex) => itemIndex !== index))} disabled={busy} aria-label={`Remove ${file.name}`}><X className="h-4 w-4" /></button></li>)}</ul>}
+            <Button type="button" variant="outline" className="w-full whitespace-normal border-dashed text-center leading-5" onClick={() => headshotInput.current?.click()} disabled={busy}><Upload className="mr-2 h-4 w-4" />Upload guest headshots</Button>
+            <p className="break-words text-xs leading-5 text-muted-foreground">JPG, PNG, or WEBP. Up to 2 MB each, 10 files maximum.</p>
+            {guestHeadshots.length > 0 && <ul className="rounded-md border p-2 text-sm">{guestHeadshots.map((file, index) => <li key={`${file.name}-${index}`} className="flex min-w-0 items-center justify-between gap-2"><span className="min-w-0 flex-1 break-all">{file.name}</span><button type="button" className="shrink-0 rounded p-1" onClick={() => setGuestHeadshots(current => current.filter((_, itemIndex) => itemIndex !== index))} disabled={busy} aria-label={`Remove ${file.name}`}><X className="h-4 w-4" /></button></li>)}</ul>}
           </div>
         </div>
         <DialogFooter>
