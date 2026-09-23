@@ -58,6 +58,7 @@ import {
 } from "../publicMarketDirectory";
 import { publishedTestimonials } from "@shared/websiteTestimonials";
 import { cleanTags } from "@shared/websiteContentFilters";
+import { EDITABLE_BUILT_IN_SLUGS } from "@shared/websiteEditablePages";
 import {
   adAttributionUpdates,
   campaignSourceFrom,
@@ -1391,7 +1392,10 @@ export const websiteRouter = router({
       // checks built-in routes first, so such a page would save cleanly, show
       // as published, and never appear. Refusing here is kinder than a page
       // that exists everywhere except on the website.
-      if (RESERVED_PAGE_SLUGS.has(slug)) {
+      // The exceptions are About, Contact and Join Our Team, which can be
+      // replaced on purpose: the public router checks for a published CMS
+      // version of those first, and falls back to the designed page.
+      if (RESERVED_PAGE_SLUGS.has(slug) && !EDITABLE_BUILT_IN_SLUGS.has(slug)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `"${slug}" is already a page on the site and cannot be used here.`,

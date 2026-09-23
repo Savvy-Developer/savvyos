@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, FilePlus2, Loader2, Save } from "lucide-react";
+import {
+  ExternalLink,
+  FilePlus2,
+  FormInput,
+  Loader2,
+  RotateCcw,
+  Save,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -15,23 +22,36 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { publicPath } from "@/lib/publicSitePaths";
+import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
+import {
+  CONTACT_FORM_TOKEN,
+  EDITABLE_BUILT_IN_PAGES,
+  editableBuiltInPage,
+} from "@shared/websiteEditablePages";
 
 /**
  * The CMS page picker and editor.
  *
- * Deliberately limited to pages that are genuinely words on a page. The
- * designed pages, About and Contact and the rest, are layouts with icons,
- * stat bands and grids, and putting a textarea in front of one would promise
- * an edit it cannot honour. Those stay in code until somebody decides to
- * convert one properly, and the note below says so rather than leaving people
- * to work it out by looking for a page that is not in the list.
+ * Two kinds of page:
+ *
+ * - Your pages: new pages at their own address, like Legal and Privacy.
+ * - Site pages: About, Contact and Join Our Team. These have a designed
+ *   version in code. Publishing a version here replaces it on the site, and
+ *   setting it back to Draft brings the designed one back, so nothing is lost.
+ *   A site page opens pre-filled with what the designed page says today, so
+ *   nobody starts from a blank page.
+ *
+ * Properties, Agents, Markets, Case Studies and Resources are lists of live
+ * records and stay out of here.
  */
 
 const BLANK = {
@@ -81,6 +101,19 @@ export function CmsPagesEditor() {
       setDraft({ ...BLANK });
       return;
     }
+    // A site page that has never been customised: start from its current
+    // wording, as a draft, at its own fixed address.
+    if (selected.startsWith("builtin:")) {
+      const builtIn = editableBuiltInPage(selected.slice("builtin:".length));
+      if (!builtIn) return;
+      setDraft({
+        ...BLANK,
+        slug: builtIn.slug,
+        name: builtIn.name,
+        ...builtIn.starter,
+      });
+      return;
+    }
     const page = (pages.data || []).find(
       (item: any) => String(item.id) === selected
     );
@@ -110,16 +143,30 @@ export function CmsPagesEditor() {
 
   const ready = draft.name.trim() !== "" && draft.slug.trim() !== "";
   const publicUrl = draft.slug ? publicPath(`/${draft.slug}`) : null;
+  const builtIn = editableBuiltInPage(draft.slug);
+  const allPages: any[] = pages.data || [];
+  const customPages = allPages.filter(page => !editableBuiltInPage(page.slug));
+  const savedVersionOf = (slug: string) =>
+    allPages.find(page => page.slug === slug);
+  const resetToDesigned = () => {
+    if (!builtIn) return;
+    setDraft(prior => ({ ...prior, ...builtIn.starter }));
+    toast.message("Reset to the designed page's wording. Save to keep it.");
+  };
+  const insertContactForm = () =>
+    set(
+      "bodyMarkdown",
+      `${draft.bodyMarkdown.trimEnd()}\n\n${CONTACT_FORM_TOKEN}\n`
+    );
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Pages</CardTitle>
         <CardDescription>
-          Content pages on the public site. About, Contact, Properties, Agents,
-          Case Studies, Resources and Markets are designed layouts rather than
-          text, so they are not editable here and their addresses cannot be
-          reused.
+          Edit About, Contact and Join Our Team, or add your own pages.
+          Publishing a site page here replaces the designed version on the
+          website; set it back to Draft to bring the designed one back.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -131,13 +178,35 @@ export function CmsPagesEditor() {
                 <SelectValue placeholder="Choose a page to edit" />
               </SelectTrigger>
               <SelectContent>
-                {(pages.data || []).map((page: any) => (
-                  <SelectItem key={page.id} value={String(page.id)}>
-                    {page.name}
-                    {page.status !== "published" ? ` (${page.status})` : ""}
-                  </SelectItem>
-                ))}
-                <SelectItem value="new">New page…</SelectItem>
+                <SelectGroup>
+                  <SelectLabel>Site pages</SelectLabel>
+                  {EDITABLE_BUILT_IN_PAGES.map(page => {
+                    const saved = savedVersionOf(page.slug);
+                    return (
+                      <SelectItem
+                        key={page.slug}
+                        value={saved ? String(saved.id) : `builtin:${page.slug}`}
+                      >
+                        {page.name}
+                        {saved?.status === "published"
+                          ? " (custom version live)"
+                          : saved
+                            ? " (custom draft, designed page live)"
+                            : " (designed page)"}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel>Your pages</SelectLabel>
+                  {customPages.map((page: any) => (
+                    <SelectItem key={page.id} value={String(page.id)}>
+                      {page.name}
+                      {page.status !== "published" ? ` (${page.status})` : ""}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="new">New page…</SelectItem>
+                </SelectGroup>
               </SelectContent>
             </Select>
           </div>
@@ -196,6 +265,9 @@ export function CmsPagesEditor() {
                   className="mt-1 font-mono"
                   value={draft.slug}
                   placeholder="join-the-team"
+                  // A site page lives at a fixed address; moving it would
+                  // leave the designed page showing at the old one.
+                  disabled={!!builtIn}
                   onChange={event => set("slug", slugify(event.target.value))}
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -262,16 +334,52 @@ export function CmsPagesEditor() {
               />
             </div>
 
+            {builtIn && (
+              <div className="rounded-md border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-950">
+                <p>
+                  This is the <strong>{builtIn.name}</strong> page. While this
+                  version is <strong>Published</strong>, it replaces the
+                  designed page on the website. Set it to <strong>Draft</strong>{" "}
+                  to bring the designed page back.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 bg-white"
+                  onClick={resetToDesigned}
+                >
+                  <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                  Start again from the designed page's wording
+                </Button>
+              </div>
+            )}
+
             <div>
-              <Label>Body</Label>
-              <Textarea
-                className="mt-1 min-h-64 font-mono text-sm"
-                value={draft.bodyMarkdown}
-                placeholder={"## A heading\n\nWrite the page here. **Bold**, _italic_ and [links](https://example.com) all work."}
-                onChange={event => set("bodyMarkdown", event.target.value)}
-              />
+              <div className="flex items-end justify-between gap-2">
+                <Label>Page content</Label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={insertContactForm}
+                  title="Adds the contact form at the end of the page. Move the [[contact-form]] line to place it."
+                >
+                  <FormInput className="mr-2 h-3.5 w-3.5" />
+                  Add contact form
+                </Button>
+              </div>
+              <div className="mt-1">
+                <WebsiteRichTextEditor
+                  value={draft.bodyMarkdown}
+                  onChange={value => set("bodyMarkdown", value)}
+                  minHeight={360}
+                />
+              </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                Markdown, the same as blog posts and case studies.
+                Headings, lists, links, tables and pictures all work. A line
+                that says {CONTACT_FORM_TOKEN} shows the contact form in that
+                spot, and inquiries from it go into SavvyOS as usual.
               </p>
             </div>
 
