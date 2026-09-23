@@ -166,6 +166,7 @@ export const RESERVED_PAGE_SLUGS = new Set([
   "about",
   "contact",
   "markets",
+  "join-our-team",
   "sign-in",
   "sign-up",
   "forgot-password",

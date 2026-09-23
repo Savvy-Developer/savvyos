@@ -40,6 +40,7 @@ export const LEGACY_PAGES: Record<string, { to: string; permanent: boolean }> = 
   "/markets": { to: `${BASE}/markets`, permanent: true },
   "/legal": { to: `${BASE}/legal`, permanent: true },
   "/privacy": { to: `${BASE}/privacy`, permanent: true },
+  "/join-our-team": { to: `${BASE}/join-our-team`, permanent: true },
   // No direct equivalents yet.
   "/team": { to: `${BASE}/agents`, permanent: false },
   "/recent-sales": { to: `${BASE}/case-studies`, permanent: false },

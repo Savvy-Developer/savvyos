@@ -87,7 +87,8 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
     case "resources":
     case "about":
     case "contact":
-    case "markets": {
+    case "markets":
+    case "joinTeam": {
       const page = STATIC_PAGES[route.kind];
       found = { title: page.title, description: page.description, image: defaults.image };
       break;

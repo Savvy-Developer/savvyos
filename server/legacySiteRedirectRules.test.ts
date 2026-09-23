@@ -44,6 +44,7 @@ describe("old savvy-agents.com addresses", () => {
     expect(go("/login/")).toEqual({ to: "/newsite/sign-in", permanent: true });
     expect(go("/markets/nc/asheville")).toEqual({ to: "/newsite/markets", permanent: true });
     expect(go("/team")).toEqual({ to: "/newsite/agents", permanent: false });
+    expect(go("/join-our-team")).toEqual({ to: "/newsite/join-our-team", permanent: true });
   });
 
   it("leaves alone anything that is not an old site address", () => {
@@ -60,7 +61,7 @@ describe("old savvy-agents.com addresses", () => {
   });
 
   it("covers every public page the old site's sitemap and menus listed", () => {
-    for (const p of ["/properties", "/about", "/agents", "/case-studies", "/contact", "/markets", "/recent-sales", "/team", "/privacy", "/legal", "/resources", "/sell", "/account"]) {
+    for (const p of ["/properties", "/about", "/agents", "/case-studies", "/contact", "/markets", "/recent-sales", "/team", "/privacy", "/legal", "/resources", "/sell", "/account", "/join-our-team"]) {
       expect(LEGACY_PAGES[p]).toBeDefined();
     }
   });
