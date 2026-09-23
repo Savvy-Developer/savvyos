@@ -787,7 +787,8 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     runRows<Row>(sql`
       SELECT
         COALESCE(t.\`transactionLeadSourceId\`, 0) AS sourceId,
-        COUNT(DISTINCT t.id) AS underContract
+        COUNT(DISTINCT t.id) AS underContract,
+        COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS underContractVolume
       FROM \`transactions\` t
       INNER JOIN \`contacts\` c ON c.id = t.\`primaryContactId\`
       ${ucTransactionsWhere}
@@ -825,18 +826,20 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
   ]);
   const revenueBySource = new Map(revenueRows.map((row) => [asNumber(row.sourceId), row]));
   const sourcesById = new Map(sourceRows.map((row) => [asNumber(row.sourceId), row]));
-  const ucBySource = new Map(ucRows.map((row) => [asNumber(row.sourceId), asNumber(row.underContract)]));
+  const ucBySource = new Map(ucRows.map((row) => [asNumber(row.sourceId), { underContract: asNumber(row.underContract), underContractVolume: asNumber(row.underContractVolume) }]));
   const appointmentsBySource = new Map(appointmentRows.map((row) => [asNumber(row.sourceId), asNumber(row.appointmentsSet)]));
-  // Include sources with closed production even when their leads were acquired
-  // outside the selected contact-created range. This keeps the source rows and
-  // the closed-production summary reconciled for every report scope.
+  // Include sources with closed production or live UC inventory even when their
+  // leads were acquired outside the selected contact-created range. This keeps
+  // source rows reconciled with both closed production and the UC snapshot.
   const sourceIds = Array.from(new Set([
     ...sourceRows.map((row) => asNumber(row.sourceId)),
     ...revenueRows.map((row) => asNumber(row.sourceId)),
+    ...ucRows.map((row) => asNumber(row.sourceId)),
   ]));
   const sources = sourceIds.map((sourceId) => {
     const row = sourcesById.get(sourceId);
     const revenue = revenueBySource.get(sourceId);
+    const uc = ucBySource.get(sourceId);
     const leads = asNumber(row?.leads);
     const closed = asNumber(revenue?.closings);
     return {
@@ -849,7 +852,8 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
       activeClients: asNumber(row?.activeClients),
       closed,
       closeRate: leads ? (closed / leads) * 100 : null,
-      underContract: ucBySource.get(sourceId) ?? 0,
+      underContract: uc?.underContract ?? 0,
+      underContractVolume: uc?.underContractVolume ?? 0,
       appointmentsSet: appointmentsBySource.get(sourceId) ?? 0,
       closings: asNumber(revenue?.closings),
       volume: asNumber(revenue?.volume),

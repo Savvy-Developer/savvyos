@@ -160,6 +160,7 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     const views = expansionViews();
 
     expect(service).toContain("COUNT(DISTINCT t.id) AS closings");
+    expect(service).toContain("AS underContractVolume");
     expect(service).toContain("closed: revenue.closings");
     expect(service).toContain("const closed = asNumber(revenue?.closings)");
     expect(service).toContain("const [summaryRows, sourceRows, revenueRows, ucRows, appointmentRows, monthlyRows, closedMonthlyRows]");
@@ -167,6 +168,7 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(service).toContain("t.\\`referralId\\` IS NULL AND NOT EXISTS");
     expect(views).toContain('Metric label="Closed txns"');
     expect(views).toContain('SortHeader label="Closed txns"');
+    expect(views).toContain('SortHeader label="UC Vol."');
     expect(views).toContain("Closed transactions in scope");
   });
 
