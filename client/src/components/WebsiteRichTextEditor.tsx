@@ -2,10 +2,12 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
+import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import TextAlign from "@tiptap/extension-text-align";
 import { useCallback, useEffect } from "react";
 import { marked } from "marked";
 import TurndownService from "turndown";
+import { addMarkdownTableRules } from "@shared/markdownTables";
 import { Button } from "@/components/ui/button";
 import {
   AlignCenter,
@@ -41,6 +43,12 @@ const turndown = new TurndownService({
   bulletListMarker: "-",
   codeBlockStyle: "fenced",
 });
+
+// Tables go back to markdown as pipe tables, the form the public site
+// renders and the form the old site's articles were imported in. Without
+// this, turndown flattens a table to one run of text, and a post that was
+// opened and saved lost its tables.
+addMarkdownTableRules(turndown);
 
 function markdownToHtml(markdown: string): string {
   if (!markdown || !markdown.trim()) return "";
@@ -97,6 +105,11 @@ export default function WebsiteRichTextEditor({
       Underline,
       Link.configure({ openOnClick: false }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
+      // Tables: several imported articles carry comparison tables.
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
     ],
     content: markdownToHtml(value),
     onUpdate: ({ editor }) => onChange(htmlToMarkdown(editor.getHTML())),
