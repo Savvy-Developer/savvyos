@@ -9,8 +9,13 @@
  * Kept free of any editor import so a plain node test can exercise it.
  */
 
+// Turndown types a rule's filter as keyof HTMLElementTagNameMap, so a plain
+// `string` here is wider than what it accepts and a real TurndownService is
+// then not assignable to TurndownLike. Narrowed to the tags these rules use.
+type TableTag = "table" | "thead" | "tbody" | "tfoot" | "tr" | "th" | "td";
+
 type Rule = {
-  filter: string | string[];
+  filter: TableTag | TableTag[];
   replacement: (content: string, node: unknown) => string;
 };
 

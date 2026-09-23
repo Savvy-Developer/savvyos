@@ -29,7 +29,12 @@ describe("markdown tables in the editor", () => {
   });
 
   it("does not touch text outside a table", () => {
-    const md = "# Title\n\nA paragraph.\n\n- one\n- two";
-    expect(turndown.turndown(marked.parse(md, { async: false }) as string)).toBe(md);
+    // Compared against a Turndown with no table rules rather than against the
+    // source markdown: stock Turndown pads a list marker to four columns, so
+    // asserting equality with the source would be testing Turndown's own
+    // formatting rather than whether these rules leave non-table text alone.
+    const plain = new TurndownService({ headingStyle: "atx", bulletListMarker: "-", codeBlockStyle: "fenced" });
+    const html = marked.parse("# Title\n\nA paragraph.\n\n- one\n- two", { async: false }) as string;
+    expect(turndown.turndown(html)).toBe(plain.turndown(html));
   });
 });
