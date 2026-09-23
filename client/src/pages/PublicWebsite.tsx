@@ -839,39 +839,42 @@ function LeadForm({
   const set = (key: string, value: string) =>
     setForm(prior => ({ ...prior, [key]: value }));
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+    // text-slate-900 is set here on purpose: the contact page places this
+    // card inside a section styled text-white, and the inputs inherit that,
+    // so what a visitor typed was white on white and invisible.
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl">
       <h3 className="text-2xl font-bold text-[#05314a]">{title}</h3>
       <p className="mt-2 text-sm leading-6 text-slate-500">
         No obligation. Get a property- and market-specific point of view.
       </p>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <input
-          className="rounded-lg border px-3 py-3 text-sm"
+          className="rounded-lg border px-3 py-3 text-sm text-slate-900 placeholder:text-slate-400"
           placeholder="First name"
           value={form.firstName}
           onChange={event => set("firstName", event.target.value)}
         />
         <input
-          className="rounded-lg border px-3 py-3 text-sm"
+          className="rounded-lg border px-3 py-3 text-sm text-slate-900 placeholder:text-slate-400"
           placeholder="Last name"
           value={form.lastName}
           onChange={event => set("lastName", event.target.value)}
         />
         <input
-          className="rounded-lg border px-3 py-3 text-sm"
+          className="rounded-lg border px-3 py-3 text-sm text-slate-900 placeholder:text-slate-400"
           type="email"
           placeholder="Email"
           value={form.email}
           onChange={event => set("email", event.target.value)}
         />
         <input
-          className="rounded-lg border px-3 py-3 text-sm"
+          className="rounded-lg border px-3 py-3 text-sm text-slate-900 placeholder:text-slate-400"
           placeholder="Phone (optional)"
           value={form.phone}
           onChange={event => set("phone", event.target.value)}
         />
         <textarea
-          className="min-h-28 rounded-lg border px-3 py-3 text-sm sm:col-span-2"
+          className="min-h-28 rounded-lg border px-3 py-3 text-sm text-slate-900 placeholder:text-slate-400 sm:col-span-2"
           placeholder="How can we help?"
           value={form.message}
           onChange={event => set("message", event.target.value)}

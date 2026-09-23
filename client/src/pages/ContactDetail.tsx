@@ -710,7 +710,13 @@ export default function ContactDetail() {
         leadSourceId: canEditContactLeadSource ? editForm.leadSourceId ?? undefined : undefined,
         notes: editForm.notes || null,
         assignedIsaId: editIsaId ? Number(editIsaId) : null,
-        isaStatus: (editIsaId && editIsaStatus && editIsaStatus !== "none") ? editIsaStatus as any : null,
+        // With no ISA the status control is disabled, so the person cannot
+        // have changed it: leave it alone rather than sending null, which
+        // wiped "new_lead" off every unassigned lead on any edit. Removing an
+        // ISA still clears the status, as before.
+        isaStatus: editIsaId
+          ? ((editIsaStatus && editIsaStatus !== "none") ? editIsaStatus as any : null)
+          : ((contact as any)?.assignedIsaId ? null : undefined),
         timezone: editForm.timezone || null,
         utmCampaign: editForm.utmCampaign?.trim() || null,
       },
