@@ -15,6 +15,7 @@ import {
   websiteProperties,
 } from "../../drizzle/schema";
 import { getDb, logActivity } from "../db";
+import { TOO_MANY_ATTEMPTS, allowAccountAttempt, clientIp } from "../websiteAccountThrottle";
 import {
   adminProcedure,
   publicProcedure,
@@ -113,9 +114,17 @@ export const websiteAccountRouter = router({
         firstName: z.string().trim().max(128).optional(),
         lastName: z.string().trim().max(128).optional(),
         phone: z.string().trim().max(32).optional(),
+        // Hidden field people never see or fill. Bots filling every input do.
+        website: z.string().max(255).optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
+      if (input.website) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Please try again." });
+      }
+      if (!allowAccountAttempt([{ scope: "signUpPerIp", value: clientIp(ctx.req) }])) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: TOO_MANY_ATTEMPTS });
+      }
       const problem = passwordProblem(input.password);
       if (problem) throw new TRPCError({ code: "BAD_REQUEST", message: problem });
 
@@ -163,9 +172,19 @@ export const websiteAccountRouter = router({
   signIn: publicProcedure
     .input(z.object({ email: emailInput, password: z.string().min(1).max(200) }))
     .mutation(async ({ input, ctx }) => {
+      const email = normalizeAccountEmail(input.email);
+      // Checked before the password, so a guess past the limit is never
+      // tested, right or wrong.
+      if (
+        !allowAccountAttempt([
+          { scope: "signInPerEmail", value: email },
+          { scope: "signInPerIp", value: clientIp(ctx.req) },
+        ])
+      ) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: TOO_MANY_ATTEMPTS });
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const email = normalizeAccountEmail(input.email);
 
       const [account] = await db
         .select({
@@ -213,10 +232,21 @@ export const websiteAccountRouter = router({
    */
   requestPasswordReset: publicProcedure
     .input(z.object({ email: emailInput }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const email = normalizeAccountEmail(input.email);
+      // Over the limit answers exactly like any other request and sends
+      // nothing. An error here would stop nobody and would tell a script when
+      // to slow down.
+      if (
+        !allowAccountAttempt([
+          { scope: "resetPerEmail", value: email },
+          { scope: "resetPerIp", value: clientIp(ctx.req) },
+        ])
+      ) {
+        return NEUTRAL_RESET_REPLY;
+      }
       const db = await getDb();
       if (!db) return NEUTRAL_RESET_REPLY;
-      const email = normalizeAccountEmail(input.email);
       const [account] = await db
         .select({ id: websiteAccounts.id, status: websiteAccounts.status })
         .from(websiteAccounts)
