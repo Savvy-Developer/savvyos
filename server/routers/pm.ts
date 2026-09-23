@@ -20,6 +20,7 @@ import {
   pmPersonalTodos,
   pulseActivityLog,
   pulseMeetings,
+  pulseMeetingSessions,
   pulseTodoAcknowledgements,
   pulseWorkItems,
   pulseWorkItemStatusNotes,
@@ -34,6 +35,7 @@ import { completionUpdate, reopenUpdate, TODO_RECURRENCES, type TodoRecurrence }
 import { visible_meeting_ids } from "../pulse/access";
 import { hasPulseCapability } from "../pulse/authorization";
 import { hasDatedProjectRockMilestone } from "@shared/projectRockMilestones";
+import { canViewPmWorkload } from "./pmAccess";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
 const ROCK_MILESTONE_LIMIT = 20;
@@ -383,6 +385,108 @@ export const pmRouter = router({
           : [];
 
         return { ...project, collaborators, todoSections, tasks, weeklyUpdates, activity, routedMeetings };
+      }),
+
+    timeline: protectedProcedure
+      .input(
+        z.object({ showAll: z.boolean().optional().default(false) }).optional()
+      )
+      .query(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) return [];
+
+        const mayShowAll =
+          input?.showAll === true && canViewAllProjects(ctx.user);
+        const accessibleProjectIds = mayShowAll
+          ? null
+          : await getAccessibleProjectIds(db, ctx.user.id);
+        const allProjects = await db
+          .select({
+            id: pmProjects.id,
+            title: pmProjects.title,
+            dueDate: pmProjects.dueDate,
+            isRock: pmProjects.isRock,
+            status: pmProjects.status,
+            archivedAt: pmProjects.archivedAt,
+          })
+          .from(pmProjects)
+          .orderBy(asc(pmProjects.sortOrder), asc(pmProjects.createdAt));
+        const projects = allProjects.filter(
+          project =>
+            !project.archivedAt &&
+            (accessibleProjectIds === null ||
+              accessibleProjectIds.includes(project.id))
+        );
+        const projectIds = projects.map(project => project.id);
+        if (!projectIds.length) return [];
+        const projectTitleById = new Map(
+          projects.map(project => [project.id, project.title])
+        );
+        const [milestones, todos] = await Promise.all([
+          db
+            .select({
+              id: pmTodoSections.id,
+              projectId: pmTodoSections.projectId,
+              title: pmTodoSections.title,
+              dueDate: pmTodoSections.dueDate,
+            })
+            .from(pmTodoSections)
+            .where(inArray(pmTodoSections.projectId, projectIds)),
+          db
+            .select({
+              id: pmTasks.id,
+              projectId: pmTasks.projectId,
+              title: pmTasks.title,
+              dueDate: pmTasks.dueDate,
+              completed: pmTasks.completed,
+            })
+            .from(pmTasks)
+            .where(inArray(pmTasks.projectId, projectIds)),
+        ]);
+        const dated = [
+          ...projects
+            .filter(project => project.dueDate)
+            .map(project => ({
+              id: `${project.isRock ? "rock" : "project"}-${project.id}`,
+              kind: project.isRock ? ("rock" as const) : ("project" as const),
+              title: project.title,
+              dueDate: project.dueDate!,
+              projectId: project.id,
+              projectTitle: project.title,
+            })),
+          ...milestones
+            .filter(
+              milestone =>
+                milestone.dueDate && projectTitleById.has(milestone.projectId)
+            )
+            .map(milestone => ({
+              id: `milestone-${milestone.id}`,
+              kind: "milestone" as const,
+              title: milestone.title,
+              dueDate: milestone.dueDate!,
+              projectId: milestone.projectId,
+              projectTitle: projectTitleById.get(milestone.projectId)!,
+            })),
+          ...todos
+            .filter(
+              todo =>
+                !todo.completed &&
+                todo.dueDate &&
+                projectTitleById.has(todo.projectId)
+            )
+            .map(todo => ({
+              id: `todo-${todo.id}`,
+              kind: "todo" as const,
+              title: todo.title,
+              dueDate: todo.dueDate!,
+              projectId: todo.projectId,
+              projectTitle: projectTitleById.get(todo.projectId)!,
+            })),
+        ];
+        return dated.sort(
+          (left, right) => left.dueDate.getTime() - right.dueDate.getTime()
+        );
       }),
 
     routingOptions: protectedProcedure.query(async ({ ctx }) => {
@@ -782,6 +886,382 @@ export const pmRouter = router({
         });
         return { success: true };
       }),
+  }),
+
+  // ── My To-Dos ────────────────────────────────────────────────────────────
+  // A unified dashboard projection only. Completion always updates the
+  // originating Project or L10 record rather than creating a duplicate.
+  myTodos: router({
+    listOpen: protectedProcedure.query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const [l10Rows, projectRows] = await Promise.all([
+        db
+          .select({
+            id: pulseWorkItems.id,
+            title: pulseWorkItems.title,
+            dueDate: pulseWorkItems.dueDate,
+            meetingId: pulseMeetings.id,
+            meetingName: pulseMeetings.name,
+            meetingDate: pulseMeetingSessions.scheduledFor,
+            createdAt: pulseWorkItems.createdAt,
+            status: pulseWorkItems.status,
+          })
+          .from(pulseWorkItems)
+          .innerJoin(
+            pulseMeetings,
+            eq(pulseWorkItems.meetingId, pulseMeetings.id)
+          )
+          .leftJoin(
+            pulseMeetingSessions,
+            eq(pulseWorkItems.sourceSessionId, pulseMeetingSessions.id)
+          )
+          .where(
+            and(
+              eq(pulseWorkItems.type, "todo"),
+              eq(pulseWorkItems.assigneeId, ctx.user.id),
+              eq(pulseMeetings.label, "level_10"),
+              isNull(pulseWorkItems.deletedAt),
+              isNull(pulseMeetings.deletedAt)
+            )
+          ),
+        db
+          .select({
+            id: pmTasks.id,
+            title: pmTasks.title,
+            dueDate: pmTasks.dueDate,
+            projectId: pmProjects.id,
+            projectName: pmProjects.title,
+            completed: pmTasks.completed,
+            status: pmTasks.status,
+          })
+          .from(pmTasks)
+          .innerJoin(pmProjects, eq(pmTasks.projectId, pmProjects.id))
+          .where(
+            and(eq(pmTasks.ownerId, ctx.user.id), isNull(pmProjects.archivedAt))
+          ),
+      ]);
+      const todos = [
+        ...l10Rows
+          .filter(todo => todo.status !== "completed")
+          .map(todo => ({
+            id: todo.id,
+            source: "l10" as const,
+            title: todo.title,
+            dueDate: todo.dueDate,
+            sourceId: todo.id,
+            meetingId: todo.meetingId,
+            sourceLabel: todo.meetingName,
+            sourceDate: todo.meetingDate ?? todo.createdAt,
+          })),
+        ...projectRows
+          .filter(todo => !todo.completed && todo.status !== "completed")
+          .map(todo => ({
+            id: `project-${todo.id}`,
+            source: "project" as const,
+            title: todo.title,
+            dueDate: todo.dueDate,
+            sourceId: todo.id,
+            projectId: todo.projectId,
+            sourceLabel: todo.projectName,
+            sourceDate: null,
+          })),
+      ];
+      return todos.sort((left, right) => {
+        const leftDue = left.dueDate
+          ? new Date(left.dueDate).getTime()
+          : Number.MAX_SAFE_INTEGER;
+        const rightDue = right.dueDate
+          ? new Date(right.dueDate).getTime()
+          : Number.MAX_SAFE_INTEGER;
+        return leftDue - rightDue || left.title.localeCompare(right.title);
+      });
+    }),
+
+    complete: protectedProcedure
+      .input(
+        z.object({
+          source: z.enum(["l10", "project"]),
+          sourceId: z.union([z.string().uuid(), z.number().int().positive()]),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        if (input.source === "project") {
+          if (typeof input.sourceId !== "number")
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Invalid Project To-Do.",
+            });
+          const [task] = await db
+            .select({
+              id: pmTasks.id,
+              projectId: pmTasks.projectId,
+              ownerId: pmTasks.ownerId,
+              title: pmTasks.title,
+              dueDate: pmTasks.dueDate,
+              recurrence: pmTasks.recurrence,
+              completed: pmTasks.completed,
+            })
+            .from(pmTasks)
+            .where(eq(pmTasks.id, input.sourceId))
+            .limit(1);
+          if (!task)
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "This Project To-Do is no longer available.",
+            });
+          if (task.ownerId !== ctx.user.id)
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message:
+                "Only the assigned person can complete this Project To-Do.",
+            });
+          await assertProjectAccess(db, task.projectId, ctx.user);
+          if (!task.completed) {
+            const update = completionUpdate({
+              dueDate: task.dueDate,
+              recurrence: task.recurrence as TodoRecurrence,
+            });
+            const { rolledForward, ...updateFields } = update;
+            await db
+              .update(pmTasks)
+              .set(updateFields)
+              .where(eq(pmTasks.id, task.id));
+            await logActivity(
+              task.projectId,
+              ctx.user.id,
+              "task_completed",
+              rolledForward
+                ? `Completed recurring To-Do "${task.title}" and moved it to its next due date`
+                : `Completed To-Do "${task.title}"`,
+              task.id
+            );
+            return { success: true, rolledForward };
+          }
+          return { success: true, rolledForward: false };
+        }
+
+        if (typeof input.sourceId !== "string")
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Invalid L10 To-Do.",
+          });
+        const [todo] = await db
+          .select({
+            id: pulseWorkItems.id,
+            title: pulseWorkItems.title,
+            meetingId: pulseWorkItems.meetingId,
+            assigneeId: pulseWorkItems.assigneeId,
+            status: pulseWorkItems.status,
+          })
+          .from(pulseWorkItems)
+          .where(
+            and(
+              eq(pulseWorkItems.id, input.sourceId),
+              eq(pulseWorkItems.type, "todo"),
+              isNull(pulseWorkItems.deletedAt)
+            )
+          )
+          .limit(1);
+        if (!todo?.meetingId)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "This L10 To-Do is no longer available.",
+          });
+        const [meeting] = await db
+          .select({ label: pulseMeetings.label })
+          .from(pulseMeetings)
+          .where(
+            and(
+              eq(pulseMeetings.id, todo.meetingId),
+              isNull(pulseMeetings.deletedAt)
+            )
+          )
+          .limit(1);
+        const visibleMeetingIds = await visible_meeting_ids(db, ctx.user.id);
+        if (
+          meeting?.label !== "level_10" ||
+          todo.assigneeId !== ctx.user.id ||
+          !visibleMeetingIds.includes(todo.meetingId)
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only the assigned person can complete this L10 To-Do.",
+          });
+        }
+        if (todo.status !== "completed") {
+          await db.transaction(async tx => {
+            await tx
+              .update(pulseWorkItems)
+              .set({
+                status: "completed",
+                completedAt: new Date(),
+                completedById: ctx.user.id,
+                requiresL10Acknowledgement: true,
+              })
+              .where(eq(pulseWorkItems.id, todo.id));
+            await tx.insert(pulseWorkItemStatusNotes).values({
+              id: crypto.randomUUID(),
+              workItemId: todo.id,
+              fromStatus: todo.status,
+              toStatus: "completed",
+              note: "Completed from My To-Dos.",
+              personId: ctx.user.id,
+            });
+            await tx.insert(pulseActivityLog).values({
+              id: crypto.randomUUID(),
+              personId: ctx.user.id,
+              entityType: "work_item",
+              entityId: todo.id,
+              action: "completed_from_projects_dashboard",
+              fieldChanged: "status",
+              oldValue: todo.status,
+              newValue: { status: "completed", awaitingAcknowledgement: true },
+            });
+          });
+        }
+        return { success: true, rolledForward: false };
+      }),
+  }),
+
+  // ── Workload ──────────────────────────────────────────────────────────────
+  workload: router({
+    get: protectedProcedure.query(async ({ ctx }) => {
+      if (!canViewPmWorkload(ctx.user)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "The Projects Workload tab is restricted to designated team leaders.",
+        });
+      }
+      const db = await getDb();
+      if (!db) return { weeks: [], members: [] };
+      const weekStart = (value: Date) => {
+        const date = new Date(value);
+        date.setHours(0, 0, 0, 0);
+        date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+        return date;
+      };
+      const toKey = (value: Date) =>
+        `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+      const currentWeekStart = weekStart(new Date());
+      const weeks = Array.from({ length: 8 }, (_, index) => {
+        const start = new Date(currentWeekStart);
+        start.setDate(start.getDate() + index * 7);
+        return {
+          key: toKey(start),
+          label: `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+        };
+      });
+      const [members, projects, projectTodos, l10Todos] = await Promise.all([
+        db
+          .select({ id: users.id, name: users.name, email: users.email })
+          .from(users)
+          .where(eq(users.isActive, true))
+          .orderBy(asc(users.name), asc(users.email)),
+        db
+          .select({
+            ownerId: pmProjects.ownerId,
+            isRock: pmProjects.isRock,
+            status: pmProjects.status,
+            rockStatus: pmProjects.rockStatus,
+          })
+          .from(pmProjects)
+          .where(isNull(pmProjects.archivedAt)),
+        db
+          .select({
+            ownerId: pmTasks.ownerId,
+            dueDate: pmTasks.dueDate,
+            completed: pmTasks.completed,
+            status: pmTasks.status,
+          })
+          .from(pmTasks)
+          .innerJoin(pmProjects, eq(pmTasks.projectId, pmProjects.id))
+          .where(isNull(pmProjects.archivedAt)),
+        db
+          .select({
+            assigneeId: pulseWorkItems.assigneeId,
+            dueDate: pulseWorkItems.dueDate,
+            status: pulseWorkItems.status,
+          })
+          .from(pulseWorkItems)
+          .innerJoin(
+            pulseMeetings,
+            eq(pulseWorkItems.meetingId, pulseMeetings.id)
+          )
+          .where(
+            and(
+              eq(pulseWorkItems.type, "todo"),
+              eq(pulseMeetings.label, "level_10"),
+              isNull(pulseWorkItems.deletedAt),
+              isNull(pulseMeetings.deletedAt)
+            )
+          ),
+      ]);
+      const byId = new Map(
+        members.map(member => [
+          member.id,
+          {
+            ...member,
+            activeRocks: 0,
+            activeProjects: 0,
+            l10Todos: 0,
+            projectTodos: 0,
+            overdue: 0,
+            noDueDate: 0,
+            weeklyDue: Array.from({ length: weeks.length }, () => 0),
+          },
+        ])
+      );
+      for (const project of projects) {
+        const member = byId.get(project.ownerId);
+        if (!member || project.status === "completed") continue;
+        if (project.isRock) {
+          if (project.rockStatus !== "done" && project.rockStatus !== "dropped")
+            member.activeRocks += 1;
+        } else member.activeProjects += 1;
+      }
+      const recordTodo = (
+        memberId: number | null,
+        dueDate: Date | string | null
+      ) => {
+        if (!memberId) return;
+        const member = byId.get(memberId);
+        if (!member) return;
+        if (!dueDate) {
+          member.noDueDate += 1;
+          return;
+        }
+        const due = new Date(dueDate);
+        due.setHours(0, 0, 0, 0);
+        const week = weekStart(due);
+        const distance = Math.floor(
+          (week.getTime() - currentWeekStart.getTime()) /
+            (7 * 24 * 60 * 60 * 1000)
+        );
+        if (due < currentWeekStart) {
+          member.overdue += 1;
+          member.weeklyDue[0] += 1;
+        } else if (distance >= 0 && distance < weeks.length) {
+          member.weeklyDue[distance] += 1;
+        }
+      };
+      for (const todo of projectTodos) {
+        if (todo.completed || todo.status === "completed") continue;
+        const member = byId.get(todo.ownerId);
+        if (member) member.projectTodos += 1;
+        recordTodo(todo.ownerId, todo.dueDate);
+      }
+      for (const todo of l10Todos) {
+        if (todo.status === "completed") continue;
+        const member = todo.assigneeId ? byId.get(todo.assigneeId) : undefined;
+        if (member) member.l10Todos += 1;
+        recordTodo(todo.assigneeId, todo.dueDate);
+      }
+      return { weeks, members: Array.from(byId.values()) };
+    }),
   }),
 
   // ── Todo Sections ──────────────────────────────────────────────────────────

@@ -16,7 +16,7 @@ import { format, isPast, isToday, addDays } from "date-fns";
 import {
   Plus, LayoutList, LayoutGrid, Search,
   CheckCircle2, Clock, TrendingUp, AlertTriangle, ChevronRight, Calendar,
-  User, Layers, MoreHorizontal, Archive, Trash2, Flag, ClipboardList, X, GripVertical, ListOrdered,
+  User, Layers, MoreHorizontal, Archive, Trash2, Flag, X, GripVertical, ListOrdered,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -27,6 +27,9 @@ import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelec
 import { currentProjectRockQuarter, ProjectRockQuarterSelect } from "@/components/ProjectRockQuarterSelect";
 import ProjectSortList from "@/components/ProjectSortList";
 import { hasDatedProjectRockMilestone, prepareProjectRockMilestones } from "@shared/projectRockMilestones";
+import MyTodosDashboard from "@/components/MyTodosDashboard";
+import ProjectsGanttView from "@/components/ProjectsGanttView";
+import ProjectsWorkloadView from "@/components/ProjectsWorkloadView";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,19 +94,6 @@ function getDueDateLabel(date: Date | null, isOngoing: boolean) {
   if (isToday(date)) return { label: "Due today", cls: "text-amber-600 font-medium" };
   if (date <= addDays(new Date(), 7)) return { label: format(date, "MMM d"), cls: "text-amber-600" };
   return { label: format(date, "MMM d, yyyy"), cls: "text-muted-foreground" };
-}
-
-function L10TodosProjectCard() {
-  const [, navigate] = useLocation();
-  const { data: todos = [] } = trpc.pm.l10Todos.listMine.useQuery();
-  const openCount = (todos as any[]).filter((todo: any) => todo.status !== "completed").length;
-  const awaitingCount = (todos as any[]).filter((todo: any) => todo.requiresL10Acknowledgement).length;
-  return <button type="button" onClick={() => navigate("/projects/l10-todos")} className="mb-6 flex w-full items-center gap-4 rounded-lg border border-primary/30 bg-primary/[0.035] p-4 text-left transition-colors hover:bg-primary/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
-    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><ClipboardList className="h-5 w-5" /></span>
-    <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2"><span className="font-semibold">L10 Todos</span><span className="rounded-full border border-primary/20 bg-background px-2 py-0.5 text-[11px] font-semibold text-primary">Default project</span>{awaitingCount ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">{awaitingCount} awaiting acknowledgement</span> : null}</span><span className="mt-1 block text-sm text-muted-foreground">Your assigned L10 commitments and their original meeting context. This protected live list cannot be deleted or added to.</span></span>
-    <span className="hidden shrink-0 text-right sm:block"><span className="block text-lg font-semibold text-primary">{openCount}</span><span className="text-xs text-muted-foreground">open To-Dos</span></span>
-    <ChevronRight className="h-5 w-5 shrink-0 text-primary" />
-  </button>;
 }
 
 // ─── Department Combobox ──────────────────────────────────────────────────────
@@ -468,7 +458,7 @@ function CreateProjectDialog({
 export default function ProjectsPage() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
-  const [view, setView] = useState<"list" | "kanban">("list");
+  const [view, setView] = useState<"list" | "kanban" | "gantt" | "workload">("list");
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -500,6 +490,13 @@ export default function ProjectsPage() {
   const canToggleAllProjects = new Set([
     "tyler@savvy.realty", "dyl@savvy.realty", "kryzll@savvy.realty", "elana@savvy.realty",
     "philleone@savvy.realty", "rhythm@savvy.realty", "athens@savvy.realty",
+  ]).has(String((user as any)?.email ?? "").toLowerCase());
+
+  const canViewWorkload = new Set([
+    "tyler@savvy.realty",
+    "dyl@savvy.realty",
+    "kryzll@savvy.realty",
+    "elana@savvy.realty",
   ]).has(String((user as any)?.email ?? "").toLowerCase());
 
   const archive = trpc.pm.projects.archive.useMutation({
@@ -606,7 +603,7 @@ export default function ProjectsPage() {
         }
       />
 
-      <L10TodosProjectCard />
+      <MyTodosDashboard />
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
@@ -654,13 +651,39 @@ export default function ProjectsPage() {
             >
               <LayoutGrid className="h-4 w-4" />
             </Button>
+            <Button
+              variant={view === "gantt" ? "secondary" : "ghost"}
+              size="sm"
+              className="rounded-none px-3"
+              title="Gantt chart"
+              onClick={() => {
+                setView("gantt");
+                setIsArranging(false);
+              }}
+            >
+              <Calendar className="h-4 w-4" />
+            </Button>
+            {canViewWorkload ? (
+              <Button
+                variant={view === "workload" ? "secondary" : "ghost"}
+                size="sm"
+                className="rounded-none px-3"
+                title="Workload"
+                onClick={() => {
+                  setView("workload");
+                  setIsArranging(false);
+                }}
+              >
+                <User className="h-4 w-4" />
+              </Button>
+            ) : null}
           </div>
           <Button
             variant={isArranging ? "secondary" : "outline"}
             size="sm"
             className="shrink-0"
-            disabled={hasFilters}
-            title={hasFilters ? "Clear filters to arrange the full project list" : "Arrange the project list"}
+            disabled={hasFilters || view === "gantt" || view === "workload"}
+            title={hasFilters ? "Clear filters to arrange the full project list" : view === "gantt" || view === "workload" ? "Switch to List View to arrange projects" : "Arrange the project list"}
             onClick={() => {
               setView("list");
               setIsArranging(current => !current);
@@ -748,7 +771,7 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {isArranging && !hasFilters && (
+      {isArranging && !hasFilters && view === "list" && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/[0.045] px-3 py-2 text-sm text-muted-foreground" role="status">
           <GripVertical className="h-4 w-4 shrink-0 text-primary" />
           Drag a handle to arrange the shared project list. You can also use the arrow buttons, or focus a handle and press Space, then the arrow keys.
@@ -756,7 +779,7 @@ export default function ProjectsPage() {
       )}
 
       {/* Empty state */}
-      {filtered.length === 0 && (
+      {(view === "list" || view === "kanban") && filtered.length === 0 && (
         <div className="text-center py-16 text-muted-foreground">
           <Layers className="h-10 w-10 mx-auto mb-3 opacity-30" />
           <p className="font-medium">No projects found</p>
@@ -826,6 +849,9 @@ export default function ProjectsPage() {
           })}
         </div>
       )}
+
+      {view === "gantt" && <ProjectsGanttView showAll={showAll} />}
+      {view === "workload" && canViewWorkload && <ProjectsWorkloadView />}
 
       <CreateProjectDialog
         open={createOpen}

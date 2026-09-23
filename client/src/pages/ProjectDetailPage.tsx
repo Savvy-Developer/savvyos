@@ -1002,7 +1002,7 @@ export default function ProjectDetailPage() {
         <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">
             <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-            Todos ({tasks.length})
+            List View ({tasks.length})
           </TabsTrigger>
           <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">
             <StickyNote className="h-3.5 w-3.5 mr-1.5" />
@@ -1023,10 +1023,10 @@ export default function ProjectDetailPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Todos Tab */}
+        {/* List View Tab */}
         <TabsContent value="tasks" className="space-y-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Todos</h2>
+            <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">List View</h2>
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <div className="flex items-center gap-2">
                 <Switch id="show-completed-todos" checked={showCompletedTodos} onCheckedChange={setShowCompletedTodos} />
