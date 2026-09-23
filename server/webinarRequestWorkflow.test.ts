@@ -56,6 +56,12 @@ describe("webinar request workflow", () => {
     expect(webinarPage).toContain("min-w-0 flex-1 break-all");
   });
 
+  it("keeps a scheduled webinar title clear of its summary cards", () => {
+    expect(webinarPage).toContain("min-w-0 shrink-0 gap-3 border-b pb-5 pr-8");
+    expect(webinarPage).toContain("min-w-0 break-words text-xl leading-tight");
+    expect(webinarPage).toContain("mt-1 grid gap-4 md:grid-cols-3");
+  });
+
   it("makes the webinar request schema ready before production traffic", () => {
     expect(serverEntry).toContain("ensureWebinarRequestSchema");
     expect(serverEntry).toContain("await ensureWebinarRequestSchema()");

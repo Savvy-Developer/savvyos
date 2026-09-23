@@ -585,24 +585,26 @@ function WebinarDetailDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto p-6 sm:max-w-7xl sm:rounded-xl">
+      <DialogContent className="h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto p-4 sm:h-[calc(100vh-2rem)] sm:w-[calc(100vw-2rem)] sm:max-w-7xl sm:p-6 sm:rounded-xl">
         {detailQuery.isLoading || !detail ? (
           <div className="flex h-48 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin" />
           </div>
         ) : (
           <>
-            <DialogHeader>
-              <div className="flex flex-wrap items-center gap-2">
-                <DialogTitle>{detail.webinar.title}</DialogTitle>
+            <DialogHeader className="min-w-0 shrink-0 gap-3 border-b pb-5 pr-8">
+              <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <DialogTitle className="min-w-0 break-words text-xl leading-tight">
+                  {detail.webinar.title}
+                </DialogTitle>
                 {statusBadge(detail.webinar.status)}
               </div>
-              <DialogDescription>
+              <DialogDescription className="break-words leading-5">
                 {formatWebinarDateTime(detail.webinar.startTime, detail.webinar.timezone, { includeWeekday: true })} ·{" "}
                 {detail.webinar.durationMinutes} minutes
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="mt-1 grid gap-4 md:grid-cols-3">
               <Card>
                 <CardHeader className="pb-2">
                   <CardDescription>Registered</CardDescription>
