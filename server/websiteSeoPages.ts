@@ -26,6 +26,7 @@ export type WebsiteRoute =
   | { kind: "about" }
   | { kind: "contact" }
   | { kind: "markets" }
+  | { kind: "joinTeam" }
   | { kind: "account" }
   | { kind: "page"; slug: string };
 
@@ -67,6 +68,7 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
       case "about": return { kind: "about" };
       case "contact": return { kind: "contact" };
       case "markets": return { kind: "markets" };
+      case "join-our-team": return { kind: "joinTeam" };
     }
     return SLUG.test(first) ? { kind: "page", slug: first } : null;
   }
@@ -85,7 +87,15 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
  * the moment the app loads.
  */
 export const STATIC_PAGES: Record<
-  "home" | "properties" | "agents" | "caseStudies" | "resources" | "about" | "contact" | "markets",
+  | "home"
+  | "properties"
+  | "agents"
+  | "caseStudies"
+  | "resources"
+  | "about"
+  | "contact"
+  | "markets"
+  | "joinTeam",
   { path: string; title: string; description: string }
 > = {
   home: {
@@ -130,6 +140,12 @@ export const STATIC_PAGES: Record<
     path: "/markets",
     title: "STR Markets",
     description: "The short-term rental markets we cover, and the properties for sale in each.",
+  },
+  joinTeam: {
+    path: "/join-our-team",
+    title: "Join Our Team",
+    description:
+      "Join Savvy STR Agents, the #1 enterprise agent team at eXp Realty. For agents who know their short-term rental market inside and out.",
   },
 };
 

@@ -399,3 +399,35 @@
     transform: none;
   }
 }
+
+/* Partner logo strip on the Join Our Team page: scrolls sideways forever.
+   The logos are listed twice, so moving by half the width loops cleanly. */
+.sv-marquee {
+  overflow: hidden;
+  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+}
+
+.sv-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: sv-marquee 40s linear infinite;
+}
+
+.sv-marquee:hover .sv-marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes sv-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sv-marquee-track {
+    animation: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: auto;
+  }
+}

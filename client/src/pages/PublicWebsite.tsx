@@ -334,6 +334,14 @@ function Shell({
             >
               Sell <ExternalLink className="ml-1 inline h-3 w-3" />
             </a>
+            {/* Wide screens only: at laptop width the menu is already full.
+                It is always in the mobile menu and the footer. */}
+            <a
+              className={`hidden text-sm font-semibold transition hover:text-cyan-500 xl:inline ${darkHeader ? "text-white/85" : "text-[#05314a]"}`}
+              href={path("/join-our-team")}
+            >
+              Join the team
+            </a>
           </nav>
           <div className="hidden items-center gap-2 lg:flex">
             <AccountMenu dark={darkHeader} />
@@ -365,6 +373,12 @@ function Shell({
                 {label}
               </a>
             ))}
+            <a
+              className={`block rounded-lg px-3 py-3 text-sm font-semibold ${darkHeader ? "text-white hover:bg-white/10" : "text-[#05314a] hover:bg-slate-50"}`}
+              href={path("/join-our-team")}
+            >
+              Join the team
+            </a>
             <div
               className={`my-2 border-t ${darkHeader ? "border-white/10" : "border-slate-200"}`}
             />
@@ -409,6 +423,7 @@ function SiteFooter({ settings }: { settings?: any }) {
             <a href={path("/resources")}>Resources</a>
             <a href={path("/about")}>About</a>
             <a href={path("/contact")}>Contact</a>
+            <a href={path("/join-our-team")}>Join the team</a>
             {legal.data && <a href={path("/legal")}>Legal</a>}
             {privacy.data && <a href={path("/privacy")}>Privacy Policy</a>}
             {/* Staff sign in is a different door from the investor account in
@@ -1229,148 +1244,325 @@ function FilterSelect({
   );
 }
 
+const US_STATE_NAMES: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DE: "Delaware", DC: "Washington DC",
+  FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho", IL: "Illinois",
+  IN: "Indiana", IA: "Iowa", KS: "Kansas", KY: "Kentucky", LA: "Louisiana",
+  ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan",
+  MN: "Minnesota", MS: "Mississippi", MO: "Missouri", MT: "Montana",
+  NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
+  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota",
+  OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania",
+  RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota",
+  TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia",
+  WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
+};
+
+// Filters live in the address, so a filtered list can be shared or
+// bookmarked, and Back returns to the same results.
+const PROPERTY_FILTER_KEYS = [
+  "search",
+  "market",
+  "state",
+  "type",
+  "beds",
+  "baths",
+  "minPrice",
+  "maxPrice",
+  "sort",
+] as const;
+type PropertyFilterKey = (typeof PROPERTY_FILTER_KEYS)[number];
+type PropertyFilters = Record<PropertyFilterKey, string>;
+
+function readPropertyFilters(): PropertyFilters {
+  const params = new URLSearchParams(window.location.search);
+  const filters = {} as PropertyFilters;
+  for (const key of PROPERTY_FILTER_KEYS) filters[key] = params.get(key) || "";
+  if (!filters.sort) filters.sort = "featured";
+  return filters;
+}
+
 function PropertiesPage() {
   usePageTitle("Short-Term Rental Properties for Sale");
-  const params = new URLSearchParams(window.location.search);
-  const initial = params.get("search") || "";
-  // The markets page links here with a market already chosen, so the filter
-  // opens on that market rather than making the visitor pick it again.
-  const initialMarket = params.get("market") || "";
-  const [search, setSearch] = useState(initial);
-  const [market, setMarket] = useState(initialMarket);
-  const [propertyType, setPropertyType] = useState("");
-  const [minBeds, setMinBeds] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
-  const [sort, setSort] = useState("featured");
+  const [filters, setFilters] = useState<PropertyFilters>(readPropertyFilters);
+  const set = (key: PropertyFilterKey) => (value: string) =>
+    setFilters(current => ({ ...current, [key]: value }));
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    for (const key of PROPERTY_FILTER_KEYS) {
+      const value = filters[key];
+      if (value && !(key === "sort" && value === "featured")) params.set(key, value);
+      else params.delete(key);
+    }
+    const qs = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${qs ? `?${qs}` : ""}`
+    );
+  }, [filters]);
+
+  // Search runs a moment after typing stops, not on every keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(filters.search.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [filters.search]);
+
   const facets = trpc.website.publicPropertyFacets.useQuery();
-  const query = trpc.website.publicProperties.useQuery({
-    search: search || undefined,
-    marketId: market ? Number(market) : undefined,
-    propertyType: propertyType || undefined,
-    minBeds: minBeds ? Number(minBeds) : undefined,
-    maxPrice: maxPrice ? Number(maxPrice) : undefined,
-    sort: sort as any,
-  });
-  const activeFilters = [market, propertyType, minBeds, maxPrice].filter(
-    Boolean
-  ).length;
-  const clearFilters = () => {
-    setMarket("");
-    setPropertyType("");
-    setMinBeds("");
-    setMaxPrice("");
-  };
-  // Price bands are built from what is published, so we never offer a ceiling
-  // that no property sits under.
-  const priceBands = (() => {
-    const max = facets.data?.priceRange?.max;
-    if (!max) return [];
-    return [500000, 750000, 1000000, 1500000, 2000000, 3000000].filter(
-      band => band < max
+  const query = trpc.website.publicProperties.useQuery(
+    {
+    search: debouncedSearch || undefined,
+    marketId: filters.market ? Number(filters.market) : undefined,
+    state: filters.state || undefined,
+    propertyType: filters.type || undefined,
+    minBeds: filters.beds ? Number(filters.beds) : undefined,
+    minBaths: filters.baths ? Number(filters.baths) : undefined,
+    minPrice: filters.minPrice ? Number(filters.minPrice) : undefined,
+    maxPrice: filters.maxPrice ? Number(filters.maxPrice) : undefined,
+    sort: filters.sort as any,
+    },
+    // Keep showing the current results while the next set loads. Without
+    // this every keystroke or filter change swapped the whole page for the
+    // loading screen, which also threw away what was typed in the search box.
+    { placeholderData: previous => previous }
+  );
+
+  const chipKeys: PropertyFilterKey[] = [
+    "market",
+    "state",
+    "type",
+    "beds",
+    "baths",
+    "minPrice",
+    "maxPrice",
+  ];
+  const activeFilters = chipKeys.filter(key => filters[key]).length;
+  const clearFilters = () =>
+    setFilters(current => ({
+      ...current,
+      market: "",
+      state: "",
+      type: "",
+      beds: "",
+      baths: "",
+      minPrice: "",
+      maxPrice: "",
+    }));
+
+  // Price steps are built from what is published, so we never offer a bound
+  // that no property sits on the right side of.
+  const priceSteps = (() => {
+    const range = facets.data?.priceRange;
+    if (!range) return [];
+    return [250000, 500000, 750000, 1000000, 1500000, 2000000, 3000000].filter(
+      step => step > range.min && step < range.max
     );
   })();
+
+  const marketName = (id: string) =>
+    facets.data?.markets?.find((item: any) => String(item.id) === id)?.name ||
+    "Market";
+  const chipLabel = (key: PropertyFilterKey): string => {
+    const value = filters[key];
+    switch (key) {
+      case "market":
+        return marketName(value);
+      case "state":
+        return US_STATE_NAMES[value] || value;
+      case "type":
+        return PROPERTY_TYPE_LABELS[value] || value;
+      case "beds":
+        return `${value}+ beds`;
+      case "baths":
+        return `${value}+ baths`;
+      case "minPrice":
+        return `From ${money(value)}`;
+      case "maxPrice":
+        return `Up to ${money(value)}`;
+      default:
+        return value;
+    }
+  };
+
+  const hasMarkets = !!facets.data?.markets?.length;
   if (query.isLoading && !query.data) return <LoadingPage />;
   const items = query.data || [];
+  const updating = query.isFetching && query.isPlaceholderData;
   return (
     <Shell>
-      <section className="border-b bg-slate-50 py-16">
-        <div className="mx-auto max-w-[1280px] px-4 text-center sm:px-6 lg:px-8">
-          <h1 className="text-4xl font-black text-[#05314a] sm:text-5xl">
-            Short-Term Rental Properties for Sale
-          </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
-            Investor-focused opportunities, specialist agents, and property
-            intelligence in one place.
-          </p>
-          <div className="mx-auto mt-8 flex max-w-3xl items-center gap-2 rounded-xl border bg-white p-2 shadow-sm">
-            <Search className="ml-3 h-5 w-5 text-cyan-600" />
-            <input
-              className="flex-1 px-2 py-3 text-sm outline-none"
-              placeholder="City, state, keyword"
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-            />
+      <section className="border-b bg-slate-50 pb-10 pt-14">
+        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-600">
+                Properties for sale
+              </p>
+              <h1 className="mt-2 text-4xl font-black text-[#05314a] sm:text-5xl">
+                Short-Term Rental Properties
+              </h1>
+            </div>
+            <p className="max-w-xl text-base text-slate-600 lg:text-right">
+              Investor-focused opportunities, specialist agents, and property
+              intelligence in one place.
+            </p>
           </div>
-          <div className="mx-auto mt-4 flex max-w-5xl flex-wrap items-end justify-center gap-3 text-left">
-            {facets.data?.markets?.length ? (
-              <FilterSelect label="Market" value={market} onChange={setMarket}>
-                <option value="">All markets</option>
-                {facets.data.markets.map((item: any) => (
-                  <option key={item.id} value={String(item.id)}>
-                    {item.name} ({item.propertyCount})
+
+          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-cyan-500 focus-within:bg-white">
+              <Search className="h-5 w-5 shrink-0 text-cyan-600" />
+              <input
+                className="w-full bg-transparent px-1 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                placeholder="Search by city, state, address or keyword"
+                value={filters.search}
+                onChange={event => set("search")(event.target.value)}
+              />
+              {filters.search ? (
+                <button
+                  type="button"
+                  onClick={() => set("search")("")}
+                  className="text-xs font-semibold text-slate-500 hover:text-cyan-700"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+            <div
+              className={`mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 ${hasMarkets ? "lg:grid-cols-7" : "lg:grid-cols-6"}`}
+            >
+              {/* Only markets with a published property are offered, so the
+                  filter is hidden until at least one has something to show. */}
+              {hasMarkets ? (
+                <FilterSelect
+                  label="Market"
+                  value={filters.market}
+                  onChange={set("market")}
+                >
+                  <option value="">All markets</option>
+                  {facets.data!.markets.map((item: any) => (
+                    <option key={item.id} value={String(item.id)}>
+                      {item.name} ({item.propertyCount})
+                    </option>
+                  ))}
+                </FilterSelect>
+              ) : null}
+              <FilterSelect
+                label="State"
+                value={filters.state}
+                onChange={set("state")}
+              >
+                <option value="">All states</option>
+                {(facets.data?.states || []).map((code: string) => (
+                  <option key={code} value={code}>
+                    {US_STATE_NAMES[code] || code}
                   </option>
                 ))}
               </FilterSelect>
-            ) : null}
-            {facets.data?.propertyTypes?.length ? (
-              <FilterSelect
-                label="Type"
-                value={propertyType}
-                onChange={setPropertyType}
-              >
+              <FilterSelect label="Type" value={filters.type} onChange={set("type")}>
                 <option value="">Any type</option>
-                {facets.data.propertyTypes.map((type: string) => (
+                {(facets.data?.propertyTypes || []).map((type: string) => (
                   <option key={type} value={type}>
                     {PROPERTY_TYPE_LABELS[type] || type}
                   </option>
                 ))}
               </FilterSelect>
-            ) : null}
-            <FilterSelect label="Beds" value={minBeds} onChange={setMinBeds}>
-              <option value="">Any</option>
-              {[2, 3, 4, 5, 6].map(n => (
-                <option key={n} value={String(n)}>
-                  {n}+
-                </option>
-              ))}
-            </FilterSelect>
-            {priceBands.length ? (
-              <FilterSelect
-                label="Max price"
-                value={maxPrice}
-                onChange={setMaxPrice}
-              >
-                <option value="">No limit</option>
-                {priceBands.map(band => (
-                  <option key={band} value={String(band)}>
-                    {money(band)}
+              <FilterSelect label="Beds" value={filters.beds} onChange={set("beds")}>
+                <option value="">Any</option>
+                {[1, 2, 3, 4, 5, 6].map(n => (
+                  <option key={n} value={String(n)}>
+                    {n}+
                   </option>
                 ))}
               </FilterSelect>
-            ) : null}
-            <FilterSelect label="Sort" value={sort} onChange={setSort}>
-              {Object.entries(SORT_LABELS).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </FilterSelect>
-            {activeFilters ? (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-cyan-700 hover:bg-slate-50"
+              <FilterSelect label="Baths" value={filters.baths} onChange={set("baths")}>
+                <option value="">Any</option>
+                {[1, 2, 3, 4, 5].map(n => (
+                  <option key={n} value={String(n)}>
+                    {n}+
+                  </option>
+                ))}
+              </FilterSelect>
+              <FilterSelect
+                label="Min price"
+                value={filters.minPrice}
+                onChange={set("minPrice")}
               >
-                Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
-              </button>
+                <option value="">No min</option>
+                {priceSteps.map(step => (
+                  <option key={step} value={String(step)}>
+                    {money(step)}
+                  </option>
+                ))}
+              </FilterSelect>
+              <FilterSelect
+                label="Max price"
+                value={filters.maxPrice}
+                onChange={set("maxPrice")}
+              >
+                <option value="">No max</option>
+                {priceSteps.map(step => (
+                  <option key={step} value={String(step)}>
+                    {money(step)}
+                  </option>
+                ))}
+              </FilterSelect>
+            </div>
+            {activeFilters ? (
+              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+                {chipKeys
+                  .filter(key => filters[key])
+                  .map(key => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => set(key)("")}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-900 hover:bg-cyan-100"
+                      aria-label={`Remove filter ${chipLabel(key)}`}
+                    >
+                      {chipLabel(key)}
+                      <X className="h-3 w-3" />
+                    </button>
+                  ))}
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="text-xs font-semibold text-slate-500 underline-offset-2 hover:text-cyan-700 hover:underline"
+                >
+                  Clear all
+                </button>
+              </div>
             ) : null}
           </div>
         </div>
       </section>
-      <section className="py-14">
+      <section className="py-12">
         <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
-          <div className="mb-7 flex items-end justify-between">
+          <div className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold text-cyan-700">
-                {items.length} opportunities
+                {items.length} {items.length === 1 ? "opportunity" : "opportunities"}
               </p>
               <h2 className="text-2xl font-bold text-[#05314a]">
                 Properties matching your search
               </h2>
             </div>
+            <div className="sm:w-56">
+              <FilterSelect label="Sort by" value={filters.sort} onChange={set("sort")}>
+                {Object.entries(SORT_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </FilterSelect>
+            </div>
           </div>
           {items.length ? (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div
+              className={`grid gap-6 transition-opacity md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${updating ? "opacity-60" : ""}`}
+              aria-busy={updating}
+            >
               {items.map((item: any) => (
                 <PropertyCard key={item.id} item={item} />
               ))}
@@ -1403,13 +1595,6 @@ function PropertiesPage() {
   );
 }
 
-/**
- * The assigned agent's own note on a listing.
- *
- * Presented as a quote with their name on it, because that is what it is: one
- * person's judgement, not the company's. An investor can weigh a named
- * opinion. An unattributed one just reads as marketing.
- */
 function AgentNote({ item }: { item: any }) {
   if (!item.agentBlurb) return null;
   return (
@@ -2550,6 +2735,439 @@ function AboutPage() {
   );
 }
 
+const JOIN_CALENDLY_URL = "https://calendly.com/trish-savvy";
+const JOIN_IMG = "/images/join-our-team";
+
+const JOIN_PARTNERS: Array<{ src: string | null; alt: string }> = [
+  { src: null, alt: "eXp Realty" },
+  { src: `${JOIN_IMG}/airdna.png`, alt: "AirDNA" },
+  { src: `${JOIN_IMG}/rabbu.png`, alt: "Rabbu" },
+  { src: `${JOIN_IMG}/bnbcalc.png`, alt: "BNBCalc" },
+  { src: `${JOIN_IMG}/chalet.png`, alt: "Chalet" },
+  { src: `${JOIN_IMG}/striq.png`, alt: "strIQ" },
+  { src: `${JOIN_IMG}/str-secrets.png`, alt: "Short Term Rental Secrets" },
+  { src: `${JOIN_IMG}/str-like-the-best.png`, alt: "STR Like The Best" },
+  { src: `${JOIN_IMG}/short-term-gems.png`, alt: "Short-Term Gems" },
+  { src: `${JOIN_IMG}/the-offer-sheet.png`, alt: "The Offer Sheet" },
+  { src: `${JOIN_IMG}/madeline-raiford.png`, alt: "Madeline Raiford-Holland" },
+];
+
+const JOIN_BENEFITS: Array<[string, string, React.ElementType]> = [
+  [
+    "Short-Term Rental Expertise",
+    "We've been 100% focused on STR investors since 2019. Deal structures, revenue analysis, regulations — this is all we do.",
+    Building2,
+  ],
+  [
+    "Marketing Support",
+    "A dedicated marketing team builds your brand presence, produces content, and runs campaigns so you can stay in front of clients.",
+    TrendingUp,
+  ],
+  [
+    "Industry Partnerships",
+    "Preferred access to STR lenders, insurance advisors, property managers, and tax strategists your clients actually need.",
+    Users,
+  ],
+  [
+    "Lead Qualification",
+    "Our inside sales team vets and qualifies inbound investor leads before they reach you — so your time goes to serious buyers.",
+    Check,
+  ],
+  [
+    "Proprietary Software",
+    "Purpose-built STR tools for market analysis, revenue projections, and deal evaluation that generic agents simply don't have.",
+    LineChart,
+  ],
+  [
+    "Mastermind Support",
+    "Weekly masterminds with top-producing STR agents nationwide. Coaching, deal reviews, and strategies you can use the same day.",
+    Star,
+  ],
+];
+
+const JOIN_VALUES: Array<[string, string]> = [
+  [
+    "Self-Leadership & Accountability",
+    "We lead ourselves first — with discipline, ownership, and a drive to improve. We manage our time, follow through on commitments, and expect excellence from ourselves before asking it of others.",
+  ],
+  [
+    "Transparent Collaboration",
+    "We build trust through honesty and vulnerability. We work openly, both with our clients and our agent partners. We share wins and lessons learned, and communicate with clarity — even when it's hard.",
+  ],
+  [
+    "Growth with Purpose",
+    "We pursue personal and professional growth with intention. We challenge assumptions, seek feedback, and stay curious — because when we grow, our partners' and clients' wealth grows too.",
+  ],
+  [
+    "Expertise with Integrity",
+    "We bring deep market knowledge and STR experience — and we back it with honesty, transparency, and a client-first mindset. Our confidence comes from mastery, and our communication is clear, direct, and grounded in results. We don't just talk about excellence — we deliver it.",
+  ],
+  [
+    "Proactive Excellence",
+    "We anticipate needs, prevent problems, and execute with precision. We are both students and masters of our craft — constantly learning, always delivering. With agility, professionalism, and high standards, we do what it takes to lead in performance and results.",
+  ],
+  [
+    "Empowered Prosperity",
+    "We help our clients build wealth with confidence. Our mission is to create opportunities that support long-term success — for our investors, agents, and the communities we serve.",
+  ],
+];
+
+const JOIN_HUB: Array<[string, string]> = [
+  ["Operations", "keeps every transaction moving — contracts, coordination, and closings handled."],
+  ["Sales", "qualifies and nurtures your pipeline so you spend time with buyers who are ready."],
+  ["Data analysts", "arm you with market intelligence and revenue projections your competition can't match."],
+  ["Marketing", "builds your presence and keeps your name in front of investors in your market."],
+];
+
+// Photo, alt text, and grid span. Spans make a varied collage on wide
+// screens and fall back to a plain two-column grid on phones.
+const JOIN_GALLERY: Array<[string, string, string]> = [
+  ["team-retreat.jpg", "The full Savvy STR Agents team gathered at a team retreat", "sm:col-span-2 sm:row-span-2"],
+  ["podcast-booth.jpg", "Recording in the podcast booth", "sm:row-span-2"],
+  ["industry-event.jpg", "Savvy agent at an industry event", "sm:row-span-2"],
+  ["on-stage.jpg", "Speaking on stage at a Savvy event", "sm:col-span-2"],
+  ["property-walkthrough.jpg", "Agents on a property walkthrough", "sm:col-span-2"],
+  ["off-road-tour.jpg", "Off-road property tour", "sm:row-span-2"],
+  ["filming-interviews.jpg", "Filming agent interviews at a team retreat", "sm:col-span-2"],
+  ["boat-day.jpg", "Boat day on the water", ""],
+  ["coffee-walk.jpg", "Morning coffee walk at a mastermind retreat", ""],
+  ["conference.jpg", "Savvy agents at an industry conference", "sm:row-span-2"],
+  ["teaching-session.jpg", "Teaching a session on STR investing at a conference", "sm:row-span-2"],
+  ["studio-interview.jpg", "Podcast interview in the Savvy studio", "sm:col-span-2"],
+];
+
+function JoinCta({ children }: { children: React.ReactNode }) {
+  return (
+    <a
+      className="inline-flex items-center gap-2 rounded-lg bg-[#10c0df] px-6 py-3 font-bold text-[#03293c]"
+      href={JOIN_CALENDLY_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {children}
+      <ArrowRight className="h-4 w-4" />
+    </a>
+  );
+}
+
+function JoinEyebrow({ children, light = false }: { children: React.ReactNode; light?: boolean }) {
+  return (
+    <p
+      className={`text-xs font-bold uppercase tracking-[0.22em] ${light ? "text-cyan-300" : "text-cyan-600"}`}
+    >
+      {children}
+    </p>
+  );
+}
+
+/**
+ * Recruiting page, carried over from the old site's /join-our-team. The old
+ * address redirects here. Every call to action books a call with Trish, as it
+ * did on the old site.
+ */
+function JoinTeamPage() {
+  usePageTitle("Join Our Team");
+  return (
+    <Shell darkHeader>
+      {/* Hero */}
+      <section className="relative overflow-hidden bg-[#031f30] py-20 text-white lg:py-28">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(16,192,223,0.25),transparent_60%)]" />
+        <div className="relative mx-auto grid max-w-[1280px] items-center gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:px-8">
+          <div>
+            <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-cyan-200">
+              <span className="h-2 w-2 rounded-full bg-[#10c0df]" /> We're growing — nationwide
+            </p>
+            <h1 className="mt-6 text-4xl font-black leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl">
+              If you live and breathe{" "}
+              <span className="text-[#43e8ff]">short-term rentals</span>, we
+              want you.
+            </h1>
+            <p className="mt-6 max-w-xl text-lg leading-8 text-cyan-50/85">
+              We're seeking growth-minded short-term rental experts who know
+              their market inside and out. If you love the idea of guiding
+              investors and helping them build wealth, this is the place for
+              you.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <JoinCta>Start Your Savvy Journey</JoinCta>
+              <a
+                className="inline-flex items-center rounded-lg border border-white/25 px-6 py-3 font-bold text-white hover:bg-white/10"
+                href="#why-savvy"
+              >
+                See Why Agents Join
+              </a>
+            </div>
+          </div>
+          <div>
+            <div className="overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/10">
+              <img
+                src={`${JOIN_IMG}/team-hero.jpg`}
+                alt="The Savvy STR Agents team"
+                className="aspect-[4/3] w-full object-cover"
+              />
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                ["#1", "Enterprise Agent Team at eXp Realty"],
+                ["55", "Expert STR agents across the country"],
+                ["49", "Active markets, from the Smokies to SoCal"],
+                ["100%", "Focused on short-term rental investors"],
+              ].map(([num, label]) => (
+                <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <p className="text-2xl font-black text-[#43e8ff]">{num}</p>
+                  <p className="mt-1 text-xs leading-5 text-cyan-50/75">{label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Why join */}
+      <section id="why-savvy" className="scroll-mt-24 bg-white py-20">
+        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
+          <div className="max-w-2xl">
+            <JoinEyebrow>Why Join Savvy</JoinEyebrow>
+            <h2 className="mt-3 text-3xl font-black text-[#05314a] sm:text-4xl">
+              Everything you need to dominate your STR market
+            </h2>
+            <p className="mt-4 text-lg text-slate-600">
+              You bring the market expertise and the drive. We bring the
+              infrastructure that turns great agents into top producers.
+            </p>
+          </div>
+          <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+            <article className="rounded-2xl bg-[#05314a] p-7 text-white lg:row-span-2">
+              <p className="text-6xl font-black text-[#43e8ff]">#1</p>
+              <h3 className="mt-4 text-xl font-bold">Enterprise Agent Team at eXp Realty</h3>
+              <p className="mt-3 leading-7 text-cyan-50/80">
+                Join the top-ranked enterprise agent team at the world's
+                largest independent brokerage — with the track record and
+                national footprint to prove it.
+              </p>
+            </article>
+            {JOIN_BENEFITS.map(([title, body, Icon]) => (
+              <article key={title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-50 text-cyan-700">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 font-bold text-[#05314a]">{title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Partners */}
+      <section className="border-y border-slate-200 bg-slate-50 py-10">
+        <p className="px-4 text-center text-sm text-slate-600">
+          We invest heavily in{" "}
+          <strong className="text-[#05314a]">partnerships, marketing, and technology</strong>{" "}
+          — so our agents never compete alone.
+        </p>
+        <div className="sv-marquee mt-6" aria-label="Savvy partner logos">
+          <div className="sv-marquee-track">
+            {/* The list twice, so the scroll loops without a gap. */}
+            {[...JOIN_PARTNERS, ...JOIN_PARTNERS].map((logo, index) => (
+              <div
+                key={`${logo.alt}-${index}`}
+                className="flex h-14 w-40 shrink-0 items-center justify-center px-4"
+                aria-hidden={index >= JOIN_PARTNERS.length}
+              >
+                {logo.src ? (
+                  <img src={logo.src} alt={logo.alt} loading="lazy" className="max-h-10 w-auto object-contain opacity-80 grayscale" />
+                ) : (
+                  <span className="text-lg font-black text-[#05314a]">{logo.alt}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Values */}
+      <section className="bg-white py-20">
+        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
+          <JoinEyebrow>Savvy Core Values</JoinEyebrow>
+          <h2 className="mt-3 text-3xl font-black text-[#05314a] sm:text-4xl">What we stand for</h2>
+          <p className="mt-4 text-lg text-slate-600">
+            How we operate, and what our clients and partners can count on.
+          </p>
+          <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {JOIN_VALUES.map(([title, body], index) => (
+              <article key={title} className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+                <p className="text-sm font-black text-cyan-600">{String(index + 1).padStart(2, "0")}</p>
+                <h3 className="mt-2 text-lg font-bold text-[#05314a]">{title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Testimonial */}
+      <section className="bg-[#031f30] py-20 text-white">
+        <div className="mx-auto max-w-4xl px-4 text-center sm:px-6">
+          <JoinEyebrow light>Hear It From Our Agents</JoinEyebrow>
+          <h2 className="mt-3 text-3xl font-black sm:text-4xl">Don't take our word for it</h2>
+          <p className="mt-4 text-lg text-cyan-50/80">
+            The best people to tell you what it's like inside Savvy are the
+            agents already winning here.
+          </p>
+          <div className="mt-10 aspect-video overflow-hidden rounded-2xl bg-black shadow-2xl ring-1 ring-white/10">
+            <iframe
+              src="https://fast.wistia.net/embed/iframe/i65lclausl"
+              title="Savvy STR Agents: hear it from our agents"
+              allow="autoplay; fullscreen"
+              allowFullScreen
+              loading="lazy"
+              className="h-full w-full"
+            />
+          </div>
+          <blockquote className="mx-auto mt-10 max-w-3xl text-xl font-semibold leading-8 text-white">
+            “I've sold more real estate in the last 7 months than I did in the
+            first three full years of being a Realtor, so it has been completely
+            life-changing for me and my family.”
+          </blockquote>
+          <p className="mt-4 text-sm text-cyan-200">
+            Joe Rohne, Savvy STR Agent, Emerald Coast
+          </p>
+        </div>
+      </section>
+
+      {/* Trish */}
+      <section className="bg-white py-20">
+        <div className="mx-auto grid max-w-[1180px] items-center gap-10 px-4 sm:px-6 md:grid-cols-[320px_1fr] lg:gap-16">
+          <img
+            src={`${JOIN_IMG}/trish-bartley.jpg`}
+            alt="Trish Bartley, U.S. Expansion Director at Savvy STR Agents"
+            loading="lazy"
+            className="mx-auto aspect-[4/5] w-full max-w-xs rounded-2xl object-cover shadow-xl"
+          />
+          <div>
+            <JoinEyebrow>Meet Your First Call</JoinEyebrow>
+            <h2 className="mt-3 text-3xl font-black text-[#05314a] sm:text-4xl">Trish Bartley</h2>
+            <p className="mt-1 font-semibold text-cyan-700">U.S. Expansion Director</p>
+            <p className="mt-5 leading-7 text-slate-600">
+              Meet the magician behind growing this team. Trish has personally
+              guided every expansion agent who's joined Savvy — matching STR
+              experts with the markets, resources, and support they need to win.
+            </p>
+            <p className="mt-4 leading-7 text-slate-600">
+              Your Savvy journey starts with a conversation, not an
+              application. Trish will walk you through how the partnership
+              works, what we look for, and whether we're the right match for
+              each other — because we can't partner with everyone, and that's
+              the point.
+            </p>
+            <div className="mt-7">
+              <JoinCta>Book a Call with Trish</JoinCta>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Savvy Hub */}
+      <section className="bg-slate-50 py-20">
+        <div className="mx-auto grid max-w-[1280px] items-center gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:px-8">
+          <div>
+            <JoinEyebrow>The Savvy Hub</JoinEyebrow>
+            <h2 className="mt-3 text-3xl font-black text-[#05314a] sm:text-4xl">
+              You're the agent. We're the engine behind you.
+            </h2>
+            <p className="mt-4 text-lg text-slate-600">
+              Every Savvy agent is backed by the Savvy Hub — a full team of
+              specialists working behind the scenes so you can stay focused on
+              your clients and your market.
+            </p>
+            <ul className="mt-7 space-y-4">
+              {JOIN_HUB.map(([team, body]) => (
+                <li key={team} className="flex gap-3">
+                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#10c0df] text-[#03293c]">
+                    <Check className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-slate-700">
+                    <strong className="text-[#05314a]">{team}</strong> {body}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-7 text-lg font-bold text-[#05314a]">Your success is why we're here.</p>
+          </div>
+          <div
+            className="relative mx-auto aspect-square w-full max-w-md"
+            role="img"
+            aria-label="A Savvy agent at the center, supported by operations, sales, data analysts, and marketing"
+          >
+            <div className="absolute inset-[12%] rounded-full border-2 border-dashed border-cyan-300" />
+            <div className="absolute left-1/2 top-1/2 flex h-36 w-36 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full bg-[#05314a] text-center text-white shadow-xl">
+              <span className="text-2xl font-black text-[#43e8ff]">You</span>
+              <span className="text-xs text-cyan-50/80">The Savvy Agent</span>
+            </div>
+            {[
+              ["Operations", "left-1/2 top-0 -translate-x-1/2"],
+              ["Sales", "right-0 top-1/2 -translate-y-1/2"],
+              ["Data Analysts", "bottom-0 left-1/2 -translate-x-1/2"],
+              ["Marketing", "left-0 top-1/2 -translate-y-1/2"],
+            ].map(([label, position]) => (
+              <div
+                key={label}
+                className={`absolute ${position} rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-[#05314a] shadow-md`}
+              >
+                {label}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Life at Savvy */}
+      <section className="bg-white py-20">
+        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
+          <JoinEyebrow>Life at Savvy</JoinEyebrow>
+          <h2 className="mt-3 text-3xl font-black text-[#05314a] sm:text-4xl">
+            Work hard, close deals, have fun doing it
+          </h2>
+          <p className="mt-4 max-w-2xl text-lg text-slate-600">
+            From team retreats to property walkthroughs, this is what it
+            actually looks like to be part of the Savvy family.
+          </p>
+          <div className="mt-10 grid auto-rows-[160px] grid-cols-2 gap-3 sm:auto-rows-[180px] sm:grid-cols-4">
+            {JOIN_GALLERY.map(([file, alt, span]) => (
+              <div key={file} className={`overflow-hidden rounded-xl bg-slate-100 ${span}`}>
+                <img
+                  src={`${JOIN_IMG}/${file}`}
+                  alt={alt}
+                  loading="lazy"
+                  className="h-full w-full object-cover transition duration-500 hover:scale-105"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Final call to action */}
+      <section className="bg-gradient-to-r from-[#05314a] to-[#0f9db7] py-20 text-center text-white">
+        <div className="mx-auto max-w-3xl px-4">
+          <JoinEyebrow light>Ready When You Are</JoinEyebrow>
+          <h2 className="mt-3 text-3xl font-black sm:text-4xl">
+            Your market needs a Savvy STR expert. Is that you?
+          </h2>
+          <p className="mt-4 text-lg text-cyan-50/90">
+            One call with Trish is all it takes to find out if we're a match.
+            Bring your market knowledge — we'll bring everything else.
+          </p>
+          <div className="mt-8">
+            <JoinCta>Start Your Savvy Journey</JoinCta>
+          </div>
+        </div>
+      </section>
+    </Shell>
+  );
+}
+
 function ContactPage() {
   usePageTitle("Contact a Short-Term Rental Specialist");
   const { data: settings } = trpc.website.publicSettings.useQuery();
@@ -2833,6 +3451,7 @@ export default function PublicWebsite() {
   if (relative === "/about") return <AboutPage />;
   if (relative === "/contact") return <ContactPage />;
   if (relative === "/markets") return <MarketsPage />;
+  if (relative === "/join-our-team") return <JoinTeamPage />;
   // Investor accounts. These render inside the same header and footer as the
   // rest of the site, so signing in never feels like leaving it.
   if (relative === "/sign-in") return <AccountPage title="Sign in"><SignInBody /></AccountPage>;
