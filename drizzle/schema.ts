@@ -1319,6 +1319,9 @@ export const websiteCaseStudies = mysqlTable(
     primaryMetricValue: varchar("primaryMetricValue", { length: 128 }),
     secondaryMetricLabel: varchar("secondaryMetricLabel", { length: 128 }),
     secondaryMetricValue: varchar("secondaryMetricValue", { length: 128 }),
+    // What the investor put in (usually the purchase price). Drives the
+    // "Investment amount" filter on the public Case Studies page.
+    investmentAmount: decimal("investmentAmount", { precision: 14, scale: 2 }),
     status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
     isFeatured: boolean("isFeatured").default(false).notNull(),
     sortOrder: int("sortOrder").default(0).notNull(),
@@ -1343,6 +1346,8 @@ export const websiteBlogPosts = mysqlTable(
     body: mediumtext("body"),
     coverImageUrl: text("coverImageUrl"),
     category: varchar("category", { length: 128 }).default("STR Investing"),
+    // Topic tags for the Resources page filter. NULL for a post never tagged.
+    tags: json("tags").$type<string[]>(),
     authorUserId: int("authorUserId").references(() => users.id, { onDelete: "set null" }),
     status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
     isFeatured: boolean("isFeatured").default(false).notNull(),
