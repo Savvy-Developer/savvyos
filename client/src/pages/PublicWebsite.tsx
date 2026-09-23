@@ -344,10 +344,11 @@ function Shell({
             >
               Sell <ExternalLink className="ml-1 inline h-3 w-3" />
             </a>
-            {/* Wide screens only: at laptop width the menu is already full.
-                It is always in the mobile menu and the footer. */}
+            {/* Very wide screens only. At 1280px the menu already reaches the
+                logo, so this link would push it into it. It is always in the
+                mobile menu and the footer. */}
             <a
-              className={`hidden text-sm font-semibold transition hover:text-cyan-500 xl:inline ${darkHeader ? "text-white/85" : "text-[#05314a]"}`}
+              className={`hidden text-sm font-semibold transition hover:text-cyan-500 2xl:inline ${darkHeader ? "text-white/85" : "text-[#05314a]"}`}
               href={path("/join-our-team")}
             >
               Join the team
