@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -230,6 +230,54 @@ function usePageTitle(title: string) {
   }, [title]);
 }
 
+/**
+ * Gentle fade-and-rise as page sections scroll into view.
+ *
+ * Works on the direct children of each top-level section, so section
+ * backgrounds stay put and only the content moves. Photos and overlays that
+ * are absolutely positioned are left alone. Sections that arrive later (after
+ * data loads) are picked up by the MutationObserver. Nothing is hidden unless
+ * this runs, and it does not run for visitors who ask for reduced motion.
+ */
+function useScrollReveal(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const root = ref.current;
+    if (!root || typeof IntersectionObserver === "undefined") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const io = new IntersectionObserver(
+      entries => {
+        for (const entry of entries) {
+          // Also show anything already above the screen, for instance when
+          // the browser restores a scroll position on Back.
+          if (!entry.isIntersecting && entry.boundingClientRect.top >= 0) continue;
+          entry.target.classList.add("sv-in");
+          io.unobserve(entry.target);
+        }
+      },
+      // Threshold 0, so a very tall block (a long property grid) still
+      // reveals as soon as its top edge is on screen.
+      { rootMargin: "0px 0px -6% 0px", threshold: 0 },
+    );
+    const seen = new WeakSet<Element>();
+    const scan = () => {
+      root.querySelectorAll(":scope > section > *").forEach(el => {
+        if (seen.has(el)) return;
+        seen.add(el);
+        if (getComputedStyle(el).position === "absolute") return;
+        el.classList.add("sv-reveal");
+        io.observe(el);
+      });
+    };
+    scan();
+    const mo = new MutationObserver(scan);
+    mo.observe(root, { childList: true, subtree: true });
+    return () => {
+      io.disconnect();
+      mo.disconnect();
+    };
+  }, [ref]);
+}
+
 function Shell({
   children,
   darkHeader = false,
@@ -239,6 +287,8 @@ function Shell({
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { data: siteSettings } = trpc.website.publicSettings.useQuery();
+  const mainRef = useRef<HTMLElement>(null);
+  useScrollReveal(mainRef);
   const nav = [
     ["Properties", "/properties"],
     ["Markets", "/markets"],
@@ -249,7 +299,7 @@ function Shell({
     ["Contact", "/contact"],
   ];
   return (
-    <div className="h-full overflow-y-auto bg-white text-slate-950 selection:bg-cyan-200">
+    <div className="sv-site h-full overflow-y-auto bg-white text-slate-950 selection:bg-cyan-200">
       <header
         className={`sticky top-0 z-50 border-b ${darkHeader ? "border-white/10 bg-[#052d43]" : "border-slate-200 bg-white"}`}
       >
@@ -328,7 +378,7 @@ function Shell({
           </nav>
         )}
       </header>
-      <main>{children}</main>
+      <main ref={mainRef}>{children}</main>
       <SiteFooter settings={siteSettings} />
     </div>
   );
@@ -2308,8 +2358,33 @@ function ResourceDetailPage({ slug }: { slug: string }) {
   );
 }
 
+/**
+ * A photo behind a dark section, with an overlay so white text stays
+ * readable. Renders nothing without a photo, so the section falls back to
+ * its plain background.
+ */
+function PhotoBackdrop({ src, eager = false }: { src?: string | null; eager?: boolean }) {
+  if (!src) return null;
+  return (
+    <>
+      <img
+        aria-hidden="true"
+        alt=""
+        src={src}
+        loading={eager ? "eager" : "lazy"}
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/85 via-[#031f30]/80 to-black/90" />
+    </>
+  );
+}
+
 function AboutPage() {
   usePageTitle("Why Investors Work With Savvy STR Agents");
+  // Same photo as the home page hero, so changing it in Website Studio
+  // updates both pages. Shell already loads these settings, so this is cached.
+  const { data: siteSettings } = trpc.website.publicSettings.useQuery();
+  const heroImageUrl = (siteSettings as any)?.heroImageUrl as string | undefined;
   const benefits: Array<[string, string, React.ElementType]> = [
     [
       "Market clarity",
@@ -2344,8 +2419,9 @@ function AboutPage() {
   ];
   return (
     <Shell darkHeader>
-      <section className="bg-black py-28 text-center text-white">
-        <div className="mx-auto max-w-4xl px-5">
+      <section className="relative overflow-hidden bg-black py-28 text-center text-white">
+        <PhotoBackdrop src={heroImageUrl} eager />
+        <div className="relative mx-auto max-w-4xl px-5">
           <p className="text-xs font-bold uppercase tracking-[.22em] text-cyan-400">
             Why Savvy
           </p>
@@ -2452,20 +2528,23 @@ function AboutPage() {
           </div>
         </div>
       </section>
-      <section className="bg-black py-20 text-center text-white">
-        <h2 className="text-4xl font-black">
-          Ready to Start Your STR Journey?
-        </h2>
-        <p className="mt-4 text-slate-300">
-          Make the next property decision with the right specialist and the
-          right information.
-        </p>
-        <a
-          className="mt-7 inline-flex rounded-lg bg-[#10c0df] px-6 py-3 font-bold text-[#03293c]"
-          href={path("/contact")}
-        >
-          Book My Call
-        </a>
+      <section className="relative overflow-hidden bg-black py-20 text-center text-white">
+        <PhotoBackdrop src={heroImageUrl} />
+        <div className="relative px-5">
+          <h2 className="text-4xl font-black">
+            Ready to Start Your STR Journey?
+          </h2>
+          <p className="mt-4 text-slate-300">
+            Make the next property decision with the right specialist and the
+            right information.
+          </p>
+          <a
+            className="mt-7 inline-flex rounded-lg bg-[#10c0df] px-6 py-3 font-bold text-[#03293c]"
+            href={path("/contact")}
+          >
+            Book My Call
+          </a>
+        </div>
       </section>
     </Shell>
   );
