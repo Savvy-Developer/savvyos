@@ -254,14 +254,19 @@ function useScrollReveal(ref: React.RefObject<HTMLElement | null>) {
     const root = ref.current;
     if (!root || typeof IntersectionObserver === "undefined") return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const pending = new Set<Element>();
+    const reveal = (el: Element) => {
+      el.classList.add("sv-in");
+      pending.delete(el);
+      io.unobserve(el);
+    };
     const io = new IntersectionObserver(
       entries => {
         for (const entry of entries) {
           // Also show anything already above the screen, for instance when
           // the browser restores a scroll position on Back.
           if (!entry.isIntersecting && entry.boundingClientRect.top >= 0) continue;
-          entry.target.classList.add("sv-in");
-          io.unobserve(entry.target);
+          reveal(entry.target);
         }
       },
       // Threshold 0, so a very tall block (a long property grid) still
@@ -275,15 +280,34 @@ function useScrollReveal(ref: React.RefObject<HTMLElement | null>) {
         seen.add(el);
         if (getComputedStyle(el).position === "absolute") return;
         el.classList.add("sv-reveal");
+        pending.add(el);
         io.observe(el);
       });
     };
     scan();
     const mo = new MutationObserver(scan);
     mo.observe(root, { childList: true, subtree: true });
+    // A fast jump (dragging the scrollbar, End, an anchor link) can carry a
+    // section past the screen without it ever intersecting, which left it
+    // invisible. After any scroll, show everything whose top is already above
+    // the bottom of the screen.
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const bottom = window.innerHeight;
+        pending.forEach(el => {
+          if (el.getBoundingClientRect().top < bottom) reveal(el);
+        });
+      });
+    };
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
     return () => {
       io.disconnect();
       mo.disconnect();
+      document.removeEventListener("scroll", onScroll, { capture: true });
+      if (frame) window.cancelAnimationFrame(frame);
     };
   }, [ref]);
 }
@@ -2793,7 +2817,7 @@ function AboutPage() {
   // Same photo as the home page hero, so changing it in Website Studio
   // updates both pages. Shell already loads these settings, so this is cached.
   const { data: siteSettings } = trpc.website.publicSettings.useQuery();
-  const heroImageUrl = (siteSettings as any)?.heroImageUrl as string | undefined;
+  const heroImageUrl = siteSettings?.heroImageUrl;
   const benefits: Array<[string, string, React.ElementType]> = [
     [
       "Market clarity",
