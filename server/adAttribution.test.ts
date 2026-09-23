@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +9,7 @@ import {
   campaignSourceFrom,
   readAdAttribution,
   sessionAdAttribution,
+  isPaidAttribution,
 } from "@shared/adAttribution";
 
 const META = {
@@ -154,5 +157,24 @@ describe("adAttributionParams", () => {
 
   it("is empty for nothing", () => {
     expect(adAttributionParams(null)).toEqual({});
+  });
+});
+
+describe("isPaidAttribution", () => {
+  it("treats a campaign tag as an ad, the way Meta and Google write them", () => {
+    expect(isPaidAttribution({ utmSource: "facebook", utmCampaign: "Spring Investors" })).toBe(true);
+    expect(isPaidAttribution({ utmMedium: "cpc" })).toBe(true);
+    expect(isPaidAttribution({ utmMedium: "Paid_Social" })).toBe(true);
+  });
+
+  it("does not treat organic search or a hand-tagged share as an ad", () => {
+    expect(isPaidAttribution({ utmSource: "google", utmMedium: "organic" })).toBe(false);
+    expect(isPaidAttribution({ utmSource: "newsletter", utmMedium: "email" })).toBe(false);
+    expect(isPaidAttribution({})).toBe(false);
+  });
+
+  it("is what the website lead form uses to pick the lead source type", () => {
+    const router = readFileSync(path.resolve(import.meta.dirname, "routers/website.ts"), "utf8");
+    expect(router).toContain('isPaidAttribution(adAttribution) ? "paid_lead" : "organic"');
   });
 });

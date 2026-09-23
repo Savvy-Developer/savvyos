@@ -136,3 +136,20 @@ export function adAttributionParams(attribution: AdAttribution | null | undefine
   }
   return out;
 }
+
+/**
+ * Whether the visit that produced a lead was paid for.
+ *
+ * Meta and Google Ads both write a campaign tag, so a campaign on its own is
+ * treated as an ad. Source and medium alone are not: "google / organic" is a
+ * search result, and a tag written by hand on a shared link is not a purchase.
+ * A medium naming a paid channel counts even with no campaign, because that
+ * is how some hand-built ad links are tagged.
+ */
+const PAID_MEDIUMS = new Set(["cpc", "ppc", "paid", "paid_social", "paidsocial", "paid-social", "display", "cpm", "retargeting", "social_paid"]);
+
+export function isPaidAttribution(attribution: AdAttribution): boolean {
+  if (attribution.utmCampaign) return true;
+  const medium = (attribution.utmMedium ?? "").trim().toLowerCase();
+  return PAID_MEDIUMS.has(medium);
+}
