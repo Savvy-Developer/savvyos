@@ -2421,6 +2421,27 @@ function CaseStudiesPage() {
   );
 }
 
+/**
+ * Count one read of an article, once per visit.
+ *
+ * Deliberately silent. If the counter fails the reader must never know, and
+ * the article must still be there, so nothing here can block or interrupt the
+ * page.
+ */
+function useRecordArticleView(
+  kind: "post" | "case_study",
+  contentId: number | null | undefined
+) {
+  const record = trpc.website.recordArticleView.useMutation();
+  const mutate = record.mutate;
+  useEffect(() => {
+    if (!contentId) return;
+    mutate({ kind, contentId });
+    // Once per article per visit. Re-firing on every render would turn a read
+    // count into a render count.
+  }, [kind, contentId, mutate]);
+}
+
 function CaseStudyDetailPage({ slug }: { slug: string }) {
   const query = trpc.website.publicCaseStudy.useQuery({ slug });
   const item: any = query.data;
