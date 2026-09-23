@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BROADCAST_ONLY_AUDIENCES,
+  ONE_TIME_SEND_TAG_MAX_LENGTH,
   isBroadcastOnlyAudience,
   normalizedAudienceContactIds,
   normalizedAudienceTags,
@@ -188,5 +189,18 @@ describe("the audiences the database will accept", () => {
     const migration = read("drizzle/20260921_one_time_send_tag_and_contact_audiences.sql");
     expect(migration).toContain("`triggerTags` json");
     expect(migration).toContain("`triggerContactIds` json");
+  });
+});
+
+describe("tag length limit", () => {
+  it("is the same limit in the picker and the send input", () => {
+    const router = read("server/routers/smartPlans.ts").replace(/\r\n/g, "\n");
+    expect(router).toContain("max(ONE_TIME_SEND_TAG_MAX_LENGTH)");
+    expect(router).toContain("trimmed.length <= ONE_TIME_SEND_TAG_MAX_LENGTH");
+    expect(router).not.toMatch(/triggerTags: z\.array\(z\.string\(\)\.trim\(\)\.min\(1\)\.max\(\d+\)\)/);
+  });
+
+  it("allows the long tags imports and Zapier write", () => {
+    expect(ONE_TIME_SEND_TAG_MAX_LENGTH).toBeGreaterThanOrEqual(255);
   });
 });

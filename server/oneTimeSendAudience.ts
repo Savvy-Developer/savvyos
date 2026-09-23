@@ -14,6 +14,13 @@ import { and, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { contacts } from "../drizzle/schema";
 
+/**
+ * Longest tag a One Time Send can target. Contact tags are free text from
+ * imports and Zapier, and in production 271 of 1,190 distinct tags are over
+ * 64 characters, so a shorter limit hid a fifth of them from the picker.
+ */
+export const ONE_TIME_SEND_TAG_MAX_LENGTH = 255;
+
 export const BROADCAST_ONLY_AUDIENCES = ["tag", "manual_contacts"] as const;
 export type BroadcastOnlyAudience = (typeof BROADCAST_ONLY_AUDIENCES)[number];
 

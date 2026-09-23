@@ -36,6 +36,7 @@ import { getResendEmailStatus } from "../_core/resendEmailStatus";
 import { refreshOneTimeSendMetrics } from "../oneTimeSendTracking";
 import {
   BROADCAST_ONLY_AUDIENCES,
+  ONE_TIME_SEND_TAG_MAX_LENGTH,
   contactIdsForBroadcastAudience,
   isBroadcastOnlyAudience,
   normalizedAudienceContactIds,
@@ -152,7 +153,10 @@ export const oneTimeSendInput = z
     body: z.string().trim().min(1).max(100_000),
     triggerType: oneTimeAudienceSchema,
     triggerLeadSourceIds: z.array(z.number()).optional().nullable(),
-    triggerTags: z.array(z.string().trim().min(1).max(64)).max(50).optional().nullable(),
+    // Matches ONE_TIME_SEND_TAG_MAX_LENGTH, which is what the picker offers.
+    // Tags on contacts come from imports and Zapier and can run long; the
+    // picker and this limit agree, so nothing offered is then refused.
+    triggerTags: z.array(z.string().trim().min(1).max(ONE_TIME_SEND_TAG_MAX_LENGTH)).max(50).optional().nullable(),
     triggerContactIds: z.array(z.number().int().positive()).max(5_000).optional().nullable(),
     dateAddedFrom: calendarDateInput.optional().nullable(),
     dateAddedTo: calendarDateInput.optional().nullable(),
@@ -767,7 +771,9 @@ export const smartPlansRouter = router({
       for (const row of rows) {
         for (const tag of row.tags ?? []) {
           const trimmed = typeof tag === "string" ? tag.trim() : "";
-          if (trimmed) tags.add(trimmed);
+          // Only offer what the send input accepts. A tag longer than the
+          // limit would be picked, then refused on send.
+          if (trimmed && trimmed.length <= ONE_TIME_SEND_TAG_MAX_LENGTH) tags.add(trimmed);
         }
       }
       // Alphabetical, because the picker is scanned for a known tag rather
