@@ -93,7 +93,7 @@ SavvyOS is your home for prospecting, deals, operations, requests, and performan
 | **Marketing Requests** | Requesting marketing support or assets. | State the audience, goal, required date, source materials, and approval context. Review the request status rather than sending duplicate requests. |
 | **Tech Requests** | Reporting a system, access, or tooling need. | Describe the issue, impact, steps to reproduce, and any deadline. Add screenshots or examples only when they help the team diagnose the request. |
 | **Knowledge Base** | Finding published SOPs, training, and reference material. | Start with **SavvyOS Training Guides**, then search for the specific process you are completing. Follow the latest published article rather than relying on an older saved copy. |
-| **Savvy-Agents.com** | Opening the linked Savvy Agents resource in a separate tab. | Treat it as an external resource; return to SavvyOS to record deal and task activity. |
+| **My Website** | Your public profile and the Savvy STR Agents website. | **My Website Profile** edits your public agent page. **View the Website** opens the live site in a new tab. Your listings go live from each property's **Website** tab. |
 
 ## Recommended day-to-day flows
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
@@ -131,6 +131,9 @@ export default function AgentProfilePage() {
   const { id } = useParams<{ id: string }>();
   const agentId = parseInt(id ?? "0", 10);
   const [, navigate] = useLocation();
+  // "?tab=website-profile" opens that tab, so the sidebar's "My Website
+  // Profile" link lands on it directly.
+  const requestedTab = new URLSearchParams(useSearch()).get("tab");
   const goBack = useAppBack("/org-chart");
   const { user: currentUser } = useAuth();
   const goToContact = useAgentContactNav();
@@ -840,7 +843,16 @@ export default function AgentProfilePage() {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue={agentData.role === "agent" ? "transactions" : "tasks"}>
+      <Tabs
+        key={requestedTab ?? "default"}
+        defaultValue={
+          requestedTab === "website-profile" && canEditWebsiteProfile
+            ? "website-profile"
+            : agentData.role === "agent"
+              ? "transactions"
+              : "tasks"
+        }
+      >
         <TabsList className="flex overflow-x-auto h-auto gap-0 bg-transparent p-0 border-b rounded-none w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           {agentData.role === "agent" && (
             <TabsTrigger value="transactions" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">

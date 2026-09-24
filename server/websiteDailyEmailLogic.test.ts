@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isDailyEmailEngagementCandidate,
   isScheduledSendDue,
   linkKeyFromUrl,
   parseEmailList,
@@ -139,5 +140,31 @@ describe("parseEmailList", () => {
       "a@x.com",
       "b@y.com",
     ]);
+  });
+});
+
+describe("isDailyEmailEngagementCandidate", () => {
+  it("accepts opens and clicks with our tag or a broadcast ID", () => {
+    expect(
+      isDailyEmailEngagementCandidate({
+        type: "email.opened",
+        data: { email_id: "e1", tags: { daily_email_run: "4" } },
+      })
+    ).toBe(true);
+    expect(
+      isDailyEmailEngagementCandidate({
+        type: "email.clicked",
+        data: { email_id: "e1", broadcast_id: "b1" },
+      })
+    ).toBe(true);
+  });
+
+  it("skips everything else", () => {
+    expect(
+      isDailyEmailEngagementCandidate({ type: "email.delivered", data: { email_id: "e1", broadcast_id: "b1" } })
+    ).toBe(false);
+    expect(isDailyEmailEngagementCandidate({ type: "email.opened", data: { email_id: "e1" } })).toBe(false);
+    expect(isDailyEmailEngagementCandidate({ type: "email.opened", data: { broadcast_id: "b1" } })).toBe(false);
+    expect(isDailyEmailEngagementCandidate(null)).toBe(false);
   });
 });

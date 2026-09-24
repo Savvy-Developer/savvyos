@@ -239,3 +239,17 @@ export function parseEmailList(text: string): string[] {
   }
   return out;
 }
+
+/**
+ * Whether a Resend webhook might be an open or click on a daily email: the
+ * right type, an email ID, and either our run tag (personal and team emails)
+ * or a broadcast ID (the big-list email). Anything else is skipped without a
+ * database lookup.
+ */
+export function isDailyEmailEngagementCandidate(event: unknown): boolean {
+  if (!event || typeof event !== "object") return false;
+  const { type, data } = event as { type?: unknown; data?: any };
+  if (type !== "email.opened" && type !== "email.clicked") return false;
+  if (!data || typeof data !== "object" || !data.email_id) return false;
+  return runIdFromTags(data.tags) !== null || typeof data.broadcast_id === "string";
+}

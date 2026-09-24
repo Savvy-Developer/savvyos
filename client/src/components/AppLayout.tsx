@@ -104,7 +104,8 @@ type NavGroup = { label: string; items: NavItem[] };
 function buildAgentNav(
   hasActiveOnboarding: boolean,
   isGroupLeader: boolean,
-  myOverdueTasks: number = 0
+  myOverdueTasks: number = 0,
+  userId: number | null = null
 ): NavGroup[] {
   const dealsItems: NavItem[] = [
     { icon: FileText, label: "Transactions", path: "/transactions" },
@@ -198,10 +199,27 @@ function buildAgentNav(
         },
         { icon: Wrench, label: "Vendor List", path: "/vendors" },
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
+      ],
+    },
+    {
+      // The public website is run from SavvyOS now. An agent's own profile
+      // is edited on their agent page; their listings go live from each
+      // property's Website tab.
+      label: "My Website",
+      items: [
+        ...(userId
+          ? [
+              {
+                icon: Globe2,
+                label: "My Website Profile",
+                path: `/agents/${userId}?tab=website-profile`,
+              },
+            ]
+          : []),
         {
           icon: Link2,
-          label: "Savvy-Agents.com",
-          path: "https://www.savvy-agents.com/admin/properties",
+          label: "View the Website",
+          path: "https://home.savvy-agents.com/newsite",
           external: true,
         },
       ],
@@ -1167,7 +1185,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           : buildAgentNav(
               hasActiveOnboarding,
               isGroupLeader,
-              myOverdueTaskCount
+              myOverdueTaskCount,
+              user?.id ?? null
             );
   const canUsePulseLayout =
     isPulsePath && Boolean((pulseShell as any)?.hasPulseAccess);
