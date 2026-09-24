@@ -22,6 +22,8 @@ import {
   pulseMeetings,
   pulseMeetingSessions,
   pulseTodoAcknowledgements,
+  pulseWorkItemAttachments,
+  pulseWorkItemComments,
   pulseWorkItems,
   pulseWorkItemStatusNotes,
   users,
@@ -900,13 +902,20 @@ export const pmRouter = router({
           .select({
             id: pulseWorkItems.id,
             title: pulseWorkItems.title,
+            description: pulseWorkItems.description,
             dueDate: pulseWorkItems.dueDate,
+            assigneeId: pulseWorkItems.assigneeId,
+            assigneeName: users.name,
+            parentWorkItemId: pulseWorkItems.parentWorkItemId,
             meetingId: pulseMeetings.id,
             meetingName: pulseMeetings.name,
             meetingDate: pulseMeetingSessions.scheduledFor,
             createdAt: pulseWorkItems.createdAt,
             status: pulseWorkItems.status,
             priority: pulseWorkItems.priorityLevel,
+            commentCount: sql<number>`(select count(*) from ${pulseWorkItemComments} where ${pulseWorkItemComments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemComments.deletedAt} is null)`.as("commentCount"),
+            attachmentCount: sql<number>`(select count(*) from ${pulseWorkItemAttachments} where ${pulseWorkItemAttachments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemAttachments.deletedAt} is null)`.as("attachmentCount"),
+            linkedSubTodoCount: sql<number>`(select count(*) from \`pulse_work_items\` child where child.\`parentWorkItemId\` = ${pulseWorkItems.id} and child.\`deletedAt\` is null)`.as("linkedSubTodoCount"),
           })
           .from(pulseWorkItems)
           .innerJoin(
@@ -917,6 +926,7 @@ export const pmRouter = router({
             pulseMeetingSessions,
             eq(pulseWorkItems.sourceSessionId, pulseMeetingSessions.id)
           )
+          .leftJoin(users, eq(pulseWorkItems.assigneeId, users.id))
           .where(
             and(
               eq(pulseWorkItems.type, "todo"),
@@ -933,14 +943,22 @@ export const pmRouter = router({
             dueDate: pmTasks.dueDate,
             projectId: pmProjects.id,
             projectName: pmProjects.title,
+            ownerId: pmTasks.ownerId,
+            ownerName: users.name,
+            parentTaskId: pmTasks.parentTaskId,
+            sectionName: pmTodoSections.title,
             completed: pmTasks.completed,
             status: pmTasks.status,
             priority: pmTasks.priority,
             recurrence: pmTasks.recurrence,
             notes: pmTasks.notes,
+            createdAt: pmTasks.createdAt,
+            commentCount: sql<number>`(select count(*) from ${pmTaskComments} where ${pmTaskComments.taskId} = ${pmTasks.id})`.as("commentCount"),
           })
           .from(pmTasks)
           .innerJoin(pmProjects, eq(pmTasks.projectId, pmProjects.id))
+          .leftJoin(users, eq(pmTasks.ownerId, users.id))
+          .leftJoin(pmTodoSections, eq(pmTasks.sectionId, pmTodoSections.id))
           .where(
             and(eq(pmTasks.ownerId, ctx.user.id), isNull(pmProjects.archivedAt))
           ),
@@ -960,7 +978,13 @@ export const pmRouter = router({
             priority: todo.priority,
             status: todo.status,
             recurrence: "none" as const,
-            notes: null,
+            notes: todo.description,
+            assigneeId: todo.assigneeId,
+            assigneeName: todo.assigneeName,
+            parentWorkItemId: todo.parentWorkItemId,
+            commentCount: todo.commentCount,
+            attachmentCount: todo.attachmentCount,
+            linkedSubTodoCount: todo.linkedSubTodoCount,
           })),
         ...projectRows
           .filter(todo => !todo.completed && todo.status !== "completed")
@@ -977,6 +1001,12 @@ export const pmRouter = router({
             status: todo.status,
             recurrence: todo.recurrence,
             notes: todo.notes,
+            assigneeId: todo.ownerId,
+            assigneeName: todo.ownerName,
+            parentTaskId: todo.parentTaskId,
+            sectionName: todo.sectionName,
+            createdAt: todo.createdAt,
+            commentCount: todo.commentCount,
           })),
       ];
       return todos.sort((left, right) => {

@@ -25,15 +25,26 @@ const workloadAccess = readFileSync(
 );
 
 describe("actionable My To-Dos dashboard", () => {
-  it("edits the original Project and L10 records instead of creating copies", () => {
+  it("works the original Project and L10 records without creating copies", () => {
     expect(dashboard).toContain("trpc.pm.tasks.update.useMutation");
-    expect(dashboard).toContain("<PulseItemEditor");
-    expect(dashboard).toContain("workItemId={l10Todo?.sourceId");
-    expect(dashboard).toContain("complete.mutate({");
-    expect(dashboard).toContain("source: todo.source");
+    expect(dashboard).toContain("trpc.pm.tasks.toggleComplete.useMutation");
+    expect(dashboard).toContain("<PulseInlineItemRow");
+    expect(dashboard).toContain("trpc.pm.tasks.getComments.useQuery");
+    expect(dashboard).toContain("trpc.pm.tasks.addComment.useMutation");
+    expect(dashboard).toContain("trpc.pm.tasks.deleteComment.useMutation");
     expect(projectsRouter).toContain("// A unified dashboard projection only.");
     expect(projectsRouter).toContain("priority: pmTasks.priority");
     expect(projectsRouter).toContain("recurrence: pmTasks.recurrence");
+    expect(projectsRouter).toContain("description: pulseWorkItems.description");
+    expect(projectsRouter).toContain("commentCount: sql<number>");
+  });
+
+  it("uses a compact expandable workspace instead of padded edit dialogs", () => {
+    expect(dashboard).toContain('className="mb-4 overflow-hidden rounded-md');
+    expect(dashboard).toContain('className="space-y-1.5 p-1.5"');
+    expect(dashboard).toContain("Edit Project To-Do");
+    expect(dashboard).toContain("Project To-Do assignee");
+    expect(dashboard).toContain("Comments");
   });
 
   it("keeps all source views fresh after a dashboard update", () => {
