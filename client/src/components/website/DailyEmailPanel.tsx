@@ -182,6 +182,20 @@ export function DailyEmailPanel() {
 
   // ── AI review ──────────────────────────────────────────────────────────────
   const [review, setReview] = useState<string | null>(null);
+  // ── Price drop alerts ──────────────────────────────────────────────────────
+  const setPriceDrops = trpc.website.setPriceDropAlerts.useMutation({
+    onSuccess: (_result, variables) => {
+      toast.success(variables.enabled ? "Price drop alerts on" : "Price drop alerts off");
+      void utils.website.dailyEmailOverview.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const [priceTestTo, setPriceTestTo] = useState("");
+  const sendPriceTest = trpc.website.sendPriceDropTest.useMutation({
+    onSuccess: result => (result.sent ? toast.success(result.message) : toast.error(result.message)),
+    onError: error => toast.error(error.message),
+  });
+
   const analyze = trpc.website.analyzeDailyEmail.useMutation({
     onSuccess: result => setReview(result.review),
     onError: error => toast.error(error.message),
@@ -706,6 +720,93 @@ export function DailyEmailPanel() {
               </div>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Price drop alerts ──────────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Price drop alerts</CardTitle>
+          <CardDescription>
+            When a live listing's price drops by $1,000 or more, investors who
+            viewed it in the last 90 days or saved it get one email with the
+            old and new price. Each drop is sent once. People who turned email
+            off or unsubscribed are skipped.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+            <div>
+              <p className="text-sm font-semibold">Send price drop alerts</p>
+              <p className="text-xs text-slate-500">
+                {data?.masterSwitch
+                  ? "Checked every 30 minutes. Sends straight away when a drop is found."
+                  : "Sending is switched off on the server, so nothing goes out yet even when this is on."}
+              </p>
+            </div>
+            <Switch
+              checked={!!data?.priceDropAlerts?.enabled}
+              disabled={setPriceDrops.isPending}
+              onCheckedChange={enabled => setPriceDrops.mutate({ enabled })}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[240px] flex-1 space-y-1">
+              <Label htmlFor="price-drop-test">Send a test alert to</Label>
+              <Input
+                id="price-drop-test"
+                placeholder="you@savvy.realty"
+                value={priceTestTo}
+                onChange={event => setPriceTestTo(event.target.value)}
+              />
+            </div>
+            <Button
+              variant="outline"
+              disabled={sendPriceTest.isPending || !priceTestTo.trim()}
+              onClick={() => sendPriceTest.mutate({ recipients: priceTestTo })}
+            >
+              {sendPriceTest.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Mail className="mr-2 h-4 w-4" />
+              )}
+              Send test
+            </Button>
+          </div>
+          <p className="text-xs text-slate-500">
+            The test uses the newest live listing with a made-up 5% drop. It is
+            not recorded and changes nothing.
+          </p>
+
+          {(data?.priceDropAlerts?.recent ?? []).length === 0 ? (
+            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-slate-500">
+              No price drops yet.
+            </p>
+          ) : (
+            <div className="divide-y rounded-lg border">
+              {(data?.priceDropAlerts?.recent ?? []).map((alert: any) => (
+                <div key={alert.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-slate-900">{alert.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {money(alert.oldPrice)} to {money(alert.newPrice)} · {shortDate(alert.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-600">
+                      {alert.status === "no_recipients"
+                        ? "Nobody to email"
+                        : `${alert.sent} of ${alert.recipients} emailed`}
+                    </span>
+                    <Badge variant="secondary" className={STATUS_STYLE[alert.status] ?? ""}>
+                      {alert.status === "no_recipients" ? "none" : alert.status}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
