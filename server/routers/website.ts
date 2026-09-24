@@ -31,6 +31,8 @@ import {
   normalizeState,
 } from "../addressNormalization";
 import { getDb, logActivity } from "../db";
+import { sendEmailAlert } from "../_core/emailAlerts";
+import { notifyMobileUsers } from "../mobileNotifications";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission, type PermissionKey } from "./permissions";
 import {
@@ -146,6 +148,61 @@ export async function resolveInquiryAgent(
     if (!agent) agentId = null;
   }
   return { agentId, propertyAddress };
+}
+
+const WEBSITE_REQUEST_LABELS: Record<string, string> = {
+  showing: "Showing request",
+  analysis: "Deeper analysis request",
+  financing: "Financing request",
+};
+
+/**
+ * Tell the agent a website inquiry just landed in their pipeline: the same
+ * "lead assigned" email and phone notification as a lead assigned inside
+ * SavvyOS. A repeat inquiry from someone already in their pipeline gets the
+ * phone notification only, since the lead is not new.
+ *
+ * Fire and forget: the visitor's form must never wait on, or fail because
+ * of, an email to the agent.
+ */
+function alertAgentOfWebsiteInquiry(params: {
+  agentId: number;
+  contactId: number;
+  connectionId: number | null;
+  isNewLead: boolean;
+  contactName: string;
+  requestType: string | null;
+  intent: string;
+  message: string | null;
+  propertyAddress: string | null;
+}): void {
+  const request = params.requestType ? WEBSITE_REQUEST_LABELS[params.requestType] : null;
+  const what = request ?? "Website inquiry";
+  const notes = [
+    params.propertyAddress ? `${what} for ${params.propertyAddress}.` : `${what}.`,
+    params.message ? `Message: ${params.message}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  if (params.isNewLead) {
+    void sendEmailAlert("lead_assigned", params.agentId, {
+      connectionId: params.connectionId,
+      contactId: params.contactId,
+      contactName: params.contactName,
+      notes,
+      leadSourceLabel: request ? `Savvy website › ${request}` : "Savvy website",
+      propertyAddress: params.propertyAddress ?? undefined,
+    }).catch(error => console.warn("[Website] Lead alert email failed.", error));
+  }
+  void notifyMobileUsers([params.agentId], {
+    title: params.isNewLead ? "New website lead" : "New website inquiry",
+    body: [params.contactName, params.propertyAddress].filter(Boolean).join(" · "),
+    data: {
+      path: "/leads",
+      connectionId: params.connectionId,
+      contactId: params.contactId,
+    },
+  }).catch(error => console.warn("[Website] Lead push failed.", error));
 }
 
 async function enforceLeadThrottle(db: any, req: any, email: string) {
@@ -1844,10 +1901,23 @@ export const websiteRouter = router({
           .from(agentConnections)
           .where(and(eq(agentConnections.agentId, agentId), eq(agentConnections.contactId, contactId)))
           .limit(1);
+        let connectionId: number | null = existingConnection?.id ?? null;
         if (!existingConnection) {
-          await db.insert(agentConnections).values({ agentId, contactId });
+          const inserted = await db.insert(agentConnections).values({ agentId, contactId });
+          connectionId = Number((inserted as any)[0]?.insertId) || null;
           connectionCreated = true;
         }
+        alertAgentOfWebsiteInquiry({
+          agentId,
+          contactId,
+          connectionId,
+          isNewLead: connectionCreated,
+          contactName: `${input.firstName} ${input.lastName}`.trim(),
+          requestType: input.requestType ?? null,
+          intent: input.intent,
+          message: input.message ?? null,
+          propertyAddress,
+        });
       }
       if (contactId) {
         await logActivity({
