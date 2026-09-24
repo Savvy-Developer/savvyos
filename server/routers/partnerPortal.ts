@@ -6,6 +6,7 @@ import {
   contacts,
   leadSources,
   properties,
+  transactionPayoutItems,
   transactions,
   users,
 } from "../../drizzle/schema";
@@ -19,6 +20,10 @@ import {
 } from "../_core/partnerPortalAuth";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { publicProcedure, router } from "../_core/trpc";
+import {
+  calculatePartnerSalesCycleDays,
+  resolveExpectedReferralPayout,
+} from "../partnerPortalMetrics";
 
 const PARTNER_PORTAL_PARENT_NAMES = ["Referral Partner (Leads in)", "Affiliate Referral"] as const;
 const REQUEST_LIMIT = 4;
@@ -122,10 +127,12 @@ export const partnerPortalRouter = router({
         contactId: contacts.id,
         firstName: contacts.firstName,
         lastName: contacts.lastName,
+        email: contacts.email,
         createdAt: contacts.createdAt,
         isaStatus: contacts.isaStatus,
         sourceId: leadSources.id,
         sourceName: leadSources.name,
+        sourceReferralPct: leadSources.referralPercent,
         connectionId: agentConnections.id,
         connectionStatus: agentConnections.pipelineStatus,
         agentName: users.name,
@@ -140,9 +147,12 @@ export const partnerPortalRouter = router({
     const leadsById = new Map<number, {
       id: number;
       leadName: string;
+      lastName: string;
+      email: string | null;
       submittedAt: Date;
       status: string;
       sourceName: string;
+      sourceReferralPct: number | null;
       connections: Array<{ agentName: string; status: string }>;
     }>();
     for (const row of leadRows) {
@@ -150,9 +160,12 @@ export const partnerPortalRouter = router({
       const lead = existing ?? {
         id: row.contactId,
         leadName: formatLeadName(row.firstName, row.lastName),
+        lastName: row.lastName,
+        email: row.email,
         submittedAt: row.createdAt,
         status: labelStatus(row.isaStatus),
         sourceName: row.sourceName,
+        sourceReferralPct: row.sourceReferralPct,
         connections: [],
       };
       if (row.connectionId && row.agentName) {
@@ -172,6 +185,9 @@ export const partnerPortalRouter = router({
         purchasePrice: transactions.purchasePrice,
         contractDate: transactions.contractDate,
         closingDate: transactions.closingDate,
+        grossCommissionIncome: transactions.grossCommissionIncome,
+        referralSourceName: transactions.referralSourceName,
+        referralPayoutPct: transactions.referralPayoutPct,
         primaryContactId: transactions.primaryContactId,
         sellerContactId: transactions.sellerContactId,
         buyerContactId: transactions.buyerContactId,
@@ -190,7 +206,30 @@ export const partnerPortalRouter = router({
       ))
       .orderBy(desc(transactions.closingDate), desc(transactions.contractDate), desc(transactions.createdAt));
 
-    const leadNameById = new Map(leads.map((lead) => [lead.id, lead.leadName]));
+    const transactionIds = Array.from(new Set(transactionRows.map((transaction) => transaction.id)));
+    const referralPayoutRows = transactionIds.length === 0 ? [] : await db
+      .select({
+        transactionId: transactionPayoutItems.transactionId,
+        payeeName: transactionPayoutItems.payeeName,
+        amount: transactionPayoutItems.amount,
+        isOverride: transactionPayoutItems.isOverride,
+        updatedAt: transactionPayoutItems.updatedAt,
+      })
+      .from(transactionPayoutItems)
+      .where(and(
+        inArray(transactionPayoutItems.transactionId, transactionIds),
+        eq(transactionPayoutItems.payeeType, "referral_partner"),
+      ))
+      .orderBy(desc(transactionPayoutItems.isOverride), desc(transactionPayoutItems.updatedAt));
+
+    const leadById = new Map(leads.map((lead) => [lead.id, lead]));
+    const referralPayoutsByTransactionId = new Map<number, typeof referralPayoutRows>();
+    for (const payout of referralPayoutRows) {
+      const entries = referralPayoutsByTransactionId.get(payout.transactionId) ?? [];
+      entries.push(payout);
+      referralPayoutsByTransactionId.set(payout.transactionId, entries);
+    }
+
     const seenTransactions = new Set<number>();
     const transactionList = transactionRows
       .filter((transaction) => {
@@ -200,20 +239,44 @@ export const partnerPortalRouter = router({
       })
       .map((transaction) => {
         const leadId = [transaction.primaryContactId, transaction.sellerContactId, transaction.buyerContactId]
-          .find((contactId) => contactId !== null && leadNameById.has(contactId));
+          .find((contactId) => contactId !== null && leadById.has(contactId));
+        const lead = leadId ? leadById.get(leadId) : undefined;
         const address = [transaction.propertyAddress, transaction.propertyCity, transaction.propertyState]
           .filter(Boolean)
           .join(", ") || "Address pending";
+        const sourceName = lead?.sourceName.trim().toLocaleLowerCase();
+        const recordedPayoutAmount = sourceName
+          ? referralPayoutsByTransactionId.get(transaction.id)?.find((payout) => {
+              const payoutSourceName = payout.payeeName?.trim().toLocaleLowerCase();
+              const transactionSourceName = transaction.referralSourceName?.trim().toLocaleLowerCase();
+              return payoutSourceName === sourceName || transactionSourceName === sourceName;
+            })?.amount
+          : null;
+
         return {
           id: transaction.id,
           transactionNumber: transaction.transactionNumber,
           status: labelStatus(transaction.status),
           transactionType: labelStatus(transaction.transactionType),
           salesPrice: transaction.purchasePrice,
+          grossCommissionIncome: transaction.grossCommissionIncome,
+          expectedReferralPayout: resolveExpectedReferralPayout({
+            recordedPayoutAmount,
+            grossCommissionIncome: transaction.grossCommissionIncome,
+            transactionReferralPayoutPct: transaction.referralPayoutPct,
+            sourceReferralPct: lead?.sourceReferralPct,
+          }),
+          salesCycleDays: calculatePartnerSalesCycleDays({
+            leadSubmittedAt: lead?.submittedAt,
+            transactionStatus: transaction.status,
+            closingDate: transaction.closingDate,
+          }),
           underContractDate: transaction.contractDate,
           closingDate: transaction.closingDate,
           address,
-          leadName: leadId ? leadNameById.get(leadId) ?? "Lead" : "Lead",
+          leadName: lead?.leadName ?? "Lead",
+          clientLastName: lead?.lastName ?? "—",
+          clientEmail: lead?.email ?? null,
           agentName: transaction.agentName ?? "Unassigned",
         };
       });

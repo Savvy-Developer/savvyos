@@ -27,6 +27,11 @@ function money(value: string | number | null | undefined) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(value));
 }
 
+function days(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  return `${value} ${value === 1 ? "day" : "days"}`;
+}
+
 function time(value: Date | string | null | undefined) {
   if (!value) return 0;
   const result = new Date(value).getTime();
@@ -240,7 +245,7 @@ export default function PartnerPortalPage() {
           <div>
             <p className="text-sm font-medium text-cyan-600">Savvy STR Agents</p>
             <h1 className="mt-1 text-2xl font-bold tracking-tight">Your lead activity</h1>
-            <p className="mt-1 max-w-2xl text-sm text-slate-500">Track high-level progress for leads you have introduced. Client contact details and internal notes remain private.</p>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500">Track the progress, client information, and transaction economics for leads you introduced.</p>
           </div>
           <div className="text-sm text-slate-500">Signed in as <span className="font-medium text-slate-700">{me.data.email}</span></div>
         </div>
@@ -302,6 +307,10 @@ export default function PartnerPortalPage() {
                                 <span className="shrink-0 text-xs text-slate-400">{date(lead.submittedAt)}</span>
                               </div>
                               <div className="mt-3 border-t border-slate-100 pt-3">
+                                <div className="mb-3 grid gap-1.5 text-sm sm:grid-cols-2">
+                                  <p className="text-slate-600"><span className="text-slate-400">Last name:</span> {lead.lastName}</p>
+                                  <p className="truncate text-slate-600"><span className="text-slate-400">Email:</span> {lead.email ?? "—"}</p>
+                                </div>
                                 <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">Agent connection</p>
                                 {lead.connections.length ? (
                                   <div className="space-y-1.5">
@@ -345,7 +354,7 @@ export default function PartnerPortalPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="p-0">
-                    {transactions.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No transactions are associated with your leads yet.</div> : filteredTransactions.length === 0 ? <div className="px-6 py-14 text-center"><p className="text-sm font-medium text-slate-700">No transactions match this status.</p><Button variant="link" className="mt-1 h-auto p-0 text-cyan-700" onClick={resetTransactionFilters}>Clear transaction filters</Button></div> : <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Savvy agent</th><th className="px-4 py-3">Under contract</th><th className="px-4 py-3">Closing date</th><th className="px-4 py-3">Sales price</th><th className="px-6 py-3">Address</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTransactions.map((transaction) => <tr key={transaction.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{transaction.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{transaction.transactionType}{transaction.transactionNumber ? ` · ${transaction.transactionNumber}` : ""}</p></td><td className="px-4 py-4"><Badge variant="outline" className={statusClass(transaction.status)}>{transaction.status}</Badge></td><td className="px-4 py-4 font-medium text-slate-700">{transaction.agentName}</td><td className="px-4 py-4 text-slate-600">{date(transaction.underContractDate)}</td><td className="px-4 py-4 text-slate-600">{date(transaction.closingDate)}</td><td className="px-4 py-4 font-medium text-slate-700">{money(transaction.salesPrice)}</td><td className="px-6 py-4 text-slate-600">{transaction.address}</td></tr>)}</tbody></table></div>}
+                    {transactions.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No transactions are associated with your leads yet.</div> : filteredTransactions.length === 0 ? <div className="px-6 py-14 text-center"><p className="text-sm font-medium text-slate-700">No transactions match this status.</p><Button variant="link" className="mt-1 h-auto p-0 text-cyan-700" onClick={resetTransactionFilters}>Clear transaction filters</Button></div> : <div className="overflow-x-auto"><table className="w-full min-w-[1560px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Client last name</th><th className="px-4 py-3">Client email</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Savvy agent</th><th className="px-4 py-3">Sales cycle</th><th className="px-4 py-3">Under contract</th><th className="px-4 py-3">Closing date</th><th className="px-4 py-3">Sales price</th><th className="px-4 py-3">GCI</th><th className="px-4 py-3">Expected referral payout</th><th className="px-6 py-3">Address</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTransactions.map((transaction) => <tr key={transaction.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{transaction.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{transaction.transactionType}{transaction.transactionNumber ? ` · ${transaction.transactionNumber}` : ""}</p></td><td className="px-4 py-4 text-slate-600">{transaction.clientLastName}</td><td className="px-4 py-4 text-slate-600">{transaction.clientEmail ?? "—"}</td><td className="px-4 py-4"><Badge variant="outline" className={statusClass(transaction.status)}>{transaction.status}</Badge></td><td className="px-4 py-4 font-medium text-slate-700">{transaction.agentName}</td><td className="px-4 py-4 text-slate-600">{days(transaction.salesCycleDays)}</td><td className="px-4 py-4 text-slate-600">{date(transaction.underContractDate)}</td><td className="px-4 py-4 text-slate-600">{date(transaction.closingDate)}</td><td className="px-4 py-4 font-medium text-slate-700">{money(transaction.salesPrice)}</td><td className="px-4 py-4 font-medium text-slate-700">{money(transaction.grossCommissionIncome)}</td><td className="px-4 py-4 font-medium text-slate-700">{money(transaction.expectedReferralPayout)}</td><td className="px-6 py-4 text-slate-600">{transaction.address}</td></tr>)}</tbody></table></div>}
                   </CardContent>
                 </Card>
               </TabsContent>
