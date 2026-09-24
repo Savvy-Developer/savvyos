@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, gt, inArray, like, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, like, lt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   chatChannelMembers,
@@ -16,6 +16,7 @@ import {
 } from "../../drizzle/schema";
 import {
   canOpenChatWorkspace,
+  canManageChatMessage,
   canPostInChatGroup,
   canReadChatConversation,
   type ChatRole,
@@ -78,6 +79,48 @@ async function requireDatabase() {
     });
   }
   return db;
+}
+
+/**
+ * Creates the company channel shells without changing the existing role-based
+ * Chat rollout. Membership and non-admin access remain deliberately unchanged.
+ */
+async function ensureCompanyChannels(
+  db: Awaited<ReturnType<typeof requireDatabase>>,
+  createdById: number
+) {
+  const [existingSection] = await db
+    .select({ id: chatSections.id })
+    .from(chatSections)
+    .where(and(eq(chatSections.name, "Company"), eq(chatSections.isArchived, false)))
+    .limit(1);
+  const sectionId = existingSection?.id ?? Number((await db.insert(chatSections).values({
+    name: "Company",
+    description: "Company-wide communication",
+    sortOrder: 0,
+    createdById,
+  }))[0].insertId);
+
+  for (const channel of [
+    { name: "announcements", description: "Company announcements from Chat Admins." },
+    { name: "general", description: "Company-wide conversation." },
+  ]) {
+    const [existingChannel] = await db
+      .select({ id: chatChannels.id })
+      .from(chatChannels)
+      .where(and(eq(chatChannels.name, channel.name), eq(chatChannels.isPermanent, true), eq(chatChannels.isArchived, false)))
+      .limit(1);
+    if (!existingChannel) {
+      await db.insert(chatChannels).values({
+        sectionId,
+        type: "group",
+        isPermanent: true,
+        name: channel.name,
+        description: channel.description,
+        createdById,
+      });
+    }
+  }
 }
 
 async function getChatState(user: {
@@ -396,6 +439,7 @@ export async function authorizeChatAttachmentUpload(
       memberGroupIds: state.memberChannelIds,
       groupId: channelId,
       isPermanent: state.channel.isPermanent,
+      channelName: state.channel.name,
     })
   ) {
     throw new TRPCError({ code: "FORBIDDEN" });
@@ -417,6 +461,7 @@ export const chatRouter = router({
   /** Sidebar data: permanent company groups plus each user's private My Chats. */
   workspace: protectedProcedure.query(async ({ ctx }) => {
     const state = await requireChatAccess(ctx.user);
+    if (state.isChatAdmin) await ensureCompanyChannels(state.db, ctx.user.id);
     const [sections, channels, hiddenRows] = await Promise.all([
       state.db
         .select()
@@ -653,6 +698,7 @@ export const chatRouter = router({
           memberGroupIds: state.memberChannelIds,
           groupId: input.channelId,
           isPermanent: state.channel.isPermanent,
+          channelName: state.channel.name,
         })
       ) {
         throw new TRPCError({ code: "FORBIDDEN" });
@@ -733,11 +779,8 @@ export const chatRouter = router({
       .input(messageIdSchema.extend({ body: z.string().trim().min(1).max(MAX_MESSAGE_LENGTH) }))
       .mutation(async ({ input, ctx }) => {
         const state = await requireMessageContext(ctx.user, input.messageId);
-        if (
-          state.message.senderId !== ctx.user.id &&
-          (!state.isChatAdmin || !state.channel.isPermanent)
-        ) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Only the sender or a Chat Admin can edit this message." });
+        if (!canManageChatMessage({ messageSenderId: state.message.senderId, requestingUserId: ctx.user.id })) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Only the sender can edit this message." });
         }
         await state.db
           .update(chatMessages)
@@ -748,11 +791,8 @@ export const chatRouter = router({
 
     delete: protectedProcedure.input(messageIdSchema).mutation(async ({ input, ctx }) => {
       const state = await requireMessageContext(ctx.user, input.messageId);
-      if (
-        state.message.senderId !== ctx.user.id &&
-        (!state.isChatAdmin || !state.channel.isPermanent)
-      ) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only the sender or a Chat Admin can delete this message." });
+      if (!canManageChatMessage({ messageSenderId: state.message.senderId, requestingUserId: ctx.user.id })) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the sender can delete this message." });
       }
       await state.db.delete(chatMessages).where(eq(chatMessages.id, input.messageId));
       return { success: true };
@@ -764,29 +804,32 @@ export const chatRouter = router({
         const state = await requireReadableChannel(ctx.user, input.channelId);
         let messageId = input.messageId ?? null;
         if (messageId) {
-          const rows = await state.db
-            .select({ id: chatMessages.id, channelId: chatMessages.channelId })
-            .from(chatMessages)
-            .where(eq(chatMessages.id, messageId))
-            .limit(1);
-          if (!rows[0] || rows[0].channelId !== input.channelId) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "That message is not in this conversation." });
-          }
+          const rows = await state.db.select({ id: chatMessages.id, channelId: chatMessages.channelId }).from(chatMessages).where(eq(chatMessages.id, messageId)).limit(1);
+          if (!rows[0] || rows[0].channelId !== input.channelId) throw new TRPCError({ code: "BAD_REQUEST", message: "That message is not in this conversation." });
         } else {
-          const rows = await state.db
-            .select({ id: chatMessages.id })
-            .from(chatMessages)
-            .where(eq(chatMessages.channelId, input.channelId))
-            .orderBy(desc(chatMessages.id))
-            .limit(1);
+          const rows = await state.db.select({ id: chatMessages.id }).from(chatMessages).where(eq(chatMessages.channelId, input.channelId)).orderBy(desc(chatMessages.id)).limit(1);
           messageId = rows[0]?.id ?? null;
         }
-        await state.db
-          .insert(chatChannelReads)
-          .values({ channelId: input.channelId, userId: ctx.user.id, lastReadMessageId: messageId, lastReadAt: new Date() })
-          .onDuplicateKeyUpdate({ set: { lastReadMessageId: messageId, lastReadAt: new Date() } });
+        const [existingRead] = await state.db.select({ lastReadMessageId: chatChannelReads.lastReadMessageId }).from(chatChannelReads).where(and(eq(chatChannelReads.channelId, input.channelId), eq(chatChannelReads.userId, ctx.user.id))).limit(1);
+        const currentLastReadMessageId = existingRead?.lastReadMessageId ?? null;
+        if (currentLastReadMessageId && (!messageId || currentLastReadMessageId >= messageId)) return { success: true, messageId: currentLastReadMessageId };
+        await state.db.insert(chatChannelReads).values({ channelId: input.channelId, userId: ctx.user.id, lastReadMessageId: messageId, lastReadAt: new Date() }).onDuplicateKeyUpdate({ set: { lastReadMessageId: messageId, lastReadAt: new Date() } });
         return { success: true, messageId };
       }),
+
+    readState: protectedProcedure.input(channelIdSchema).query(async ({ input, ctx }) => {
+      const state = await requireReadableChannel(ctx.user, input.channelId);
+      const [row] = await state.db.select({ lastReadMessageId: chatChannelReads.lastReadMessageId }).from(chatChannelReads).where(and(eq(chatChannelReads.channelId, state.channel.id), eq(chatChannelReads.userId, ctx.user.id))).limit(1);
+      return { lastReadMessageId: row?.lastReadMessageId ?? null };
+    }),
+
+    markUnread: protectedProcedure.input(messageIdSchema).mutation(async ({ input, ctx }) => {
+      const state = await requireMessageContext(ctx.user, input.messageId);
+      const [previous] = await state.db.select({ id: chatMessages.id }).from(chatMessages).where(and(eq(chatMessages.channelId, state.channel.id), lt(chatMessages.id, state.message.id))).orderBy(desc(chatMessages.id)).limit(1);
+      const lastReadMessageId = previous?.id ?? null;
+      await state.db.insert(chatChannelReads).values({ channelId: state.channel.id, userId: ctx.user.id, lastReadMessageId, lastReadAt: new Date() }).onDuplicateKeyUpdate({ set: { lastReadMessageId, lastReadAt: new Date() } });
+      return { success: true, lastReadMessageId };
+    }),
   }),
 
   reactions: router({

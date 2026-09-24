@@ -1,9 +1,9 @@
 export type ChatRole = "admin" | "agent" | "isa" | "agent_support";
 
 /**
- * The first Chat release is intentionally limited to administrators and ISAs.
- * Agents may be enrolled in Chat groups now, but cannot open Chat until the
- * agent-facing rollout is deliberately enabled.
+ * The first Chat release is intentionally limited to explicitly authorized
+ * administrators. Agents and ISAs may be enrolled in Chat groups now, but
+ * cannot open Chat until the company-wide rollout is deliberately enabled.
  */
 export function canOpenChatWorkspace(input: {
   role: ChatRole;
@@ -59,7 +59,35 @@ export function canPostInChatGroup(input: {
   memberGroupIds: Set<number>;
   groupId: number;
   isPermanent: boolean;
+  channelName: string;
 }): boolean {
   if (!input.isPermanent) return input.memberGroupIds.has(input.groupId);
+  if (
+    isReadOnlyCompanyChannel({
+      channelName: input.channelName,
+      isPermanent: input.isPermanent,
+    })
+  ) {
+    return input.isChatAdmin;
+  }
   return canReadChatGroup(input);
+}
+
+/** Only the author may alter or remove a message. */
+export function canManageChatMessage(input: {
+  messageSenderId: number;
+  requestingUserId: number;
+}): boolean {
+  return input.messageSenderId === input.requestingUserId;
+}
+
+/** Company announcements are intentionally writable only by Chat Admins. */
+export function isReadOnlyCompanyChannel(input: {
+  channelName: string;
+  isPermanent: boolean;
+}): boolean {
+  return (
+    input.isPermanent &&
+    input.channelName.trim().toLowerCase() === "announcements"
+  );
 }

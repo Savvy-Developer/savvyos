@@ -1,4 +1,4 @@
-import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Archive, AtSign, ChevronDown, ChevronRight, FileText, Hash, Image as ImageIcon, Loader2, MessageCircle, MessageSquare, Paperclip, Pencil, Plus, Reply, Search, Send, Settings2, SmilePlus, Trash2, UserPlus, Users, X } from "lucide-react";
+import { Archive, AtSign, ChevronDown, ChevronRight, FileText, Hash, Image as ImageIcon, Loader2, Mail, MessageCircle, MessageSquare, Paperclip, Pencil, Plus, Reply, Search, Send, Settings2, SmilePlus, Trash2, UserPlus, Users, X } from "lucide-react";
 import { toast } from "sonner";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "🎉", "👀", "✅"] as const;
@@ -42,6 +42,157 @@ function UnreadBadge({ count, mentionCount }: { count: number; mentionCount: num
 
 function ConversationRow({ channel, title, person, isSelected, onSelect }: { channel: Channel; title: string; person?: Person | null; isSelected: boolean; onSelect: () => void }) {
   return <button type="button" onClick={onSelect} className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${isSelected ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>{person ? <Avatar className="h-5 w-5 shrink-0"><AvatarImage src={person.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-[8px] text-primary">{initials(title)}</AvatarFallback></Avatar> : <Hash className="h-3.5 w-3.5 shrink-0" />}<span className="min-w-0 flex-1 truncate">{title}</span><UnreadBadge count={channel.unreadCount ?? 0} mentionCount={channel.unreadMentionCount ?? 0} /></button>;
+}
+
+function ChatConversationList({
+  workspaceLoading,
+  personalChats,
+  visiblePersonalChats,
+  sectionGroups,
+  unsectioned,
+  allChannels,
+  selectedChannelId,
+  myChatsCollapsed,
+  showAllMyChats,
+  collapsedSections,
+  onToggleMyChats,
+  onToggleShowAllMyChats,
+  onToggleSection,
+  onSelect,
+}: {
+  workspaceLoading: boolean;
+  personalChats: PersonalChat[];
+  visiblePersonalChats: PersonalChat[];
+  sectionGroups: WorkspaceSection[];
+  unsectioned: Channel[];
+  allChannels: Channel[];
+  selectedChannelId: number | null;
+  myChatsCollapsed: boolean;
+  showAllMyChats: boolean;
+  collapsedSections: Set<number>;
+  onToggleMyChats: () => void;
+  onToggleShowAllMyChats: () => void;
+  onToggleSection: (sectionId: number) => void;
+  onSelect: (channelId: number) => void;
+}) {
+  if (workspaceLoading) {
+    return (
+      <div className="space-y-2 px-2 py-4 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading conversations...
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <section>
+        <button
+          type="button"
+          className="mb-1 flex w-full items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+          onClick={onToggleMyChats}
+        >
+          {myChatsCollapsed ? (
+            <ChevronRight className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" />
+          )}
+          <span>My Chats</span>
+          <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px]">
+            {personalChats.length}
+          </span>
+        </button>
+        {!myChatsCollapsed && (
+          <div className="space-y-0.5">
+            {visiblePersonalChats.map(item => (
+              <ConversationRow
+                key={item.channel.id}
+                channel={{
+                  ...item.channel,
+                  unreadCount: item.unreadCount,
+                  unreadMentionCount: item.unreadMentionCount,
+                }}
+                title={item.title}
+                person={item.person}
+                isSelected={selectedChannelId === item.channel.id}
+                onSelect={() => onSelect(item.channel.id)}
+              />
+            ))}
+            {personalChats.length === 0 && (
+              <p className="px-2 py-3 text-xs text-muted-foreground">
+                Start a direct message or group chat.
+              </p>
+            )}
+            {personalChats.length > 3 && (
+              <button
+                type="button"
+                className="w-full rounded-md px-2.5 py-1.5 text-left text-xs font-medium text-primary hover:bg-muted"
+                onClick={onToggleShowAllMyChats}
+              >
+                {showAllMyChats ? "Show less" : "Show more..."}
+              </button>
+            )}
+          </div>
+        )}
+      </section>
+      {sectionGroups.map(({ section, groups }) => {
+        const isCollapsed = collapsedSections.has(section.id);
+        return (
+          <section key={section.id}>
+            <button
+              type="button"
+              className="mb-1 flex w-full min-w-0 items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+              onClick={() => onToggleSection(section.id)}
+            >
+              {isCollapsed ? (
+                <ChevronRight className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+              <span className="truncate">{section.name}</span>
+            </button>
+            {!isCollapsed && (
+              <div className="space-y-0.5">
+                {groups.map(group => (
+                  <ConversationRow
+                    key={group.id}
+                    channel={group}
+                    title={group.name}
+                    isSelected={selectedChannelId === group.id}
+                    onSelect={() => onSelect(group.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
+      {unsectioned.length > 0 && (
+        <section>
+          <p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Company groups
+          </p>
+          <div className="space-y-0.5">
+            {unsectioned.map(group => (
+              <ConversationRow
+                key={group.id}
+                channel={group}
+                title={group.name}
+                isSelected={selectedChannelId === group.id}
+                onSelect={() => onSelect(group.id)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+      {allChannels.length === 0 && (
+        <div className="rounded-lg border border-dashed px-3 py-7 text-center text-xs text-muted-foreground">
+          <MessageSquare className="mx-auto mb-2 h-5 w-5 opacity-50" />
+          No conversations yet.
+        </div>
+      )}
+    </div>
+  );
 }
 
 function NewSectionDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void }) {
@@ -112,32 +263,1110 @@ function ManageGroupDialog({ group, sections, open, onOpenChange, onChanged }: {
 }
 
 function AttachmentView({ attachment }: { attachment: Attachment }) { if (isImage(attachment.mimeType)) return <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="mt-2 block w-fit"><img src={attachment.fileUrl} alt={attachment.fileName} className="max-h-64 max-w-full rounded-lg border object-contain" /></a>; return <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="mt-2 flex max-w-sm items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors hover:bg-muted"><FileText className="h-5 w-5 shrink-0 text-primary" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{attachment.fileName}</span><span className="block text-xs text-muted-foreground">{formatFileSize(attachment.fileSize)}</span></span></a>; }
-function ChatMessage({ row, meId, isChatAdmin, canModerate, onUpdate, onDelete, onReply, onReact }: { row: MessageRow; meId: number | null; isChatAdmin: boolean; canModerate: boolean; onUpdate: (body: string) => void; onDelete: () => void; onReply: () => void; onReact: (emoji: typeof REACTION_EMOJIS[number]) => void }) {
-  const [editing, setEditing] = useState(false); const [draft, setDraft] = useState(row.message.body); const [confirmDelete, setConfirmDelete] = useState(false); const [reactionPickerOpen, setReactionPickerOpen] = useState(false); const canManage = meId === row.message.senderId || (isChatAdmin && canModerate); const senderName = displayName(row.sender);
-  return <article className="group flex gap-3"><Avatar className="h-9 w-9 shrink-0"><AvatarImage src={row.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-xs text-primary">{initials(senderName)}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><div className="flex items-baseline gap-2"><span className="font-medium">{senderName}</span><span className="text-xs text-muted-foreground">{formatMessageTime(row.message.createdAt)}{row.message.editedAt ? " · edited" : ""}</span><div className="ml-auto hidden items-center gap-0.5 group-hover:flex"><div className="relative"><Button size="icon" variant="ghost" className="h-6 w-6" title="Add reaction" onClick={() => setReactionPickerOpen(value => !value)}><SmilePlus className="h-3.5 w-3.5" /></Button>{reactionPickerOpen && <div className="absolute right-0 z-20 mt-1 flex gap-1 rounded-lg border bg-popover p-1 shadow-lg">{REACTION_EMOJIS.map(emoji => <button key={emoji} type="button" className="rounded p-1 text-base hover:bg-muted" onClick={() => { onReact(emoji); setReactionPickerOpen(false); }}>{emoji}</button>)}</div>}</div><Button size="icon" variant="ghost" className="h-6 w-6" title="Reply" onClick={onReply}><Reply className="h-3 w-3" /></Button>{canManage && <><Button size="icon" variant="ghost" className="h-6 w-6" title="Edit message" onClick={() => { setDraft(row.message.body); setEditing(true); }}><Pencil className="h-3 w-3" /></Button><Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive" title="Delete message" onClick={() => setConfirmDelete(true)}><Trash2 className="h-3 w-3" /></Button></>}</div></div>{row.parent && <button type="button" className="mt-1.5 block max-w-xl rounded border-l-2 border-primary/50 bg-muted/50 px-2.5 py-1.5 text-left text-xs hover:bg-muted"><span className="font-medium text-primary">Replying to {displayName(row.parent.sender)}</span><span className="mt-0.5 block truncate text-muted-foreground">{row.parent.message.body || "Attachment"}</span></button>}{editing ? <div className="mt-1.5 space-y-2"><Textarea value={draft} className="min-h-[84px]" maxLength={8000} onChange={event => setDraft(event.target.value)} /><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button><Button size="sm" disabled={!draft.trim()} onClick={() => { onUpdate(draft.trim()); setEditing(false); }}>Save</Button></div></div> : <>{row.message.body && <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{row.message.body}</p>}{row.attachments.map(attachment => <AttachmentView key={attachment.id} attachment={attachment} />)}</>}{row.reactions.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{row.reactions.map(reaction => <button key={reaction.emoji} type="button" className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${reaction.reactedByMe ? "border-primary/40 bg-primary/10 text-primary" : "bg-muted/40 hover:bg-muted"}`} onClick={() => onReact(reaction.emoji as typeof REACTION_EMOJIS[number])}><span>{reaction.emoji}</span><span>{reaction.count}</span></button>)}</div>}</div><Dialog open={confirmDelete} onOpenChange={setConfirmDelete}><DialogContent><DialogHeader><DialogTitle>Delete this message?</DialogTitle><DialogDescription>This removes the message and its attachment records from the conversation.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button><Button variant="destructive" onClick={() => { onDelete(); setConfirmDelete(false); }}>Delete Message</Button></DialogFooter></DialogContent></Dialog></article>;
+function ChatMessage({
+  row,
+  meId,
+  onUpdate,
+  onDelete,
+  onReply,
+  onReact,
+  onMarkUnread,
+}: {
+  row: MessageRow;
+  meId: number | null;
+  onUpdate: (body: string) => void;
+  onDelete: () => void;
+  onReply: () => void;
+  onReact: (emoji: (typeof REACTION_EMOJIS)[number]) => void;
+  onMarkUnread: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(row.message.body);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const canManage = meId === row.message.senderId;
+  const senderName = displayName(row.sender);
+  return (
+    <article className="group flex gap-3">
+      <Avatar className="h-9 w-9 shrink-0">
+        <AvatarImage src={row.profilePhotoUrl ?? undefined} />
+        <AvatarFallback className="bg-primary/10 text-xs text-primary">
+          {initials(senderName)}
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="font-medium">{senderName}</span>
+          <span className="text-xs text-muted-foreground">
+            {formatMessageTime(row.message.createdAt)}
+            {row.message.editedAt ? " · edited" : ""}
+          </span>
+          <div className="ml-auto flex items-center gap-0.5 md:hidden md:group-hover:flex">
+            <div className="relative">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6"
+                title="Add reaction"
+                onClick={() => setReactionPickerOpen(value => !value)}
+              >
+                <SmilePlus className="h-3.5 w-3.5" />
+              </Button>
+              {reactionPickerOpen && (
+                <div className="absolute right-0 z-20 mt-1 flex gap-1 rounded-lg border bg-popover p-1 shadow-lg">
+                  {REACTION_EMOJIS.map(emoji => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className="rounded p-1 text-base hover:bg-muted"
+                      onClick={() => {
+                        onReact(emoji);
+                        setReactionPickerOpen(false);
+                      }}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              title="Reply"
+              onClick={onReply}
+            >
+              <Reply className="h-3 w-3" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              title="Mark unread from here"
+              onClick={onMarkUnread}
+            >
+              <Mail className="h-3 w-3" />
+            </Button>
+            {canManage && (
+              <>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  title="Edit message"
+                  onClick={() => {
+                    setDraft(row.message.body);
+                    setEditing(true);
+                  }}
+                >
+                  <Pencil className="h-3 w-3" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                  title="Delete message"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+        {row.parent && (
+          <button
+            type="button"
+            className="mt-1.5 block max-w-xl rounded border-l-2 border-primary/50 bg-muted/50 px-2.5 py-1.5 text-left text-xs hover:bg-muted"
+          >
+            <span className="font-medium text-primary">
+              Replying to {displayName(row.parent.sender)}
+            </span>
+            <span className="mt-0.5 block truncate text-muted-foreground">
+              {row.parent.message.body || "Attachment"}
+            </span>
+          </button>
+        )}
+        {editing ? (
+          <div className="mt-1.5 space-y-2">
+            <Textarea
+              value={draft}
+              className="min-h-[84px]"
+              maxLength={8000}
+              onChange={event => setDraft(event.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setEditing(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!draft.trim()}
+                onClick={() => {
+                  onUpdate(draft.trim());
+                  setEditing(false);
+                }}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {row.message.body && (
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                {row.message.body}
+              </p>
+            )}
+            {row.attachments.map(attachment => (
+              <AttachmentView key={attachment.id} attachment={attachment} />
+            ))}
+          </>
+        )}
+        {row.reactions.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {row.reactions.map(reaction => (
+              <button
+                key={reaction.emoji}
+                type="button"
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${reaction.reactedByMe ? "border-primary/40 bg-primary/10 text-primary" : "bg-muted/40 hover:bg-muted"}`}
+                onClick={() =>
+                  onReact(reaction.emoji as (typeof REACTION_EMOJIS)[number])
+                }
+              >
+                <span>{reaction.emoji}</span>
+                <span>{reaction.count}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this message?</DialogTitle>
+            <DialogDescription>
+              This removes the message and its attachment records from the
+              conversation.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                onDelete();
+                setConfirmDelete(false);
+              }}
+            >
+              Delete Message
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </article>
+  );
 }
 
-function Composer({ channel, participants, replyTo, onCancelReply, onSent }: { channel: Channel; participants: Person[]; replyTo: MessageRow | null; onCancelReply: () => void; onSent: () => void }) {
-  const fileInputRef = useRef<HTMLInputElement>(null); const [draft, setDraft] = useState(""); const [stagedAttachments, setStagedAttachments] = useState<StagedAttachment[]>([]); const [mentionIds, setMentionIds] = useState<number[]>([]); const [isUploading, setIsUploading] = useState(false); const [mentionOpen, setMentionOpen] = useState(false); const lastAt = draft.lastIndexOf("@"); const mentionQuery = lastAt >= 0 && /(^|\s)@[^\n@]*$/.test(draft) ? draft.slice(lastAt + 1).toLowerCase() : ""; const mentionChoices = participants.filter(person => displayName(person).toLowerCase().includes(mentionQuery)).slice(0, 6);
-  const sendMessage = trpc.chat.messages.send.useMutation({ onSuccess: () => { setDraft(""); setStagedAttachments([]); setMentionIds([]); onCancelReply(); onSent(); }, onError: error => toast.error(error.message) });
-  useEffect(() => { setDraft(""); setStagedAttachments([]); setMentionIds([]); onCancelReply(); }, [channel.id]);
-  const attachFiles = async (event: ChangeEvent<HTMLInputElement>) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (!files.length) return; if (stagedAttachments.length + files.length > 10) { toast.error("You can attach up to 10 files to one message."); return; } setIsUploading(true); try { const uploaded: StagedAttachment[] = []; for (const file of files) { const form = new FormData(); form.append("channelId", String(channel.id)); form.append("file", file); const response = await fetch("/api/chat/attachments/upload", { method: "POST", credentials: "include", body: form }); const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(payload.error ?? `Could not upload ${file.name}`); uploaded.push(payload); } setStagedAttachments(current => [...current, ...uploaded]); } catch (error) { toast.error(error instanceof Error ? error.message : "Could not upload attachment"); } finally { setIsUploading(false); } };
-  const chooseMention = (person: Person) => { const before = draft.slice(0, lastAt); setDraft(`${before}@${displayName(person)} `); setMentionIds(current => current.includes(person.id) ? current : [...current, person.id]); setMentionOpen(false); };
-  const submit = () => { if ((!draft.trim() && !stagedAttachments.length) || sendMessage.isPending || isUploading) return; sendMessage.mutate({ channelId: channel.id, body: draft.trim(), attachmentIds: stagedAttachments.map(item => item.id), mentionUserIds: mentionIds, parentMessageId: replyTo?.message.id ?? null }); };
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => { if (event.key === "@") setMentionOpen(true); if (event.key === "Escape") setMentionOpen(false); if (event.key === "Enter" && !event.shiftKey && !(event.nativeEvent as any).isComposing) { event.preventDefault(); submit(); } };
-  return <div className="shrink-0 border-t bg-background px-4 py-3 md:px-6"><div className="relative mx-auto max-w-4xl">{replyTo && <div className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-primary bg-muted/60 px-3 py-2 text-xs"><Reply className="h-3.5 w-3.5 text-primary" /><span className="min-w-0 flex-1 truncate">Replying to <strong>{displayName(replyTo.sender)}</strong>: {replyTo.message.body || "Attachment"}</span><Button size="icon" variant="ghost" className="h-6 w-6" onClick={onCancelReply}><X className="h-3.5 w-3.5" /></Button></div>}{stagedAttachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{stagedAttachments.map(attachment => <span key={attachment.id} className="inline-flex max-w-full items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs"><FileText className="h-3.5 w-3.5 text-primary" /><span className="max-w-48 truncate">{attachment.fileName}</span><span className="text-muted-foreground">{formatFileSize(attachment.fileSize)}</span><button type="button" className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => setStagedAttachments(current => current.filter(item => item.id !== attachment.id))}><X className="h-3.5 w-3.5" /></button></span>)}</div>}{mentionOpen && lastAt >= 0 && <div className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-lg border bg-popover shadow-lg"><div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">Mention someone in this conversation</div>{mentionChoices.length ? mentionChoices.map(person => <button key={person.id} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted" onMouseDown={event => { event.preventDefault(); chooseMention(person); }}><Avatar className="h-6 w-6"><AvatarImage src={person.profilePhotoUrl ?? undefined} /><AvatarFallback className="text-[8px]">{initials(displayName(person))}</AvatarFallback></Avatar><span className="min-w-0"><span className="block truncate text-sm">{displayName(person)}</span><span className="block truncate text-xs text-muted-foreground">{roleLabel(person.role)}</span></span></button>) : <p className="px-3 py-3 text-sm text-muted-foreground">No conversation participant matches.</p>}</div>}<div className="flex items-end gap-2"><input ref={fileInputRef} type="file" multiple className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/jpeg,image/png,image/webp,image/gif" onChange={attachFiles} /><Button size="icon" variant="outline" className="h-11 w-11 shrink-0" title="Attach files or images" disabled={isUploading || stagedAttachments.length >= 10} onClick={() => fileInputRef.current?.click()}>{isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</Button><Textarea value={draft} maxLength={8000} className="min-h-[48px] max-h-32 resize-none" placeholder={channel.type === "direct" ? "Write a direct message" : `Message #${channel.name}`} onChange={event => { setDraft(event.target.value); if (event.target.value.lastIndexOf("@") >= 0) setMentionOpen(true); }} onKeyDown={onKeyDown} /><Button size="icon" className="h-11 w-11 shrink-0" disabled={(!draft.trim() && !stagedAttachments.length) || sendMessage.isPending || isUploading} onClick={submit}>{sendMessage.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div><p className="mx-auto mt-1.5 max-w-4xl text-[11px] text-muted-foreground">Type @ to mention someone · Attach up to 10 files · Enter to send · Shift + Enter for a new line</p></div>;
+function Composer({
+  channel,
+  participants,
+  replyTo,
+  onCancelReply,
+  onSent,
+  canPost,
+}: {
+  channel: Channel;
+  participants: Person[];
+  replyTo: MessageRow | null;
+  onCancelReply: () => void;
+  onSent: () => void;
+  canPost: boolean;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState("");
+  const [stagedAttachments, setStagedAttachments] = useState<
+    StagedAttachment[]
+  >([]);
+  const [mentionIds, setMentionIds] = useState<number[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const lastAt = draft.lastIndexOf("@");
+  const mentionQuery =
+    lastAt >= 0 && /(^|\s)@[^\n@]*$/.test(draft)
+      ? draft.slice(lastAt + 1).toLowerCase()
+      : "";
+  const mentionChoices = participants
+    .filter(person => displayName(person).toLowerCase().includes(mentionQuery))
+    .slice(0, 6);
+  const sendMessage = trpc.chat.messages.send.useMutation({
+    onSuccess: () => {
+      setDraft("");
+      setStagedAttachments([]);
+      setMentionIds([]);
+      onCancelReply();
+      onSent();
+    },
+    onError: error => toast.error(error.message),
+  });
+  useEffect(() => {
+    setDraft("");
+    setStagedAttachments([]);
+    setMentionIds([]);
+    onCancelReply();
+  }, [channel.id]);
+  const attachFiles = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length) return;
+    if (stagedAttachments.length + files.length > 10) {
+      toast.error("You can attach up to 10 files to one message.");
+      return;
+    }
+    setIsUploading(true);
+    try {
+      const uploaded: StagedAttachment[] = [];
+      for (const file of files) {
+        const form = new FormData();
+        form.append("channelId", String(channel.id));
+        form.append("file", file);
+        const response = await fetch("/api/chat/attachments/upload", {
+          method: "POST",
+          credentials: "include",
+          body: form,
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok)
+          throw new Error(payload.error ?? `Could not upload ${file.name}`);
+        uploaded.push(payload);
+      }
+      setStagedAttachments(current => [...current, ...uploaded]);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not upload attachment"
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+  const chooseMention = (person: Person) => {
+    const before = draft.slice(0, lastAt);
+    setDraft(`${before}@${displayName(person)} `);
+    setMentionIds(current =>
+      current.includes(person.id) ? current : [...current, person.id]
+    );
+    setMentionOpen(false);
+  };
+  const submit = () => {
+    if (
+      !canPost ||
+      (!draft.trim() && !stagedAttachments.length) ||
+      sendMessage.isPending ||
+      isUploading
+    )
+      return;
+    sendMessage.mutate({
+      channelId: channel.id,
+      body: draft.trim(),
+      attachmentIds: stagedAttachments.map(item => item.id),
+      mentionUserIds: mentionIds,
+      parentMessageId: replyTo?.message.id ?? null,
+    });
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "@") setMentionOpen(true);
+    if (event.key === "Escape") setMentionOpen(false);
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !(event.nativeEvent as any).isComposing
+    ) {
+      event.preventDefault();
+      submit();
+    }
+  };
+  return (
+    <div className="shrink-0 border-t bg-background px-4 py-3 md:px-6">
+      <div className="relative mx-auto max-w-4xl">
+        {!canPost && (
+          <p className="mb-2 text-sm text-muted-foreground">
+            Only Chat Admins can post in this announcement channel.
+          </p>
+        )}
+        {replyTo && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-primary bg-muted/60 px-3 py-2 text-xs">
+            <Reply className="h-3.5 w-3.5 text-primary" />
+            <span className="min-w-0 flex-1 truncate">
+              Replying to <strong>{displayName(replyTo.sender)}</strong>:{" "}
+              {replyTo.message.body || "Attachment"}
+            </span>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              onClick={onCancelReply}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
+        {stagedAttachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {stagedAttachments.map(attachment => (
+              <span
+                key={attachment.id}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs"
+              >
+                <FileText className="h-3.5 w-3.5 text-primary" />
+                <span className="max-w-48 truncate">{attachment.fileName}</span>
+                <span className="text-muted-foreground">
+                  {formatFileSize(attachment.fileSize)}
+                </span>
+                <button
+                  type="button"
+                  className="ml-0.5 text-muted-foreground hover:text-destructive"
+                  onClick={() =>
+                    setStagedAttachments(current =>
+                      current.filter(item => item.id !== attachment.id)
+                    )
+                  }
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {mentionOpen && lastAt >= 0 && (
+          <div className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-lg border bg-popover shadow-lg">
+            <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+              Mention someone in this conversation
+            </div>
+            {mentionChoices.length ? (
+              mentionChoices.map(person => (
+                <button
+                  key={person.id}
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                  onMouseDown={event => {
+                    event.preventDefault();
+                    chooseMention(person);
+                  }}
+                >
+                  <Avatar className="h-6 w-6">
+                    <AvatarImage src={person.profilePhotoUrl ?? undefined} />
+                    <AvatarFallback className="text-[8px]">
+                      {initials(displayName(person))}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm">
+                      {displayName(person)}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {roleLabel(person.role)}
+                    </span>
+                  </span>
+                </button>
+              ))
+            ) : (
+              <p className="px-3 py-3 text-sm text-muted-foreground">
+                No conversation participant matches.
+              </p>
+            )}
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/jpeg,image/png,image/webp,image/gif"
+            onChange={attachFiles}
+          />
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-11 w-11 shrink-0"
+            title="Attach files or images"
+            disabled={!canPost || isUploading || stagedAttachments.length >= 10}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {isUploading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Paperclip className="h-4 w-4" />
+            )}
+          </Button>
+          <Textarea
+            value={draft}
+            maxLength={8000}
+            className="min-h-[48px] max-h-32 resize-none"
+            placeholder={
+              channel.type === "direct"
+                ? "Write a direct message"
+                : `Message #${channel.name}`
+            }
+            disabled={!canPost}
+            onChange={event => {
+              setDraft(event.target.value);
+              if (event.target.value.lastIndexOf("@") >= 0)
+                setMentionOpen(true);
+            }}
+            onKeyDown={onKeyDown}
+          />
+          <Button
+            size="icon"
+            className="h-11 w-11 shrink-0"
+            disabled={
+              !canPost ||
+              (!draft.trim() && !stagedAttachments.length) ||
+              sendMessage.isPending ||
+              isUploading
+            }
+            onClick={submit}
+          >
+            {sendMessage.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+      </div>
+      <p className="mx-auto mt-1.5 max-w-4xl text-[11px] text-muted-foreground">
+        Type @ to mention someone · Attach up to 10 files · Enter to send ·
+        Shift + Enter for a new line
+      </p>
+    </div>
+  );
 }
 
 export default function ChatPage() {
-  const { user } = useAuth(); const [, navigate] = useLocation(); const utils = trpc.useUtils(); const { data: access, isLoading: accessLoading } = trpc.chat.access.useQuery(); const { data: workspace, isLoading: workspaceLoading } = trpc.chat.workspace.useQuery(undefined, { enabled: !!access?.canAccess, refetchInterval: 12_000 });
-  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null); const [newMessageOpen, setNewMessageOpen] = useState(false); const [newGroupOpen, setNewGroupOpen] = useState(false); const [newSectionOpen, setNewSectionOpen] = useState(false); const [searchOpen, setSearchOpen] = useState(false); const [manageGroupOpen, setManageGroupOpen] = useState(false); const [createMenuOpen, setCreateMenuOpen] = useState(false); const [collapsedSections, setCollapsedSections] = useState<Set<number>>(new Set()); const [myChatsCollapsed, setMyChatsCollapsed] = useState(false); const [showAllMyChats, setShowAllMyChats] = useState(false); const [replyTo, setReplyTo] = useState<MessageRow | null>(null); const messageBottomRef = useRef<HTMLDivElement>(null);
-  const sectionGroups = (workspace?.sections ?? []) as WorkspaceSection[]; const unsectioned = (workspace?.unsectioned ?? []) as Channel[]; const personalChats = (workspace?.personalChats ?? []) as PersonalChat[]; const allGroups = useMemo(() => [...sectionGroups.flatMap(item => item.groups), ...unsectioned], [sectionGroups, unsectioned]); const allChannels = useMemo(() => [...allGroups, ...personalChats.map(item => item.channel)], [allGroups, personalChats]); const selectedChannel = allChannels.find(channel => channel.id === selectedChannelId) ?? null; const selectedPersonal = personalChats.find(item => item.channel.id === selectedChannelId) ?? null; const allSections = sectionGroups.map(item => item.section); const visiblePersonalChats = showAllMyChats ? personalChats : personalChats.slice(0, 3);
-  useEffect(() => { if (!selectedChannelId && allChannels[0]) setSelectedChannelId(allChannels[0].id); if (selectedChannelId && !allChannels.some(channel => channel.id === selectedChannelId)) setSelectedChannelId(allChannels[0]?.id ?? null); }, [allChannels, selectedChannelId]);
-  const { data: messages = [], isLoading: messagesLoading } = trpc.chat.messages.list.useQuery({ channelId: selectedChannelId ?? 0, limit: 100 }, { enabled: selectedChannelId != null, refetchInterval: 5_000 }); const { data: participants = [] } = trpc.chat.participants.list.useQuery({ channelId: selectedChannelId ?? 0 }, { enabled: selectedChannelId != null, staleTime: 30_000 });
-  const markRead = trpc.chat.messages.markRead.useMutation({ onSuccess: () => void utils.chat.workspace.invalidate() }); const updateMessage = trpc.chat.messages.update.useMutation({ onSuccess: () => { refreshConversation(); toast.success("Message updated"); }, onError: error => toast.error(error.message) }); const deleteMessage = trpc.chat.messages.delete.useMutation({ onSuccess: () => { refreshConversation(); toast.success("Message deleted"); }, onError: error => toast.error(error.message) }); const toggleReaction = trpc.chat.reactions.toggle.useMutation({ onSuccess: () => refreshConversation(), onError: error => toast.error(error.message) }); const archivePersonal = trpc.chat.conversations.archive.useMutation({ onSuccess: () => { toast.success("Chat archived from My Chats"); setReplyTo(null); refreshConversation(); }, onError: error => toast.error(error.message) });
-  const refreshConversation = () => { void utils.chat.workspace.invalidate(); if (selectedChannelId) { void utils.chat.messages.list.invalidate({ channelId: selectedChannelId, limit: 100 }); void utils.chat.participants.list.invalidate({ channelId: selectedChannelId }); } }; useEffect(() => { const rows = messages as MessageRow[]; messageBottomRef.current?.scrollIntoView({ behavior: "smooth" }); if (selectedChannelId && rows.length) markRead.mutate({ channelId: selectedChannelId, messageId: rows[rows.length - 1].message.id }); }, [selectedChannelId, (messages as MessageRow[]).length]);
-  if (accessLoading) return <div className="flex h-full min-h-[360px] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>; if (!access?.canAccess) { navigate("/"); return null; }
-  const title = selectedPersonal?.title ?? selectedChannel?.name ?? ""; const description = selectedPersonal?.channel.type === "direct" ? `Direct message with ${title}` : selectedChannel?.description; const canArchiveSelected = !!selectedChannel && !selectedChannel.isPermanent;
-  const chooseChannel = (channelId: number) => { setSelectedChannelId(channelId); setReplyTo(null); };
-  return <div className="-m-4 flex h-[calc(100dvh-56px)] min-h-0 overflow-hidden bg-background md:-m-6"><aside className="hidden min-h-0 w-[276px] shrink-0 flex-col border-r bg-muted/20 md:flex"><div className="flex items-center justify-between border-b px-4 py-3"><h1 className="font-semibold">Chat</h1><div className="flex items-center gap-0.5"><Button size="icon" variant="ghost" className="h-8 w-8" title="Search Chat" onClick={() => setSearchOpen(true)}><Search className="h-4 w-4" /></Button><div className="relative"><Button size="icon" variant="ghost" className="h-8 w-8" title="Create a chat" onClick={() => workspace?.isChatAdmin ? setCreateMenuOpen(value => !value) : setNewMessageOpen(true)}><Plus className="h-4 w-4" /></Button>{workspace?.isChatAdmin && createMenuOpen && <div className="absolute right-0 z-30 mt-1 w-40 rounded-lg border bg-popover p-1 shadow-lg"><button type="button" className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted" onClick={() => { setCreateMenuOpen(false); setNewMessageOpen(true); }}><MessageCircle className="h-4 w-4" />New Message</button><button type="button" className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted" onClick={() => { setCreateMenuOpen(false); setNewGroupOpen(true); }}><Users className="h-4 w-4" />New Group</button></div>}</div></div></div><ScrollArea className="min-h-0 flex-1 px-3 py-3">{workspaceLoading ? <div className="space-y-2 px-2 py-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading conversations...</div> : <div className="space-y-4"><section><button type="button" className="mb-1 flex w-full items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setMyChatsCollapsed(value => !value)}>{myChatsCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}<span>My Chats</span><span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px]">{personalChats.length}</span></button>{!myChatsCollapsed && <div className="space-y-0.5">{visiblePersonalChats.map(item => <ConversationRow key={item.channel.id} channel={{ ...item.channel, unreadCount: item.unreadCount, unreadMentionCount: item.unreadMentionCount }} title={item.title} person={item.person} isSelected={selectedChannelId === item.channel.id} onSelect={() => chooseChannel(item.channel.id)} />)}{personalChats.length === 0 && <p className="px-2 py-3 text-xs text-muted-foreground">Start a direct message or group chat.</p>}{personalChats.length > 3 && <button type="button" className="w-full rounded-md px-2.5 py-1.5 text-left text-xs font-medium text-primary hover:bg-muted" onClick={() => setShowAllMyChats(value => !value)}>{showAllMyChats ? "Show less" : "Show more..."}</button>}</div>}</section>{sectionGroups.map(({ section, groups }) => { const isCollapsed = collapsedSections.has(section.id); return <section key={section.id}><button type="button" className="mb-1 flex w-full min-w-0 items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setCollapsedSections(previous => { const next = new Set(previous); if (next.has(section.id)) next.delete(section.id); else next.add(section.id); return next; })}>{isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}<span className="truncate">{section.name}</span></button>{!isCollapsed && <div className="space-y-0.5">{groups.map(group => <ConversationRow key={group.id} channel={group} title={group.name} isSelected={selectedChannelId === group.id} onSelect={() => chooseChannel(group.id)} />)}</div>}</section>; })}{unsectioned.length > 0 && <section><p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Company groups</p><div className="space-y-0.5">{unsectioned.map(group => <ConversationRow key={group.id} channel={group} title={group.name} isSelected={selectedChannelId === group.id} onSelect={() => chooseChannel(group.id)} />)}</div></section>}{allChannels.length === 0 && <div className="rounded-lg border border-dashed px-3 py-7 text-center text-xs text-muted-foreground"><MessageSquare className="mx-auto mb-2 h-5 w-5 opacity-50" />No conversations yet.</div>}</div>}</ScrollArea>{workspace?.isChatAdmin && <div className="border-t p-3"><Button variant="outline" className="w-full justify-start" onClick={() => setNewSectionOpen(true)}><Plus className="mr-2 h-4 w-4" />New section</Button></div>}</aside><main className="flex min-h-0 min-w-0 flex-1 flex-col">{!selectedChannel ? <div className="flex flex-1 flex-col items-center justify-center px-6 text-center"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary"><MessageSquare className="h-6 w-6" /></div><h2 className="mt-4 text-lg font-semibold">Start a conversation</h2><p className="mt-1 max-w-sm text-sm leading-relaxed text-muted-foreground">Create a direct message or invite several teammates into a private group chat.</p><Button className="mt-5" onClick={() => setNewMessageOpen(true)}><MessageCircle className="mr-2 h-4 w-4" />New Message</Button></div> : <><header className="flex min-h-[69px] shrink-0 items-center justify-between gap-3 border-b px-4 py-3 md:px-6"><div className="min-w-0"><div className="flex items-center gap-2">{selectedPersonal?.person ? <Avatar className="h-6 w-6"><AvatarImage src={selectedPersonal.person.profilePhotoUrl ?? undefined} /><AvatarFallback className="text-[9px]">{initials(title)}</AvatarFallback></Avatar> : <Hash className="h-5 w-5 shrink-0 text-muted-foreground" />}<h2 className="truncate text-lg font-semibold">{title}</h2></div>{description && <p className="mt-0.5 truncate pl-7 text-xs text-muted-foreground">{description}</p>}</div><div className="flex items-center gap-2">{canArchiveSelected && <Button variant="outline" size="sm" onClick={() => archivePersonal.mutate({ channelId: selectedChannel.id })}><Archive className="mr-1.5 h-3.5 w-3.5" />Archive</Button>}{workspace?.isChatAdmin && selectedChannel.isPermanent && <Button variant="outline" size="sm" onClick={() => setManageGroupOpen(true)}><Settings2 className="mr-1.5 h-3.5 w-3.5" />Manage</Button>}</div></header><ScrollArea className="min-h-0 flex-1"><div className="mx-auto max-w-4xl space-y-5 px-4 py-5 md:px-6">{messagesLoading ? <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div> : (messages as MessageRow[]).length === 0 ? <div className="rounded-xl border border-dashed py-14 text-center"><MessageSquare className="mx-auto mb-3 h-7 w-7 text-muted-foreground/50" /><p className="font-medium">No messages yet</p><p className="mt-1 text-sm text-muted-foreground">Start the conversation in {selectedChannel.type === "group" ? `#${title}` : title}.</p></div> : (messages as MessageRow[]).map(row => <ChatMessage key={row.message.id} row={row} meId={user?.id ?? null} isChatAdmin={!!workspace?.isChatAdmin} canModerate={selectedChannel.isPermanent} onUpdate={body => updateMessage.mutate({ messageId: row.message.id, body })} onDelete={() => deleteMessage.mutate({ messageId: row.message.id })} onReply={() => setReplyTo(row)} onReact={emoji => toggleReaction.mutate({ messageId: row.message.id, emoji })} />)}<div ref={messageBottomRef} /></div></ScrollArea><Composer channel={selectedChannel} participants={participants as Person[]} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSent={refreshConversation} /></>}</main><ChatSearchDialog open={searchOpen} onOpenChange={setSearchOpen} onSelect={chooseChannel} /><NewSectionDialog open={newSectionOpen} onOpenChange={setNewSectionOpen} onCreated={refreshConversation} /><NewPermanentGroupDialog open={newGroupOpen} onOpenChange={setNewGroupOpen} sections={allSections} onCreated={channelId => { refreshConversation(); setSelectedChannelId(channelId); setManageGroupOpen(true); }} /><NewMessageDialog open={newMessageOpen} onOpenChange={setNewMessageOpen} onOpened={channelId => { refreshConversation(); setSelectedChannelId(channelId); }} /><ManageGroupDialog group={selectedChannel?.isPermanent ? selectedChannel : null} sections={allSections} open={manageGroupOpen} onOpenChange={setManageGroupOpen} onChanged={() => { refreshConversation(); setSelectedChannelId(null); }} /></div>;
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
+  const { data: access, isLoading: accessLoading } =
+    trpc.chat.access.useQuery();
+  const { data: workspace, isLoading: workspaceLoading } =
+    trpc.chat.workspace.useQuery(undefined, {
+      enabled: !!access?.canAccess,
+      refetchInterval: 12_000,
+    });
+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(
+    null
+  );
+  const [newMessageOpen, setNewMessageOpen] = useState(false);
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const [newSectionOpen, setNewSectionOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [manageGroupOpen, setManageGroupOpen] = useState(false);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Set<number>>(
+    new Set()
+  );
+  const [myChatsCollapsed, setMyChatsCollapsed] = useState(false);
+  const [showAllMyChats, setShowAllMyChats] = useState(false);
+  const [replyTo, setReplyTo] = useState<MessageRow | null>(null);
+  const [newMessageCount, setNewMessageCount] = useState(0);
+  const [manualUnread, setManualUnread] = useState(false);
+  const messageScrollAreaRef = useRef<HTMLDivElement>(null);
+  const lastMessageIdRef = useRef<number | null>(null);
+  const lastMarkedReadMessageIdRef = useRef<number | null>(null);
+  const isNearMessageBottomRef = useRef(true);
+  const sectionGroups = (workspace?.sections ?? []) as WorkspaceSection[];
+  const unsectioned = (workspace?.unsectioned ?? []) as Channel[];
+  const personalChats = (workspace?.personalChats ?? []) as PersonalChat[];
+  const allGroups = useMemo(
+    () => [...sectionGroups.flatMap(item => item.groups), ...unsectioned],
+    [sectionGroups, unsectioned]
+  );
+  const allChannels = useMemo(
+    () => [...allGroups, ...personalChats.map(item => item.channel)],
+    [allGroups, personalChats]
+  );
+  const selectedChannel =
+    allChannels.find(channel => channel.id === selectedChannelId) ?? null;
+  const selectedPersonal =
+    personalChats.find(item => item.channel.id === selectedChannelId) ?? null;
+  const allSections = sectionGroups.map(item => item.section);
+  const visiblePersonalChats = showAllMyChats
+    ? personalChats
+    : personalChats.slice(0, 3);
+  useEffect(() => {
+    if (!selectedChannelId && allChannels[0])
+      setSelectedChannelId(allChannels[0].id);
+    if (
+      selectedChannelId &&
+      !allChannels.some(channel => channel.id === selectedChannelId)
+    )
+      setSelectedChannelId(allChannels[0]?.id ?? null);
+  }, [allChannels, selectedChannelId]);
+  const { data: messages = [], isLoading: messagesLoading } =
+    trpc.chat.messages.list.useQuery(
+      { channelId: selectedChannelId ?? 0, limit: 100 },
+      { enabled: selectedChannelId != null, refetchInterval: 5_000 }
+    );
+  const { data: participants = [] } = trpc.chat.participants.list.useQuery(
+    { channelId: selectedChannelId ?? 0 },
+    { enabled: selectedChannelId != null, staleTime: 30_000 }
+  );
+  const { data: readState } = trpc.chat.messages.readState.useQuery(
+    { channelId: selectedChannelId ?? 0 },
+    { enabled: selectedChannelId != null, staleTime: 5_000 }
+  );
+  const markRead = trpc.chat.messages.markRead.useMutation({
+    onSuccess: () => {
+      void utils.chat.workspace.invalidate();
+      void utils.chat.messages.readState.invalidate();
+    },
+  });
+  const markUnread = trpc.chat.messages.markUnread.useMutation({
+    onSuccess: () => {
+      setManualUnread(true);
+      setNewMessageCount(0);
+      void utils.chat.workspace.invalidate();
+      void utils.chat.messages.readState.invalidate();
+      toast.success("Marked unread from this message");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const updateMessage = trpc.chat.messages.update.useMutation({
+    onSuccess: () => {
+      refreshConversation();
+      toast.success("Message updated");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const deleteMessage = trpc.chat.messages.delete.useMutation({
+    onSuccess: () => {
+      refreshConversation();
+      toast.success("Message deleted");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const toggleReaction = trpc.chat.reactions.toggle.useMutation({
+    onSuccess: () => refreshConversation(),
+    onError: error => toast.error(error.message),
+  });
+  const archivePersonal = trpc.chat.conversations.archive.useMutation({
+    onSuccess: () => {
+      toast.success("Chat archived from My Chats");
+      setReplyTo(null);
+      refreshConversation();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const refreshConversation = () => {
+    void utils.chat.workspace.invalidate();
+    if (selectedChannelId) {
+      void utils.chat.messages.list.invalidate({
+        channelId: selectedChannelId,
+        limit: 100,
+      });
+      void utils.chat.participants.list.invalidate({
+        channelId: selectedChannelId,
+      });
+    }
+  };
+  const getMessageViewport = useCallback(
+    () =>
+      messageScrollAreaRef.current?.querySelector<HTMLElement>(
+        '[data-slot="scroll-area-viewport"]'
+      ) ?? null,
+    []
+  );
+  const scrollToLatestMessage = useCallback(
+    (behavior: ScrollBehavior = "smooth") => {
+      const viewport = getMessageViewport();
+      if (!viewport) return;
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+      isNearMessageBottomRef.current = true;
+      setNewMessageCount(0);
+    },
+    [getMessageViewport]
+  );
+  const markVisibleMessagesRead = useCallback(() => {
+    if (!selectedChannelId || manualUnread) return;
+    const viewport = getMessageViewport();
+    if (!viewport) return;
+    const viewportRect = viewport.getBoundingClientRect();
+    let lastVisibleMessageId: number | null = null;
+    for (const messageElement of Array.from(
+      viewport.querySelectorAll<HTMLElement>("[data-chat-message-id]")
+    )) {
+      const rect = messageElement.getBoundingClientRect();
+      if (
+        rect.top < viewportRect.bottom - 4 &&
+        rect.bottom > viewportRect.top + 4
+      ) {
+        const messageId = Number(messageElement.dataset.chatMessageId);
+        if (Number.isFinite(messageId)) lastVisibleMessageId = messageId;
+      }
+    }
+    if (
+      lastVisibleMessageId &&
+      lastVisibleMessageId > (lastMarkedReadMessageIdRef.current ?? 0)
+    ) {
+      lastMarkedReadMessageIdRef.current = lastVisibleMessageId;
+      markRead.mutate({
+        channelId: selectedChannelId,
+        messageId: lastVisibleMessageId,
+      });
+    }
+  }, [getMessageViewport, manualUnread, markRead, selectedChannelId]);
+  useEffect(() => {
+    lastMessageIdRef.current = null;
+    lastMarkedReadMessageIdRef.current = null;
+    isNearMessageBottomRef.current = true;
+    setNewMessageCount(0);
+    setManualUnread(false);
+  }, [selectedChannelId]);
+  useEffect(() => {
+    const rows = messages as MessageRow[];
+    const latestMessageId = rows[rows.length - 1]?.message.id ?? null;
+    if (!latestMessageId) {
+      lastMessageIdRef.current = null;
+      return;
+    }
+    const previousMessageId = lastMessageIdRef.current;
+    if (previousMessageId === null) {
+      window.requestAnimationFrame(() => {
+        scrollToLatestMessage("auto");
+        markVisibleMessagesRead();
+      });
+    } else if (latestMessageId > previousMessageId) {
+      if (isNearMessageBottomRef.current) {
+        window.requestAnimationFrame(() => {
+          scrollToLatestMessage();
+          markVisibleMessagesRead();
+        });
+      } else {
+        setNewMessageCount(
+          current => current + (latestMessageId - previousMessageId)
+        );
+      }
+    }
+    lastMessageIdRef.current = latestMessageId;
+  }, [markVisibleMessagesRead, messages, scrollToLatestMessage]);
+  useEffect(() => {
+    const viewport = getMessageViewport();
+    if (!viewport) return;
+    let frame: number | null = null;
+    const onScroll = () => {
+      isNearMessageBottomRef.current =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80;
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        markVisibleMessagesRead();
+        frame = null;
+      });
+    };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => {
+      viewport.removeEventListener("scroll", onScroll);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, [
+    getMessageViewport,
+    markVisibleMessagesRead,
+    selectedChannelId,
+    (messages as MessageRow[]).length,
+  ]);
+  if (accessLoading)
+    return (
+      <div className="flex h-full min-h-[360px] items-center justify-center">
+        <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+      </div>
+    );
+  if (!access?.canAccess) {
+    navigate("/");
+    return null;
+  }
+  const title = selectedPersonal?.title ?? selectedChannel?.name ?? "";
+  const description =
+    selectedPersonal?.channel.type === "direct"
+      ? `Direct message with ${title}`
+      : selectedChannel?.description;
+  const canArchiveSelected = !!selectedChannel && !selectedChannel.isPermanent;
+  const canPostInSelectedChannel =
+    selectedChannel?.name.toLowerCase() !== "announcements" ||
+    !!workspace?.isChatAdmin;
+  const messageRows = messages as MessageRow[];
+  const firstUnreadMessageId = messageRows.find(
+    row =>
+      row.message.id > (readState?.lastReadMessageId ?? 0) &&
+      row.message.senderId !== user?.id
+  )?.message.id;
+  const chooseChannel = (channelId: number) => {
+    setSelectedChannelId(channelId);
+    setReplyTo(null);
+    setMobileNavigationOpen(false);
+  };
+  const toggleSection = (sectionId: number) =>
+    setCollapsedSections(previous => {
+      const next = new Set(previous);
+      if (next.has(sectionId)) next.delete(sectionId);
+      else next.add(sectionId);
+      return next;
+    });
+  return (
+    <div className="-m-4 flex h-[calc(100dvh-56px)] min-h-0 overflow-hidden bg-background md:-m-6">
+      <aside className="hidden min-h-0 w-[276px] shrink-0 flex-col border-r bg-muted/20 md:flex">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <h1 className="font-semibold">Chat</h1>
+          <div className="flex items-center gap-0.5">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              title="Search Chat"
+              onClick={() => setSearchOpen(true)}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+            <div className="relative">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                title="Create a chat"
+                onClick={() =>
+                  workspace?.isChatAdmin
+                    ? setCreateMenuOpen(value => !value)
+                    : setNewMessageOpen(true)
+                }
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+              {workspace?.isChatAdmin && createMenuOpen && (
+                <div className="absolute right-0 z-30 mt-1 w-40 rounded-lg border bg-popover p-1 shadow-lg">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted"
+                    onClick={() => {
+                      setCreateMenuOpen(false);
+                      setNewMessageOpen(true);
+                    }}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    New Message
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted"
+                    onClick={() => {
+                      setCreateMenuOpen(false);
+                      setNewGroupOpen(true);
+                    }}
+                  >
+                    <Users className="h-4 w-4" />
+                    New Group
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        <ScrollArea className="min-h-0 flex-1 px-3 py-3">
+          <ChatConversationList
+            workspaceLoading={workspaceLoading}
+            personalChats={personalChats}
+            visiblePersonalChats={visiblePersonalChats}
+            sectionGroups={sectionGroups}
+            unsectioned={unsectioned}
+            allChannels={allChannels}
+            selectedChannelId={selectedChannelId}
+            myChatsCollapsed={myChatsCollapsed}
+            showAllMyChats={showAllMyChats}
+            collapsedSections={collapsedSections}
+            onToggleMyChats={() => setMyChatsCollapsed(value => !value)}
+            onToggleShowAllMyChats={() => setShowAllMyChats(value => !value)}
+            onToggleSection={toggleSection}
+            onSelect={chooseChannel}
+          />
+        </ScrollArea>
+        {workspace?.isChatAdmin && (
+          <div className="border-t p-3">
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              onClick={() => setNewSectionOpen(true)}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New section
+            </Button>
+          </div>
+        )}
+      </aside>
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {!selectedChannel ? (
+          <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <MessageSquare className="h-6 w-6" />
+            </div>
+            <h2 className="mt-4 text-lg font-semibold">Start a conversation</h2>
+            <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted-foreground">
+              Create a direct message or invite several teammates into a private
+              group chat.
+            </p>
+            <Button className="mt-5" onClick={() => setNewMessageOpen(true)}>
+              <MessageCircle className="mr-2 h-4 w-4" />
+              New Message
+            </Button>
+          </div>
+        ) : (
+          <>
+            <header className="flex min-h-[69px] shrink-0 items-center justify-between gap-3 border-b px-4 py-3 md:px-6">
+              <div className="flex min-w-0 items-center gap-2">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-9 w-9 shrink-0 md:hidden"
+                  title="Browse conversations"
+                  onClick={() => setMobileNavigationOpen(true)}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  <span className="sr-only">Browse conversations</span>
+                </Button>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    {selectedPersonal?.person ? (
+                      <Avatar className="h-6 w-6">
+                        <AvatarImage
+                          src={
+                            selectedPersonal.person.profilePhotoUrl ?? undefined
+                          }
+                        />
+                        <AvatarFallback className="text-[9px]">
+                          {initials(title)}
+                        </AvatarFallback>
+                      </Avatar>
+                    ) : (
+                      <Hash className="h-5 w-5 shrink-0 text-muted-foreground" />
+                    )}
+                    <h2 className="truncate text-lg font-semibold">{title}</h2>
+                  </div>
+                  {description && (
+                    <p className="mt-0.5 truncate pl-7 text-xs text-muted-foreground">
+                      {description}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {canArchiveSelected && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      archivePersonal.mutate({ channelId: selectedChannel.id })
+                    }
+                  >
+                    <Archive className="mr-1.5 h-3.5 w-3.5" />
+                    Archive
+                  </Button>
+                )}
+                {workspace?.isChatAdmin && selectedChannel.isPermanent && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setManageGroupOpen(true)}
+                  >
+                    <Settings2 className="mr-1.5 h-3.5 w-3.5" />
+                    Manage
+                  </Button>
+                )}
+              </div>
+            </header>
+            <div className="relative min-h-0 flex-1">
+              <ScrollArea ref={messageScrollAreaRef} className="h-full">
+                <div className="mx-auto max-w-4xl space-y-5 px-4 py-5 md:px-6">
+                  {messagesLoading ? (
+                    <div className="flex justify-center py-12">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : messageRows.length === 0 ? (
+                    <div className="rounded-xl border border-dashed py-14 text-center">
+                      <MessageSquare className="mx-auto mb-3 h-7 w-7 text-muted-foreground/50" />
+                      <p className="font-medium">No messages yet</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Start the conversation in{" "}
+                        {selectedChannel.type === "group" ? `#${title}` : title}
+                        .
+                      </p>
+                    </div>
+                  ) : (
+                    messageRows.map(row => (
+                      <div
+                        key={row.message.id}
+                        data-chat-message-id={row.message.id}
+                      >
+                        {firstUnreadMessageId === row.message.id && (
+                          <div className="flex items-center gap-3 py-1 text-xs font-medium text-primary">
+                            <span className="h-px flex-1 bg-primary/30" />
+                            New messages
+                            <span className="h-px flex-1 bg-primary/30" />
+                          </div>
+                        )}
+                        <ChatMessage
+                          row={row}
+                          meId={user?.id ?? null}
+                          onUpdate={body =>
+                            updateMessage.mutate({
+                              messageId: row.message.id,
+                              body,
+                            })
+                          }
+                          onDelete={() =>
+                            deleteMessage.mutate({ messageId: row.message.id })
+                          }
+                          onReply={() => setReplyTo(row)}
+                          onReact={emoji =>
+                            toggleReaction.mutate({
+                              messageId: row.message.id,
+                              emoji,
+                            })
+                          }
+                          onMarkUnread={() =>
+                            markUnread.mutate({ messageId: row.message.id })
+                          }
+                        />
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+              {newMessageCount > 0 && (
+                <div className="absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
+                  <Button
+                    size="sm"
+                    className="rounded-full shadow-lg"
+                    onClick={() => scrollToLatestMessage()}
+                  >
+                    {newMessageCount} new{" "}
+                    {newMessageCount === 1 ? "message" : "messages"}
+                    <ChevronDown className="ml-1.5 h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
+            <Composer
+              channel={selectedChannel}
+              participants={participants as Person[]}
+              replyTo={replyTo}
+              onCancelReply={() => setReplyTo(null)}
+              onSent={refreshConversation}
+              canPost={canPostInSelectedChannel}
+            />
+          </>
+        )}
+      </main>
+      <Dialog
+        open={mobileNavigationOpen}
+        onOpenChange={setMobileNavigationOpen}
+      >
+        <DialogContent className="left-0 top-0 h-[100dvh] max-w-none translate-x-0 translate-y-0 gap-0 rounded-none p-0 sm:hidden">
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <DialogHeader className="gap-0 text-left">
+              <DialogTitle>Conversations</DialogTitle>
+              <DialogDescription className="text-xs">
+                Switch channels or start a message.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mr-7 flex items-center gap-1">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-9 w-9"
+                title="Search Chat"
+                onClick={() => {
+                  setMobileNavigationOpen(false);
+                  setSearchOpen(true);
+                }}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setMobileNavigationOpen(false);
+                  setNewMessageOpen(true);
+                }}
+              >
+                <Plus className="mr-1.5 h-4 w-4" />
+                New
+              </Button>
+            </div>
+          </div>
+          <ScrollArea className="min-h-0 flex-1 px-3 py-3">
+            <ChatConversationList
+              workspaceLoading={workspaceLoading}
+              personalChats={personalChats}
+              visiblePersonalChats={visiblePersonalChats}
+              sectionGroups={sectionGroups}
+              unsectioned={unsectioned}
+              allChannels={allChannels}
+              selectedChannelId={selectedChannelId}
+              myChatsCollapsed={myChatsCollapsed}
+              showAllMyChats={showAllMyChats}
+              collapsedSections={collapsedSections}
+              onToggleMyChats={() => setMyChatsCollapsed(value => !value)}
+              onToggleShowAllMyChats={() => setShowAllMyChats(value => !value)}
+              onToggleSection={toggleSection}
+              onSelect={chooseChannel}
+            />
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
+      <ChatSearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        onSelect={chooseChannel}
+      />
+      <NewSectionDialog
+        open={newSectionOpen}
+        onOpenChange={setNewSectionOpen}
+        onCreated={refreshConversation}
+      />
+      <NewPermanentGroupDialog
+        open={newGroupOpen}
+        onOpenChange={setNewGroupOpen}
+        sections={allSections}
+        onCreated={channelId => {
+          refreshConversation();
+          setSelectedChannelId(channelId);
+          setManageGroupOpen(true);
+        }}
+      />
+      <NewMessageDialog
+        open={newMessageOpen}
+        onOpenChange={setNewMessageOpen}
+        onOpened={channelId => {
+          refreshConversation();
+          setSelectedChannelId(channelId);
+        }}
+      />
+      <ManageGroupDialog
+        group={selectedChannel?.isPermanent ? selectedChannel : null}
+        sections={allSections}
+        open={manageGroupOpen}
+        onOpenChange={setManageGroupOpen}
+        onChanged={() => {
+          refreshConversation();
+          setSelectedChannelId(null);
+        }}
+      />
+    </div>
+  );
 }

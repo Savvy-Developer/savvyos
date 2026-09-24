@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  canManageChatMessage,
   canOpenChatWorkspace,
+  canPostInChatGroup,
   canReadChatConversation,
   canReadChatGroup,
 } from "./chatAccess";
@@ -124,5 +126,44 @@ describe("Chat access rules", () => {
         isPermanent: false,
       })
     ).toBe(false);
+  });
+
+  it("allows only the sender to edit or delete a Chat message", () => {
+    expect(
+      canManageChatMessage({ messageSenderId: 12, requestingUserId: 12 })
+    ).toBe(true);
+    expect(
+      canManageChatMessage({ messageSenderId: 12, requestingUserId: 99 })
+    ).toBe(false);
+  });
+
+  it("keeps announcements writable only by Chat Admins while general remains member writable", () => {
+    expect(
+      canPostInChatGroup({
+        isChatAdmin: false,
+        memberGroupIds: new Set([8]),
+        groupId: 8,
+        isPermanent: true,
+        channelName: "announcements",
+      })
+    ).toBe(false);
+    expect(
+      canPostInChatGroup({
+        isChatAdmin: true,
+        memberGroupIds: new Set(),
+        groupId: 8,
+        isPermanent: true,
+        channelName: "announcements",
+      })
+    ).toBe(true);
+    expect(
+      canPostInChatGroup({
+        isChatAdmin: false,
+        memberGroupIds: new Set([9]),
+        groupId: 9,
+        isPermanent: true,
+        channelName: "general",
+      })
+    ).toBe(true);
   });
 });
