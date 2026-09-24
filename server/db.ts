@@ -38,6 +38,7 @@ import { resolveActivityRecordLinks } from "./activityLinkResolver";
 import { normalizePhoneFields } from "@shared/phone";
 import { buildNormalizedKey } from "./addressNormalization";
 import { buildPayoutSearchCondition } from "./payoutSearch";
+import { CONTACT_LEAD_SOURCE_UPDATE_SESSION_VARIABLE } from "./contactLeadSourceTrigger";
 
 let _pool: mysql.Pool | null = null;
 let _db: MySql2Database<Record<string, unknown>> | null = null;
@@ -468,7 +469,21 @@ export async function updateContact(
   // explicitly allow only a permission-checked lead-source correction.
   for (const field of fieldsToStrip) delete mutableData[field];
   const normalizedData = normalizePhoneFields(mutableData as Partial<typeof contacts.$inferInsert>, ["phone", "secondaryPhone", "thirdPhone", "spousePhone"]);
-  await db.update(contacts).set(normalizedData).where(eq(contacts.id, id));
+  if (options.allowLeadSourceUpdate) {
+    // The database trigger rejects raw source rewrites. This opt-in flag lives
+    // on the same pooled connection and is reset before that connection returns
+    // to the pool, so only this validated transaction can change attribution.
+    await db.transaction(async (tx) => {
+      await tx.execute(sql.raw(`SET @${CONTACT_LEAD_SOURCE_UPDATE_SESSION_VARIABLE} = 1`));
+      try {
+        await tx.update(contacts).set(normalizedData).where(eq(contacts.id, id));
+      } finally {
+        await tx.execute(sql.raw(`SET @${CONTACT_LEAD_SOURCE_UPDATE_SESSION_VARIABLE} = 0`));
+      }
+    });
+  } else {
+    await db.update(contacts).set(normalizedData).where(eq(contacts.id, id));
+  }
   scheduleAircallPhoneRematch(id, normalizedData);
 }
 export async function archiveContact(id: number) {

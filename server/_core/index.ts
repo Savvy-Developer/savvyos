@@ -69,6 +69,7 @@ import { registerSwoogoEventsWebhook } from "../eventsSwoogoWebhook";
 import { startSwoogoTokenRefresh } from "../swoogoEvents";
 import { ensureProjectTodoWorkflowSchema } from "../projectTodoWorkflowSchema";
 import { ensureWebinarRequestSchema } from "../webinarRequestSchema";
+import { ensureContactLeadSourceTrigger } from "../contactLeadSourceTrigger";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -95,6 +96,7 @@ async function startServer() {
   // against a pre-migration database.
   await ensureProjectTodoWorkflowSchema();
   await ensureWebinarRequestSchema();
+  await ensureContactLeadSourceTrigger();
 
   const app = express();
   const server = createServer(app);

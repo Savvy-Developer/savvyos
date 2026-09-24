@@ -212,6 +212,18 @@ describe("contacts.update lead-source corrections", () => {
     );
   });
 
+  it("routes the legacy source-only correction endpoint through the same database guard", async () => {
+    const caller = contactsRouter.createCaller(context("admin"));
+
+    await expect(caller.updateLeadSource({ id: 88, leadSourceId: 360006 })).resolves.toMatchObject({ success: true });
+
+    expect(mockUpdateContact).toHaveBeenCalledWith(
+      88,
+      { leadSourceId: 360006 },
+      { allowLeadSourceUpdate: true },
+    );
+  });
+
   it("blocks a lead-source correction when the Super Permission is not granted", async () => {
     mockCanAdminUsePermission.mockResolvedValue(false);
     const caller = contactsRouter.createCaller(context("admin"));

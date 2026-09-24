@@ -500,10 +500,11 @@ export const contactsRouter = router({
       const oldLeadSourceLabel = oldLeadSource?.name
         ? (oldLeadSource.parentName ? `${oldLeadSource.parentName} → ${oldLeadSource.name}` : oldLeadSource.name)
         : null;
-      await db
-        .update(contactsTable)
-        .set({ leadSourceId: input.leadSourceId })
-        .where(eq(contactsTable.id, input.id));
+      await updateContact(
+        input.id,
+        { leadSourceId: input.leadSourceId },
+        { allowLeadSourceUpdate: true },
+      );
 
       const contactName = `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || "Unknown Contact";
       await logActivity({
