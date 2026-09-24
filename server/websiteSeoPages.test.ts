@@ -13,6 +13,7 @@ import {
   parseWebsitePath,
 } from "./websiteSeoPages";
 import { injectLandingPageHtml } from "./landingPageHtml";
+import { EDITABLE_LIST_PAGES, editableListPage } from "@shared/websiteEditablePages";
 
 const ORIGIN = "https://home.savvy-agents.com";
 
@@ -55,7 +56,24 @@ describe("page text", () => {
       "utf8"
     );
     for (const page of Object.values(STATIC_PAGES)) {
-      if (page.title) expect(client).toContain(`usePageTitle("${page.title}")`);
+      if (!page.title) continue;
+      // List pages take their title from the shared designed wording (so the
+      // CMS can reword it), not from a literal in the page. Check both ends:
+      // the page reads that wording, and the wording matches the server.
+      const listPage = editableListPage(page.path.replace(/^\//, ""));
+      if (listPage) {
+        expect(listPage.starter.metaTitle).toBe(page.title);
+        expect(client).toContain(`useListHeading("${listPage.slug}")`);
+      } else {
+        expect(client).toContain(`usePageTitle("${page.title}")`);
+      }
+    }
+  });
+
+  it("covers every editable list page with a static title", () => {
+    const paths = new Set(Object.values(STATIC_PAGES).map(page => page.path));
+    for (const listPage of EDITABLE_LIST_PAGES) {
+      expect(paths.has(`/${listPage.slug}`)).toBe(true);
     }
   });
 

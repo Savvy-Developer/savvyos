@@ -146,3 +146,123 @@ export function editableBuiltInPage(slug: string): EditableBuiltInPage | null {
 export function splitOnContactForm(markdown: string): string[] {
   return markdown.split(/^[ \t]*\\?\[\\?\[contact-form\\?\]\\?\][ \t]*$/m);
 }
+
+/**
+ * List pages: Properties, Agents, Markets, Case Studies and Resources.
+ *
+ * Their lists are live records and stay that way, but the words at the top
+ * (the small line above the heading, the heading and the line under it) and
+ * the search title and description can be changed in the CMS. A published
+ * version changes only those words; the list below is untouched. Setting it
+ * back to Draft brings the designed wording back.
+ */
+export type EditableListPage = {
+  slug: string;
+  name: string;
+  /** The designed wording, and what shows when nothing is published. */
+  starter: {
+    heroEyebrow: string;
+    heroTitle: string;
+    heroSubtitle: string;
+    metaTitle: string;
+  };
+};
+
+export const EDITABLE_LIST_PAGES: EditableListPage[] = [
+  {
+    slug: "properties",
+    name: "Properties",
+    starter: {
+      heroEyebrow: "Properties for sale",
+      heroTitle: "Short-Term Rental Properties",
+      heroSubtitle:
+        "Investor-focused opportunities, specialist agents, and property intelligence in one place.",
+      metaTitle: "Short-Term Rental Properties for Sale",
+    },
+  },
+  {
+    slug: "agents",
+    name: "Agents",
+    starter: {
+      heroEyebrow: "National network. Local expertise.",
+      heroTitle: "Find Your STR Investment Agent",
+      heroSubtitle:
+        "Search by name, market, state, or specialty and meet an agent who speaks investor.",
+      metaTitle: "Our STR Investment Agents",
+    },
+  },
+  {
+    slug: "markets",
+    name: "Markets",
+    starter: {
+      heroEyebrow: "",
+      heroTitle: "STR Markets",
+      heroSubtitle: "The markets we cover, and what is on the market in each one today.",
+      metaTitle: "STR Markets",
+    },
+  },
+  {
+    slug: "case-studies",
+    name: "Case Studies",
+    starter: {
+      heroEyebrow: "",
+      heroTitle: "Case Studies",
+      heroSubtitle:
+        "The decisions, relationships, and execution behind successful STR purchases.",
+      metaTitle: "STR Investment Case Studies",
+    },
+  },
+  {
+    slug: "resources",
+    name: "Resources",
+    starter: {
+      heroEyebrow: "",
+      heroTitle: "Insights & Resources",
+      heroSubtitle:
+        "Investment strategies, market analysis, and STR guidance from specialist agents.",
+      metaTitle: "Insights & Resources",
+    },
+  },
+];
+
+export const EDITABLE_LIST_SLUGS = new Set(EDITABLE_LIST_PAGES.map(page => page.slug));
+
+export function editableListPage(slug: string): EditableListPage | null {
+  return EDITABLE_LIST_PAGES.find(page => page.slug === slug) ?? null;
+}
+
+/** Every built-in address the CMS may save a page at. */
+export const EDITABLE_PAGE_SLUGS = new Set([
+  ...Array.from(EDITABLE_BUILT_IN_SLUGS),
+  ...Array.from(EDITABLE_LIST_SLUGS),
+]);
+
+type HeadingOverride = {
+  heroEyebrow?: string | null;
+  heroTitle?: string | null;
+  heroSubtitle?: string | null;
+  metaTitle?: string | null;
+} | null | undefined;
+
+/**
+ * The words at the top of a list page: the published CMS version where it
+ * has one, field by field, and the designed wording for anything left blank.
+ * A blank heading never shows as an empty space at the top of the page.
+ *
+ * The line above the heading is the one exception: clearing it on a
+ * published version hides it, since several pages have none by design.
+ */
+export function listPageHeading(
+  starter: EditableListPage["starter"],
+  published: HeadingOverride
+): EditableListPage["starter"] {
+  if (!published) return starter;
+  const pick = (value: string | null | undefined, fallback: string) =>
+    value && value.trim() ? value.trim() : fallback;
+  return {
+    heroEyebrow: (published.heroEyebrow ?? "").trim(),
+    heroTitle: pick(published.heroTitle, starter.heroTitle),
+    heroSubtitle: pick(published.heroSubtitle, starter.heroSubtitle),
+    metaTitle: pick(published.metaTitle, starter.metaTitle),
+  };
+}

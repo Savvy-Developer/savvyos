@@ -35,7 +35,9 @@ import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
 import {
   CONTACT_FORM_TOKEN,
   EDITABLE_BUILT_IN_PAGES,
+  EDITABLE_LIST_PAGES,
   editableBuiltInPage,
+  editableListPage,
 } from "@shared/websiteEditablePages";
 
 /**
@@ -50,8 +52,11 @@ import {
  *   A site page opens pre-filled with what the designed page says today, so
  *   nobody starts from a blank page.
  *
- * Properties, Agents, Markets, Case Studies and Resources are lists of live
- * records and stay out of here.
+ * - List pages: Properties, Agents, Markets, Case Studies and Resources.
+ *   Their lists are live records, so only the words at the top and the
+ *   search title and description are edited here. The list stays live.
+ *
+ * The home page's words are in Site settings, under this card.
  */
 
 const BLANK = {
@@ -103,6 +108,20 @@ export function CmsPagesEditor() {
     }
     // A site page that has never been customised: start from its current
     // wording, as a draft, at its own fixed address.
+    if (selected.startsWith("list:")) {
+      const listPage = editableListPage(selected.slice("list:".length));
+      if (!listPage) return;
+      setDraft({
+        ...BLANK,
+        slug: listPage.slug,
+        name: listPage.name,
+        heroEyebrow: listPage.starter.heroEyebrow,
+        heroTitle: listPage.starter.heroTitle,
+        heroSubtitle: listPage.starter.heroSubtitle,
+        metaTitle: listPage.starter.metaTitle,
+      });
+      return;
+    }
     if (selected.startsWith("builtin:")) {
       const builtIn = editableBuiltInPage(selected.slice("builtin:".length));
       if (!builtIn) return;
@@ -144,15 +163,25 @@ export function CmsPagesEditor() {
   const ready = draft.name.trim() !== "" && draft.slug.trim() !== "";
   const publicUrl = draft.slug ? publicPath(`/${draft.slug}`) : null;
   const builtIn = editableBuiltInPage(draft.slug);
+  const listPage = editableListPage(draft.slug);
   const allPages: any[] = pages.data || [];
-  const customPages = allPages.filter(page => !editableBuiltInPage(page.slug));
+  const customPages = allPages.filter(
+    page => !editableBuiltInPage(page.slug) && !editableListPage(page.slug)
+  );
   const savedVersionOf = (slug: string) =>
     allPages.find(page => page.slug === slug);
   const resetToDesigned = () => {
-    if (!builtIn) return;
-    setDraft(prior => ({ ...prior, ...builtIn.starter }));
+    if (builtIn) setDraft(prior => ({ ...prior, ...builtIn.starter }));
+    else if (listPage) setDraft(prior => ({ ...prior, ...listPage.starter }));
+    else return;
     toast.message("Reset to the designed page's wording. Save to keep it.");
   };
+  const statusLabel = (saved: any) =>
+    saved?.status === "published"
+      ? " (custom version live)"
+      : saved
+        ? " (custom draft, designed page live)"
+        : " (designed page)";
   const insertContactForm = () =>
     set(
       "bodyMarkdown",
@@ -164,9 +193,11 @@ export function CmsPagesEditor() {
       <CardHeader>
         <CardTitle>Pages</CardTitle>
         <CardDescription>
-          Edit About, Contact and Join Our Team, or add your own pages.
-          Publishing a site page here replaces the designed version on the
-          website; set it back to Draft to bring the designed one back.
+          Every page on the website. About, Contact and Join Our Team can be
+          rewritten in full. On Properties, Agents, Markets, Case Studies and
+          Resources you change the words at the top; the lists stay live.
+          Set a page back to Draft to bring the designed version back. The
+          home page's words are in Site settings below.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -188,11 +219,22 @@ export function CmsPagesEditor() {
                         value={saved ? String(saved.id) : `builtin:${page.slug}`}
                       >
                         {page.name}
-                        {saved?.status === "published"
-                          ? " (custom version live)"
-                          : saved
-                            ? " (custom draft, designed page live)"
-                            : " (designed page)"}
+                        {statusLabel(saved)}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel>List pages (words at the top)</SelectLabel>
+                  {EDITABLE_LIST_PAGES.map(page => {
+                    const saved = savedVersionOf(page.slug);
+                    return (
+                      <SelectItem
+                        key={page.slug}
+                        value={saved ? String(saved.id) : `list:${page.slug}`}
+                      >
+                        {page.name}
+                        {statusLabel(saved)}
                       </SelectItem>
                     );
                   })}
@@ -267,7 +309,7 @@ export function CmsPagesEditor() {
                   placeholder="join-the-team"
                   // A site page lives at a fixed address; moving it would
                   // leave the designed page showing at the old one.
-                  disabled={!!builtIn}
+                  disabled={!!builtIn || !!listPage}
                   onChange={event => set("slug", slugify(event.target.value))}
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -334,6 +376,29 @@ export function CmsPagesEditor() {
               />
             </div>
 
+            {listPage && (
+              <div className="rounded-md border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-950">
+                <p>
+                  This is the top of the <strong>{listPage.name}</strong> page.
+                  While this version is <strong>Published</strong>, its eyebrow,
+                  heading, subheading and search title and description show on
+                  the website. The list underneath stays live. Leave the
+                  eyebrow empty to hide it. Set it to <strong>Draft</strong> to
+                  bring the designed wording back.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 bg-white"
+                  onClick={resetToDesigned}
+                >
+                  <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                  Start again from the designed page's wording
+                </Button>
+              </div>
+            )}
+
             {builtIn && (
               <div className="rounded-md border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-950">
                 <p>
@@ -355,6 +420,8 @@ export function CmsPagesEditor() {
               </div>
             )}
 
+            {!listPage && (
+            <>
             <div>
               <div className="flex items-end justify-between gap-2">
                 <Label>Page content</Label>
@@ -403,6 +470,8 @@ export function CmsPagesEditor() {
                 />
               </div>
             </div>
+            </>
+            )}
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>

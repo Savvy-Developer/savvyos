@@ -62,7 +62,7 @@ import {
 } from "../publicMarketDirectory";
 import { publishedTestimonials } from "@shared/websiteTestimonials";
 import { cleanTags } from "@shared/websiteContentFilters";
-import { EDITABLE_BUILT_IN_SLUGS } from "@shared/websiteEditablePages";
+import { EDITABLE_PAGE_SLUGS } from "@shared/websiteEditablePages";
 import {
   analyzeDailyEmailWithAi,
   getDailyEmailSettings,
@@ -1542,7 +1542,7 @@ export const websiteRouter = router({
       // The exceptions are About, Contact and Join Our Team, which can be
       // replaced on purpose: the public router checks for a published CMS
       // version of those first, and falls back to the designed page.
-      if (RESERVED_PAGE_SLUGS.has(slug) && !EDITABLE_BUILT_IN_SLUGS.has(slug)) {
+      if (RESERVED_PAGE_SLUGS.has(slug) && !EDITABLE_PAGE_SLUGS.has(slug)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `"${slug}" is already a page on the site and cannot be used here.`,

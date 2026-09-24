@@ -33,7 +33,7 @@ import {
   websiteUrl,
   type SitemapEntry,
 } from "./websiteSeoPages";
-import { EDITABLE_BUILT_IN_SLUGS } from "@shared/websiteEditablePages";
+import { EDITABLE_PAGE_SLUGS } from "@shared/websiteEditablePages";
 
 const publicHost = (process.env.PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
 const publicHosts = new Set([publicHost, `www.${publicHost}`]);
@@ -93,10 +93,11 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
       const page = STATIC_PAGES[route.kind];
       found = { title: page.title, description: page.description, image: defaults.image };
       // About, Contact and Join Our Team can be replaced by a CMS page at the
-      // same address. When one is published, its title and description are
-      // what the visitor sees, so search and share previews use them too.
+      // same address, and the list pages can have their heading reworded.
+      // When one is published, its title and description are what the
+      // visitor sees, so search and share previews use them too.
       const slug = page.path.replace(/^\//, "");
-      if (EDITABLE_BUILT_IN_SLUGS.has(slug)) {
+      if (EDITABLE_PAGE_SLUGS.has(slug)) {
         const [row] = await db
           .select({
             name: websitePages.name,
