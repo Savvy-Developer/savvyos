@@ -30,6 +30,7 @@ import {
   readAdAttribution,
 } from "@shared/adAttribution";
 import { appendContactNote } from "./contactNotes";
+import { normalizeBookingLink } from "@shared/bookingLink";
 
 // The public savvy-agents.com client already uses this publishable key for
 // property reads. Website lead events contain a property UUID, but older event
@@ -655,17 +656,6 @@ function normalizeIdentity(value: string | null | undefined): string {
   return (value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
-function normalizeBookingLink(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-  try {
-    const url = new URL(candidate);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
 
 function getWebsiteLeadHandoffType(
   event: string,
