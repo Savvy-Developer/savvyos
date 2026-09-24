@@ -18,7 +18,9 @@ function heatColor(value: number, max: number) {
 }
 
 export default function ProjectsWorkloadView() {
-  const { data, isLoading, error } = trpc.pm.workload.get.useQuery();
+  const { data, isLoading, error } = trpc.pm.workload.get.useQuery(undefined, {
+    refetchInterval: 1500,
+  });
   if (isLoading)
     return (
       <div className="rounded-lg border p-10 text-center text-sm text-muted-foreground">

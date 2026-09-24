@@ -906,6 +906,7 @@ export const pmRouter = router({
             meetingDate: pulseMeetingSessions.scheduledFor,
             createdAt: pulseWorkItems.createdAt,
             status: pulseWorkItems.status,
+            priority: pulseWorkItems.priorityLevel,
           })
           .from(pulseWorkItems)
           .innerJoin(
@@ -934,6 +935,9 @@ export const pmRouter = router({
             projectName: pmProjects.title,
             completed: pmTasks.completed,
             status: pmTasks.status,
+            priority: pmTasks.priority,
+            recurrence: pmTasks.recurrence,
+            notes: pmTasks.notes,
           })
           .from(pmTasks)
           .innerJoin(pmProjects, eq(pmTasks.projectId, pmProjects.id))
@@ -953,6 +957,10 @@ export const pmRouter = router({
             meetingId: todo.meetingId,
             sourceLabel: todo.meetingName,
             sourceDate: todo.meetingDate ?? todo.createdAt,
+            priority: todo.priority,
+            status: todo.status,
+            recurrence: "none" as const,
+            notes: null,
           })),
         ...projectRows
           .filter(todo => !todo.completed && todo.status !== "completed")
@@ -965,6 +973,10 @@ export const pmRouter = router({
             projectId: todo.projectId,
             sourceLabel: todo.projectName,
             sourceDate: null,
+            priority: todo.priority,
+            status: todo.status,
+            recurrence: todo.recurrence,
+            notes: todo.notes,
           })),
       ];
       return todos.sort((left, right) => {
@@ -1129,11 +1141,11 @@ export const pmRouter = router({
   // ── Workload ──────────────────────────────────────────────────────────────
   workload: router({
     get: protectedProcedure.query(async ({ ctx }) => {
-      if (!canViewPmWorkload(ctx.user)) {
+      if (!(await canViewPmWorkload(ctx.user))) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message:
-            "The Projects Workload tab is restricted to designated team leaders.",
+            "The Projects Workload tab requires Projects access in Super Permissions.",
         });
       }
       const db = await getDb();

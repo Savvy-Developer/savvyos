@@ -1,17 +1,14 @@
-export const PM_WORKLOAD_VIEWER_EMAILS = new Set([
-  "dyl@savvy.realty",
-  "elana@savvy.realty",
-  "tyler@savvy.realty",
-  "kryzll@savvy.realty",
-]);
+import { canAdminUsePermission } from "./permissions";
 
 /**
- * Workload aggregates expose assignments across the organization. This allow-list
- * is intentionally server-owned; client-side visibility is only a presentation aid.
+ * Workload exposes organization-wide assignment data. It is therefore available
+ * exactly to active administrators who have been granted Projects in the Super
+ * Permissions matrix. The same centralized permission powers the Projects nav.
  */
-export function canViewPmWorkload(user: { email?: string | null }) {
-  return (
-    !!user.email &&
-    PM_WORKLOAD_VIEWER_EMAILS.has(user.email.trim().toLowerCase())
-  );
+export async function canViewPmWorkload(user: {
+  id: number;
+  role: string;
+  email?: string | null;
+}) {
+  return canAdminUsePermission(user, "canViewProjects");
 }

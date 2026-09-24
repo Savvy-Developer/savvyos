@@ -386,18 +386,18 @@ export default function ProjectsPage() {
   const { data: departments = [], refetch: refetchDepts } = trpc.pm.departments.list.useQuery();
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
   const { data: personalTodoStats } = trpc.pm.personalTodos.stats.useQuery();
+  const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(undefined, {
+    enabled: (user as any)?.role === "admin",
+  });
   const reorder = trpc.pm.projects.reorder.useMutation();
   const canToggleAllProjects = new Set([
     "tyler@savvy.realty", "dyl@savvy.realty", "kryzll@savvy.realty", "elana@savvy.realty",
     "philleone@savvy.realty", "rhythm@savvy.realty", "athens@savvy.realty",
   ]).has(String((user as any)?.email ?? "").toLowerCase());
 
-  const canViewWorkload = new Set([
-    "tyler@savvy.realty",
-    "dyl@savvy.realty",
-    "kryzll@savvy.realty",
-    "elana@savvy.realty",
-  ]).has(String((user as any)?.email ?? "").toLowerCase());
+  const canViewWorkload = (user as any)?.role === "admin" && Boolean(
+    (adminPermissions as Record<string, boolean> | null | undefined)?.canViewProjects
+  );
 
   const archive = trpc.pm.projects.archive.useMutation({
     onSuccess: () => { toast.success("Project archived"); refetch(); },
