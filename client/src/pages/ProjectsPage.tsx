@@ -14,9 +14,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { format, isPast, isToday, addDays } from "date-fns";
 import {
-  Plus, LayoutList, LayoutGrid, Search,
-  CheckCircle2, Clock, TrendingUp, AlertTriangle, ChevronRight, Calendar,
-  User, Layers, MoreHorizontal, Archive, Trash2, Flag, X, GripVertical, ListOrdered,
+  Plus, Search,
+  CheckCircle2, Clock, TrendingUp, AlertTriangle, ChevronRight,
+  User, Layers, MoreHorizontal, Archive, Trash2, Flag, X, GripVertical, ListOrdered, ClipboardList,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -28,7 +28,6 @@ import { currentProjectRockQuarter, ProjectRockQuarterSelect } from "@/component
 import ProjectSortList from "@/components/ProjectSortList";
 import { hasDatedProjectRockMilestone, prepareProjectRockMilestones } from "@shared/projectRockMilestones";
 import MyTodosDashboard from "@/components/MyTodosDashboard";
-import ProjectsGanttView from "@/components/ProjectsGanttView";
 import ProjectsWorkloadView from "@/components/ProjectsWorkloadView";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -77,13 +76,6 @@ const UPDATE_STATUS_CONFIG: Record<UpdateStatus, { label: string; color: string 
   at_risk: { label: "At Risk", color: "text-amber-600" },
   off_track: { label: "Off Track", color: "text-red-600" },
 };
-
-const KANBAN_COLUMNS: { status: Status; label: string }[] = [
-  { status: "not_started", label: "Not Started" },
-  { status: "in_progress", label: "In Progress" },
-  { status: "at_risk", label: "At Risk" },
-  { status: "completed", label: "Completed" },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -195,98 +187,6 @@ function DepartmentCombobox({
         </Command>
       </PopoverContent>
     </Popover>
-  );
-}
-
-// ─── Project Card ─────────────────────────────────────────────────────────────
-
-function ProjectCard({ project, onArchive }: { project: Project; onArchive: (id: number) => void }) {
-  const [, navigate] = useLocation();
-  const statusCfg = STATUS_CONFIG[project.status];
-  const priorityCfg = PRIORITY_CONFIG[project.priority];
-  const dueDateInfo = getDueDateLabel(project.dueDate, project.isOngoing);
-  const progress = project.taskTotal > 0 ? Math.round((project.taskCompleted / project.taskTotal) * 100) : (project.latestUpdate?.progressPct ?? 0);
-
-  return (
-    <div
-      className="bg-card border border-border rounded-lg p-4 hover:shadow-md transition-all cursor-pointer group"
-      onClick={() => navigate(`/projects/${project.id}`)}
-    >
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`w-2 h-2 rounded-full shrink-0 ${priorityCfg.dot}`} title={`${priorityCfg.label} priority`} />
-            {project.isRock ? <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary"><Flag className="h-3 w-3" />Rock{project.rockQuarter ? ` · ${project.rockQuarter}` : ""}</span> : null}
-            <h3 className="font-semibold text-foreground text-sm leading-tight line-clamp-2 group-hover:text-primary transition-colors">
-              {project.title}
-            </h3>
-          </div>
-          <p className="text-xs text-muted-foreground line-clamp-2">{project.description}</p>
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
-            <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0">
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={e => { e.stopPropagation(); navigate(`/projects/${project.id}`); }}>
-              View Project
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={e => { e.stopPropagation(); onArchive(project.id); }}
-            >
-              <Archive className="h-3.5 w-3.5 mr-2" /> Archive
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {/* Status + Department */}
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${statusCfg.color}`}>
-          {statusCfg.icon} {statusCfg.label}
-        </span>
-        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{project.department}</span>
-      </div>
-
-      {/* Progress bar */}
-      <div className="mb-3">
-        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-          <span>{project.taskTotal > 0 ? `${project.taskCompleted}/${project.taskTotal} todos` : "No todos yet"}</span>
-          <span>{progress}%</span>
-        </div>
-        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all ${project.status === "completed" ? "bg-green-500" : project.status === "at_risk" ? "bg-amber-500" : "bg-primary"}`}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-between text-xs">
-        <span className={dueDateInfo.cls}>
-          <Calendar className="h-3 w-3 inline mr-1" />
-          {dueDateInfo.label}
-        </span>
-        {project.ownerName && (
-          <span className="text-muted-foreground flex items-center gap-1">
-            <User className="h-3 w-3" />
-            {project.ownerName.split(" ")[0]}
-          </span>
-        )}
-      </div>
-
-      {/* Latest update status */}
-      {project.latestUpdate && (
-        <div className={`mt-2 pt-2 border-t border-border text-xs ${UPDATE_STATUS_CONFIG[project.latestUpdate.updateStatus].color}`}>
-          {UPDATE_STATUS_CONFIG[project.latestUpdate.updateStatus].label} · Updated {format(project.latestUpdate.createdAt, "MMM d")}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -458,7 +358,7 @@ function CreateProjectDialog({
 export default function ProjectsPage() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
-  const [view, setView] = useState<"list" | "kanban" | "gantt" | "workload">("list");
+  const [workspace, setWorkspace] = useState<"projects" | "my-todos" | "workload">("projects");
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -603,7 +503,22 @@ export default function ProjectsPage() {
         }
       />
 
-      <MyTodosDashboard />
+      <div className="mb-6 flex w-full flex-wrap gap-1 rounded-lg border border-border bg-muted/30 p-1" role="tablist" aria-label="Projects workspace">
+        <Button type="button" size="sm" variant={workspace === "projects" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "projects"} onClick={() => { setWorkspace("projects"); setIsArranging(false); }}>
+          <Layers className="mr-1.5 h-4 w-4" /> Projects
+        </Button>
+        <Button type="button" size="sm" variant={workspace === "my-todos" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "my-todos"} onClick={() => { setWorkspace("my-todos"); setIsArranging(false); }}>
+          <ClipboardList className="mr-1.5 h-4 w-4" /> My To-Dos
+        </Button>
+        {canViewWorkload ? <Button type="button" size="sm" variant={workspace === "workload" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "workload"} onClick={() => { setWorkspace("workload"); setIsArranging(false); }}>
+          <User className="mr-1.5 h-4 w-4" /> Workload
+        </Button> : null}
+      </div>
+
+      {workspace === "my-todos" ? <MyTodosDashboard /> : null}
+      {workspace === "workload" && canViewWorkload ? <ProjectsWorkloadView /> : null}
+
+      {workspace === "projects" ? <>
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
@@ -634,58 +549,13 @@ export default function ProjectsPage() {
               className="pl-9"
             />
           </div>
-          <div className="flex border border-border rounded-md overflow-hidden shrink-0">
-            <Button
-              variant={view === "list" ? "secondary" : "ghost"}
-              size="sm"
-              className="rounded-none px-3"
-              onClick={() => setView("list")}
-            >
-              <LayoutList className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={view === "kanban" ? "secondary" : "ghost"}
-              size="sm"
-              className="rounded-none px-3"
-              onClick={() => { setView("kanban"); setIsArranging(false); }}
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={view === "gantt" ? "secondary" : "ghost"}
-              size="sm"
-              className="rounded-none px-3"
-              title="Gantt chart"
-              onClick={() => {
-                setView("gantt");
-                setIsArranging(false);
-              }}
-            >
-              <Calendar className="h-4 w-4" />
-            </Button>
-            {canViewWorkload ? (
-              <Button
-                variant={view === "workload" ? "secondary" : "ghost"}
-                size="sm"
-                className="rounded-none px-3"
-                title="Workload"
-                onClick={() => {
-                  setView("workload");
-                  setIsArranging(false);
-                }}
-              >
-                <User className="h-4 w-4" />
-              </Button>
-            ) : null}
-          </div>
           <Button
             variant={isArranging ? "secondary" : "outline"}
             size="sm"
             className="shrink-0"
-            disabled={hasFilters || view === "gantt" || view === "workload"}
-            title={hasFilters ? "Clear filters to arrange the full project list" : view === "gantt" || view === "workload" ? "Switch to List View to arrange projects" : "Arrange the project list"}
+            disabled={hasFilters}
+            title={hasFilters ? "Clear filters to arrange the full project list" : "Arrange the project list"}
             onClick={() => {
-              setView("list");
               setIsArranging(current => !current);
             }}
           >
@@ -771,7 +641,7 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {isArranging && !hasFilters && view === "list" && (
+      {isArranging && !hasFilters && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/[0.045] px-3 py-2 text-sm text-muted-foreground" role="status">
           <GripVertical className="h-4 w-4 shrink-0 text-primary" />
           Drag a handle to arrange the shared project list. You can also use the arrow buttons, or focus a handle and press Space, then the arrow keys.
@@ -779,7 +649,7 @@ export default function ProjectsPage() {
       )}
 
       {/* Empty state */}
-      {(view === "list" || view === "kanban") && filtered.length === 0 && (
+      {filtered.length === 0 && (
         <div className="text-center py-16 text-muted-foreground">
           <Layers className="h-10 w-10 mx-auto mb-3 opacity-30" />
           <p className="font-medium">No projects found</p>
@@ -797,7 +667,7 @@ export default function ProjectsPage() {
       )}
 
       {/* List View */}
-      {view === "list" && filtered.length > 0 && (
+      {filtered.length > 0 && (
         isArranging ? (
           <ProjectSortList
             projects={filtered as Project[]}
@@ -822,36 +692,7 @@ export default function ProjectsPage() {
         )
       )}
 
-      {/* Kanban View */}
-      {view === "kanban" && filtered.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {KANBAN_COLUMNS.map(col => {
-            const colProjects = filtered.filter(p => p.status === col.status);
-            const cfg = STATUS_CONFIG[col.status];
-            return (
-              <div key={col.status} className="bg-muted/30 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-3 px-1">
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.color}`}>
-                    {cfg.icon} {cfg.label}
-                  </span>
-                  <span className="text-xs text-muted-foreground ml-auto">{colProjects.length}</span>
-                </div>
-                <div className="space-y-2">
-                  {colProjects.map(p => (
-                    <ProjectCard key={p.id} project={p as Project} onArchive={id => archive.mutate({ id })} />
-                  ))}
-                  {colProjects.length === 0 && (
-                    <div className="text-center py-6 text-xs text-muted-foreground">No projects</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {view === "gantt" && <ProjectsGanttView showAll={showAll} />}
-      {view === "workload" && canViewWorkload && <ProjectsWorkloadView />}
+      </> : null}
 
       <CreateProjectDialog
         open={createOpen}

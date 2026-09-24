@@ -22,13 +22,15 @@ import {
   ArrowLeft, ArrowRightLeft, Plus, Check, CheckCircle2, Circle, CornerDownRight, History, MessageCircle, Pencil, AlertTriangle, TrendingUp,
   Clock, Calendar, User, Edit2, Trash2, MessageSquare, Sparkles,
   ChevronDown, ChevronUp, Save, X, MoreHorizontal, Activity, Repeat2,
-  BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks, GripVertical, Flag,
+  BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks, GripVertical, Flag, CalendarDays, Columns3,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import { useAppBack } from "@/lib/navigationHistory";
 import { ProjectTodoBoard, type ProjectTodoLayoutItem } from "@/components/ProjectTodoBoard";
+import ProjectTodoKanbanBoard from "@/components/ProjectTodoKanbanBoard";
+import ProjectGanttView from "@/components/ProjectGanttView";
 import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelector";
 import { currentProjectRockQuarter, ProjectRockQuarterSelect } from "@/components/ProjectRockQuarterSelect";
 import { hasDatedProjectRockMilestone, prepareProjectRockMilestones } from "@shared/projectRockMilestones";
@@ -456,7 +458,7 @@ export default function ProjectDetailPage() {
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const initialTab = new URLSearchParams(window.location.search).get("tab");
-  const [activeTab, setActiveTab] = useState(["tasks", "notes", "updates", "activity"].includes(initialTab ?? "") ? initialTab! : "tasks");
+  const [activeTab, setActiveTab] = useState(["tasks", "board", "gantt", "notes", "updates", "activity"].includes(initialTab ?? "") ? initialTab! : "tasks");
   const [showCompletedTodos, setShowCompletedTodos] = useState(false);
   const highlightedNoteId = Number(window.location.hash.match(/^#note-(\d+)$/)?.[1] ?? 0) || null;
   const highlightedComment = window.location.hash.match(/^#todo-(\d+)-comment-(\d+)$/);
@@ -1004,6 +1006,14 @@ export default function ProjectDetailPage() {
             <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
             List View ({tasks.length})
           </TabsTrigger>
+          <TabsTrigger value="board" className="shrink-0 whitespace-nowrap">
+            <Columns3 className="h-3.5 w-3.5 mr-1.5" />
+            Board View
+          </TabsTrigger>
+          <TabsTrigger value="gantt" className="shrink-0 whitespace-nowrap">
+            <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
+            Gantt
+          </TabsTrigger>
           <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">
             <StickyNote className="h-3.5 w-3.5 mr-1.5" />
             Notes
@@ -1153,6 +1163,75 @@ export default function ProjectDetailPage() {
               />
             </>
           )}
+        </TabsContent>
+
+        {/* Board View Tab */}
+        <TabsContent value="board" className="space-y-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
+                Board View
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Sections become board columns. Drag a To-Do from one column to
+                another to update its section.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="show-completed-board-todos"
+                  checked={showCompletedTodos}
+                  onCheckedChange={setShowCompletedTodos}
+                />
+                <Label
+                  htmlFor="show-completed-board-todos"
+                  className="cursor-pointer text-xs text-muted-foreground"
+                >
+                  Show completed
+                </Label>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  changeTab("tasks");
+                  openAddTodo(null);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add Todo
+              </Button>
+            </div>
+          </div>
+          {tasks.length === 0 && todoSections.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              <Columns3 className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">
+                No board items yet. Add a To-Do or create a section in List
+                View.
+              </p>
+            </div>
+          ) : (
+            <ProjectTodoKanbanBoard
+              sections={todoSections as any[]}
+              todos={topLevelTodos as any[]}
+              showCompleted={showCompletedTodos}
+              renderTodo={renderTodo}
+              onAddTodo={sectionId => {
+                changeTab("tasks");
+                openAddTodo(sectionId);
+              }}
+              onLayoutChange={(layout: ProjectTodoLayoutItem[]) =>
+                saveTodoLayout.mutateAsync({ projectId, layout })
+              }
+              saving={saveTodoLayout.isPending}
+            />
+          )}
+        </TabsContent>
+
+        {/* Gantt Tab */}
+        <TabsContent value="gantt">
+          <ProjectGanttView project={project} />
         </TabsContent>
 
         {/* Notes Tab */}

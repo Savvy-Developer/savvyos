@@ -12,35 +12,32 @@ import {
   ChevronLeft,
   ChevronRight,
   Flag,
-  FolderKanban,
   ListTodo,
   Milestone,
 } from "lucide-react";
-import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 
 const DAYS_VISIBLE = 84;
 
-type TimelineEntry = {
+type GanttEntry = {
   id: string;
   kind: "rock" | "project" | "milestone" | "todo";
   title: string;
   dueDate: Date | string;
-  projectId: number;
-  projectTitle: string;
+  href?: string;
 };
 
 const kindMeta = {
   rock: {
-    label: "Rock",
+    label: "Rock due date",
     dot: "bg-violet-600",
     icon: Flag,
     detail: "text-violet-700",
   },
   project: {
-    label: "Project",
+    label: "Project due date",
     dot: "bg-primary",
-    icon: FolderKanban,
+    icon: Flag,
     detail: "text-primary",
   },
   milestone: {
@@ -57,56 +54,67 @@ const kindMeta = {
   },
 } as const;
 
-function toDate(value: Date | string) {
+function asDate(value: Date | string) {
   return value instanceof Date ? value : new Date(value);
 }
 
-export default function ProjectsGanttView({ showAll }: { showAll: boolean }) {
+export default function ProjectGanttView({ project }: { project: any }) {
   const [start, setStart] = useState(() =>
     startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 })
   );
-  const { data = [], isLoading } = trpc.pm.projects.timeline.useQuery({
-    showAll,
-  });
-  const entries = data as TimelineEntry[];
   const end = addDays(start, DAYS_VISIBLE - 1);
   const days = useMemo(
     () =>
       Array.from({ length: DAYS_VISIBLE }, (_, index) => addDays(start, index)),
     [start]
   );
+  const entries = useMemo<GanttEntry[]>(() => {
+    const projectBaseUrl = `/projects/${project.id}`;
+    return [
+      ...(project.dueDate
+        ? [
+            {
+              id: `${project.isRock ? "rock" : "project"}-${project.id}`,
+              kind: project.isRock ? ("rock" as const) : ("project" as const),
+              title: project.title,
+              dueDate: project.dueDate,
+              href: `${projectBaseUrl}?tab=tasks`,
+            },
+          ]
+        : []),
+      ...((project.todoSections ?? []) as any[])
+        .filter(section => section.dueDate)
+        .map(section => ({
+          id: `milestone-${section.id}`,
+          kind: "milestone" as const,
+          title: section.title,
+          dueDate: section.dueDate,
+          href: `${projectBaseUrl}?tab=tasks`,
+        })),
+      ...((project.tasks ?? []) as any[])
+        .filter(task => !task.completed && task.dueDate)
+        .map(task => ({
+          id: `todo-${task.id}`,
+          kind: "todo" as const,
+          title: task.title,
+          dueDate: task.dueDate,
+          href: `${projectBaseUrl}?tab=tasks#todo-${task.id}`,
+        })),
+    ].sort(
+      (left, right) =>
+        asDate(left.dueDate).getTime() - asDate(right.dueDate).getTime()
+    );
+  }, [project]);
   const visibleEntries = entries.filter(entry => {
-    const due = toDate(entry.dueDate);
+    const due = asDate(entry.dueDate);
     return due >= start && due <= end;
   });
-  const hiddenAfter = entries.filter(
-    entry => toDate(entry.dueDate) > end
-  ).length;
   const hiddenBefore = entries.filter(
-    entry => toDate(entry.dueDate) < start
+    entry => asDate(entry.dueDate) < start
   ).length;
-  const grouped = useMemo(() => {
-    const groups = new Map<
-      number,
-      { projectTitle: string; entries: TimelineEntry[] }
-    >();
-    for (const entry of visibleEntries) {
-      const group = groups.get(entry.projectId) ?? {
-        projectTitle: entry.projectTitle,
-        entries: [],
-      };
-      group.entries.push(entry);
-      groups.set(entry.projectId, group);
-    }
-    return Array.from(groups.entries()).map(([projectId, group]) => ({
-      projectId,
-      projectTitle: group.projectTitle,
-      entries: [...group.entries].sort(
-        (left, right) =>
-          toDate(left.dueDate).getTime() - toDate(right.dueDate).getTime()
-      ),
-    }));
-  }, [visibleEntries]);
+  const hiddenAfter = entries.filter(
+    entry => asDate(entry.dueDate) > end
+  ).length;
 
   return (
     <section className="space-y-4">
@@ -117,9 +125,8 @@ export default function ProjectsGanttView({ showAll }: { showAll: boolean }) {
             <h2 className="font-semibold">Gantt Chart</h2>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Due-date timeline for Rocks, projects, milestone sections, and open
-            project To-Dos. A marker indicates the committed due date because
-            projects do not currently store start dates.
+            Timeline for this project’s due date, milestone sections, and open
+            To-Dos. Markers show due dates because start dates are not stored.
           </p>
         </div>
         <div className="flex items-center gap-1 rounded-md border bg-background p-1">
@@ -171,25 +178,19 @@ export default function ProjectsGanttView({ showAll }: { showAll: boolean }) {
         </span>
       </div>
 
-      {isLoading ? (
-        <div className="rounded-lg border p-10 text-center text-sm text-muted-foreground">
-          Loading timeline…
-        </div>
-      ) : null}
-      {!isLoading && entries.length === 0 ? (
+      {entries.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No dated Rocks, projects, milestones, or open To-Dos are available in
-          your Projects workspace.
+          This project has no dated project, milestone, or open To-Do items yet.
         </div>
       ) : null}
-      {!isLoading && entries.length > 0 ? (
+      {entries.length > 0 ? (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
-          <div className="min-w-[1050px]">
+          <div className="min-w-[900px]">
             <div
               className="grid border-b bg-muted/35"
               style={{ gridTemplateColumns: "19rem minmax(0, 1fr)" }}
             >
-            <div className="sticky left-0 z-20 border-r bg-card px-3 py-2 text-xs font-semibold text-muted-foreground">
+              <div className="sticky left-0 z-20 border-r bg-card px-3 py-2 text-xs font-semibold text-muted-foreground">
                 Work item
               </div>
               <div className="relative h-10 overflow-hidden">
@@ -214,67 +215,52 @@ export default function ProjectsGanttView({ showAll }: { showAll: boolean }) {
                 </div>
               </div>
             </div>
-            {grouped.map(group => (
-              <div key={group.projectId}>
+            {visibleEntries.map(entry => {
+              const due = asDate(entry.dueDate);
+              const position =
+                ((differenceInCalendarDays(due, start) + 0.5) / DAYS_VISIBLE) *
+                100;
+              const meta = kindMeta[entry.kind];
+              const Icon = meta.icon;
+              return (
                 <a
-                  href={`/projects/${group.projectId}`}
-                  className="grid border-b bg-primary/[0.035] hover:bg-primary/[0.075]"
+                  key={entry.id}
+                  href={entry.href}
+                  className="grid border-b last:border-b-0 hover:bg-muted/35"
                   style={{ gridTemplateColumns: "19rem minmax(0, 1fr)" }}
                 >
-              <div className="sticky left-0 z-10 truncate border-r bg-card px-3 py-2 text-xs font-semibold text-primary">
-                    {group.projectTitle}
+                  <div className="sticky left-0 z-10 flex min-w-0 items-center gap-2 border-r bg-card px-3 py-2">
+                    <Icon className={`h-3.5 w-3.5 shrink-0 ${meta.detail}`} />
+                    <span className="min-w-0 truncate text-sm">
+                      {entry.title}
+                    </span>
+                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                      {format(due, "MMM d")}
+                    </span>
                   </div>
-                  <div className="h-8" />
-                </a>
-                {group.entries.map(entry => {
-                  const due = toDate(entry.dueDate);
-                  const dayIndex = differenceInCalendarDays(due, start);
-                  const percent = ((dayIndex + 0.5) / DAYS_VISIBLE) * 100;
-                  const meta = kindMeta[entry.kind];
-                  const Icon = meta.icon;
-                  return (
-                    <a
-                      key={entry.id}
-                      href={`/projects/${entry.projectId}${entry.kind === "todo" ? `?tab=tasks#todo-${entry.id.replace("todo-", "")}` : ""}`}
-                      className="grid border-b last:border-b-0 hover:bg-muted/35"
-                      style={{ gridTemplateColumns: "19rem minmax(0, 1fr)" }}
+                  <div className="relative min-h-9 overflow-hidden">
+                    {days.map(day => (
+                      <span
+                        key={day.toISOString()}
+                        className={`absolute inset-y-0 border-l border-border/45 ${day.getDay() === 0 || day.getDay() === 6 ? "bg-muted/20" : ""}`}
+                        style={{
+                          left: `${(differenceInCalendarDays(day, start) / DAYS_VISIBLE) * 100}%`,
+                          width: `${100 / DAYS_VISIBLE}%`,
+                        }}
+                      />
+                    ))}
+                    <span
+                      title={`${entry.title} · due ${format(due, "MMM d, yyyy")}`}
+                      className={`absolute top-1/2 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-card ${meta.dot} shadow-sm`}
+                      style={{ left: `${position}%` }}
                     >
-                      <div className="sticky left-0 z-10 flex min-w-0 items-center gap-2 border-r bg-card px-3 py-2">
-                        <Icon
-                          className={`h-3.5 w-3.5 shrink-0 ${meta.detail}`}
-                        />
-                        <span className="min-w-0 truncate text-sm">
-                          {entry.title}
-                        </span>
-                        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-                          {format(due, "MMM d")}
-                        </span>
-                      </div>
-                      <div className="relative min-h-9 overflow-hidden">
-                        {days.map(day => (
-                          <span
-                            key={day.toISOString()}
-                            className={`absolute inset-y-0 border-l border-border/45 ${day.getDay() === 0 || day.getDay() === 6 ? "bg-muted/20" : ""}`}
-                            style={{
-                              left: `${(differenceInCalendarDays(day, start) / DAYS_VISIBLE) * 100}%`,
-                              width: `${100 / DAYS_VISIBLE}%`,
-                            }}
-                          />
-                        ))}
-                        <span
-                          title={`${entry.title} · due ${format(due, "MMM d, yyyy")}`}
-                          className={`absolute top-1/2 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-card ${meta.dot} shadow-sm`}
-                          style={{ left: `${percent}%` }}
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                        </span>
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            ))}
-            {grouped.length === 0 ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                    </span>
+                  </div>
+                </a>
+              );
+            })}
+            {visibleEntries.length === 0 ? (
               <div className="p-10 text-center text-sm text-muted-foreground">
                 No due dates fall in this 12-week window. Use the arrows to
                 browse the timeline.

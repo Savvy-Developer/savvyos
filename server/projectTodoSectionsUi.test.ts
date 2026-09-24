@@ -15,6 +15,14 @@ const todoBoard = readFileSync(
   path.join(root, "client/src/components/ProjectTodoBoard.tsx"),
   "utf8"
 );
+const projectBoard = readFileSync(
+  path.join(root, "client/src/components/ProjectTodoKanbanBoard.tsx"),
+  "utf8"
+);
+const projectGantt = readFileSync(
+  path.join(root, "client/src/components/ProjectGanttView.tsx"),
+  "utf8"
+);
 const projectRouter = readFileSync(
   path.join(root, "server/routers/pm.ts"),
   "utf8"
@@ -55,6 +63,19 @@ describe("project todo section UI", () => {
     expect(projectRouter).toContain("saveLayout: protectedProcedure");
     expect(projectRouter).toContain("normalizeProjectTodoLayout");
     expect(projectRouter).toContain("collectTaskFamilyIds");
+  });
+
+  it("keeps the board and Gantt views inside each individual project", () => {
+    expect(projectDetailPage).toContain('value="board"');
+    expect(projectDetailPage).toContain('value="gantt"');
+    expect(projectDetailPage).toContain("<ProjectTodoKanbanBoard");
+    expect(projectDetailPage).toContain("<ProjectGanttView project={project} />");
+    expect(projectBoard).toContain("moveProjectTodo(layout");
+    expect(projectBoard).toContain("moveProjectTodoSection(layout");
+    expect(projectBoard).toContain("onLayoutChange(next)");
+    expect(projectGantt).toContain("project.todoSections");
+    expect(projectGantt).toContain("project.tasks");
+    expect(projectGantt).not.toContain("trpc.pm.projects.timeline");
   });
 
   it("requires a non-empty title for every created section", () => {
