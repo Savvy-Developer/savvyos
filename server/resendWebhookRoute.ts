@@ -1,6 +1,7 @@
 import express, { type Express, type Request, type Response } from "express";
 import { verifyResendWebhookSignature } from "./_core/resendWebhook";
 import { describeResendWebhookEvent, enqueueResendWebhookEvent } from "./resendWebhookInbox";
+import { isDailyEmailEngagementCandidate } from "./websiteDailyEmailLogic";
 
 /**
  * Registers the Resend callback before the global JSON parser. Svix signatures
@@ -44,7 +45,9 @@ export function registerResendWebhookRoute(app: Pick<Express, "post">): void {
         // CRM matching, analytics projection, and campaign rollups outside the
         // interactive SavvyOS process.
         await enqueueResendWebhookEvent(describeResendWebhookEvent(rawBody, svixId));
-        return res.status(200).json({ ok: true, queued: true });
+        res.status(200).json({ ok: true, queued: true });
+        countDailyEmailEngagement(rawBody);
+        return;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         console.error("[Resend Webhook] Error:", message);
@@ -52,4 +55,32 @@ export function registerResendWebhookRoute(app: Pick<Express, "post">): void {
       }
     }
   );
+}
+
+/**
+ * Opens and clicks on the daily property email are also counted here, after
+ * the reply has gone, rather than only in the webhook worker. The worker is a
+ * separate Railway service that does not always redeploy with the app, and a
+ * worker running older code marks these events done without counting them.
+ *
+ * Cheap and safe to run twice: only opened and clicked events that carry a
+ * daily email tag or a broadcast ID get this far, and the writes are upserts
+ * keyed on the run and email, so the worker counting the same event later
+ * changes nothing.
+ */
+function countDailyEmailEngagement(rawBody: string): void {
+  let event: unknown;
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    return;
+  }
+  if (!isDailyEmailEngagementCandidate(event)) return;
+  setImmediate(() => {
+    import("./websiteDailyEmail")
+      .then(module => module.recordDailyEmailEvent(event as any))
+      .catch(error =>
+        console.warn("[Resend Webhook] Daily email engagement not counted.", error)
+      );
+  });
 }
