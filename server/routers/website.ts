@@ -32,6 +32,8 @@ import {
 } from "../addressNormalization";
 import { getDb, logActivity } from "../db";
 import { sendEmailAlert } from "../_core/emailAlerts";
+import { sendTransactionalEmail } from "../_core/resendEmail";
+import { normalizeBookingLink } from "@shared/bookingLink";
 import { notifyMobileUsers } from "../mobileNotifications";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission, type PermissionKey } from "./permissions";
@@ -203,6 +205,81 @@ function alertAgentOfWebsiteInquiry(params: {
       contactId: params.contactId,
     },
   }).catch(error => console.warn("[Website] Lead push failed.", error));
+}
+
+const HANDOFF_EMAIL_TYPES = {
+  showing: "website_showing_request",
+  analysis: "website_deeper_analysis_request",
+  financing: "website_financing_request",
+} as const;
+
+/**
+ * The client handoff the old site sent for a showing, deeper analysis or
+ * financing request: one email to the agent with the visitor copied in, so
+ * the two are introduced and can reply to each other. Same email types and
+ * wording as the old site's handoff, including the agent's booking link.
+ *
+ * Fire and forget, like the agent alert: the visitor's form never waits on
+ * it or fails because of it.
+ */
+function sendWebsiteHandoffEmail(
+  db: any,
+  params: {
+    agentId: number;
+    contactId: number;
+    propertyId: number;
+    requestType: keyof typeof HANDOFF_EMAIL_TYPES;
+    contactName: string;
+    contactEmail: string;
+    propertyAddress: string | null;
+  }
+): void {
+  void (async () => {
+    const [agent] = await db
+      .select({
+        name: users.name,
+        email: users.email,
+        callBookingLink: users.callBookingLink,
+      })
+      .from(users)
+      .where(eq(users.id, params.agentId))
+      .limit(1);
+    if (!agent?.email) return;
+    const [listing] = await db
+      .select({ slug: websiteProperties.slug })
+      .from(websiteProperties)
+      .where(eq(websiteProperties.propertyId, params.propertyId))
+      .limit(1);
+    const agentEmail = String(agent.email).trim().toLowerCase();
+    const type = HANDOFF_EMAIL_TYPES[params.requestType];
+    const delivery = await sendTransactionalEmail(
+      type,
+      {
+        recipientEmail: agent.email,
+        recipientName: agent.name ?? undefined,
+        ccEmails: agentEmail !== params.contactEmail ? [params.contactEmail] : undefined,
+        agentName: agent.name ?? undefined,
+        contactName: params.contactName,
+        propertyAddress: params.propertyAddress ?? "the requested property",
+        propertyUrl: listing?.slug
+          ? `https://home.savvy-agents.com/newsite/properties/${encodeURIComponent(listing.slug)}`
+          : undefined,
+        agentBookingLink: normalizeBookingLink(agent.callBookingLink) ?? undefined,
+      },
+      {
+        // Two recipients, so never turn a SavvyOS link into a token owned by
+        // one of them; keep the request wording and the booking button.
+        injectMagicLinks: false,
+        allowTemplateOverride: false,
+        idempotencyKey: `savvyos-website-handoff:${type}:${params.contactId}:${params.propertyId}:${params.agentId}`,
+      }
+    );
+    if (!delivery.sent) {
+      console.warn(
+        `[Website] Handoff email not sent (contact ${params.contactId}, agent ${params.agentId}): ${delivery.reason ?? "unknown reason"}`
+      );
+    }
+  })().catch(error => console.warn("[Website] Handoff email failed.", error));
 }
 
 async function enforceLeadThrottle(db: any, req: any, email: string) {
@@ -1906,6 +1983,17 @@ export const websiteRouter = router({
           const inserted = await db.insert(agentConnections).values({ agentId, contactId });
           connectionId = Number((inserted as any)[0]?.insertId) || null;
           connectionCreated = true;
+        }
+        if (input.requestType && input.propertyId) {
+          sendWebsiteHandoffEmail(db, {
+            agentId,
+            contactId,
+            propertyId: input.propertyId,
+            requestType: input.requestType,
+            contactName: `${input.firstName} ${input.lastName}`.trim(),
+            contactEmail: normalizedEmail,
+            propertyAddress,
+          });
         }
         alertAgentOfWebsiteInquiry({
           agentId,
