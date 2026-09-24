@@ -43,6 +43,7 @@ import { trpc } from "@/lib/trpc";
 import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
 import { captureVisitAttribution, formAttribution } from "@/lib/visitAttribution";
+import { splitOnContactForm } from "@shared/websiteEditablePages";
 import {
   INVESTMENT_BANDS,
   cleanTags,
@@ -254,14 +255,19 @@ function useScrollReveal(ref: React.RefObject<HTMLElement | null>) {
     const root = ref.current;
     if (!root || typeof IntersectionObserver === "undefined") return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const pending = new Set<Element>();
+    const reveal = (el: Element) => {
+      el.classList.add("sv-in");
+      pending.delete(el);
+      io.unobserve(el);
+    };
     const io = new IntersectionObserver(
       entries => {
         for (const entry of entries) {
           // Also show anything already above the screen, for instance when
           // the browser restores a scroll position on Back.
           if (!entry.isIntersecting && entry.boundingClientRect.top >= 0) continue;
-          entry.target.classList.add("sv-in");
-          io.unobserve(entry.target);
+          reveal(entry.target);
         }
       },
       // Threshold 0, so a very tall block (a long property grid) still
@@ -275,15 +281,34 @@ function useScrollReveal(ref: React.RefObject<HTMLElement | null>) {
         seen.add(el);
         if (getComputedStyle(el).position === "absolute") return;
         el.classList.add("sv-reveal");
+        pending.add(el);
         io.observe(el);
       });
     };
     scan();
     const mo = new MutationObserver(scan);
     mo.observe(root, { childList: true, subtree: true });
+    // A fast jump (dragging the scrollbar, End, an anchor link) can carry a
+    // section past the screen without it ever intersecting, which left it
+    // invisible. After any scroll, show everything whose top is already above
+    // the bottom of the screen.
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const bottom = window.innerHeight;
+        pending.forEach(el => {
+          if (el.getBoundingClientRect().top < bottom) reveal(el);
+        });
+      });
+    };
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
     return () => {
       io.disconnect();
       mo.disconnect();
+      document.removeEventListener("scroll", onScroll, { capture: true });
+      if (frame) window.cancelAnimationFrame(frame);
     };
   }, [ref]);
 }
@@ -2793,7 +2818,7 @@ function AboutPage() {
   // Same photo as the home page hero, so changing it in Website Studio
   // updates both pages. Shell already loads these settings, so this is cached.
   const { data: siteSettings } = trpc.website.publicSettings.useQuery();
-  const heroImageUrl = (siteSettings as any)?.heroImageUrl as string | undefined;
+  const heroImageUrl = siteSettings?.heroImageUrl;
   const benefits: Array<[string, string, React.ElementType]> = [
     [
       "Market clarity",
@@ -3589,12 +3614,39 @@ function MarketsPage() {
  * falls through to the not-found page, so a draft or a typo in the address
  * reads as "no such page" rather than a blank layout that looks broken.
  */
+/**
+ * About, Contact and Join Our Team: the designed page, unless a CMS version at
+ * the same address is published in the Website Studio. Setting that version
+ * back to Draft brings the designed page back.
+ */
+function EditablePage({
+  slug,
+  designed,
+}: {
+  slug: string;
+  designed: React.ReactNode;
+}) {
+  const query = trpc.website.publicPage.useQuery(
+    { slug },
+    { staleTime: 5 * 60_000 }
+  );
+  if (query.isLoading) return <LoadingPage />;
+  if (query.data) return <ContentPageView page={query.data} />;
+  return <>{designed}</>;
+}
+
 function ContentPage({ slug }: { slug: string }) {
   const query = trpc.website.publicPage.useQuery({ slug });
-  const page: any = query.data;
-  usePageTitle(page?.metaTitle || page?.name || "");
   if (query.isLoading) return <LoadingPage />;
-  if (!page) return <NotFoundPage />;
+  if (!query.data) return <NotFoundPage />;
+  return <ContentPageView page={query.data} />;
+}
+
+function ContentPageView({ page }: { page: any }) {
+  usePageTitle(page?.metaTitle || page?.name || "");
+  // A line holding just [[contact-form]] becomes the real contact form, so a
+  // rewritten Contact page still sends inquiries into SavvyOS.
+  const parts = splitOnContactForm(page.bodyMarkdown || "");
   return (
     <Shell>
       <section className="bg-[#05314a] py-20 text-white">
@@ -3624,11 +3676,23 @@ function ContentPage({ slug }: { slug: string }) {
       </section>
       {page.bodyMarkdown && (
         <section className="bg-white py-16">
-          <div className="mx-auto max-w-3xl px-5">
-            <ArticleBody
-              markdown={page.bodyMarkdown}
-              className="prose prose-slate max-w-none text-base leading-8 text-slate-700"
-            />
+          <div className="mx-auto max-w-3xl space-y-10 px-5">
+            {parts.map((part, index) => (
+              <div key={index} className="space-y-10">
+                {part.trim() && (
+                  <ArticleBody
+                    markdown={part}
+                    className="prose prose-slate max-w-none text-base leading-8 text-slate-700 prose-headings:text-[#05314a] prose-a:text-cyan-700 prose-img:rounded-2xl"
+                  />
+                )}
+                {index < parts.length - 1 && (
+                  <LeadForm
+                    intent="general"
+                    title="Talk with a Savvy STR specialist"
+                  />
+                )}
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -3672,10 +3736,13 @@ export default function PublicWebsite() {
   if (relative === "/resources") return <ResourcesPage />;
   if (segments[0] === "resources" && segments[1])
     return <ResourceDetailPage slug={decodeURIComponent(segments[1])} />;
-  if (relative === "/about") return <AboutPage />;
-  if (relative === "/contact") return <ContactPage />;
+  if (relative === "/about")
+    return <EditablePage slug="about" designed={<AboutPage />} />;
+  if (relative === "/contact")
+    return <EditablePage slug="contact" designed={<ContactPage />} />;
   if (relative === "/markets") return <MarketsPage />;
-  if (relative === "/join-our-team") return <JoinTeamPage />;
+  if (relative === "/join-our-team")
+    return <EditablePage slug="join-our-team" designed={<JoinTeamPage />} />;
   // Investor accounts. These render inside the same header and footer as the
   // rest of the site, so signing in never feels like leaving it.
   if (relative === "/sign-in") return <AccountPage title="Sign in"><SignInBody /></AccountPage>;

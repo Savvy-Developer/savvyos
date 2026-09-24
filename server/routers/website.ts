@@ -58,6 +58,20 @@ import {
 } from "../publicMarketDirectory";
 import { publishedTestimonials } from "@shared/websiteTestimonials";
 import { cleanTags } from "@shared/websiteContentFilters";
+import { EDITABLE_BUILT_IN_SLUGS } from "@shared/websiteEditablePages";
+import {
+  analyzeDailyEmailWithAi,
+  getDailyEmailSettings,
+  loadDailyEmailAnalytics,
+  loadQueue as loadDailyEmailQueue,
+  masterSwitchOn as dailyEmailMasterSwitchOn,
+  previewDailyEmail,
+  runDailyEmail,
+  saveDailyEmailSettings,
+  sendTestDailyEmail,
+  setApproval as setDailyEmailApproval,
+} from "../websiteDailyEmail";
+import { listResendSegments } from "../_core/resendMarketingBroadcast";
 import {
   adAttributionUpdates,
   campaignSourceFrom,
@@ -1391,7 +1405,10 @@ export const websiteRouter = router({
       // checks built-in routes first, so such a page would save cleanly, show
       // as published, and never appear. Refusing here is kinder than a page
       // that exists everywhere except on the website.
-      if (RESERVED_PAGE_SLUGS.has(slug)) {
+      // The exceptions are About, Contact and Join Our Team, which can be
+      // replaced on purpose: the public router checks for a published CMS
+      // version of those first, and falls back to the designed page.
+      if (RESERVED_PAGE_SLUGS.has(slug) && !EDITABLE_BUILT_IN_SLUGS.has(slug)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `"${slug}" is already a page on the site and cannot be used here.`,
@@ -2917,4 +2934,96 @@ export const websiteRouter = router({
           });
       return { success: true };
     }),
+
+  // ─── Daily property email (Website Studio > Daily Email) ──────────────────
+
+  dailyEmailOverview: protectedProcedure.query(async ({ ctx }) => {
+    await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    const [settings, queue, analytics, segments] = await Promise.all([
+      getDailyEmailSettings(db),
+      loadDailyEmailQueue(db),
+      loadDailyEmailAnalytics(db),
+      listResendSegments(),
+    ]);
+    return {
+      settings,
+      masterSwitch: dailyEmailMasterSwitchOn(),
+      queue,
+      analytics,
+      segments: segments.success ? segments.data : [],
+      segmentsError: segments.success ? null : segments.error,
+    };
+  }),
+
+  saveDailyEmailSettings: protectedProcedure
+    .input(
+      z.object({
+        enabled: z.boolean(),
+        sendHourEt: z.number().int().min(0).max(23),
+        segmentIds: z.array(z.string().trim().min(1).max(100)).max(20),
+        internalRecipients: z.string().max(2000),
+        personalEmailsEnabled: z.boolean(),
+        subjectTemplate: z.string().trim().max(200).nullable(),
+        introText: z.string().trim().max(2000).nullable(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await saveDailyEmailSettings(db, input, ctx.user.id);
+      return { success: true };
+    }),
+
+  setDailyEmailApproval: protectedProcedure
+    .input(
+      z.object({
+        propertyIds: z.array(z.number().int().positive()).min(1).max(200),
+        approved: z.boolean(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await setDailyEmailApproval(db, input.propertyIds, input.approved, ctx.user.id);
+      return { success: true };
+    }),
+
+  previewDailyEmail: protectedProcedure.query(async ({ ctx }) => {
+    await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    return previewDailyEmail(db);
+  }),
+
+  sendDailyEmailTest: protectedProcedure
+    .input(z.object({ recipients: z.string().trim().min(3).max(1000) }))
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      return sendTestDailyEmail(input.recipients, ctx.user.id);
+    }),
+
+  /** Send today's approved batch to everyone now, instead of waiting for the hour. */
+  sendDailyEmailNow: protectedProcedure.mutation(async ({ ctx }) => {
+    await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+    const result = await runDailyEmail({ trigger: "manual", userId: ctx.user.id });
+    await logActivity({
+      userId: ctx.user.id,
+      action: "website_daily_email_sent",
+      entityType: "website_daily_email",
+      entityId: result.runId ?? null,
+      details: { status: result.status, message: result.message },
+    }).catch(() => undefined);
+    return result;
+  }),
+
+  analyzeDailyEmail: protectedProcedure.mutation(async ({ ctx }) => {
+    await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    return { review: await analyzeDailyEmailWithAi(db) };
+  }),
 });

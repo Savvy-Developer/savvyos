@@ -1216,6 +1216,12 @@ export const websiteProperties = mysqlTable(
     isFeatured: boolean("isFeatured").default(false).notNull(),
     sortOrder: int("sortOrder").default(0).notNull(),
     publishedAt: timestamp("publishedAt"),
+    // Daily property email. A listing goes out once: an admin approves it in
+    // the Website Studio's Daily Email tab, and dailyEmailSentAt is stamped
+    // when the email carrying it is sent. Null sentAt means still in the queue.
+    dailyEmailApprovedAt: timestamp("dailyEmailApprovedAt"),
+    dailyEmailApprovedById: int("dailyEmailApprovedById"),
+    dailyEmailSentAt: timestamp("dailyEmailSentAt"),
     createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
     updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -10838,6 +10844,95 @@ export const websiteAccountEmailSends = mysqlTable(
 );
 export type WebsiteAccountEmailSend =
   typeof websiteAccountEmailSends.$inferSelect;
+
+/**
+ * Daily property email settings, edited in the Website Studio. One row.
+ *
+ * Sending also needs DAILY_PROPERTY_EMAIL_ENABLED=true on the server, which
+ * stays the master switch: turning "enabled" on here does nothing until that
+ * is set, so a click in the Studio cannot start mailing the whole list.
+ */
+export const websiteDailyEmailSettings = mysqlTable("website_daily_email_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  singletonKey: varchar("singletonKey", { length: 32 }).default("primary").notNull().unique(),
+  enabled: boolean("enabled").default(false).notNull(),
+  /** Hour of the day, Eastern time, 0 to 23. */
+  sendHourEt: int("sendHourEt").default(17).notNull(),
+  /** Resend segment (audience) IDs the shared email is broadcast to. */
+  segmentIds: json("segmentIds").$type<string[]>(),
+  /** Who gets a copy of every send, so a person sees what went out. */
+  internalRecipients: json("internalRecipients").$type<string[]>(),
+  /** Also send the personal, preference-matched email to new-site accounts. */
+  personalEmailsEnabled: boolean("personalEmailsEnabled").default(true).notNull(),
+  /** {count} becomes the number of properties. Blank uses the default. */
+  subjectTemplate: varchar("subjectTemplate", { length: 200 }),
+  introText: text("introText"),
+  updatedById: int("updatedById"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type WebsiteDailyEmailSettings = typeof websiteDailyEmailSettings.$inferSelect;
+
+/** One row per daily email sent, tested or skipped. */
+export const websiteDailyEmailRuns = mysqlTable(
+  "website_daily_email_runs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    /** "scheduled:2026-09-24" for the timed send, so a restart cannot send twice. Null otherwise. */
+    idempotencyKey: varchar("idempotencyKey", { length: 64 }).unique(),
+    runDate: varchar("runDate", { length: 10 }).notNull(),
+    trigger: mysqlEnum("trigger", ["scheduled", "manual", "test"]).notNull(),
+    status: mysqlEnum("status", ["sending", "sent", "partial", "failed", "skipped"]).notNull(),
+    subject: varchar("subject", { length: 255 }),
+    propertyIds: json("propertyIds").$type<number[]>(),
+    propertyCount: int("propertyCount").default(0).notNull(),
+    broadcastIds: json("broadcastIds").$type<string[]>(),
+    broadcastError: text("broadcastError"),
+    personalSent: int("personalSent").default(0).notNull(),
+    personalFailed: int("personalFailed").default(0).notNull(),
+    internalSent: int("internalSent").default(0).notNull(),
+    note: text("note"),
+    sentById: int("sentById"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    completedAt: timestamp("completedAt"),
+  },
+  table => [index("website_daily_email_runs_date_idx").on(table.runDate)]
+);
+export type WebsiteDailyEmailRun = typeof websiteDailyEmailRuns.$inferSelect;
+
+/**
+ * Opens and clicks, one row per email that was opened or clicked (not per
+ * recipient sent to), so a 50,000-address broadcast adds a few thousand rows,
+ * not fifty thousand. Filled from Resend webhooks.
+ */
+export const websiteDailyEmailEngagement = mysqlTable(
+  "website_daily_email_engagement",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    runId: int("runId").notNull(),
+    emailId: varchar("emailId", { length: 128 }).notNull(),
+    openedAt: timestamp("openedAt"),
+    clickedAt: timestamp("clickedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [uniqueIndex("website_daily_email_engagement_run_email").on(table.runId, table.emailId)]
+);
+
+/** Which property each click went to. One row per email per link. */
+export const websiteDailyEmailClicks = mysqlTable(
+  "website_daily_email_clicks",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    runId: int("runId").notNull(),
+    emailId: varchar("emailId", { length: 128 }).notNull(),
+    /** The property slug when the link was a listing, else "other". */
+    linkKey: varchar("linkKey", { length: 191 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("website_daily_email_clicks_run_email_link").on(table.runId, table.emailId, table.linkKey),
+    index("website_daily_email_clicks_run_link").on(table.runId, table.linkKey),
+  ]
+);
 
 /**
  * Saved properties. Points at the SavvyOS property rather than the website row,

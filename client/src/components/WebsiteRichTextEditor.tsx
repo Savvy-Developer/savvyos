@@ -4,7 +4,9 @@ import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import TextAlign from "@tiptap/extension-text-align";
-import { useCallback, useEffect } from "react";
+import Image from "@tiptap/extension-image";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { marked } from "marked";
 import TurndownService from "turndown";
 import { addMarkdownTableRules } from "@shared/markdownTables";
@@ -16,6 +18,8 @@ import {
   Bold,
   Heading2,
   Heading3,
+  ImagePlus,
+  Loader2,
   Italic,
   Link as LinkIcon,
   List,
@@ -110,6 +114,9 @@ export default function WebsiteRichTextEditor({
       TableRow,
       TableHeader,
       TableCell,
+      // Pictures in the body. Stored in markdown as ![alt](url), which the
+      // public site already renders through its safe image renderer.
+      Image.configure({ inline: false }),
     ],
     content: markdownToHtml(value),
     onUpdate: ({ editor }) => onChange(htmlToMarkdown(editor.getHTML())),
@@ -143,6 +150,35 @@ export default function WebsiteRichTextEditor({
       .setLink({ href: url })
       .run();
   }, [editor]);
+
+  // Upload through the same website image route as cover photos, then drop
+  // the picture in where the cursor is.
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadImage = useCallback(
+    async (file: File) => {
+      if (!editor) return;
+      setUploading(true);
+      try {
+        const body = new FormData();
+        body.append("file", file);
+        const response = await fetch("/api/upload/website-image", {
+          method: "POST",
+          body,
+          credentials: "include",
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.error || "Upload failed");
+        editor.chain().focus().setImage({ src: json.url, alt: file.name.replace(/\.[^.]+$/, "") }).run();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Upload failed");
+      } finally {
+        setUploading(false);
+        if (fileInput.current) fileInput.current.value = "";
+      }
+    },
+    [editor]
+  );
 
   if (!editor) return null;
 
@@ -246,6 +282,27 @@ export default function WebsiteRichTextEditor({
         >
           <AlignRight className="h-4 w-4" />
         </ToolbarButton>
+        <ToolbarButton
+          label="Insert image"
+          disabled={uploading}
+          onClick={() => fileInput.current?.click()}
+        >
+          {uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ImagePlus className="h-4 w-4" />
+          )}
+        </ToolbarButton>
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={event => {
+            const file = event.target.files?.[0];
+            if (file) void uploadImage(file);
+          }}
+        />
         <span className="mx-1 h-5 w-px bg-slate-300" />
         <ToolbarButton
           label="Undo"
@@ -271,6 +328,7 @@ export default function WebsiteRichTextEditor({
           "[&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
           "[&_td]:border [&_td]:border-slate-300 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top",
           "[&_th_p]:m-0 [&_td_p]:m-0",
+          "[&_img]:my-4 [&_img]:max-h-96 [&_img]:rounded-lg",
         )}
         style={{ minHeight }}
       />

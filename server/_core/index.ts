@@ -20,7 +20,7 @@ import { scheduleAgentProductionReport } from "../agentProductionReportScheduler
 import { scheduleWeeklyLeadReport } from "../weeklyLeadReportScheduler";
 import { scheduleWeeklyOperationsReports } from "../weeklyOperationsReportsScheduler";
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
-import { scheduleDailyPropertyEmails } from "../dailyPropertyEmail";
+import { scheduleWebsiteDailyEmail } from "../websiteDailyEmail";
 import { scheduleDailyIsaActivitiesReport } from "../dailyIsaActivitiesReportScheduler";
 import { scheduleMonthlyAgentRenewalsReport } from "../monthlyAgentRenewalsReport";
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
@@ -364,8 +364,9 @@ async function startServer() {
     processAgentIntroductionFollowUps().catch((err) => console.error("[AgentIntroductions] Startup run error:", err));
   }, 10_000);
 
-  // New-property email for investors with a website account: daily at 8am Eastern.
-  scheduleDailyPropertyEmails();
+  // Daily property email (Website Studio > Daily Email): the approved batch
+  // at the chosen hour Eastern, 5 PM by default. Off until switched on.
+  scheduleWebsiteDailyEmail();
 
   // Listing expiration reminder: daily at 8am
   scheduleListingExpirationCheck();
