@@ -407,8 +407,9 @@ export function DailyEmailPanel() {
                     {preview.data.subject}
                     {!preview.data.usingApproved && preview.data.listingCount > 0 && (
                       <span className="ml-2 text-amber-700">
-                        (Nothing ticked yet, so this shows the newest{" "}
-                        {preview.data.listingCount}.)
+                        (Nothing ticked yet, so this shows a sample of{" "}
+                        {preview.data.listingCount} listing
+                        {preview.data.listingCount === 1 ? "" : "s"}.)
                       </span>
                     )}
                   </p>
