@@ -253,3 +253,16 @@ export function isDailyEmailEngagementCandidate(event: unknown): boolean {
   if (!data || typeof data !== "object" || !data.email_id) return false;
   return runIdFromTags(data.tags) !== null || typeof data.broadcast_id === "string";
 }
+
+/**
+ * The headers that let a mail client show its own "Unsubscribe" button and
+ * unsubscribe in one click (RFC 8058). Gmail and Yahoo expect them on bulk
+ * mail. The URL is SavvyOS's signed unsubscribe link, which accepts the
+ * one-click POST.
+ */
+export function listUnsubscribeHeaders(unsubscribeUrl: string): Record<string, string> {
+  return {
+    "List-Unsubscribe": `<${unsubscribeUrl}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+}

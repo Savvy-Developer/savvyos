@@ -15,6 +15,7 @@ import {
 import { getDb } from "./db";
 import { ENV } from "./_core/env";
 import { createMarketingUnsubscribeUrl } from "./marketingEmailUnsubscribe";
+import { listUnsubscribeHeaders } from "./websiteDailyEmailLogic";
 import { easternDateKey, getEasternTimeParts } from "./agentProductionReportScheduler";
 import { masterSwitchOn } from "./websiteDailyEmail";
 import {
@@ -158,7 +159,8 @@ async function sendOne(
   subject: string,
   html: string,
   text: string,
-  alertId: number | null
+  alertId: number | null,
+  unsubscribeUrl: string | null = null
 ): Promise<{ sent: boolean; error?: string }> {
   if (!ENV.resendApiKey) return { sent: false, error: "Resend is not configured" };
   try {
@@ -173,6 +175,9 @@ async function sendOne(
         { name: "category", value: "website_price_drop" },
         ...(alertId ? [{ name: PRICE_DROP_TAG, value: String(alertId) }] : []),
       ],
+      // One-click unsubscribe in the mail client itself (Gmail and Yahoo
+      // expect it on this kind of email), same as the Smart Plan emails.
+      ...(unsubscribeUrl ? { headers: listUnsubscribeHeaders(unsubscribeUrl) } : {}),
     });
     if (result.error) return { sent: false, error: result.error.message || "Resend rejected the email" };
     return { sent: true };
@@ -221,15 +226,16 @@ async function alertDrop(
   let sent = 0;
   const errors: string[] = [];
   for (const person of recipients) {
+    const unsubscribeUrl = createMarketingUnsubscribeUrl(person.email);
     const email = renderPriceDropEmail({
       listing,
       oldPrice,
       newPrice,
       firstName: person.firstName,
-      unsubscribeUrl: createMarketingUnsubscribeUrl(person.email),
+      unsubscribeUrl,
       dateKey,
     });
-    const result = await sendOne(person.email, email.subject, email.html, email.text, alertId);
+    const result = await sendOne(person.email, email.subject, email.html, email.text, alertId, unsubscribeUrl);
     if (result.sent) sent += 1;
     else errors.push(`${person.email}: ${result.error}`);
   }
@@ -368,7 +374,7 @@ export async function sendPriceDropTest(recipientsText: string): Promise<{ sent:
       unsubscribeUrl,
       dateKey,
     });
-    const result = await sendOne(address, `[Test] ${email.subject}`, email.html, email.text, null);
+    const result = await sendOne(address, `[Test] ${email.subject}`, email.html, email.text, null, unsubscribeUrl);
     if (result.sent) sent += 1;
     else errors.push(`${address}: ${result.error}`);
   }
