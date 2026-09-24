@@ -350,23 +350,34 @@ export async function sendPriceDropTest(recipientsText: string): Promise<{ sent:
   }
   const newPrice = Number(listing.listPrice);
   const oldPrice = Math.round((newPrice / 0.95) / 1000) * 1000;
-  const email = renderPriceDropEmail({
-    listing,
-    oldPrice,
-    newPrice,
-    firstName: null,
-    unsubscribeUrl: null,
-    dateKey: easternDateKey(getEasternTimeParts()),
-  });
+  // Rendered per address, exactly as a real alert is: a greeting and that
+  // address's own one-click unsubscribe link. Clicking it in a test really
+  // unsubscribes that address, as it would for an investor.
+  const dateKey = easternDateKey(getEasternTimeParts());
   let sent = 0;
+  let missingUnsubscribe = false;
   const errors: string[] = [];
   for (const address of to) {
+    const unsubscribeUrl = createMarketingUnsubscribeUrl(address);
+    if (!unsubscribeUrl) missingUnsubscribe = true;
+    const email = renderPriceDropEmail({
+      listing,
+      oldPrice,
+      newPrice,
+      firstName: "there",
+      unsubscribeUrl,
+      dateKey,
+    });
     const result = await sendOne(address, `[Test] ${email.subject}`, email.html, email.text, null);
     if (result.sent) sent += 1;
     else errors.push(`${address}: ${result.error}`);
   }
-  return {
-    sent,
-    message: errors.length ? `Test not sent to ${errors.join("; ")}` : `Test sent to ${to.join(", ")}.`,
-  };
+  const parts = [
+    sent ? `Test sent to ${sent} address${sent === 1 ? "" : "es"}.` : "",
+    errors.length ? `Not sent to ${errors.join("; ")}.` : "",
+    missingUnsubscribe
+      ? "Warning: the one-click unsubscribe link could not be made, so real alerts would only carry the Email preferences link."
+      : "",
+  ].filter(Boolean);
+  return { sent, message: parts.join(" ") };
 }

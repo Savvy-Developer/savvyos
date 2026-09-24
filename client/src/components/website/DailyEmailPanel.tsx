@@ -775,8 +775,10 @@ export function DailyEmailPanel() {
             </Button>
           </div>
           <p className="text-xs text-slate-500">
-            The test uses the newest live listing with a made-up 5% drop. It is
-            not recorded and changes nothing.
+            The test uses the newest live listing with a made-up 5% drop, and
+            is built exactly like a real alert, including the unsubscribe link
+            (clicking it really unsubscribes that address). It is not recorded
+            and changes no prices.
           </p>
 
           {(data?.priceDropAlerts?.recent ?? []).length === 0 ? (
