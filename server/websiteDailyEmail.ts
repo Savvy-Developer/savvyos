@@ -176,6 +176,29 @@ export async function loadQueue(db: any): Promise<QueueListing[]> {
   return rows.map((row: any) => ({ ...row, approved: !!row.approvedAt }));
 }
 
+/**
+ * Listings for a preview or test: the ticked ones, else the newest in the
+ * queue, else the newest live listings on the site. The last one matters on
+ * day one, when every live listing counts as already sent and the queue is
+ * empty, so the email can still be checked before anything new is published.
+ */
+async function sampleListings(db: any, queue: QueueListing[]): Promise<{
+  listings: BroadcastListing[];
+  usingApproved: boolean;
+}> {
+  const approved = queue.filter(listing => listing.approved);
+  if (approved.length) return { listings: approved, usingApproved: true };
+  if (queue.length) return { listings: queue.slice(0, 3), usingApproved: false };
+  const recent = await db
+    .select(queueColumns)
+    .from(websiteProperties)
+    .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
+    .where(eq(websiteProperties.status, "published"))
+    .orderBy(desc(websiteProperties.publishedAt))
+    .limit(3);
+  return { listings: recent, usingApproved: false };
+}
+
 export async function setApproval(
   db: any,
   propertyIds: number[],
@@ -208,10 +231,9 @@ export async function previewDailyEmail(db: any): Promise<{
 }> {
   const settings = await getDailyEmailSettings(db);
   const queue = await loadQueue(db);
-  const approved = queue.filter(listing => listing.approved);
-  // With nothing approved yet, preview the newest three so the layout can
-  // still be checked.
-  const listings = approved.length ? approved : queue.slice(0, 3);
+  // With nothing approved yet, preview a sample so the layout can still be
+  // checked.
+  const { listings, usingApproved } = await sampleListings(db, queue);
   const runDate = todayEastern();
   const subject = renderSubject(settings.subjectTemplate, listings.length);
   const { html } = renderBroadcastEmail({
@@ -221,7 +243,7 @@ export async function previewDailyEmail(db: any): Promise<{
     runDate,
     unsubscribeUrl: "#unsubscribe",
   });
-  return { subject, html, listingCount: listings.length, usingApproved: approved.length > 0 };
+  return { subject, html, listingCount: listings.length, usingApproved };
 }
 
 // ─── Sending ─────────────────────────────────────────────────────────────────
@@ -256,11 +278,9 @@ export async function sendTestDailyEmail(
   if (!recipients.length) {
     return { runId: null, status: "blocked", message: "Add at least one email address to send the test to." };
   }
-  const queue = await loadQueue(db);
-  const approved = queue.filter(listing => listing.approved);
-  const listings = approved.length ? approved : queue.slice(0, 3);
+  const { listings } = await sampleListings(db, await loadQueue(db));
   if (!listings.length) {
-    return { runId: null, status: "blocked", message: "There are no listings in the queue to put in a test." };
+    return { runId: null, status: "blocked", message: "There are no live listings on the site to put in a test." };
   }
   const runDate = todayEastern();
   const subject = `[Test] ${renderSubject(settings.subjectTemplate, listings.length)}`;
