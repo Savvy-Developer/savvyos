@@ -21,6 +21,7 @@ import { scheduleWeeklyLeadReport } from "../weeklyLeadReportScheduler";
 import { scheduleWeeklyOperationsReports } from "../weeklyOperationsReportsScheduler";
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
 import { scheduleWebsiteDailyEmail } from "../websiteDailyEmail";
+import { schedulePriceDropAlerts } from "../websitePriceDropAlerts";
 import { scheduleDailyIsaActivitiesReport } from "../dailyIsaActivitiesReportScheduler";
 import { scheduleMonthlyAgentRenewalsReport } from "../monthlyAgentRenewalsReport";
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
@@ -367,6 +368,9 @@ async function startServer() {
   // Daily property email (Website Studio > Daily Email): the approved batch
   // at the chosen hour Eastern, 5 PM by default. Off until switched on.
   scheduleWebsiteDailyEmail();
+  // Price drop alerts: checks live listings every 30 minutes. Sends nothing
+  // until switched on in Website Studio > Daily Email.
+  schedulePriceDropAlerts();
 
   // Listing expiration reminder: daily at 8am
   scheduleListingExpirationCheck();

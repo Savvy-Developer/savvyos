@@ -77,6 +77,12 @@ import {
 } from "../websiteDailyEmail";
 import { listResendSegments } from "../_core/resendMarketingBroadcast";
 import {
+  loadRecentPriceDrops,
+  priceDropAlertsEnabled,
+  sendPriceDropTest,
+  setPriceDropAlertsEnabled,
+} from "../websitePriceDropAlerts";
+import {
   adAttributionUpdates,
   campaignSourceFrom,
   readAdAttribution,
@@ -3099,13 +3105,16 @@ export const websiteRouter = router({
     await requireWebsitePermission(ctx, "canManageWebsiteSettings");
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    const [settings, queue, analytics, segments] = await Promise.all([
+    const [settings, queue, analytics, segments, priceDropsOn, priceDrops] = await Promise.all([
       getDailyEmailSettings(db),
       loadDailyEmailQueue(db),
       loadDailyEmailAnalytics(db),
       listResendSegments(),
+      priceDropAlertsEnabled(db),
+      loadRecentPriceDrops(db),
     ]);
     return {
+      priceDropAlerts: { enabled: priceDropsOn, recent: priceDrops },
       settings,
       masterSwitch: dailyEmailMasterSwitchOn(),
       queue,
@@ -3177,6 +3186,23 @@ export const websiteRouter = router({
     }).catch(() => undefined);
     return result;
   }),
+
+  setPriceDropAlerts: protectedProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await setPriceDropAlertsEnabled(db, input.enabled, ctx.user.id);
+      return { success: true };
+    }),
+
+  sendPriceDropTest: protectedProcedure
+    .input(z.object({ recipients: z.string().trim().min(3).max(1000) }))
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      return sendPriceDropTest(input.recipients);
+    }),
 
   analyzeDailyEmail: protectedProcedure.mutation(async ({ ctx }) => {
     await requireWebsitePermission(ctx, "canManageWebsiteSettings");

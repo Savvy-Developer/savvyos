@@ -1222,6 +1222,11 @@ export const websiteProperties = mysqlTable(
     dailyEmailApprovedAt: timestamp("dailyEmailApprovedAt"),
     dailyEmailApprovedById: int("dailyEmailApprovedById"),
     dailyEmailSentAt: timestamp("dailyEmailSentAt"),
+    // Price drop alerts. The price investors were last told about (or the
+    // price when the listing was first checked). A list price below this
+    // sends the alert once and becomes the new baseline; a price rise just
+    // moves the baseline up.
+    priceAlertBaseline: decimal("priceAlertBaseline", { precision: 12, scale: 2 }),
     createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
     updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -10867,6 +10872,8 @@ export const websiteDailyEmailSettings = mysqlTable("website_daily_email_setting
   /** {count} becomes the number of properties. Blank uses the default. */
   subjectTemplate: varchar("subjectTemplate", { length: 200 }),
   introText: text("introText"),
+  /** Email investors who viewed or saved a listing when its price drops. */
+  priceDropAlertsEnabled: boolean("priceDropAlertsEnabled").default(false).notNull(),
   updatedById: int("updatedById"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -10933,6 +10940,31 @@ export const websiteDailyEmailClicks = mysqlTable(
     index("website_daily_email_clicks_run_link").on(table.runId, table.linkKey),
   ]
 );
+
+/**
+ * One row per price drop that was alerted (or found while alerts were off).
+ * The key is the listing and the two prices, so the same drop can never be
+ * sent twice, even by two server instances at once.
+ */
+export const websitePriceDropAlerts = mysqlTable(
+  "website_price_drop_alerts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    idempotencyKey: varchar("idempotencyKey", { length: 96 }).notNull().unique(),
+    propertyId: int("propertyId").notNull(),
+    oldPrice: decimal("oldPrice", { precision: 12, scale: 2 }).notNull(),
+    newPrice: decimal("newPrice", { precision: 12, scale: 2 }).notNull(),
+    status: mysqlEnum("status", ["sending", "sent", "partial", "failed", "no_recipients", "skipped"]).notNull(),
+    recipients: int("recipients").default(0).notNull(),
+    sent: int("sent").default(0).notNull(),
+    failed: int("failed").default(0).notNull(),
+    note: text("note"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    completedAt: timestamp("completedAt"),
+  },
+  table => [index("website_price_drop_alerts_created_idx").on(table.createdAt)]
+);
+export type WebsitePriceDropAlert = typeof websitePriceDropAlerts.$inferSelect;
 
 /**
  * Saved properties. Points at the SavvyOS property rather than the website row,
