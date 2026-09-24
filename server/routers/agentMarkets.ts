@@ -20,7 +20,7 @@ import { getDb, logActivity } from "../db";
 import pdfParse from "../lib/pdf-parse-safe";
 import { storageDelete, storagePut } from "../storage";
 import { protectedProcedure, router } from "../_core/trpc";
-import { canAdminUsePermission } from "./permissions";
+import { canAdminUsePermission, isSuperPermissionsManager } from "./permissions";
 
 const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
 const MAX_TEXT_CHARS = 120_000;
@@ -44,6 +44,13 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
     if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "Agent Markets permission is required." });
     return next({ ctx });
   });
+});
+
+const superPermissionsManagerProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!isSuperPermissionsManager(ctx.user)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Only Super Permissions managers can edit Agent Market titles." });
+  }
+  return next({ ctx });
 });
 
 const agentMyMarketProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -477,7 +484,6 @@ export const agentMarketsRouter = router({
 
   update: adminProcedure.input(z.object({
     marketId: z.number().int().positive(),
-    name: z.string().trim().min(1).max(100),
     state: z.string().trim().min(1).max(50),
     region: z.string().trim().max(50).nullable().optional(),
     status: z.enum(["active", "recruiting", "paused", "future"]),
@@ -493,8 +499,19 @@ export const agentMarketsRouter = router({
       updatedAt: new Date(),
     }).where(eq(marketProfiles.id, marketId));
     void refreshMarketIntelligence(marketId, "manual");
-    void logActivity({ userId: ctx.user.id, action: "agent_market_updated", entityType: "market", entityId: marketId, details: { marketName: input.name } });
+    void logActivity({ userId: ctx.user.id, action: "agent_market_updated", entityType: "market", entityId: marketId, details: { state: input.state, region: input.region || null, status: input.status, annualGciGoal: input.annualGciGoal ?? null } });
     return { success: true };
+  }),
+
+  editTitle: superPermissionsManagerProcedure.input(z.object({
+    marketId: z.number().int().positive(),
+    name: z.string().trim().min(1).max(100),
+  })).mutation(async ({ input, ctx }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+    await db.update(marketProfiles).set({ name: input.name }).where(eq(marketProfiles.id, input.marketId));
+    void logActivity({ userId: ctx.user.id, action: "agent_market_title_updated", entityType: "market", entityId: input.marketId, details: { marketName: input.name } });
+    return { success: true, name: input.name };
   }),
 
   addNote: adminProcedure.input(z.object({

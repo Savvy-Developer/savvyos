@@ -74,6 +74,7 @@ const MANUALLY_LOGGED_PATHS = new Set([
   // Agent Markets
   "agentMarkets.create",
   "agentMarkets.update",
+  "agentMarkets.editTitle",
   "agentMarkets.addNote",
   "agentMarkets.uploadSource",
   "agentMarkets.deleteSource",

@@ -17,6 +17,10 @@ const PERMISSION_MANAGERS = [
 // ── Tyler's email — her permissions can never be edited ───────────────────────
 const PROTECTED_EMAIL = "tyler@savvy.realty";
 
+export function isSuperPermissionsManager(user: { role: string; email?: string | null }): boolean {
+  return user.role === "admin" && PERMISSION_MANAGERS.includes(user.email?.trim().toLowerCase() ?? "");
+}
+
 /**
  * Active eligibility is centralized here so inactive, on-leave, and offboarded
  * administrators cannot be listed, selected, or assigned permissions. Legacy
@@ -384,8 +388,7 @@ export const permissionsRouter = router({
   canManagePermissions: protectedProcedure
     .query(({ ctx }) => {
       if (ctx.user.role !== "admin") return false;
-      const email = (ctx.user as any).email as string;
-      return PERMISSION_MANAGERS.includes(email);
+      return isSuperPermissionsManager(ctx.user);
     }),
 
   // Get all admin users with their permissions (for the super permissions matrix)

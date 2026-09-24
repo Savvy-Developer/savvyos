@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MarketZipTerritoryManager } from "@/components/MarketZipTerritoryManager";
 import { toast } from "sonner";
-import { AlertCircle, ArrowLeft, Bot, CheckCircle2, ChevronRight, CircleAlert, FileText, Loader2, Mail, MapPinned, Plus, RefreshCw, Trash2, Upload, Users } from "lucide-react";
+import { AlertCircle, ArrowLeft, Bot, CheckCircle2, ChevronRight, CircleAlert, FileText, Loader2, Mail, MapPinned, Pencil, Plus, RefreshCw, Trash2, Upload, Users } from "lucide-react";
 
 const EMPTY = "__empty__";
 
@@ -91,10 +91,13 @@ export default function AgentMarketsPage() {
   const utils = trpc.useUtils();
   const { data: markets = [], isLoading: marketsLoading } = trpc.agentMarkets.list.useQuery();
   const { data: assignableAgents = [] } = trpc.agentMarkets.listAssignableAgents.useQuery();
+  const { data: canManageSuperPermissions = false } = trpc.permissions.canManagePermissions.useQuery(undefined, { staleTime: 30_000 });
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [marketDialogOpen, setMarketDialogOpen] = useState(false);
+  const [titleDialogOpen, setTitleDialogOpen] = useState(false);
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [marketForm, setMarketForm] = useState<MarketForm>(blankMarket);
+  const [marketTitle, setMarketTitle] = useState("");
   const [noteTitle, setNoteTitle] = useState("");
   const [noteContent, setNoteContent] = useState("");
   const [agentToAssign, setAgentToAssign] = useState(EMPTY);
@@ -137,6 +140,17 @@ export default function AgentMarketsPage() {
       toast.success("Market details saved and its profile is refreshing.");
     },
     onError: error => toast.error(error.message),
+  });
+  const editTitle = trpc.agentMarkets.editTitle.useMutation({
+    onSuccess: async () => {
+      await Promise.all([utils.agentMarkets.list.invalidate(), detail.refetch()]);
+      setTitleDialogOpen(false);
+      toast.success("Market title updated.");
+    },
+    onError: error => {
+      setMarketTitle(selectedMarket?.name ?? "");
+      toast.error(error.message);
+    },
   });
   const addNote = trpc.agentMarkets.addNote.useMutation({
     onSuccess: async () => {
@@ -186,10 +200,19 @@ export default function AgentMarketsPage() {
     createMarket.mutate({ name: marketForm.name.trim(), state: marketForm.state.trim(), region: marketForm.region.trim() || null, status: marketForm.status, annualGciGoal });
   }
   function saveMarketDetails() {
-    if (!selectedMarket || !marketForm.name.trim() || !marketForm.state.trim()) return toast.error("Market name and state are required.");
+    if (!selectedMarket || !marketForm.state.trim()) return toast.error("State is required.");
     const annualGciGoal = marketForm.annualGciGoal.trim() ? Number(marketForm.annualGciGoal) : null;
     if (annualGciGoal !== null && (!Number.isFinite(annualGciGoal) || annualGciGoal < 0)) return toast.error("Enter a valid annual GCI goal.");
-    updateMarket.mutate({ marketId: selectedMarket.id, name: marketForm.name.trim(), state: marketForm.state.trim(), region: marketForm.region.trim() || null, status: marketForm.status, annualGciGoal });
+    updateMarket.mutate({ marketId: selectedMarket.id, state: marketForm.state.trim(), region: marketForm.region.trim() || null, status: marketForm.status, annualGciGoal });
+  }
+  function openTitleDialog() {
+    if (!selectedMarket) return;
+    setMarketTitle(selectedMarket.name);
+    setTitleDialogOpen(true);
+  }
+  function saveTitle() {
+    if (!selectedMarket || !marketTitle.trim()) return toast.error("Market title is required.");
+    editTitle.mutate({ marketId: selectedMarket.id, name: marketTitle.trim() });
   }
   function submitNote() {
     if (!selectedId || !noteTitle.trim() || !noteContent.trim()) return toast.error("Add a title and research text.");
@@ -236,7 +259,7 @@ export default function AgentMarketsPage() {
 
         {!selectedMarket ? <Card><CardContent className="flex min-h-[380px] flex-col items-center justify-center text-center"><MapPinned className="mb-4 h-10 w-10 text-muted-foreground" /><h2 className="font-semibold">No market selected</h2><p className="mt-2 max-w-sm text-sm text-muted-foreground">Create an Agent Market to combine research, sales outcomes, investor signals, and agent observations into a current profile.</p></CardContent></Card> : detail.isLoading ? <Card><CardContent className="flex min-h-[380px] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></CardContent></Card> : (
           <div className="space-y-6">
-            <Card><CardContent className="p-5"><div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-bold">{selectedMarket.name}</h2><Badge variant="outline" className={statusStyle(intelligence?.status)}>{refreshInProgress && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}{statusLabel(intelligence?.status)}</Badge><Badge variant="secondary" className="capitalize">{selectedMarket.status}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{selectedMarket.state}{selectedMarket.region ? ` · ${selectedMarket.region}` : ""} · Profile {relativeTime(intelligence?.generatedAt)}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setNoteDialogOpen(true)}><Plus className="mr-2 h-4 w-4" />Add research</Button><Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadSource.isPending}><Upload className="mr-2 h-4 w-4" />{uploadSource.isPending ? "Uploading…" : "Upload file"}</Button><Button variant="outline" onClick={() => sendProfileUpdateTest.mutate({ marketId: selectedMarket.id })} disabled={sendProfileUpdateTest.isPending}><Mail className="mr-2 h-4 w-4" />{sendProfileUpdateTest.isPending ? "Sending…" : "Send test email"}</Button><Button onClick={() => refresh.mutate({ marketId: selectedMarket.id })} disabled={refreshInProgress}><RefreshCw className={`mr-2 h-4 w-4 ${refreshInProgress ? "animate-spin" : ""}`} />Refresh profile</Button><input ref={fileInputRef} className="hidden" type="file" onChange={chooseFile} /></div></div>
+            <Card><CardContent className="p-5"><div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-bold">{selectedMarket.name}</h2><Badge variant="outline" className={statusStyle(intelligence?.status)}>{refreshInProgress && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}{statusLabel(intelligence?.status)}</Badge><Badge variant="secondary" className="capitalize">{selectedMarket.status}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{selectedMarket.state}{selectedMarket.region ? ` · ${selectedMarket.region}` : ""} · Profile {relativeTime(intelligence?.generatedAt)}</p></div><div className="flex flex-wrap gap-2">{canManageSuperPermissions && <Button variant="outline" onClick={openTitleDialog}><Pencil className="mr-2 h-4 w-4" />Edit title</Button>}<Button variant="outline" onClick={() => setNoteDialogOpen(true)}><Plus className="mr-2 h-4 w-4" />Add research</Button><Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadSource.isPending}><Upload className="mr-2 h-4 w-4" />{uploadSource.isPending ? "Uploading…" : "Upload file"}</Button><Button variant="outline" onClick={() => sendProfileUpdateTest.mutate({ marketId: selectedMarket.id })} disabled={sendProfileUpdateTest.isPending}><Mail className="mr-2 h-4 w-4" />{sendProfileUpdateTest.isPending ? "Sending…" : "Send test email"}</Button><Button onClick={() => refresh.mutate({ marketId: selectedMarket.id })} disabled={refreshInProgress}><RefreshCw className={`mr-2 h-4 w-4 ${refreshInProgress ? "animate-spin" : ""}`} />Refresh profile</Button><input ref={fileInputRef} className="hidden" type="file" onChange={chooseFile} /></div></div>
               {intelligence?.status === "failed" && <div className="mt-4 flex gap-2 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>Profile refresh could not complete: {intelligence.errorMessage || "Please try refreshing again."}</span></div>}
             </CardContent></Card>
 
@@ -245,7 +268,7 @@ export default function AgentMarketsPage() {
             </CardContent></Card>
 
             <div className="grid gap-6 xl:grid-cols-2"><Card><CardHeader className="pb-3"><CardTitle className="text-base">Evidence feeding this profile</CardTitle><CardDescription>{detail.data?.liveEvidence?.evidenceSnapshot || "Live CRM evidence will appear when agents are assigned."}</CardDescription></CardHeader><CardContent><div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">{[["Assigned agents", sourceCounts.assignedAgents], ["Research sources", sourceCounts.manualSources], ["Transactions", sourceCounts.transactions], ["Connected contacts", sourceCounts.connectedContacts], ["Call transcripts", sourceCounts.callTranscripts], ["Agent task notes", sourceCounts.agentTaskNotes], ["Website behaviors", sourceCounts.websiteBehaviors], ["Email behaviors", sourceCounts.emailBehaviors]].map(([label, value]) => <div className="rounded-md border bg-muted/20 p-3" key={String(label)}><p className="text-xl font-bold">{Number(value ?? 0).toLocaleString()}</p><p className="mt-1 text-xs text-muted-foreground">{label}</p></div>)}</div><p className="mt-4 text-xs leading-5 text-muted-foreground">Profiles are generated from bounded, current evidence. Individual contact identities, addresses, email addresses, and phone numbers are not retained in the generated market profile.</p></CardContent></Card>
-              <Card><CardHeader className="pb-3"><CardTitle className="text-base">Market details</CardTitle><CardDescription>Keep the market’s reporting identity and annual goal accurate. Investment fit fields are intentionally replaced by the living profile above.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="market-name">Market name</Label><Input id="market-name" className="mt-1" value={marketForm.name} onChange={event => setMarketForm(form => ({ ...form, name: event.target.value }))} /></div><div><Label htmlFor="market-state">State</Label><Input id="market-state" className="mt-1" value={marketForm.state} onChange={event => setMarketForm(form => ({ ...form, state: event.target.value }))} /></div><div><Label htmlFor="market-region">Region (optional)</Label><Input id="market-region" className="mt-1" value={marketForm.region} onChange={event => setMarketForm(form => ({ ...form, region: event.target.value }))} /></div><div><Label htmlFor="market-goal">Annual GCI goal</Label><Input id="market-goal" type="number" min="0" className="mt-1" placeholder="e.g. 500000" value={marketForm.annualGciGoal} onChange={event => setMarketForm(form => ({ ...form, annualGciGoal: event.target.value }))} /></div></div><div><Label>Market status</Label><Select value={marketForm.status} onValueChange={(value: MarketForm["status"]) => setMarketForm(form => ({ ...form, status: value }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="recruiting">Recruiting</SelectItem><SelectItem value="paused">Paused</SelectItem><SelectItem value="future">Future</SelectItem></SelectContent></Select></div><div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2"><span className="text-sm">Current annual goal</span><span className="text-sm font-semibold">{amount(selectedMarket.annualGciGoal)}</span></div><Button className="w-full" variant="outline" onClick={saveMarketDetails} disabled={updateMarket.isPending}>{updateMarket.isPending ? "Saving…" : "Save market details"}</Button></CardContent></Card></div>
+              <Card><CardHeader className="pb-3"><CardTitle className="text-base">Market details</CardTitle><CardDescription>Keep the market’s reporting details and annual goal accurate. Investment fit fields are intentionally replaced by the living profile above.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label>Market title</Label><p className="mt-1 flex h-9 items-center rounded-md border bg-muted/30 px-3 text-sm">{selectedMarket.name}</p></div><div><Label htmlFor="market-state">State</Label><Input id="market-state" className="mt-1" value={marketForm.state} onChange={event => setMarketForm(form => ({ ...form, state: event.target.value }))} /></div><div><Label htmlFor="market-region">Region (optional)</Label><Input id="market-region" className="mt-1" value={marketForm.region} onChange={event => setMarketForm(form => ({ ...form, region: event.target.value }))} /></div><div><Label htmlFor="market-goal">Annual GCI goal</Label><Input id="market-goal" type="number" min="0" className="mt-1" placeholder="e.g. 500000" value={marketForm.annualGciGoal} onChange={event => setMarketForm(form => ({ ...form, annualGciGoal: event.target.value }))} /></div></div><div><Label>Market status</Label><Select value={marketForm.status} onValueChange={(value: MarketForm["status"]) => setMarketForm(form => ({ ...form, status: value }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="recruiting">Recruiting</SelectItem><SelectItem value="paused">Paused</SelectItem><SelectItem value="future">Future</SelectItem></SelectContent></Select></div><div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2"><span className="text-sm">Current annual goal</span><span className="text-sm font-semibold">{amount(selectedMarket.annualGciGoal)}</span></div><Button className="w-full" variant="outline" onClick={saveMarketDetails} disabled={updateMarket.isPending}>{updateMarket.isPending ? "Saving…" : "Save market details"}</Button></CardContent></Card></div>
 
             <MarketZipTerritoryManager marketId={selectedMarket.id} marketName={selectedMarket.name} zipCodes={detail.data?.zipCodes ?? []} onSaved={async () => { await Promise.all([utils.agentMarkets.list.invalidate(), detail.refetch()]); }} />
 
@@ -255,6 +278,8 @@ export default function AgentMarketsPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={titleDialogOpen} onOpenChange={setTitleDialogOpen}><DialogContent><DialogHeader><DialogTitle>Edit market title</DialogTitle><DialogDescription>This changes the market’s display name only. Its research, evidence, sources, agents, IDs, and relationships stay exactly as they are.</DialogDescription></DialogHeader><div className="py-2"><Label htmlFor="market-title">Market title</Label><Input id="market-title" className="mt-1" value={marketTitle} onChange={event => setMarketTitle(event.target.value)} onKeyDown={event => { if (event.key === "Enter") saveTitle(); }} autoFocus /></div><DialogFooter><Button variant="outline" onClick={() => setTitleDialogOpen(false)} disabled={editTitle.isPending}>Cancel</Button><Button onClick={saveTitle} disabled={editTitle.isPending}>{editTitle.isPending ? "Saving…" : "Save title"}</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={marketDialogOpen} onOpenChange={setMarketDialogOpen}><DialogContent><DialogHeader><DialogTitle>Create Agent Market</DialogTitle><DialogDescription>This preserves a market identity for reporting while its intelligence profile is built from sources and internal signals.</DialogDescription></DialogHeader><div className="grid gap-4 py-2"><div><Label htmlFor="new-market-name">Market name</Label><Input id="new-market-name" className="mt-1" value={marketForm.name} onChange={event => setMarketForm(form => ({ ...form, name: event.target.value }))} placeholder="e.g. Smoky Mountains" /></div><div className="grid gap-4 sm:grid-cols-2"><div><Label htmlFor="new-market-state">State</Label><Input id="new-market-state" className="mt-1" value={marketForm.state} onChange={event => setMarketForm(form => ({ ...form, state: event.target.value }))} placeholder="TN" /></div><div><Label htmlFor="new-market-region">Region (optional)</Label><Input id="new-market-region" className="mt-1" value={marketForm.region} onChange={event => setMarketForm(form => ({ ...form, region: event.target.value }))} /></div></div><div><Label>Status</Label><Select value={marketForm.status} onValueChange={(value: MarketForm["status"]) => setMarketForm(form => ({ ...form, status: value }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="recruiting">Recruiting</SelectItem><SelectItem value="paused">Paused</SelectItem><SelectItem value="future">Future</SelectItem></SelectContent></Select></div></div><DialogFooter><Button variant="outline" onClick={() => setMarketDialogOpen(false)}>Cancel</Button><Button onClick={submitMarket} disabled={createMarket.isPending}>{createMarket.isPending ? "Creating…" : "Create market"}</Button></DialogFooter></DialogContent></Dialog>
 
