@@ -43,7 +43,11 @@ import { trpc } from "@/lib/trpc";
 import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
 import { captureVisitAttribution, formAttribution } from "@/lib/visitAttribution";
-import { splitOnContactForm } from "@shared/websiteEditablePages";
+import {
+  editableListPage,
+  listPageHeading,
+  splitOnContactForm,
+} from "@shared/websiteEditablePages";
 import {
   INVESTMENT_BANDS,
   cleanTags,
@@ -239,6 +243,23 @@ function usePageTitle(title: string) {
   useEffect(() => {
     document.title = title ? `${title} | Savvy STR Agents` : "Savvy STR Agents";
   }, [title]);
+}
+
+/**
+ * The words at the top of a list page (Properties, Agents, Markets, Case
+ * Studies, Resources): the designed wording, or a version published in the
+ * Website Studio CMS. Sets the tab title too. The designed wording shows
+ * while the check is in flight, so the page never waits on it.
+ */
+function useListHeading(slug: string) {
+  const starter = editableListPage(slug)!.starter;
+  const query = trpc.website.publicPage.useQuery(
+    { slug },
+    { staleTime: 5 * 60_000 }
+  );
+  const heading = listPageHeading(starter, query.data);
+  usePageTitle(heading.metaTitle);
+  return heading;
 }
 
 /**
@@ -1328,7 +1349,7 @@ function readPropertyFilters(): PropertyFilters {
 }
 
 function PropertiesPage() {
-  usePageTitle("Short-Term Rental Properties for Sale");
+  const heading = useListHeading("properties");
   const [filters, setFilters] = useState<PropertyFilters>(readPropertyFilters);
   const set = (key: PropertyFilterKey) => (value: string) =>
     setFilters(current => ({ ...current, [key]: value }));
@@ -1441,16 +1462,17 @@ function PropertiesPage() {
         <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-600">
-                Properties for sale
-              </p>
+              {heading.heroEyebrow && (
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-600">
+                  {heading.heroEyebrow}
+                </p>
+              )}
               <h1 className="mt-2 text-4xl font-black text-[#05314a] sm:text-5xl">
-                Short-Term Rental Properties
+                {heading.heroTitle}
               </h1>
             </div>
             <p className="max-w-xl text-base text-slate-600 lg:text-right">
-              Investor-focused opportunities, specialist agents, and property
-              intelligence in one place.
+              {heading.heroSubtitle}
             </p>
           </div>
 
@@ -2145,7 +2167,7 @@ function PropertyDetailPage({ slug }: { slug: string }) {
 }
 
 function AgentsPage() {
-  usePageTitle("Our STR Investment Agents");
+  const heading = useListHeading("agents");
   const [search, setSearch] = useState("");
   const query = trpc.website.publicAgents.useQuery();
   if (query.isLoading) return <LoadingPage />;
@@ -2160,16 +2182,13 @@ function AgentsPage() {
     <Shell>
       <section className="bg-[#05314a] py-20 text-center text-white">
         <div className="mx-auto max-w-3xl px-5">
-          <p className="text-xs font-bold uppercase tracking-[.2em] text-cyan-300">
-            National network. Local expertise.
-          </p>
-          <h1 className="mt-3 text-5xl font-black">
-            Find Your STR Investment Agent
-          </h1>
-          <p className="mt-5 text-lg text-cyan-50">
-            Search by name, market, state, or specialty and meet an agent who
-            speaks investor.
-          </p>
+          {heading.heroEyebrow && (
+            <p className="text-xs font-bold uppercase tracking-[.2em] text-cyan-300">
+              {heading.heroEyebrow}
+            </p>
+          )}
+          <h1 className="mt-3 text-5xl font-black">{heading.heroTitle}</h1>
+          <p className="mt-5 text-lg text-cyan-50">{heading.heroSubtitle}</p>
         </div>
       </section>
       <section className="bg-slate-50 py-14">
@@ -2349,7 +2368,7 @@ function useQueryParam(key: string): [string, (value: string) => void] {
 }
 
 function CaseStudiesPage() {
-  usePageTitle("STR Investment Case Studies");
+  const heading = useListHeading("case-studies");
   const [search, setSearch] = useQueryParam("search");
   const [bandParam, setBand] = useQueryParam("investment");
   const band = isInvestmentBand(bandParam) ? bandParam : "";
@@ -2374,10 +2393,14 @@ function CaseStudiesPage() {
     <Shell>
       <section className="border-b bg-slate-50 py-16">
         <div className="mx-auto max-w-[1180px] px-4 text-center sm:px-6">
-          <h1 className="text-5xl font-black text-[#05314a]">Case Studies</h1>
+          {heading.heroEyebrow && (
+            <p className="mb-3 text-xs font-bold uppercase tracking-[.2em] text-cyan-600">
+              {heading.heroEyebrow}
+            </p>
+          )}
+          <h1 className="text-5xl font-black text-[#05314a]">{heading.heroTitle}</h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
-            The decisions, relationships, and execution behind successful STR
-            purchases.
+            {heading.heroSubtitle}
           </p>
           <div className="mx-auto mt-8 flex max-w-4xl flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm md:flex-row md:items-center">
             <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-cyan-500 focus-within:bg-white">
@@ -2545,7 +2568,7 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
 }
 
 function ResourcesPage() {
-  usePageTitle("Insights & Resources");
+  const heading = useListHeading("resources");
   const [search, setSearch] = useQueryParam("search");
   const [category, setCategory] = useQueryParam("category");
   const [tagParam, setTagParam] = useQueryParam("tags");
@@ -2602,13 +2625,15 @@ function ResourcesPage() {
           <p className="text-sm text-slate-500">
             <a href={path()}>Home</a> / Resources
           </p>
-          <h1 className="mt-6 text-5xl font-black text-[#05314a]">
-            Insights & Resources
+          {heading.heroEyebrow && (
+            <p className="mt-6 text-xs font-bold uppercase tracking-[.2em] text-cyan-600">
+              {heading.heroEyebrow}
+            </p>
+          )}
+          <h1 className={`${heading.heroEyebrow ? "mt-3" : "mt-6"} text-5xl font-black text-[#05314a]`}>
+            {heading.heroTitle}
           </h1>
-          <p className="mt-4 text-lg text-slate-600">
-            Investment strategies, market analysis, and STR guidance from
-            specialist agents.
-          </p>
+          <p className="mt-4 text-lg text-slate-600">{heading.heroSubtitle}</p>
           <div className="mt-8 flex max-w-2xl items-center gap-2 rounded-xl border bg-slate-50 px-4 focus-within:border-cyan-500 focus-within:bg-white">
             <Search className="h-5 w-5 text-cyan-600" />
             <input
@@ -3531,17 +3556,20 @@ function ContactPage() {
  * so the page never offers a market that opens onto nothing.
  */
 function MarketsPage() {
-  usePageTitle("STR Markets");
+  const heading = useListHeading("markets");
   const markets = trpc.website.publicMarketDirectory.useQuery();
   const items: any[] = markets.data || [];
   if (markets.isLoading) return <LoadingPage />;
   return (
     <Shell>
       <section className="bg-[#05314a] py-20 text-center text-white">
-        <h1 className="text-5xl font-black">STR Markets</h1>
-        <p className="mx-auto mt-4 max-w-2xl text-cyan-50">
-          The markets we cover, and what is on the market in each one today.
-        </p>
+        {heading.heroEyebrow && (
+          <p className="mb-3 text-xs font-bold uppercase tracking-[.2em] text-cyan-300">
+            {heading.heroEyebrow}
+          </p>
+        )}
+        <h1 className="text-5xl font-black">{heading.heroTitle}</h1>
+        <p className="mx-auto mt-4 max-w-2xl text-cyan-50">{heading.heroSubtitle}</p>
       </section>
       <section className="bg-slate-50 py-16">
         <div className="mx-auto max-w-[1100px] px-5">
