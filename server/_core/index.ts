@@ -70,6 +70,7 @@ import { startSwoogoTokenRefresh } from "../swoogoEvents";
 import { ensureProjectTodoWorkflowSchema } from "../projectTodoWorkflowSchema";
 import { ensureWebinarRequestSchema } from "../webinarRequestSchema";
 import { ensureContactLeadSourceTrigger } from "../contactLeadSourceTrigger";
+import { ensureRrMeasurableSchema } from "../rrMeasurableSchema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -97,6 +98,7 @@ async function startServer() {
   await ensureProjectTodoWorkflowSchema();
   await ensureWebinarRequestSchema();
   await ensureContactLeadSourceTrigger();
+  await ensureRrMeasurableSchema();
 
   const app = express();
   const server = createServer(app);

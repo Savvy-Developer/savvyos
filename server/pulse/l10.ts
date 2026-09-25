@@ -35,6 +35,7 @@ import { router } from "../_core/trpc";
 import { getDb } from "../db";
 import { require_visible_meeting, visible_meeting_ids } from "./access";
 import { hasPulseCapability, PULSE_CAPABILITIES, pulseMemberProcedure, requirePulseCapability } from "./authorization";
+import { periodToDatePerformance } from "../rrScorecard";
 
 const id = () => crypto.randomUUID();
 const day = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
@@ -178,11 +179,15 @@ async function getScorecard(db: any, targetMeetingId: string, historyWeeks: numb
   const byMetric = new Map<number, any[]>();
   values.forEach((value: any) => byMetric.set(value.metricId, [...(byMetric.get(value.metricId) ?? []), value]));
   return mappings.map((row: any) => {
-    const history = (byMetric.get(row.metric.id) ?? []).slice(0, historyWeeks).reverse().map((value: any) => ({
+    const sourceValues = byMetric.get(row.metric.id) ?? [];
+    const recordByValueId = periodToDatePerformance(sourceValues.map((value: any) => ({ id: value.id, actual: value.actualValue == null ? null : Number(value.actualValue), resultState: value.resultState })), row.metric);
+    const history = sourceValues.slice(0, historyWeeks).reverse().map((value: any) => ({
+      id: value.id,
       periodStart: dateValue(value.periodStart),
       periodEnd: dateValue(value.periodEnd),
-      value: Number(value.actualValue),
+      value: value.actualValue == null ? null : Number(value.actualValue),
       note: value.note ?? null,
+      periodToDatePerformance: recordByValueId.get(value.id) ?? null,
     }));
     const current = history.at(-1) ?? null;
     const target = row.metric.targetValue == null ? null : Number(row.metric.targetValue);
@@ -199,6 +204,7 @@ async function getScorecard(db: any, targetMeetingId: string, historyWeeks: numb
       current,
       history,
       onTarget,
+      periodToDatePerformance: current?.periodToDatePerformance ?? null,
       canEnter: row.metric.metricType === "manual",
     };
   });
@@ -805,7 +811,7 @@ export const pulseL10Router = router({
     await requireL10Capability(db, ctx.user, input.meetingId, "manage_l10s");
     if (input.selected) {
       const [metric] = await db.select({ id: rrScorecardMetrics.id }).from(rrScorecardMetrics).where(and(eq(rrScorecardMetrics.id, input.metricId), eq(rrScorecardMetrics.status, "active"))).limit(1);
-      if (!metric) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active Scorecard Metric." });
+      if (!metric) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active measurable." });
       const rows = await db.select({ sortOrder: pulseMeetingScorecardMetrics.sortOrder }).from(pulseMeetingScorecardMetrics).where(eq(pulseMeetingScorecardMetrics.meetingId, input.meetingId));
       await db.insert(pulseMeetingScorecardMetrics).values({ id: id(), meetingId: input.meetingId, savvyosMetricId: input.metricId, sortOrder: rows.length ? Math.max(...rows.map((row) => row.sortOrder)) + 1 : 0, addedById: ctx.user.id }).onDuplicateKeyUpdate({ set: { savvyosMetricId: input.metricId } });
     } else await db.delete(pulseMeetingScorecardMetrics).where(and(eq(pulseMeetingScorecardMetrics.meetingId, input.meetingId), eq(pulseMeetingScorecardMetrics.savvyosMetricId, input.metricId)));

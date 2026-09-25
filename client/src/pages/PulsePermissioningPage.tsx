@@ -9,7 +9,7 @@ import { trpc } from "@/lib/trpc";
 
 const capabilities: Record<string, { label: string; description: string }> = {
   manage_permission_matrix: { label: "Manage permission matrix", description: "View this matrix and grant or revoke every other Pulse permission." },
-  manage_l10s: { label: "Manage L10s", description: "Create, configure, archive, reactivate, manage participants, and map Scorecard Metrics and Rock visibility for member L10s." },
+  manage_l10s: { label: "Manage L10s", description: "Create, configure, archive, reactivate, manage participants, and map measurables and Rock visibility for member L10s." },
   run_l10s: { label: "Run L10s", description: "Start, pause, advance, and close member L10 sessions, including publishing their prepared cascades." },
   view_all_l10_health: { label: "View all L10 health", description: "Review aggregate cadence and outcome health without bypassing membership for work-item data." },
 };

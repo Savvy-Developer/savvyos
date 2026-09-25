@@ -47,6 +47,7 @@ import {
   scoreResult,
   trendPhrase as scorecardTrendPhrase,
 } from "../rrScorecard";
+import { describeMeasurableCalculation, listTrailingWeeks } from "@shared/scorecard";
 
 const CADENCES = ["ongoing", "daily", "weekly", "biweekly", "monthly", "quarterly", "annually", "as_needed", "custom"] as const;
 const METRIC_FREQUENCIES = LEGACY_FREQUENCIES;
@@ -103,6 +104,7 @@ const metricInput = z.object({
   formulaExpression: z.string().trim().max(1_000).nullable().optional(),
   manualInputDefinitions: z.array(z.object({ key: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9_]*$/).max(64), label: z.string().trim().min(1).max(100), unit: z.string().trim().max(32).optional() })).max(12).optional(),
   zeroDenominatorLabel: z.string().trim().max(255).nullable().optional(),
+  calculationDescription: z.string().trim().max(5_000).nullable().optional(),
   isCumulative: z.boolean(),
   cumulativeReset: z.enum(["monthly", "quarterly", "annually", "never"]).nullable().optional(),
   status: z.enum(["active", "inactive"]),
@@ -110,10 +112,10 @@ const metricInput = z.object({
   l10MeetingIds: z.array(z.string().uuid()).max(50).optional(),
 }).superRefine((value, ctx) => {
   if (value.metricType === "automatic" && !value.autoConfig) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Automatic metrics require an automatic calculation configuration.", path: ["autoConfig"] });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Automatic measurables require an automatic calculation configuration.", path: ["autoConfig"] });
   }
   if (value.metricType === "manual" && value.autoConfig) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Manual metrics cannot include an automatic calculation configuration.", path: ["autoConfig"] });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Manual measurables cannot include an automatic calculation configuration.", path: ["autoConfig"] });
   }
   if (value.metricType === "hybrid" && !value.autoConfig) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Hybrid metrics require their automatic input configuration.", path: ["autoConfig"] });
@@ -138,6 +140,9 @@ const metricInput = z.object({
   }
   if (value.calculationMethod === "formula" && value.metricType === "automatic") {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A formula metric needs manual inputs or a hybrid automatic input.", path: ["metricType"] });
+  }
+  if (value.metricType === "manual" && !(value.calculationDescription ?? "").trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Describe how this measurable is calculated.", path: ["calculationDescription"] });
   }
 });
 
@@ -180,7 +185,7 @@ async function requireAdminOwner(db: Db, ownerId: number): Promise<{ id: number;
 async function requireMetricOwner(db: Db, ownerId: number): Promise<{ id: number; name: string | null; email: string | null; title: string | null }> {
   const [owner] = await db.select({ id: users.id, name: users.name, email: users.email, title: users.title, isActive: users.isActive })
     .from(users).where(eq(users.id, ownerId)).limit(1);
-  if (!owner || !owner.isActive) throw new TRPCError({ code: "BAD_REQUEST", message: "The metric owner must be an active SavvyOS user." });
+  if (!owner || !owner.isActive) throw new TRPCError({ code: "BAD_REQUEST", message: "The measurable owner must be an active SavvyOS user." });
   return owner;
 }
 
@@ -337,7 +342,7 @@ export async function refreshAutomaticMetric(db: Db, metricId: number): Promise<
     .innerJoin(rolesResponsibilities, eq(rrScorecardMetrics.responsibilityId, rolesResponsibilities.id))
     .innerJoin(rrMetricAutoConfigs, eq(rrMetricAutoConfigs.metricId, rrScorecardMetrics.id))
     .where(eq(rrScorecardMetrics.id, metricId)).limit(1);
-  if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Automatic metric configuration not found." });
+  if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Automatic measurable configuration not found." });
   const metric = record.metric;
   const config = record.config;
   const bounds = metricPeriodBounds(metric as any);
@@ -383,8 +388,9 @@ export async function refreshAutomaticMetric(db: Db, metricId: number): Promise<
   }
 }
 
-async function performanceForMetric(db: Db, metric: typeof rrScorecardMetrics.$inferSelect) {
-  const bounds = metricPeriodBounds(metric as any);
+async function performanceForMetric(db: Db, metric: typeof rrScorecardMetrics.$inferSelect, options?: { referenceDate?: Date; autoConfig?: any | null }) {
+  const referenceDate = options?.referenceDate ?? new Date();
+  const bounds = metricPeriodBounds(metric as any, referenceDate);
   const defaultStart = scorecardDateOnly(bounds.start);
   const defaultEnd = scorecardDateOnly(addDays(bounds.end, -1));
   const [allValues, targetHistory] = await Promise.all([
@@ -408,7 +414,35 @@ async function performanceForMetric(db: Db, metric: typeof rrScorecardMetrics.$i
     return { ...value, actual: valueActual, target: valueTarget, grade: scoreResult(valueActual, value.resultState, valueTarget), periodToDatePerformance: recordByValueId.get(value.id) ?? null };
   });
   const currentPerformance = current ? recordByValueId.get(current.id) ?? null : null;
-  return { ...metric, currentValue: current, actual, target: target.targetValue, targetConfig: target, statusLabel: graded.status, onTarget: graded.onTarget, trend: actual != null && decimalNumber(prior?.actualValue) != null ? actual - decimalNumber(prior?.actualValue)! : null, periodStart, periodEnd, periodLabel: formatScorecardPeriod(metric as any, new Date(`${periodStart}T00:00:00Z`), new Date(`${periodEnd}T00:00:00Z`)), periodToDatePerformance: currentPerformance, valueHistory: history, targetHistory };
+  const trendWeeks = listTrailingWeeks(8, referenceDate).map((week) => {
+    const value = allValues.find((candidate) => candidate.periodStart === week.start && candidate.periodEnd === week.end) ?? null;
+    return {
+      periodStart: week.start,
+      periodEnd: week.end,
+      label: week.label.replace(/^This week · /, ""),
+      actual: decimalNumber(value?.actualValue),
+      resultState: value?.resultState ?? "missing",
+      periodToDatePerformance: value ? recordByValueId.get(value.id) ?? null : null,
+    };
+  });
+  return {
+    ...metric,
+    currentValue: current,
+    actual,
+    target: target.targetValue,
+    targetConfig: target,
+    statusLabel: graded.status,
+    onTarget: graded.onTarget,
+    trend: actual != null && decimalNumber(prior?.actualValue) != null ? actual - decimalNumber(prior?.actualValue)! : null,
+    periodStart,
+    periodEnd,
+    periodLabel: formatScorecardPeriod(metric as any, new Date(`${periodStart}T00:00:00Z`), new Date(`${periodEnd}T00:00:00Z`)),
+    periodToDatePerformance: currentPerformance,
+    valueHistory: history,
+    targetHistory,
+    trendWeeks,
+    howCalculated: describeMeasurableCalculation(metric as any, options?.autoConfig ?? null),
+  };
 }
 
 async function detailedResponsibility(db: Db, responsibilityId: number) {
@@ -442,7 +476,7 @@ async function detailedResponsibility(db: Db, responsibilityId: number) {
   const l10IdsByMetric = new Map<number, string[]>();
   for (const mapping of metricMappings) if (mapping.metricId != null) l10IdsByMetric.set(mapping.metricId, [...(l10IdsByMetric.get(mapping.metricId) ?? []), mapping.meetingId]);
   const metricOwnerById = new Map(metricOwners.map((owner) => [owner.id, owner]));
-  const metrics = await Promise.all(metricRows.map(async ({ metric, config }) => ({ ...(await performanceForMetric(db, metric)), owner: metricOwnerById.get(metric.ownerId ?? base.responsibility.ownerId) ?? base.owner, autoConfig: config, l10MeetingIds: l10IdsByMetric.get(metric.id) ?? [], changeHistory: changeHistory.filter((entry) => entry.metricId === metric.id) })));
+  const metrics = await Promise.all(metricRows.map(async ({ metric, config }) => ({ ...(await performanceForMetric(db, metric, { autoConfig: config })), owner: metricOwnerById.get(metric.ownerId ?? base.responsibility.ownerId) ?? base.owner, autoConfig: config, l10MeetingIds: l10IdsByMetric.get(metric.id) ?? [], changeHistory: changeHistory.filter((entry) => entry.metricId === metric.id) })));
   return {
     ...base.responsibility,
     owner: { id: base.owner.id, name: base.owner.name, email: base.owner.email, title: base.owner.title, department: base.ownerProfile?.adminType ?? null, reportsToId: base.owner.reportsToId },
@@ -719,6 +753,9 @@ export const rolesResponsibilitiesRouter = router({
       formulaExpression: metricData.formulaExpression || null,
       manualInputDefinitions: metricData.manualInputDefinitions?.length ? metricData.manualInputDefinitions : null,
       zeroDenominatorLabel: metricData.zeroDenominatorLabel || null,
+      calculationDescription: metricData.metricType === "automatic" || metricData.metricType === "hybrid"
+        ? describeMeasurableCalculation({ ...metricData, metricType: metricData.metricType, formulaExpression: metricData.formulaExpression, isCumulative: metricData.isCumulative, cumulativeReset: metricData.cumulativeReset }, autoConfig)
+        : (metricData.calculationDescription || null),
       cumulativeReset: metricData.isCumulative ? (metricData.cumulativeReset ?? null) : null,
       archivedAt: metricData.status === "inactive" ? new Date() : null,
       createdById: ctx.user.id,
@@ -726,7 +763,7 @@ export const rolesResponsibilitiesRouter = router({
     const metricId = await db.transaction(async (tx: any) => {
       let targetId = id;
       let existing: typeof rrScorecardMetrics.$inferSelect | null = null;
-      if (targetId) { [existing] = await tx.select().from(rrScorecardMetrics).where(eq(rrScorecardMetrics.id, targetId)).limit(1); if (!existing || existing.responsibilityId !== input.responsibilityId) throw new TRPCError({ code: "NOT_FOUND", message: "Metric not found." }); await tx.update(rrScorecardMetrics).set(data).where(eq(rrScorecardMetrics.id, targetId)); }
+      if (targetId) { [existing] = await tx.select().from(rrScorecardMetrics).where(eq(rrScorecardMetrics.id, targetId)).limit(1); if (!existing || existing.responsibilityId !== input.responsibilityId) throw new TRPCError({ code: "NOT_FOUND", message: "Measurable not found." }); await tx.update(rrScorecardMetrics).set(data).where(eq(rrScorecardMetrics.id, targetId)); }
       else { const result = await tx.insert(rrScorecardMetrics).values(data); targetId = Number(result[0].insertId); }
       const targetChanged = !existing || ["targetValue", "targetMinimum", "targetMaximum", "comparisonRule", "warningThreshold"].some((key) => String((existing as any)?.[key] ?? "") !== String((data as any)[key] ?? ""));
       if (targetChanged) await tx.insert(rrMetricTargetHistory).values({ metricId: targetId!, effectiveDate: targetEffectiveDate ?? scorecardDateOnly(new Date()), targetValue: data.targetValue, targetMinimum: data.targetMinimum, targetMaximum: data.targetMaximum, comparisonRule, warningThreshold: data.warningThreshold, note: targetChangeNote || null, createdById: ctx.user.id });
@@ -756,7 +793,7 @@ export const rolesResponsibilitiesRouter = router({
   deleteMetric: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" }); await requireRrAccess(db, ctx.user as Viewer);
     const [metric] = await db.select().from(rrScorecardMetrics).where(eq(rrScorecardMetrics.id, input.id)).limit(1);
-    if (!metric) throw new TRPCError({ code: "NOT_FOUND", message: "Metric not found." });
+    if (!metric) throw new TRPCError({ code: "NOT_FOUND", message: "Measurable not found." });
     await db.transaction(async (tx: any) => {
       await tx.update(rrScorecardMetrics).set({ status: "inactive", archivedAt: new Date() }).where(eq(rrScorecardMetrics.id, input.id));
       await tx.insert(rrMetricChangeHistory).values({ metricId: input.id, changeType: "metric_archived", details: { name: metric.name }, createdById: ctx.user.id });
@@ -767,7 +804,7 @@ export const rolesResponsibilitiesRouter = router({
   restoreMetric: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" }); await requireRrAccess(db, ctx.user as Viewer);
     const [metric] = await db.select().from(rrScorecardMetrics).where(eq(rrScorecardMetrics.id, input.id)).limit(1);
-    if (!metric) throw new TRPCError({ code: "NOT_FOUND", message: "Metric not found." });
+    if (!metric) throw new TRPCError({ code: "NOT_FOUND", message: "Measurable not found." });
     await db.transaction(async (tx: any) => {
       await tx.update(rrScorecardMetrics).set({ status: "active", archivedAt: null }).where(eq(rrScorecardMetrics.id, input.id));
       await tx.insert(rrMetricChangeHistory).values({ metricId: input.id, changeType: "metric_restored", details: { name: metric.name }, createdById: ctx.user.id });
@@ -777,7 +814,7 @@ export const rolesResponsibilitiesRouter = router({
 
   saveManualValue: protectedProcedure.input(z.object({ metricId: z.number().int().positive(), periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), periodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), actualValue: z.number().finite().nullable().optional(), resultState: z.enum(RESULT_STATES).default("reported"), note: z.string().max(5_000).nullable().optional(), eventLabel: z.string().trim().max(255).nullable().optional(), eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), supportingInputs: z.record(z.string(), z.number().finite().nullable()).nullable().optional() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" }); await requireRrAccess(db, ctx.user as Viewer);
-    const [metric] = await db.select().from(rrScorecardMetrics).where(eq(rrScorecardMetrics.id, input.metricId)).limit(1); if (!metric) throw new TRPCError({ code: "NOT_FOUND", message: "Metric not found." }); if (metric.metricType === "automatic") throw new TRPCError({ code: "BAD_REQUEST", message: "This metric is fully calculated by SavvyOS." }); if (input.periodEnd < input.periodStart) throw new TRPCError({ code: "BAD_REQUEST", message: "The measurement period is invalid." }); if (input.resultState === "reported" && input.actualValue == null && metric.calculationMethod !== "formula") throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a result or select a data state." });
+    const [metric] = await db.select().from(rrScorecardMetrics).where(eq(rrScorecardMetrics.id, input.metricId)).limit(1); if (!metric) throw new TRPCError({ code: "NOT_FOUND", message: "Measurable not found." }); if (metric.metricType === "automatic") throw new TRPCError({ code: "BAD_REQUEST", message: "This measurable is fully calculated by SavvyOS." }); if (input.periodEnd < input.periodStart) throw new TRPCError({ code: "BAD_REQUEST", message: "The measurement period is invalid." }); if (input.resultState === "reported" && input.actualValue == null && metric.calculationMethod !== "formula") throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a result or select a data state." });
     const [existing] = await db.select({ id: rrMetricValues.id, supportingInputs: rrMetricValues.supportingInputs }).from(rrMetricValues).where(and(eq(rrMetricValues.metricId, input.metricId), eq(rrMetricValues.periodStart, input.periodStart), eq(rrMetricValues.periodEnd, input.periodEnd))).limit(1);
     const supportingInputs = { ...((existing?.supportingInputs ?? {}) as Record<string, number | null>), ...(input.supportingInputs ?? {}) };
     let actualValue = input.actualValue ?? null;
@@ -797,7 +834,7 @@ export const rolesResponsibilitiesRouter = router({
 
   refreshMetric: protectedProcedure.input(z.object({ metricId: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" }); await requireRrAccess(db, ctx.user as Viewer); return refreshAutomaticMetric(db, input.metricId); }),
 
-  scorecard: protectedProcedure.input(z.object({ ownerId: z.number().int().positive().optional(), responsibilityId: z.number().int().positive().optional(), status: z.enum(["active", "inactive", "all"]).default("active"), metricType: z.enum(["manual", "automatic", "hybrid", "all"]).default("all"), onTarget: z.enum(["all", "on_target", "off_target", "warning", "missing", "target_unset", "informational"]).default("all") }).optional()).query(async ({ ctx, input }) => {
+  scorecard: protectedProcedure.input(z.object({ ownerId: z.number().int().positive().optional(), responsibilityId: z.number().int().positive().optional(), status: z.enum(["active", "inactive", "all"]).default("active"), metricType: z.enum(["manual", "automatic", "hybrid", "all"]).default("all"), onTarget: z.enum(["all", "on_target", "off_target", "warning", "missing", "target_unset", "informational"]).default("all"), weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).optional()).query(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) return []; await requireRrAccess(db, ctx.user as Viewer);
     const conditions: any[] = []; if (input?.ownerId) conditions.push(or(eq(rrScorecardMetrics.ownerId, input.ownerId), and(isNull(rrScorecardMetrics.ownerId), eq(rolesResponsibilities.ownerId, input.ownerId)))); if (input?.responsibilityId) conditions.push(eq(rrScorecardMetrics.responsibilityId, input.responsibilityId)); if (input?.status !== "all") conditions.push(eq(rrScorecardMetrics.status, input?.status ?? "active")); if (input?.metricType !== "all") conditions.push(eq(rrScorecardMetrics.metricType, input?.metricType ?? "manual"));
     const metrics = await db.select({ metric: rrScorecardMetrics, responsibility: rolesResponsibilities, owner: users, department: adminProfiles.adminType, config: rrMetricAutoConfigs }).from(rrScorecardMetrics).innerJoin(rolesResponsibilities, eq(rrScorecardMetrics.responsibilityId, rolesResponsibilities.id)).innerJoin(users, eq(rolesResponsibilities.ownerId, users.id)).leftJoin(adminProfiles, eq(adminProfiles.userId, users.id)).leftJoin(rrMetricAutoConfigs, eq(rrMetricAutoConfigs.metricId, rrScorecardMetrics.id)).where(conditions.length ? and(...conditions) : undefined).orderBy(asc(users.name), asc(rolesResponsibilities.title), asc(rrScorecardMetrics.name));
@@ -812,7 +849,8 @@ export const rolesResponsibilitiesRouter = router({
     ]) : [[], []] as const;
     const meetingIdsByMetric = new Map<number, string[]>();
     for (const mapping of mappings) if (mapping.metricId != null) meetingIdsByMetric.set(mapping.metricId, [...(meetingIdsByMetric.get(mapping.metricId) ?? []), mapping.meetingId]);
-    const performance = await Promise.all(metrics.map(async (row) => ({ ...(await performanceForMetric(db, row.metric)), responsibility: { id: row.responsibility.id, title: row.responsibility.title }, owner: { ...(ownerById.get(row.metric.ownerId ?? row.responsibility.ownerId) ?? row.owner), department: row.department ?? null }, autoConfig: row.config, l10MeetingIds: meetingIdsByMetric.get(row.metric.id) ?? [], changeHistory: changes.filter((entry) => entry.metricId === row.metric.id) })));
+    const referenceDate = input?.weekStart ? new Date(`${input.weekStart}T12:00:00Z`) : new Date();
+    const performance = await Promise.all(metrics.map(async (row) => ({ ...(await performanceForMetric(db, row.metric, { referenceDate, autoConfig: row.config })), responsibility: { id: row.responsibility.id, title: row.responsibility.title }, owner: { ...(ownerById.get(row.metric.ownerId ?? row.responsibility.ownerId) ?? row.owner), department: row.department ?? null }, autoConfig: row.config, l10MeetingIds: meetingIdsByMetric.get(row.metric.id) ?? [], changeHistory: changes.filter((entry) => entry.metricId === row.metric.id) })));
     return input?.onTarget === "all" ? performance : performance.filter((metric) => metric.statusLabel === input?.onTarget);
   }),
 
@@ -854,7 +892,7 @@ export const rolesResponsibilitiesRouter = router({
 
   aiSuggestMetrics: protectedProcedure.input(z.object({ responsibilityId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" }); await requireRrAccess(db, ctx.user as Viewer); const detail = await detailedResponsibility(db, input.responsibilityId);
-    const result = await invokeLLM({ model: "gpt-5-mini", responseFormat: { type: "json_object" }, maxTokens: 1400, messages: [{ role: "system", content: "Suggest practical scorecard metrics for one responsibility. Return JSON only with suggestions array. Each suggestion needs name, metricType (manual or automatic), frequency (weekly/monthly/quarterly/annually), targetValue or null, performanceDirection (higher/lower), displayFormat (number/percentage/currency/duration), rollupMethod (sum/average/count/percentage/latest), isCumulative, rationale, and possibleDataSource (tasks/transactions/agent_connections/null). Recommendations must be proposals requiring review." }, { role: "user", content: JSON.stringify({ responsibility: { title: detail.title, description: detail.description, cadence: detail.cadence, sops: detail.sops.map((sop: any) => sop.title) } }) }] });
+    const result = await invokeLLM({ model: "gpt-5-mini", responseFormat: { type: "json_object" }, maxTokens: 1400, messages: [{ role: "system", content: "Suggest practical measurables for one responsibility. Return JSON only with suggestions array. Each suggestion needs name, metricType (manual or automatic), frequency (weekly/monthly/quarterly/annually), targetValue or null, performanceDirection (higher/lower), displayFormat (number/percentage/currency/duration), rollupMethod (sum/average/count/percentage/latest), isCumulative, rationale, and possibleDataSource (tasks/transactions/agent_connections/null). Recommendations must be proposals requiring review." }, { role: "user", content: JSON.stringify({ responsibility: { title: detail.title, description: detail.description, cadence: detail.cadence, sops: detail.sops.map((sop: any) => sop.title) } }) }] });
     return parseJson(llmText(result));
   }),
 

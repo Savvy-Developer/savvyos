@@ -269,50 +269,8 @@ export function scoreResult(actual: number | null, resultState: string | null | 
   return { status: warningApplies ? "warning" : "off_target", onTarget: false };
 }
 
-export type PeriodPerformanceMarker = {
-  kind: "best" | "worst" | "tied_best" | "tied_worst";
-  label: string;
-  comparedPeriods: number;
-};
-
-type ComparablePeriodValue = {
-  id: string | number;
-  actual: number | null | undefined;
-  resultState?: string | null;
-};
-
-function periodPerformanceNoun(metric: PeriodMetric) {
-  const period = currentMeasurementPeriod(metric);
-  if (period === "weekly") return "week";
-  if (period === "monthly" || period === "month_to_date") return "month";
-  if (period === "quarterly" || period === "quarter_to_date") return "quarter";
-  if (period === "annually" || period === "year_to_date") return "year";
-  return null;
-}
-
-/**
- * Returns current record-holder metadata for comparable reported periods. A marker
- * is intentionally withheld until at least two eligible periods exist and when all
- * values are equal, because neither a best nor worst distinction is meaningful.
- */
-export function periodToDatePerformance(values: ComparablePeriodValue[], metric: PeriodMetric & { performanceDirection?: string | null }) {
-  const noun = periodPerformanceNoun(metric);
-  if (!noun) return new Map<string | number, PeriodPerformanceMarker>();
-  const reported = values.filter((value) => value.resultState === "reported" && value.actual != null && Number.isFinite(value.actual));
-  if (reported.length < 2) return new Map<string | number, PeriodPerformanceMarker>();
-  const actuals = reported.map((value) => value.actual as number);
-  const bestValue = metric.performanceDirection === "lower" ? Math.min(...actuals) : Math.max(...actuals);
-  const worstValue = metric.performanceDirection === "lower" ? Math.max(...actuals) : Math.min(...actuals);
-  if (bestValue === worstValue) return new Map<string | number, PeriodPerformanceMarker>();
-  const bestCount = reported.filter((value) => value.actual === bestValue).length;
-  const worstCount = reported.filter((value) => value.actual === worstValue).length;
-  const result = new Map<string | number, PeriodPerformanceMarker>();
-  for (const value of reported) {
-    if (value.actual === bestValue) result.set(value.id, { kind: bestCount > 1 ? "tied_best" : "best", label: `${bestCount > 1 ? "Tied best" : "Best"} ${noun} to date`, comparedPeriods: reported.length });
-    else if (value.actual === worstValue) result.set(value.id, { kind: worstCount > 1 ? "tied_worst" : "worst", label: `${worstCount > 1 ? "Tied worst" : "Worst"} ${noun} to date`, comparedPeriods: reported.length });
-  }
-  return result;
-}
+export { periodToDatePerformance } from "@shared/scorecard";
+export type { PeriodPerformanceMarker } from "@shared/scorecard";
 
 export function trendPhrase(values: Array<number | null>, frequency: LegacyFrequency) {
   const [current, prior, older] = values;

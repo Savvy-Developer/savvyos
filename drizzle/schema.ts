@@ -3588,6 +3588,7 @@ export const rrScorecardMetrics = mysqlTable(
     formulaExpression: text("formulaExpression"),
     manualInputDefinitions: json("manualInputDefinitions").$type<Array<{ key: string; label: string; unit?: string }>>(),
     zeroDenominatorLabel: varchar("zeroDenominatorLabel", { length: 255 }),
+    calculationDescription: text("calculationDescription"),
     isCumulative: boolean("isCumulative").default(false).notNull(),
     cumulativeReset: mysqlEnum("cumulativeReset", [
       "monthly",

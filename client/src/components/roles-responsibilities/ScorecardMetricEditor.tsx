@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -7,8 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { defaultTotalsMode, describeAutomaticCalculation, displayFormatForUnit } from "@shared/scorecard";
 
 const sourceFields: Record<string, { dates: string[]; numbers: string[]; filters: string[] }> = {
   tasks: { dates: ["createdAt", "updatedAt", "dueDate", "completedAt"], numbers: ["id"], filters: ["status", "priority", "taskType", "isAutomated"] },
@@ -22,8 +24,8 @@ const defaults = {
   definitionKey: "",
   definition: "",
   metricType: "manual",
-  frequency: "monthly",
-  measurementPeriod: "monthly",
+  frequency: "weekly",
+  measurementPeriod: "weekly",
   rollingDays: "30",
   reviewFrequency: "weekly",
   reportingSchedule: "",
@@ -40,8 +42,9 @@ const defaults = {
   formulaExpression: "",
   manualInputDefinitions: [] as Array<{ key: string; label: string; unit?: string }>,
   zeroDenominatorLabel: "",
-  isCumulative: false,
-  cumulativeReset: "monthly",
+  calculationDescription: "",
+  isCumulative: true,
+  cumulativeReset: "annually",
   status: "active",
   dataSource: "tasks",
   dateField: "completedAt",
@@ -70,38 +73,47 @@ function parseNullableNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function displayOptionsForUnit(unit: string) {
-  if (unit === "dollars") return ["currency", "number"];
-  if (unit === "percentage") return ["percentage", "number"];
-  if (unit === "hours" || unit === "days") return ["duration", "number"];
-  return ["number"];
+function totalsFromMetric(metric: any) {
+  if (metric?.isCumulative) return "cumulative";
+  if (metric?.id) return "average";
+  return defaultTotalsMode(metric?.unit ?? "count");
 }
 
-export default function ScorecardMetricEditor({ open, onOpenChange, responsibilityId, responsibilityOwnerId, metric, metricOwners, l10Meetings, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; responsibilityId: number; responsibilityOwnerId: number; metric?: any | null; metricOwners: any[]; l10Meetings: any[]; onSaved: () => void }) {
+function applyTotals(mode: string, unit: string, reset: string | null = "annually") {
+  const next = mode || defaultTotalsMode(unit);
+  return { isCumulative: next === "cumulative", cumulativeReset: next === "cumulative" ? (reset || "annually") : null, calculationMethod: next === "average" ? "average" : "count" };
+}
+
+export default function ScorecardMetricEditor({ open, onOpenChange, responsibilityId, responsibilityOwnerId, metric, metricOwners, responsibilities, l10Meetings, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; responsibilityId?: number | null; responsibilityOwnerId?: number | null; metric?: any | null; metricOwners: any[]; responsibilities?: any[]; l10Meetings: any[]; onSaved: () => void }) {
   const [form, setForm] = useState<any>(defaults);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const saveMetric = trpc.rolesResponsibilities.saveMetric.useMutation({
-    onSuccess: () => { toast.success("Scorecard metric saved"); onSaved(); onOpenChange(false); },
+    onSuccess: () => { toast.success("Measurable saved"); onSaved(); onOpenChange(false); },
     onError: (error) => toast.error(error.message),
   });
 
   useEffect(() => {
     if (!open) return;
     const config = metric?.autoConfig;
-    const period = metric?.measurementPeriod ?? metric?.frequency ?? "monthly";
+    const period = metric?.measurementPeriod ?? metric?.frequency ?? "weekly";
+    const unit = metric?.unit ?? "count";
+    const totals = totalsFromMetric(metric);
+    setAdvancedOpen(false);
     setForm({
       ...defaults,
       name: metric?.name ?? "",
-      ownerId: String(metric?.ownerId ?? metric?.owner?.id ?? responsibilityOwnerId),
+      ownerId: String(metric?.ownerId ?? metric?.owner?.id ?? responsibilityOwnerId ?? ""),
+      responsibilityId: String(metric?.responsibilityId ?? responsibilityId ?? ""),
       definitionKey: metric?.definitionKey ?? "",
       definition: metric?.definition ?? "",
       metricType: metric?.metricType ?? "manual",
-      frequency: metric?.frequency ?? (period === "weekly" ? "weekly" : period === "quarterly" || period === "quarter_to_date" ? "quarterly" : period === "year_to_date" ? "annually" : "monthly"),
-      measurementPeriod: period,
+      frequency: metric?.frequency ?? "weekly",
+      measurementPeriod: period === "weekly" ? "weekly" : period,
       rollingDays: String(metric?.rollingDays ?? 30),
       reviewFrequency: metric?.reviewFrequency ?? "weekly",
       reportingSchedule: metric?.reportingSchedule ?? "",
-      unit: metric?.unit ?? "count",
-      displayFormat: metric?.displayFormat ?? "number",
+      unit,
+      displayFormat: metric?.displayFormat ?? displayFormatForUnit(unit),
       comparisonRule: metric?.comparisonRule ?? (metric?.performanceDirection === "lower" ? "at_most" : "at_least"),
       targetValue: metric?.targetValue == null ? "" : String(metric.targetValue),
       targetMinimum: metric?.targetMinimum == null ? "" : String(metric.targetMinimum),
@@ -109,12 +121,14 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
       warningThreshold: metric?.warningThreshold == null ? "" : String(metric.warningThreshold),
       targetEffectiveDate: new Date().toISOString().slice(0, 10),
       targetChangeNote: "",
-      calculationMethod: metric?.calculationMethod ?? metric?.rollupMethod ?? "count",
+      calculationMethod: metric?.calculationMethod ?? metric?.rollupMethod ?? (totals === "average" ? "average" : "count"),
       formulaExpression: metric?.formulaExpression ?? "",
       manualInputDefinitions: metric?.manualInputDefinitions ?? [],
       zeroDenominatorLabel: metric?.zeroDenominatorLabel ?? "",
-      isCumulative: metric?.isCumulative ?? false,
-      cumulativeReset: metric?.cumulativeReset ?? "monthly",
+      calculationDescription: metric?.calculationDescription ?? "",
+      totalsMode: totals,
+      isCumulative: totals === "cumulative",
+      cumulativeReset: metric?.cumulativeReset ?? "annually",
       status: metric?.status ?? "active",
       dataSource: config?.dataSource ?? "tasks",
       dateField: config?.dateField ?? "completedAt",
@@ -122,16 +136,37 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
       valueField: config?.valueField ?? "",
       weightField: config?.weightField ?? "",
       outputKey: config?.outputKey ?? "",
+      filterField: "",
+      filterValue: "",
+      numeratorFilterField: "",
+      numeratorFilterValue: "",
+      denominatorFilterField: "",
+      denominatorFilterValue: "",
       l10MeetingIds: metric?.l10MeetingIds ?? [],
     });
-  }, [open, metric, responsibilityOwnerId]);
+  }, [open, metric, responsibilityOwnerId, responsibilityId]);
 
   const fields = sourceFields[form.dataSource] ?? sourceFields.tasks;
   const automatic = form.metricType === "automatic" || form.metricType === "hybrid";
   const formula = form.calculationMethod === "formula";
   const targetIsRange = form.comparisonRule === "within_range";
   const targetIsInformational = form.comparisonRule === "informational";
+  const originalTarget = metric?.id ? String(metric.targetValue ?? "") : "";
+  const targetChanged = !!metric?.id && form.targetValue !== originalTarget;
   const dataFilterFields = useMemo(() => fields.filters, [fields]);
+  const autoDescription = useMemo(() => describeAutomaticCalculation({
+    dataSource: form.dataSource,
+    dateField: form.dateField,
+    calculation: form.autoCalculation,
+    valueField: form.valueField,
+    weightField: form.weightField,
+    filters: filtersFrom(form.filterField, form.filterValue),
+    numeratorFilters: filtersFrom(form.numeratorFilterField, form.numeratorFilterValue),
+    denominatorFilters: filtersFrom(form.denominatorFilterField, form.denominatorFilterValue),
+    formulaExpression: formula ? form.formulaExpression : null,
+    isCumulative: form.isCumulative,
+    cumulativeReset: form.cumulativeReset,
+  }), [form.dataSource, form.dateField, form.autoCalculation, form.valueField, form.weightField, form.filterField, form.filterValue, form.numeratorFilterField, form.numeratorFilterValue, form.denominatorFilterField, form.denominatorFilterValue, formula, form.formulaExpression, form.isCumulative, form.cumulativeReset]);
 
   function update(values: Record<string, unknown>) { setForm((current: any) => ({ ...current, ...values })); }
   function addInput() { update({ manualInputDefinitions: [...form.manualInputDefinitions, { key: `input_${form.manualInputDefinitions.length + 1}`, label: "" }] }); }
@@ -139,8 +174,10 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
   function removeInput(index: number) { update({ manualInputDefinitions: form.manualInputDefinitions.filter((_: unknown, position: number) => position !== index) }); }
 
   function save() {
-    if (!form.name.trim()) return toast.error("Enter a metric name.");
-    if (!form.ownerId) return toast.error("Choose the person accountable for this metric.");
+    if (!form.name.trim()) return toast.error("Enter a measurable name.");
+    if (!form.ownerId) return toast.error("Choose the person accountable for this measurable.");
+    const linkedResponsibilityId = Number(form.responsibilityId || responsibilityId);
+    if (!linkedResponsibilityId) return toast.error("Choose the R&R this measurable belongs to.");
     if (form.measurementPeriod === "rolling" && !parseNullableNumber(form.rollingDays)) return toast.error("Set the rolling number of days.");
     if (targetIsRange && (parseNullableNumber(form.targetMinimum) == null || parseNullableNumber(form.targetMaximum) == null)) return toast.error("Set both ends of the target range.");
     if (targetIsRange && Number(form.targetMinimum) > Number(form.targetMaximum)) return toast.error("The minimum target cannot exceed the maximum.");
@@ -148,6 +185,7 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
     if (form.manualInputDefinitions.some((item: any) => !item.key.trim() || !item.label.trim())) return toast.error("Give each formula input a key and clear label.");
     if (automatic && ["sum", "average", "weighted_average", "latest"].includes(form.autoCalculation) && !form.valueField) return toast.error("Choose the numeric field used in the automatic calculation.");
     if (automatic && form.autoCalculation === "weighted_average" && !form.weightField) return toast.error("Choose the weight field for the weighted average.");
+    if (!automatic && !form.calculationDescription.trim()) return toast.error("Describe how this measurable is calculated.");
 
     const autoConfig = automatic ? {
       dataSource: form.dataSource,
@@ -155,44 +193,46 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
       calculation: form.autoCalculation,
       valueField: ["sum", "average", "weighted_average", "latest"].includes(form.autoCalculation) ? form.valueField : null,
       weightField: form.autoCalculation === "weighted_average" ? form.weightField : null,
-      outputKey: form.metricType === "hybrid" && form.outputKey.trim() ? form.outputKey.trim() : null,
+      outputKey: form.metricType === "hybrid" ? (form.outputKey || "auto") : null,
       filters: filtersFrom(form.filterField, form.filterValue),
       numeratorFilters: form.autoCalculation === "percentage" ? filtersFrom(form.numeratorFilterField, form.numeratorFilterValue) : null,
       denominatorFilters: form.autoCalculation === "percentage" ? filtersFrom(form.denominatorFilterField, form.denominatorFilterValue) : null,
     } : null;
     const comparisonRule = form.comparisonRule;
     const targetValue = targetIsRange || targetIsInformational ? null : parseNullableNumber(form.targetValue);
+    const totals = applyTotals(form.totalsMode, form.unit, form.cumulativeReset);
     saveMetric.mutate({
       ...(metric?.id ? { id: metric.id } : {}),
-      responsibilityId,
+      responsibilityId: linkedResponsibilityId,
       ownerId: Number(form.ownerId),
       name: form.name.trim(),
       definitionKey: form.definitionKey.trim() || null,
       definition: form.definition.trim() || null,
       metricType: form.metricType,
-      frequency: form.frequency,
-      measurementPeriod: form.measurementPeriod,
+      frequency: "weekly",
+      measurementPeriod: form.measurementPeriod === "weekly" ? "weekly" : form.measurementPeriod,
       rollingDays: form.measurementPeriod === "rolling" ? Number(form.rollingDays) : null,
-      reviewFrequency: form.reviewFrequency,
+      reviewFrequency: form.reviewFrequency || "weekly",
       reportingSchedule: form.reportingSchedule.trim() || null,
       unit: form.unit,
-      displayFormat: form.displayFormat,
+      displayFormat: form.displayFormat || displayFormatForUnit(form.unit),
       comparisonRule,
       targetValue,
       targetMinimum: targetIsRange ? parseNullableNumber(form.targetMinimum) : null,
       targetMaximum: targetIsRange ? parseNullableNumber(form.targetMaximum) : null,
       warningThreshold: targetIsInformational ? null : parseNullableNumber(form.warningThreshold),
-      targetEffectiveDate: form.targetEffectiveDate,
-      targetChangeNote: form.targetChangeNote.trim() || null,
+      targetEffectiveDate: form.targetEffectiveDate || new Date().toISOString().slice(0, 10),
+      targetChangeNote: targetChanged ? (form.targetChangeNote.trim() || null) : null,
       performanceDirection: comparisonRule === "at_most" ? "lower" : "higher",
-      rollupMethod: form.calculationMethod === "formula" ? "sum" : form.calculationMethod,
-      calculationMethod: form.calculationMethod,
+      rollupMethod: totals.isCumulative ? "sum" : "average",
+      calculationMethod: automatic ? form.autoCalculation : totals.calculationMethod,
       formulaExpression: formula ? form.formulaExpression.trim() : null,
       manualInputDefinitions: formula ? form.manualInputDefinitions : [],
       zeroDenominatorLabel: form.zeroDenominatorLabel.trim() || null,
-      isCumulative: form.isCumulative,
-      cumulativeReset: form.isCumulative ? form.cumulativeReset : null,
-      status: form.status,
+      calculationDescription: automatic ? autoDescription : form.calculationDescription.trim(),
+      isCumulative: totals.isCumulative,
+      cumulativeReset: totals.cumulativeReset,
+      status: form.status || "active",
       autoConfig,
       l10MeetingIds: form.l10MeetingIds,
     } as any);
@@ -202,57 +242,53 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="flex h-[min(92dvh,92vw,56rem)] w-[min(92dvh,92vw,56rem)] max-w-none flex-col overflow-hidden sm:max-w-none">
       <DialogHeader>
-        <DialogTitle>{metric?.id ? "Edit scorecard metric" : "Create scorecard metric"}</DialogTitle>
-        <DialogDescription>Start with the outcome, owner, target, and review cadence. Calculation settings stay out of the way until needed.</DialogDescription>
+        <DialogTitle>{metric?.id ? "Edit measurable" : "Create measurable"}</DialogTitle>
+        <DialogDescription>Name the result, owner, target, and how it is calculated. Extra settings stay behind Advanced.</DialogDescription>
       </DialogHeader>
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-1 pr-1">
         <section className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5 sm:col-span-2"><Label>Metric name *</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} placeholder="Eligible booking conversion rate" /></div>
-          <div className="space-y-1.5"><Label>Accountable owner *</Label><Select value={form.ownerId} onValueChange={(value) => update({ ownerId: value })}><SelectTrigger><SelectValue placeholder="Choose a person" /></SelectTrigger><SelectContent>{metricOwners.map((owner) => <SelectItem key={owner.id} value={String(owner.id)}>{owner.name ?? owner.email}{owner.title ? ` · ${owner.title}` : ""}</SelectItem>)}</SelectContent></Select></div>
-          <div className="space-y-1.5"><Label>Unit</Label><Select value={form.unit} onValueChange={(value) => update({ unit: value, displayFormat: displayOptionsForUnit(value)[0] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["count", "Count"], ["dollars", "Dollars"], ["percentage", "Percentage"], ["hours", "Hours"], ["days", "Days"], ["score", "Score"]])}</SelectContent></Select></div>
-          <div className="space-y-1.5 sm:col-span-2"><Label>Definition</Label><Textarea value={form.definition} onChange={(event) => update({ definition: event.target.value })} placeholder="What counts, what does not, and which people or records are included." /></div>
-          <div className="space-y-1.5"><Label>Shared definition key</Label><Input value={form.definitionKey} onChange={(event) => update({ definitionKey: event.target.value })} placeholder="Optional: booking_conversion" /><p className="text-xs text-muted-foreground">Use the same key when this definition is assigned to several people with separate targets.</p></div>
-          <div className="space-y-1.5"><Label>Data and entry method</Label><Select value={form.metricType} onValueChange={(value) => update({ metricType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["manual", "Manual result or inputs"], ["automatic", "Automatic SavvyOS calculation"], ["hybrid", "Automatic data plus manual inputs"]])}</SelectContent></Select></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label>Name *</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} placeholder="Eligible booking conversion rate" /></div>
+          <div className="space-y-1.5"><Label>Owner *</Label><Select value={form.ownerId} onValueChange={(value) => update({ ownerId: value })}><SelectTrigger><SelectValue placeholder="Choose a person" /></SelectTrigger><SelectContent>{metricOwners.map((owner) => <SelectItem key={owner.id} value={String(owner.id)}>{owner.name ?? owner.email}{owner.title ? ` · ${owner.title}` : ""}</SelectItem>)}</SelectContent></Select></div>
+          <div className="space-y-1.5"><Label>R&amp;R *</Label>{responsibilities?.length ? <Select value={form.responsibilityId} onValueChange={(value) => update({ responsibilityId: value })}><SelectTrigger><SelectValue placeholder="Choose an R&R" /></SelectTrigger><SelectContent>{responsibilities.map((responsibility) => <SelectItem key={responsibility.id} value={String(responsibility.id)}>{responsibility.title}</SelectItem>)}</SelectContent></Select> : <Input value={metric?.responsibility?.title ?? "This R&R"} disabled />}</div>
+          <div className="space-y-1.5"><Label>Unit</Label><Select value={form.unit} onValueChange={(value) => { const totals = defaultTotalsMode(value); update({ unit: value, displayFormat: displayFormatForUnit(value), totalsMode: totals, ...applyTotals(totals, value) }); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["count", "Count"], ["dollars", "Dollars"], ["percentage", "Percentage"], ["hours", "Hours"], ["days", "Days"], ["score", "Score"]])}</SelectContent></Select></div>
+          {!targetIsInformational && !targetIsRange && <div className="space-y-1.5"><Label>Target</Label><Input type="number" step="any" value={form.targetValue} onChange={(event) => update({ targetValue: event.target.value })} placeholder="Leave empty if not set" /></div>}
+          <div className="space-y-1.5"><Label>Good is</Label><Select value={form.comparisonRule === "at_most" ? "at_most" : "at_least"} onValueChange={(value) => update({ comparisonRule: value, performanceDirection: value === "at_most" ? "lower" : "higher" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["at_least", "Higher"], ["at_most", "Lower"]])}</SelectContent></Select></div>
+          <div className="space-y-1.5"><Label>Warning at</Label><Input type="number" step="any" value={form.warningThreshold} onChange={(event) => update({ warningThreshold: event.target.value })} placeholder="Optional" /></div>
+          <div className="space-y-1.5"><Label>Totals over time</Label><Select value={form.totalsMode ?? (form.isCumulative ? "cumulative" : "average")} onValueChange={(value) => update({ totalsMode: value, ...applyTotals(value, form.unit) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["cumulative", "Cumulative"], ["average", "Average"]])}</SelectContent></Select><p className="text-xs text-muted-foreground">Resets annually.</p></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label>Show in</Label>{l10Meetings.length ? <div className="grid gap-2 sm:grid-cols-2">{l10Meetings.map((meeting) => <label key={meeting.id} className="flex min-h-11 items-center gap-2 rounded-md border bg-background px-3 text-sm"><Checkbox checked={form.l10MeetingIds.includes(meeting.id)} onCheckedChange={(checked) => update({ l10MeetingIds: checked ? [...form.l10MeetingIds, meeting.id] : form.l10MeetingIds.filter((id: string) => id !== meeting.id) })} />{meeting.name}</label>)}</div> : <p className="text-sm text-muted-foreground">Create an L10 in Pulse Settings before assigning a measurable to weekly review.</p>}</div>
+          {targetChanged && <div className="space-y-1.5 sm:col-span-2"><Label>Why did this change?</Label><Input value={form.targetChangeNote} onChange={(event) => update({ targetChangeNote: event.target.value })} placeholder="Required context is kept with the target history" /></div>}
+          <div className="space-y-1.5 sm:col-span-2"><Label>Definition</Label><Textarea value={form.definition} onChange={(event) => update({ definition: event.target.value })} placeholder="Optional: what counts, what does not, and which people or records are included." /></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label>How it&apos;s calculated *</Label>{automatic ? <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm leading-6 text-muted-foreground">{autoDescription}</div> : <Textarea value={form.calculationDescription} onChange={(event) => update({ calculationDescription: event.target.value })} placeholder="Describe exactly how this number is calculated." />}</div>
         </section>
 
-        <section className="rounded-lg border p-4 space-y-4">
-          <div><p className="font-medium text-sm">Timing and review</p><p className="text-xs text-muted-foreground mt-1">Measurement frequency and review frequency are deliberately separate.</p></div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5"><Label>Measurement period</Label><Select value={form.measurementPeriod} onValueChange={(value) => update({ measurementPeriod: value, frequency: value === "weekly" ? "weekly" : value === "quarterly" || value === "quarter_to_date" ? "quarterly" : value === "year_to_date" ? "annually" : "monthly" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["weekly", "Weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["month_to_date", "Month-to-date"], ["quarter_to_date", "Quarter-to-date"], ["year_to_date", "Year-to-date"], ["rolling", "Rolling period"], ["per_event", "Per event"], ["current_snapshot", "Current snapshot"]])}</SelectContent></Select></div>
-            <div className="space-y-1.5"><Label>Review frequency</Label><Select value={form.reviewFrequency} onValueChange={(value) => update({ reviewFrequency: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["weekly", "Weekly review"], ["monthly", "Monthly review"], ["quarterly", "Quarterly review"], ["annually", "Annual review"], ["as_needed", "As needed"]])}</SelectContent></Select></div>
-            {form.measurementPeriod === "rolling" && <div className="space-y-1.5"><Label>Rolling days *</Label><Input type="number" min="1" max="730" value={form.rollingDays} onChange={(event) => update({ rollingDays: event.target.value })} /></div>}
-            <div className="space-y-1.5"><Label>Reporting schedule</Label><Input value={form.reportingSchedule} onChange={(event) => update({ reportingSchedule: event.target.value })} placeholder="Example: Update by Monday 9 AM; review in Leadership L10" /></div>
-          </div>
-          {!["per_event", "current_snapshot"].includes(form.measurementPeriod) && <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.isCumulative} onCheckedChange={(value) => update({ isCumulative: !!value })} />Cumulative metric</label>}
-          {form.isCumulative && <div className="space-y-1.5 max-w-sm"><Label>Reset period</Label><Select value={form.cumulativeReset} onValueChange={(value) => update({ cumulativeReset: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["monthly", "Monthly"], ["quarterly", "Quarterly"], ["annually", "Annually"], ["never", "Never"]])}</SelectContent></Select></div>}
-        </section>
-
-        <section className="rounded-lg border p-4 space-y-4">
-          <div><p className="font-medium text-sm">Target and status</p><p className="text-xs text-muted-foreground mt-1">Targets are versioned by effective date so past scorecards keep their original grade.</p></div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5"><Label>Comparison rule</Label><Select value={form.comparisonRule} onValueChange={(value) => update({ comparisonRule: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["at_least", "Higher is better"], ["at_most", "Lower is better"], ["within_range", "Within a range"], ["exactly", "Exactly equals"], ["informational", "Informational only"]])}</SelectContent></Select></div>
-            <div className="space-y-1.5"><Label>Display format</Label><Select value={form.displayFormat} onValueChange={(value) => update({ displayFormat: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{displayOptionsForUnit(form.unit).map((value) => <SelectItem key={value} value={value}>{value === "currency" ? "Currency" : value === "percentage" ? "Percentage" : value === "duration" ? `${form.unit === "days" ? "Days" : "Hours"}` : "Number"}</SelectItem>)}</SelectContent></Select></div>
-            {!targetIsInformational && !targetIsRange && <div className="space-y-1.5"><Label>Target</Label><Input type="number" step="any" value={form.targetValue} onChange={(event) => update({ targetValue: event.target.value })} placeholder="Leave empty if not set" /></div>}
-            {targetIsRange && <><div className="space-y-1.5"><Label>Minimum target *</Label><Input type="number" step="any" value={form.targetMinimum} onChange={(event) => update({ targetMinimum: event.target.value })} /></div><div className="space-y-1.5"><Label>Maximum target *</Label><Input type="number" step="any" value={form.targetMaximum} onChange={(event) => update({ targetMaximum: event.target.value })} /></div></>}
-            {!targetIsInformational && <div className="space-y-1.5"><Label>Optional warning threshold</Label><Input type="number" step="any" value={form.warningThreshold} onChange={(event) => update({ warningThreshold: event.target.value })} placeholder="Amber before red" /></div>}
-            <div className="space-y-1.5"><Label>Target effective date</Label><Input type="date" value={form.targetEffectiveDate} onChange={(event) => update({ targetEffectiveDate: event.target.value })} /></div>
-            <div className="space-y-1.5 sm:col-span-2"><Label>Why this target changed</Label><Input value={form.targetChangeNote} onChange={(event) => update({ targetChangeNote: event.target.value })} placeholder="Optional note retained with the target history" /></div>
-          </div>
-        </section>
-
-        <section className="rounded-lg border p-4 space-y-4">
-          <div><p className="font-medium text-sm">Calculation</p><p className="text-xs text-muted-foreground mt-1">Choose a result calculation or collect inputs that SavvyOS calculates from.</p></div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5"><Label>Result calculation</Label><Select value={form.calculationMethod} onValueChange={(value) => update({ calculationMethod: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["count", "Count"], ["unique_count", "Unique count"], ["sum", "Sum"], ["average", "Average"], ["weighted_average", "Weighted average"], ["percentage", "Percentage or ratio"], ["formula", "Formula using inputs"], ["latest", "Latest value"]])}</SelectContent></Select></div>
-            <div className="space-y-1.5"><Label>Metric status</Label><Select value={form.status} onValueChange={(value) => update({ status: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["active", "Active"], ["inactive", "Archived"]])}</SelectContent></Select></div>
-          </div>
-          {formula && <div className="space-y-4 rounded-md bg-muted/35 p-4"><div className="space-y-1.5"><Label>Formula *</Label><Input value={form.formulaExpression} onChange={(event) => update({ formulaExpression: event.target.value })} placeholder="advertising_spend / eligible_bookings" /><p className="text-xs text-muted-foreground">Use input keys, numbers, parentheses, and +, -, *, or /. Zero denominators are kept as a data state, not a fake result.</p></div><div className="space-y-1.5"><Label>Zero-denominator message</Label><Input value={form.zeroDenominatorLabel} onChange={(event) => update({ zeroDenominatorLabel: event.target.value })} placeholder="Example: No bookings generated" /></div><div><div className="flex items-center justify-between"><Label>Inputs</Label><Button type="button" variant="outline" size="sm" onClick={addInput}><Plus className="mr-1 h-3.5 w-3.5" />Input</Button></div><div className="mt-2 space-y-2">{form.manualInputDefinitions.length === 0 ? <p className="text-sm text-muted-foreground">Add the named inputs used in the formula.</p> : form.manualInputDefinitions.map((item: any, index: number) => <div className="grid grid-cols-[1fr_1fr_auto] gap-2" key={index}><Input value={item.key} onChange={(event) => updateInput(index, "key", event.target.value)} placeholder="eligible_bookings" /><Input value={item.label} onChange={(event) => updateInput(index, "label", event.target.value)} placeholder="Eligible bookings" /><Button type="button" variant="ghost" size="icon" onClick={() => removeInput(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>)}</div></div></div>}
-          {automatic && <div className="space-y-4 rounded-md bg-primary/5 border border-primary/15 p-4"><div><p className="font-medium text-sm">SavvyOS automatic source</p><p className="text-xs text-muted-foreground mt-1">Only approved records and fields are available. There is no free-form database access.</p></div><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label>Data source</Label><Select value={form.dataSource} onValueChange={(value) => update({ dataSource: value, dateField: sourceFields[value].dates[0], valueField: "", weightField: "", filterField: "", numeratorFilterField: "", denominatorFilterField: "" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["tasks", "Tasks assigned to owner"], ["transactions", "Transactions owned by owner"], ["agent_connections", "Agent connections owned by owner"]])}</SelectContent></Select></div><div className="space-y-1.5"><Label>Date used for counting</Label><Select value={form.dateField} onValueChange={(value) => update({ dateField: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{fields.dates.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label>Source calculation</Label><Select value={form.autoCalculation} onValueChange={(value) => update({ autoCalculation: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["count", "Count"], ["unique_count", "Unique count"], ["sum", "Sum"], ["average", "Average"], ["weighted_average", "Weighted average"], ["percentage", "Percentage / ratio"], ["latest", "Latest value"]])}</SelectContent></Select></div>{["sum", "average", "weighted_average", "latest"].includes(form.autoCalculation) && <div className="space-y-1.5"><Label>Numeric value field</Label><Select value={form.valueField} onValueChange={(value) => update({ valueField: value })}><SelectTrigger><SelectValue placeholder="Choose field" /></SelectTrigger><SelectContent>{fields.numbers.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>}{form.autoCalculation === "weighted_average" && <div className="space-y-1.5"><Label>Weight field</Label><Select value={form.weightField} onValueChange={(value) => update({ weightField: value })}><SelectTrigger><SelectValue placeholder="Choose field" /></SelectTrigger><SelectContent>{fields.numbers.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>}{form.metricType === "hybrid" && <div className="space-y-1.5"><Label>Automatic output key</Label><Input value={form.outputKey} onChange={(event) => update({ outputKey: event.target.value })} placeholder="eligible_bookings" /><p className="text-xs text-muted-foreground">Makes the automatic result available to a formula input.</p></div>}</div><div className="grid gap-3 sm:grid-cols-2 border-t pt-4"><div className="space-y-1.5"><Label>Optional source filter</Label><Select value={form.filterField || "none"} onValueChange={(value) => update({ filterField: value === "none" ? "" : value })}><SelectTrigger><SelectValue placeholder="All eligible records" /></SelectTrigger><SelectContent><SelectItem value="none">All eligible records</SelectItem>{dataFilterFields.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label>Match value</Label><Input disabled={!form.filterField} value={form.filterValue} onChange={(event) => update({ filterValue: event.target.value })} placeholder="Use commas for several values" /></div>{form.autoCalculation === "percentage" && <><div className="space-y-1.5"><Label>Numerator filter</Label><Select value={form.numeratorFilterField || "none"} onValueChange={(value) => update({ numeratorFilterField: value === "none" ? "" : value })}><SelectTrigger><SelectValue placeholder="Choose field" /></SelectTrigger><SelectContent><SelectItem value="none">No numerator filter</SelectItem>{dataFilterFields.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select><Input className="mt-2" disabled={!form.numeratorFilterField} value={form.numeratorFilterValue} onChange={(event) => update({ numeratorFilterValue: event.target.value })} placeholder="Matching numerator value" /></div><div className="space-y-1.5"><Label>Denominator filter</Label><Select value={form.denominatorFilterField || "none"} onValueChange={(value) => update({ denominatorFilterField: value === "none" ? "" : value })}><SelectTrigger><SelectValue placeholder="Choose field" /></SelectTrigger><SelectContent><SelectItem value="none">No denominator filter</SelectItem>{dataFilterFields.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select><Input className="mt-2" disabled={!form.denominatorFilterField} value={form.denominatorFilterValue} onChange={(event) => update({ denominatorFilterValue: event.target.value })} placeholder="Matching denominator value" /></div></>}</div></div>}
-        </section>
-
-        <section className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3"><div><Label>Show in weekly scorecard reviews</Label><p className="mt-1 text-xs text-muted-foreground">Adding a metric to an L10 changes only where it is reviewed. The metric and its history remain here.</p></div>{l10Meetings.length ? <div className="grid gap-2 sm:grid-cols-2">{l10Meetings.map((meeting) => <label key={meeting.id} className="flex min-h-11 items-center gap-2 rounded-md border bg-background px-3 text-sm"><Checkbox checked={form.l10MeetingIds.includes(meeting.id)} onCheckedChange={(checked) => update({ l10MeetingIds: checked ? [...form.l10MeetingIds, meeting.id] : form.l10MeetingIds.filter((id: string) => id !== meeting.id) })} />{meeting.name}</label>)}</div> : <p className="text-sm text-muted-foreground">Create an L10 in Pulse Settings before assigning a metric to weekly review.</p>}</section>
+        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+          <CollapsibleTrigger asChild>
+            <Button type="button" variant="ghost" className="px-0 text-sm font-medium">
+              <ChevronDown className={`mr-1 h-4 w-4 transition-transform ${advancedOpen ? "rotate-180" : ""}`} />
+              Advanced
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-4 pt-2">
+            <section className="rounded-lg border p-4 space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5"><Label>Data and entry method</Label><Select value={form.metricType === "hybrid" ? "automatic" : form.metricType} onValueChange={(value) => update({ metricType: form.metricType === "hybrid" && value === "automatic" ? "hybrid" : value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["manual", "Manual result or inputs"], ["automatic", "Automatic SavvyOS calculation"]])}</SelectContent></Select></div>
+                <div className="space-y-1.5"><Label>Measurable status</Label><Select value={form.status} onValueChange={(value) => update({ status: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["active", "Active"], ["inactive", "Archived"]])}</SelectContent></Select></div>
+                <div className="space-y-1.5"><Label>Measurement period</Label><Select value={form.measurementPeriod} onValueChange={(value) => update({ measurementPeriod: value, frequency: value === "weekly" ? "weekly" : value === "quarterly" || value === "quarter_to_date" ? "quarterly" : value === "year_to_date" ? "annually" : "monthly" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["weekly", "Weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["month_to_date", "Month-to-date"], ["quarter_to_date", "Quarter-to-date"], ["year_to_date", "Year-to-date"], ["rolling", "Rolling period"], ["per_event", "Per event"], ["current_snapshot", "Current snapshot"]])}</SelectContent></Select></div>
+                <div className="space-y-1.5"><Label>Review frequency</Label><Select value={form.reviewFrequency} onValueChange={(value) => update({ reviewFrequency: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["weekly", "Weekly review"], ["monthly", "Monthly review"], ["quarterly", "Quarterly review"], ["annually", "Annual review"], ["as_needed", "As needed"]])}</SelectContent></Select></div>
+                {form.measurementPeriod === "rolling" && <div className="space-y-1.5"><Label>Rolling days *</Label><Input type="number" min="1" max="730" value={form.rollingDays} onChange={(event) => update({ rollingDays: event.target.value })} /></div>}
+                <div className="space-y-1.5"><Label>Reporting schedule</Label><Input value={form.reportingSchedule} onChange={(event) => update({ reportingSchedule: event.target.value })} placeholder="Example: Update by Monday 9 AM" /></div>
+                <div className="space-y-1.5"><Label>Shared definition key</Label><Input value={form.definitionKey} onChange={(event) => update({ definitionKey: event.target.value })} placeholder="Optional: booking_conversion" /></div>
+                <div className="space-y-1.5"><Label>Comparison rule</Label><Select value={form.comparisonRule} onValueChange={(value) => update({ comparisonRule: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["at_least", "Higher is better"], ["at_most", "Lower is better"], ["within_range", "Within a range"], ["exactly", "Exactly equals"], ["informational", "Informational only"]])}</SelectContent></Select></div>
+                {targetIsRange && <><div className="space-y-1.5"><Label>Minimum target *</Label><Input type="number" step="any" value={form.targetMinimum} onChange={(event) => update({ targetMinimum: event.target.value })} /></div><div className="space-y-1.5"><Label>Maximum target *</Label><Input type="number" step="any" value={form.targetMaximum} onChange={(event) => update({ targetMaximum: event.target.value })} /></div></>}
+                <div className="space-y-1.5"><Label>Target effective date</Label><Input type="date" value={form.targetEffectiveDate} onChange={(event) => update({ targetEffectiveDate: event.target.value })} /></div>
+              </div>
+            </section>
+            {formula && <div className="space-y-4 rounded-md bg-muted/35 p-4"><div className="space-y-1.5"><Label>Formula *</Label><Input value={form.formulaExpression} onChange={(event) => update({ formulaExpression: event.target.value })} placeholder="advertising_spend / eligible_bookings" /></div><div className="space-y-1.5"><Label>Zero-denominator message</Label><Input value={form.zeroDenominatorLabel} onChange={(event) => update({ zeroDenominatorLabel: event.target.value })} placeholder="Example: No bookings generated" /></div><div><div className="flex items-center justify-between"><Label>Inputs</Label><Button type="button" variant="outline" size="sm" onClick={addInput}><Plus className="mr-1 h-3.5 w-3.5" />Input</Button></div><div className="mt-2 space-y-2">{form.manualInputDefinitions.length === 0 ? <p className="text-sm text-muted-foreground">Add the named inputs used in the formula.</p> : form.manualInputDefinitions.map((item: any, index: number) => <div className="grid grid-cols-[1fr_1fr_auto] gap-2" key={index}><Input value={item.key} onChange={(event) => updateInput(index, "key", event.target.value)} placeholder="eligible_bookings" /><Input value={item.label} onChange={(event) => updateInput(index, "label", event.target.value)} placeholder="Eligible bookings" /><Button type="button" variant="ghost" size="icon" onClick={() => removeInput(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>)}</div></div></div>}
+            {automatic && <div className="space-y-4 rounded-md bg-primary/5 border border-primary/15 p-4"><div><p className="font-medium text-sm">SavvyOS automatic source</p><p className="text-xs text-muted-foreground mt-1">Only approved records and fields are available.</p></div><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label>Data source</Label><Select value={form.dataSource} onValueChange={(value) => update({ dataSource: value, dateField: sourceFields[value].dates[0], valueField: "", weightField: "", filterField: "", numeratorFilterField: "", denominatorFilterField: "" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["tasks", "Tasks assigned to owner"], ["transactions", "Transactions owned by owner"], ["agent_connections", "Agent connections owned by owner"]])}</SelectContent></Select></div><div className="space-y-1.5"><Label>Date used for counting</Label><Select value={form.dateField} onValueChange={(value) => update({ dateField: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{fields.dates.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label>Source calculation</Label><Select value={form.autoCalculation} onValueChange={(value) => update({ autoCalculation: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["count", "Count"], ["unique_count", "Unique count"], ["sum", "Sum"], ["average", "Average"], ["weighted_average", "Weighted average"], ["percentage", "Percentage / ratio"], ["latest", "Latest value"]])}</SelectContent></Select></div>{["sum", "average", "weighted_average", "latest"].includes(form.autoCalculation) && <div className="space-y-1.5"><Label>Numeric value field</Label><Select value={form.valueField} onValueChange={(value) => update({ valueField: value })}><SelectTrigger><SelectValue placeholder="Choose field" /></SelectTrigger><SelectContent>{fields.numbers.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>}{form.autoCalculation === "weighted_average" && <div className="space-y-1.5"><Label>Weight field</Label><Select value={form.weightField} onValueChange={(value) => update({ weightField: value })}><SelectTrigger><SelectValue placeholder="Choose field" /></SelectTrigger><SelectContent>{fields.numbers.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>}</div><div className="grid gap-3 sm:grid-cols-2 border-t pt-4"><div className="space-y-1.5"><Label>Optional source filter</Label><Select value={form.filterField || "none"} onValueChange={(value) => update({ filterField: value === "none" ? "" : value })}><SelectTrigger><SelectValue placeholder="All eligible records" /></SelectTrigger><SelectContent><SelectItem value="none">All eligible records</SelectItem>{dataFilterFields.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label>Match value</Label><Input disabled={!form.filterField} value={form.filterValue} onChange={(event) => update({ filterValue: event.target.value })} placeholder="Use commas for several values" /></div>{form.autoCalculation === "percentage" && <><div className="space-y-1.5"><Label>Numerator filter</Label><Select value={form.numeratorFilterField || "none"} onValueChange={(value) => update({ numeratorFilterField: value === "none" ? "" : value })}><SelectTrigger><SelectValue placeholder="Choose field" /></SelectTrigger><SelectContent><SelectItem value="none">No numerator filter</SelectItem>{dataFilterFields.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select><Input className="mt-2" disabled={!form.numeratorFilterField} value={form.numeratorFilterValue} onChange={(event) => update({ numeratorFilterValue: event.target.value })} placeholder="Matching numerator value" /></div><div className="space-y-1.5"><Label>Denominator filter</Label><Select value={form.denominatorFilterField || "none"} onValueChange={(value) => update({ denominatorFilterField: value === "none" ? "" : value })}><SelectTrigger><SelectValue placeholder="Choose field" /></SelectTrigger><SelectContent><SelectItem value="none">No denominator filter</SelectItem>{dataFilterFields.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select><Input className="mt-2" disabled={!form.denominatorFilterField} value={form.denominatorFilterValue} onChange={(event) => update({ denominatorFilterValue: event.target.value })} placeholder="Matching denominator value" /></div></>}</div></div>}
+          </CollapsibleContent>
+        </Collapsible>
       </div>
-      <DialogFooter className="shrink-0"><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={saveMetric.isPending} onClick={save}>{saveMetric.isPending ? "Saving…" : "Save metric"}</Button></DialogFooter>
+      <DialogFooter className="shrink-0"><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={saveMetric.isPending} onClick={save}>{saveMetric.isPending ? "Saving…" : "Save measurable"}</Button></DialogFooter>
     </DialogContent>
   </Dialog>;
 }
