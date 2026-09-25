@@ -12,7 +12,10 @@ import { registerExternalApiRoutes } from "../externalApis";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { processOneTimeSmartPlanSends, processSmartPlanSteps } from "../smartPlanScheduler";
+import {
+  processOneTimeSmartPlanSends,
+  processSmartPlanSteps,
+} from "../smartPlanScheduler";
 import { processAgentIntroductionFollowUps } from "../agentIntroductionFollowUps";
 import { scheduleListingExpirationCheck } from "../listingExpirationScheduler";
 import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
@@ -27,12 +30,21 @@ import { scheduleMonthlyAgentRenewalsReport } from "../monthlyAgentRenewalsRepor
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
 import { scheduleDailyCoachingTips } from "../dailyCoachingTipsScheduler";
 import { scheduleCoachFeedback } from "../coachingFeedback";
-import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "../analytics/workspace";
-import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../analytics/businessInsights";
+import {
+  refreshDueAnalyticsInsights,
+  scheduleAnalyticsInsightRefresh,
+} from "../analytics/workspace";
+import {
+  refreshDueBusinessInsights,
+  scheduleBusinessInsightRefresh,
+} from "../analytics/businessInsights";
 import { registerResendWebhookRoute } from "../resendWebhookRoute";
 import { registerWebhookRoute } from "../webhookRoute";
 import { captureInboundRawBody } from "../webhookSignature";
-import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
+import {
+  detectAllDuplicates,
+  persistDuplicatePairs,
+} from "../duplicateDetection";
 import { scheduleTempGrantExpiry } from "../tempGrantExpiryScheduler";
 import { scheduleEmailBehaviorsSync } from "../emailBehaviorsSync";
 import { scheduleRrMetricRefresh } from "../rrMetricScheduler";
@@ -46,7 +58,11 @@ import { scheduleMarketIntelligenceRefresh } from "../agentMarketsIntelligence";
 import { scheduleMarketProfileSurveyReminders } from "../marketProfileSurveyScheduler";
 import { scheduleAgentProfileReminderCampaigns } from "../agentProfileReminderScheduler";
 import { ensureSavvyOSTrainingGuides } from "../trainingGuidesPublisher";
-import { constructStripeWebhookEvent, handleStripeWebhookEvent, isStripeConfigured } from "../vendorBilling";
+import {
+  constructStripeWebhookEvent,
+  handleStripeWebhookEvent,
+  isStripeConfigured,
+} from "../vendorBilling";
 import { scheduleMonthlyFeaturedVendorEarningsReport } from "../monthlyFeaturedVendorEarningsReport";
 import { ENV } from "./env";
 import { LANDING_PAGE_PUBLIC_TRPC_PATHS } from "../routers/landingPages";
@@ -55,7 +71,10 @@ import { WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS } from "../routers/websiteAccount";
 import { RECRUITING_PUBLIC_TRPC_PATHS } from "../routers/recruiting";
 import { registerShortLinkRedirects } from "../shortLinkRedirects";
 import { getLandingPageMetadata } from "../landingPageHtml";
-import { getWebsitePageMetadata, registerWebsiteSeoRoutes } from "../websiteSeo";
+import {
+  getWebsitePageMetadata,
+  registerWebsiteSeoRoutes,
+} from "../websiteSeo";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
 import { registerLegacySiteRedirects } from "../legacySiteRedirects";
 import { registerReleaseNotificationRoute } from "../releaseNotificationRoute";
@@ -71,6 +90,7 @@ import { ensureProjectTodoWorkflowSchema } from "../projectTodoWorkflowSchema";
 import { ensureWebinarRequestSchema } from "../webinarRequestSchema";
 import { ensureContactLeadSourceTrigger } from "../contactLeadSourceTrigger";
 import { ensureRrMeasurableSchema } from "../rrMeasurableSchema";
+import { ensureCoachingWorkflowSchema } from "../coachingWorkflowSchema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -99,6 +119,7 @@ async function startServer() {
   await ensureWebinarRequestSchema();
   await ensureContactLeadSourceTrigger();
   await ensureRrMeasurableSchema();
+  await ensureCoachingWorkflowSchema();
 
   const app = express();
   const server = createServer(app);
@@ -109,8 +130,14 @@ async function startServer() {
     if (origin) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
-      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Session-Token,x-trpc-source");
+      res.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+      );
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type,Authorization,X-Session-Token,x-trpc-source"
+      );
     }
     if (req.method === "OPTIONS") {
       return res.sendStatus(204);
@@ -124,7 +151,9 @@ async function startServer() {
   // goes wrong. Investor accounts are allowlisted deliberately: they are a
   // separate auth system with their own cookie and table, and never accept a
   // staff session. See WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS.
-  const landingHost = (process.env.PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
+  const landingHost = (
+    process.env.PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com"
+  ).toLowerCase();
   const landingHosts = new Set([landingHost, `www.${landingHost}`]);
   const landingHostPublicProcedures = new Set([
     ...Array.from(LANDING_PAGE_PUBLIC_TRPC_PATHS),
@@ -133,12 +162,22 @@ async function startServer() {
     ...Array.from(RECRUITING_PUBLIC_TRPC_PATHS),
   ]);
   app.use((req, res, next) => {
-    const host = (req.hostname || req.headers.host || "").split(":")[0].toLowerCase();
+    const host = (req.hostname || req.headers.host || "")
+      .split(":")[0]
+      .toLowerCase();
     if (!landingHosts.has(host)) return next();
     if (!req.path.startsWith("/api/")) return next();
-    if (!req.path.startsWith("/api/trpc/")) return res.status(404).json({ error: "Not found." });
-    const procedures = req.path.slice("/api/trpc/".length).split(",").filter(Boolean);
-    if (procedures.length && procedures.every((procedure) => landingHostPublicProcedures.has(procedure))) return next();
+    if (!req.path.startsWith("/api/trpc/"))
+      return res.status(404).json({ error: "Not found." });
+    const procedures = req.path
+      .slice("/api/trpc/".length)
+      .split(",")
+      .filter(Boolean);
+    if (
+      procedures.length &&
+      procedures.every(procedure => landingHostPublicProcedures.has(procedure))
+    )
+      return next();
     return res.status(404).json({ error: "Not found." });
   });
 
@@ -151,7 +190,8 @@ async function startServer() {
       // Landing pages first; /newsite addresses never match a landing slug
       // (they contain a slash), so the two never compete for a request.
       res.locals.landingPageMetadata =
-        (await getLandingPageMetadata(req)) ?? (await getWebsitePageMetadata(req));
+        (await getLandingPageMetadata(req)) ??
+        (await getWebsitePageMetadata(req));
     } catch (error) {
       console.error("[LandingPages] Metadata lookup failed:", error);
       res.locals.landingPageMetadata = null;
@@ -167,23 +207,40 @@ async function startServer() {
 
   // Stripe signs the original request body. Keep this route before express.json()
   // so signature verification remains valid and duplicate events can be handled safely.
-  app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res) => {
-    if (!isStripeConfigured() || !process.env.STRIPE_WEBHOOK_SECRET?.trim()) {
-      return res.status(503).json({ error: "Stripe billing is not configured." });
+  app.post(
+    "/api/webhooks/stripe",
+    express.raw({ type: "application/json" }),
+    async (req, res) => {
+      if (!isStripeConfigured() || !process.env.STRIPE_WEBHOOK_SECRET?.trim()) {
+        return res
+          .status(503)
+          .json({ error: "Stripe billing is not configured." });
+      }
+      try {
+        const rawBody = Buffer.isBuffer(req.body)
+          ? req.body
+          : Buffer.from(req.body);
+        const signature = req.headers["stripe-signature"] as string | undefined;
+        const event = constructStripeWebhookEvent(rawBody, signature);
+        const result = await handleStripeWebhookEvent(event);
+        return res.status(200).json({ received: true, ...result });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Stripe webhook processing failed";
+        const isSignatureError = /signature|Stripe-Signature/i.test(message);
+        console.error("[Stripe Webhook] Processing error:", message);
+        return res
+          .status(isSignatureError ? 400 : 500)
+          .json({
+            error: isSignatureError
+              ? "Invalid webhook signature."
+              : "Stripe webhook processing failed.",
+          });
+      }
     }
-    try {
-      const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
-      const signature = req.headers["stripe-signature"] as string | undefined;
-      const event = constructStripeWebhookEvent(rawBody, signature);
-      const result = await handleStripeWebhookEvent(event);
-      return res.status(200).json({ received: true, ...result });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Stripe webhook processing failed";
-      const isSignatureError = /signature|Stripe-Signature/i.test(message);
-      console.error("[Stripe Webhook] Processing error:", message);
-      return res.status(isSignatureError ? 400 : 500).json({ error: isSignatureError ? "Invalid webhook signature." : "Stripe webhook processing failed." });
-    }
-  });
+  );
 
   // Zoom signs the raw payload and also performs a challenge-response check.
   // It must be registered before the global parser for signature verification.
@@ -194,7 +251,13 @@ async function startServer() {
   // captureInboundRawBody keeps the original bytes for /api/inbound/* so the
   // inbound webhook HMAC is checked against what the sender actually signed.
   app.use(express.json({ limit: "50mb", verify: captureInboundRawBody }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true, verify: captureInboundRawBody }));
+  app.use(
+    express.urlencoded({
+      limit: "50mb",
+      extended: true,
+      verify: captureInboundRawBody,
+    })
+  );
 
   // Campaign emails are sent through the Resend Emails API, so SavvyOS owns the
   // browser and RFC 8058 one-click unsubscribe flow for Smart Plan outreach.
@@ -257,7 +320,9 @@ async function startServer() {
   app.post("/api/scheduled/duplicate-scan", async (req, res) => {
     try {
       const internalSecret = process.env.SCHEDULED_TASK_SECRET;
-      const headerSecret = req.headers["x-scheduled-task-secret"] as string | undefined;
+      const headerSecret = req.headers["x-scheduled-task-secret"] as
+        | string
+        | undefined;
       let authorized = false;
       if (internalSecret && headerSecret === internalSecret) {
         authorized = true;
@@ -273,11 +338,15 @@ async function startServer() {
       if (!authorized) return res.status(401).json({ error: "Unauthorized" });
       const pairs = await detectAllDuplicates();
       const inserted = await persistDuplicatePairs(pairs);
-      console.log(`[DuplicateScan] Detected ${pairs.length} pairs, inserted ${inserted} new`);
+      console.log(
+        `[DuplicateScan] Detected ${pairs.length} pairs, inserted ${inserted} new`
+      );
       return res.json({ ok: true, detected: pairs.length, inserted });
     } catch (err: any) {
       console.error("[DuplicateScan] Error:", err.message);
-      return res.status(500).json({ error: "Scan failed", detail: err.message });
+      return res
+        .status(500)
+        .json({ error: "Scan failed", detail: err.message });
     }
   });
 
@@ -286,15 +355,25 @@ async function startServer() {
   app.post("/api/scheduled/analytics-insights-refresh", async (req, res) => {
     try {
       const internalSecret = process.env.SCHEDULED_TASK_SECRET;
-      const headerSecret = req.headers["x-scheduled-task-secret"] as string | undefined;
+      const headerSecret = req.headers["x-scheduled-task-secret"] as
+        | string
+        | undefined;
       if (!internalSecret || headerSecret !== internalSecret) {
         return res.status(401).json({ error: "Unauthorized" });
       }
       const result = await refreshDueAnalyticsInsights();
       return res.json({ ok: true, ...result });
     } catch (err: any) {
-      console.error("[AnalyticsInsights] Scheduled endpoint error:", err.message);
-      return res.status(500).json({ error: "Analytics insight refresh failed", detail: err.message });
+      console.error(
+        "[AnalyticsInsights] Scheduled endpoint error:",
+        err.message
+      );
+      return res
+        .status(500)
+        .json({
+          error: "Analytics insight refresh failed",
+          detail: err.message,
+        });
     }
   });
 
@@ -303,24 +382,37 @@ async function startServer() {
   app.post("/api/scheduled/business-insights-refresh", async (req, res) => {
     try {
       const internalSecret = process.env.SCHEDULED_TASK_SECRET;
-      const headerSecret = req.headers["x-scheduled-task-secret"] as string | undefined;
+      const headerSecret = req.headers["x-scheduled-task-secret"] as
+        | string
+        | undefined;
       if (!internalSecret || headerSecret !== internalSecret) {
         return res.status(401).json({ error: "Unauthorized" });
       }
       const result = await refreshDueBusinessInsights();
       return res.json({ ok: true, ...result });
     } catch (err: any) {
-      console.error("[BusinessInsights] Scheduled endpoint error:", err.message);
-      return res.status(500).json({ error: "Business insight refresh failed", detail: err.message });
+      console.error(
+        "[BusinessInsights] Scheduled endpoint error:",
+        err.message
+      );
+      return res
+        .status(500)
+        .json({
+          error: "Business insight refresh failed",
+          detail: err.message,
+        });
     }
   });
 
   // The thin-slice proof fixture is a development-only diagnostic. It must be
   // unreachable in production even before a caller can authenticate or invoke tRPC.
   if (ENV.isProduction) {
-    app.use("/pulse/slice", (_req, res) => res.status(404).json({ error: "Not found." }));
+    app.use("/pulse/slice", (_req, res) =>
+      res.status(404).json({ error: "Not found." })
+    );
     app.use("/api/trpc", (req, res, next) => {
-      if (req.path.startsWith("/pulse.thinSlice")) return res.status(404).json({ error: "Not found." });
+      if (req.path.startsWith("/pulse.thinSlice"))
+        return res.status(404).json({ error: "Not found." });
       next();
     });
   }
@@ -352,21 +444,36 @@ async function startServer() {
   });
 
   // Canonical role-specific training guides are safely created or refreshed on startup.
-  ensureSavvyOSTrainingGuides().catch((err) =>
+  ensureSavvyOSTrainingGuides().catch(err =>
     console.error("[TrainingGuides] Publication failed:", err)
   );
 
   // Smart Plan scheduler: process drip steps and a bounded batch of one-time sends every 5 minutes.
-  setInterval(() => {
-    processSmartPlanSteps().catch((err) => console.error("[SmartPlanScheduler] Cron error:", err));
-    processOneTimeSmartPlanSends().catch((err) => console.error("[OneTimeSend] Cron error:", err));
-    processAgentIntroductionFollowUps().catch((err) => console.error("[AgentIntroductions] Cron error:", err));
-  }, 5 * 60 * 1000);
+  setInterval(
+    () => {
+      processSmartPlanSteps().catch(err =>
+        console.error("[SmartPlanScheduler] Cron error:", err)
+      );
+      processOneTimeSmartPlanSends().catch(err =>
+        console.error("[OneTimeSend] Cron error:", err)
+      );
+      processAgentIntroductionFollowUps().catch(err =>
+        console.error("[AgentIntroductions] Cron error:", err)
+      );
+    },
+    5 * 60 * 1000
+  );
   // Also run once shortly after startup.
   setTimeout(() => {
-    processSmartPlanSteps().catch((err) => console.error("[SmartPlanScheduler] Startup run error:", err));
-    processOneTimeSmartPlanSends().catch((err) => console.error("[OneTimeSend] Startup run error:", err));
-    processAgentIntroductionFollowUps().catch((err) => console.error("[AgentIntroductions] Startup run error:", err));
+    processSmartPlanSteps().catch(err =>
+      console.error("[SmartPlanScheduler] Startup run error:", err)
+    );
+    processOneTimeSmartPlanSends().catch(err =>
+      console.error("[OneTimeSend] Startup run error:", err)
+    );
+    processAgentIntroductionFollowUps().catch(err =>
+      console.error("[AgentIntroductions] Startup run error:", err)
+    );
   }, 10_000);
 
   // Daily property email (Website Studio > Daily Email): the approved batch
