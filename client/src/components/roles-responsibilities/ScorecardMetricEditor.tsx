@@ -25,7 +25,7 @@ const defaults = {
   definition: "",
   metricType: "manual",
   frequency: "weekly",
-  measurementPeriod: "weekly",
+  measurementPeriod: "",
   rollingDays: "30",
   reviewFrequency: "weekly",
   reportingSchedule: "",
@@ -95,7 +95,7 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
   useEffect(() => {
     if (!open) return;
     const config = metric?.autoConfig;
-    const period = metric?.measurementPeriod ?? metric?.frequency ?? "weekly";
+    const period = metric?.id ? (metric?.measurementPeriod ?? metric?.frequency ?? "") : "";
     const unit = metric?.unit ?? "count";
     const totals = totalsFromMetric(metric);
     setAdvancedOpen(false);
@@ -108,7 +108,7 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
       definition: metric?.definition ?? "",
       metricType: metric?.metricType ?? "manual",
       frequency: metric?.frequency ?? "weekly",
-      measurementPeriod: period === "weekly" ? "weekly" : period,
+      measurementPeriod: period,
       rollingDays: String(metric?.rollingDays ?? 30),
       reviewFrequency: metric?.reviewFrequency ?? "weekly",
       reportingSchedule: metric?.reportingSchedule ?? "",
@@ -178,6 +178,7 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
     if (!form.ownerId) return toast.error("Choose the person accountable for this measurable.");
     const linkedResponsibilityId = Number(form.responsibilityId || responsibilityId);
     if (!linkedResponsibilityId) return toast.error("Choose the R&R this measurable belongs to.");
+    if (!form.measurementPeriod) return toast.error("Choose a measurement period.");
     if (form.measurementPeriod === "rolling" && !parseNullableNumber(form.rollingDays)) return toast.error("Set the rolling number of days.");
     if (targetIsRange && (parseNullableNumber(form.targetMinimum) == null || parseNullableNumber(form.targetMaximum) == null)) return toast.error("Set both ends of the target range.");
     if (targetIsRange && Number(form.targetMinimum) > Number(form.targetMaximum)) return toast.error("The minimum target cannot exceed the maximum.");
@@ -209,8 +210,8 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
       definitionKey: form.definitionKey.trim() || null,
       definition: form.definition.trim() || null,
       metricType: form.metricType,
-      frequency: "weekly",
-      measurementPeriod: form.measurementPeriod === "weekly" ? "weekly" : form.measurementPeriod,
+      frequency: form.measurementPeriod === "weekly" ? "weekly" : form.measurementPeriod === "quarterly" || form.measurementPeriod === "quarter_to_date" ? "quarterly" : form.measurementPeriod === "year_to_date" || form.measurementPeriod === "annually" ? "annually" : "monthly",
+      measurementPeriod: form.measurementPeriod,
       rollingDays: form.measurementPeriod === "rolling" ? Number(form.rollingDays) : null,
       reviewFrequency: form.reviewFrequency || "weekly",
       reportingSchedule: form.reportingSchedule.trim() || null,
@@ -257,6 +258,8 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
           <div className="space-y-1 sm:col-span-2"><Label>Unit</Label><Select value={form.unit} onValueChange={(value) => { const totals = defaultTotalsMode(value); update({ unit: value, displayFormat: displayFormatForUnit(value), totalsMode: totals, ...applyTotals(totals, value) }); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["count", "Count"], ["dollars", "Dollars"], ["percentage", "Percentage"], ["hours", "Hours"], ["days", "Days"], ["score", "Score"]])}</SelectContent></Select></div>
           <div className="space-y-1 sm:col-span-2"><Label>Good is</Label><Select value={form.comparisonRule === "at_most" ? "at_most" : "at_least"} onValueChange={(value) => update({ comparisonRule: value, performanceDirection: value === "at_most" ? "lower" : "higher" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["at_least", "Higher"], ["at_most", "Lower"]])}</SelectContent></Select></div>
           <div className="space-y-1 sm:col-span-2"><Label>Totals over time</Label><Select value={form.totalsMode ?? (form.isCumulative ? "cumulative" : "average")} onValueChange={(value) => update({ totalsMode: value, ...applyTotals(value, form.unit) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["cumulative", "Cumulative"], ["average", "Average"]])}</SelectContent></Select><p className="text-xs text-muted-foreground">Resets annually.</p></div>
+          <div className="space-y-1 sm:col-span-3"><Label>Measurement period *</Label><Select value={form.measurementPeriod || undefined} onValueChange={(value) => update({ measurementPeriod: value, frequency: value === "weekly" ? "weekly" : value === "quarterly" || value === "quarter_to_date" ? "quarterly" : value === "year_to_date" || value === "annually" ? "annually" : "monthly" })}><SelectTrigger><SelectValue placeholder="Choose a period" /></SelectTrigger><SelectContent>{selectItems([["weekly", "Weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["month_to_date", "Month-to-date"], ["quarter_to_date", "Quarter-to-date"], ["year_to_date", "Year-to-date"], ["rolling", "Rolling period"], ["per_event", "Per event"], ["current_snapshot", "Current snapshot"]])}</SelectContent></Select></div>
+          {form.measurementPeriod === "rolling" ? <div className="space-y-1 sm:col-span-3"><Label>Rolling days *</Label><Input type="number" min="1" max="730" value={form.rollingDays} onChange={(event) => update({ rollingDays: event.target.value })} /></div> : null}
           {targetChanged && <div className="space-y-1 sm:col-span-6"><Label>Why did this change?</Label><Input value={form.targetChangeNote} onChange={(event) => update({ targetChangeNote: event.target.value })} placeholder="Required context is kept with the target history" /></div>}
           <div className="space-y-1 sm:col-span-6"><Label>Show in</Label>{l10Meetings.length ? <MultiSelect options={l10Meetings.map((meeting) => ({ value: meeting.id, label: meeting.name }))} value={form.l10MeetingIds} onValueChange={(value) => update({ l10MeetingIds: value })} placeholder="Choose L10s" searchPlaceholder="Search L10s…" emptyText="No L10s found." /> : <p className="text-sm text-muted-foreground">Create an L10 in Pulse Settings before assigning a measurable to weekly review.</p>}</div>
         </section>
@@ -273,9 +276,9 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5"><Label>Data and entry method</Label><Select value={form.metricType === "hybrid" ? "automatic" : form.metricType} onValueChange={(value) => update({ metricType: form.metricType === "hybrid" && value === "automatic" ? "hybrid" : value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["manual", "Manual result or inputs"], ["automatic", "Automatic SavvyOS calculation"]])}</SelectContent></Select></div>
                 <div className="space-y-1.5"><Label>Measurable status</Label><Select value={form.status} onValueChange={(value) => update({ status: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["active", "Active"], ["inactive", "Archived"]])}</SelectContent></Select></div>
-                <div className="space-y-1.5"><Label>Measurement period</Label><Select value={form.measurementPeriod} onValueChange={(value) => update({ measurementPeriod: value, frequency: value === "weekly" ? "weekly" : value === "quarterly" || value === "quarter_to_date" ? "quarterly" : value === "year_to_date" ? "annually" : "monthly" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["weekly", "Weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["month_to_date", "Month-to-date"], ["quarter_to_date", "Quarter-to-date"], ["year_to_date", "Year-to-date"], ["rolling", "Rolling period"], ["per_event", "Per event"], ["current_snapshot", "Current snapshot"]])}</SelectContent></Select></div>
+
                 <div className="space-y-1.5"><Label>Review frequency</Label><Select value={form.reviewFrequency} onValueChange={(value) => update({ reviewFrequency: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["weekly", "Weekly review"], ["monthly", "Monthly review"], ["quarterly", "Quarterly review"], ["annually", "Annual review"], ["as_needed", "As needed"]])}</SelectContent></Select></div>
-                {form.measurementPeriod === "rolling" && <div className="space-y-1.5"><Label>Rolling days *</Label><Input type="number" min="1" max="730" value={form.rollingDays} onChange={(event) => update({ rollingDays: event.target.value })} /></div>}
+
                 <div className="space-y-1.5"><Label>Reporting schedule</Label><Input value={form.reportingSchedule} onChange={(event) => update({ reportingSchedule: event.target.value })} placeholder="Example: Update by Monday 9 AM" /></div>
                 <div className="space-y-1.5"><Label>Shared definition key</Label><Input value={form.definitionKey} onChange={(event) => update({ definitionKey: event.target.value })} placeholder="Optional: booking_conversion" /></div>
                 <div className="space-y-1.5"><Label>Comparison rule</Label><Select value={form.comparisonRule} onValueChange={(value) => update({ comparisonRule: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{selectItems([["at_least", "Higher is better"], ["at_most", "Lower is better"], ["within_range", "Within a range"], ["exactly", "Exactly equals"], ["informational", "Informational only"]])}</SelectContent></Select></div>
