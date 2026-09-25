@@ -1015,6 +1015,8 @@ export default function ChatPage() {
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(
     null
   );
+  const [pendingChannelId, setPendingChannelId] = useState<number | null>(null);
+  const openManageWhenReadyRef = useRef(false);
   const [newMessageOpen, setNewMessageOpen] = useState(false);
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newSectionOpen, setNewSectionOpen] = useState(false);
@@ -1055,14 +1057,24 @@ export default function ChatPage() {
     ? personalChats
     : personalChats.slice(0, 3);
   useEffect(() => {
-    if (!selectedChannelId && allChannels[0])
+    if (pendingChannelId && allChannels.some(channel => channel.id === pendingChannelId)) {
+      setSelectedChannelId(pendingChannelId);
+      setPendingChannelId(null);
+      if (openManageWhenReadyRef.current) {
+        openManageWhenReadyRef.current = false;
+        setManageGroupOpen(true);
+      }
+      return;
+    }
+    if (!selectedChannelId && !pendingChannelId && allChannels[0])
       setSelectedChannelId(allChannels[0].id);
     if (
       selectedChannelId &&
+      !pendingChannelId &&
       !allChannels.some(channel => channel.id === selectedChannelId)
     )
       setSelectedChannelId(allChannels[0]?.id ?? null);
-  }, [allChannels, selectedChannelId]);
+  }, [allChannels, pendingChannelId, selectedChannelId]);
   const { data: messages = [], isLoading: messagesLoading } =
     trpc.chat.messages.list.useQuery(
       { channelId: selectedChannelId ?? 0, limit: 100 },
@@ -1262,6 +1274,8 @@ export default function ChatPage() {
   )?.message.id;
   const chooseChannel = (channelId: number) => {
     setSelectedChannelId(channelId);
+    setPendingChannelId(null);
+    openManageWhenReadyRef.current = false;
     setReplyTo(null);
     setMobileNavigationOpen(false);
   };
@@ -1617,8 +1631,9 @@ export default function ChatPage() {
         sections={allSections}
         onCreated={channelId => {
           refreshConversation();
-          setSelectedChannelId(channelId);
-          setManageGroupOpen(true);
+          openManageWhenReadyRef.current = true;
+          setManageGroupOpen(false);
+          setPendingChannelId(channelId);
         }}
       />
       <NewMessageDialog
@@ -1626,7 +1641,8 @@ export default function ChatPage() {
         onOpenChange={setNewMessageOpen}
         onOpened={channelId => {
           refreshConversation();
-          setSelectedChannelId(channelId);
+          openManageWhenReadyRef.current = false;
+          setPendingChannelId(channelId);
         }}
       />
       <ManageGroupDialog

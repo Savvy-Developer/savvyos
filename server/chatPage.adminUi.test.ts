@@ -37,4 +37,13 @@ describe("Chat page section and channel archive controls", () => {
     expect(source).toContain("handleDialogOpenChange");
     expect(source).not.toContain("setSelectedChannelId(null)");
   });
+
+  it("does not fall back to the first sidebar channel before a newly created group is in the workspace", () => {
+    expect(source).toContain("pendingChannelId");
+    expect(source).toContain("openManageWhenReadyRef");
+    expect(source).toContain("setPendingChannelId(channelId)");
+    expect(source).toContain("if (pendingChannelId && allChannels.some(channel => channel.id === pendingChannelId))");
+    expect(source).toContain("if (!selectedChannelId && !pendingChannelId && allChannels[0])");
+    expect(source).toContain("!pendingChannelId &&");
+  });
 });
