@@ -33,6 +33,11 @@ import { aliasedTable } from "drizzle-orm";
 import { logActivity } from "../db";
 import { invokeLLM } from "../_core/llm";
 import { extractCoachingFallbackCommitments } from "../_core/llmFallbacks";
+import {
+  provisionCoachingSession,
+  saveCoachingSessionScheduling,
+} from "../coachingScheduling";
+import { sendTransactionalEmail } from "../_core/resendEmail";
 import { getSavvyOsAdoptionReport } from "../analytics/adoptionReport";
 import {
   buildWeeklyCoachingAccountabilityReport,
@@ -357,6 +362,9 @@ async function getAgentPipelineData(db: any, agentId: number) {
 
 // ─── Helper: get coaching history summary for AI context ────────────────────
 async function getCoachingHistoryForAI(db: any, agentId: number, limit = 10) {
+  const actualCoach = aliasedTable(users, "historyActualCoach");
+  const scheduledCoach = aliasedTable(users, "historyScheduledCoach");
+  const commitmentOwner = aliasedTable(users, "historyCommitmentOwner");
   const sessions = await db
     .select({
       id: coachingSessions.id,
@@ -364,23 +372,36 @@ async function getCoachingHistoryForAI(db: any, agentId: number, limit = 10) {
       sessionType: coachingSessions.sessionType,
       status: coachingSessions.status,
       aiSummary: coachingSessions.aiSummary,
+      isSummaryApproved: coachingSessions.isSummaryApproved,
       primaryDiagnosis: coachingSessions.primaryDiagnosis,
+      secondaryDiagnosis: coachingSessions.secondaryDiagnosis,
       diagnosisEvidence: coachingSessions.diagnosisEvidence,
       sourceNotes: coachingSessions.sourceNotes,
+      actualCoachName: actualCoach.name,
+      scheduledCoachName: scheduledCoach.name,
     })
     .from(coachingSessions)
+    .leftJoin(actualCoach, eq(coachingSessions.actualCoachId, actualCoach.id))
+    .leftJoin(scheduledCoach, eq(coachingSessions.scheduledCoachId, scheduledCoach.id))
     .where(and(eq(coachingSessions.agentId, agentId), eq(coachingSessions.status, "Completed")))
     .orderBy(desc(coachingSessions.sessionDate))
     .limit(limit);
 
-  const commitments = await db
-    .select()
+  const commitmentRows = await db
+    .select({
+      commitment: coachingCommitments,
+      ownerName: commitmentOwner.name,
+    })
     .from(coachingCommitments)
+    .leftJoin(commitmentOwner, eq(coachingCommitments.ownerId, commitmentOwner.id))
     .where(eq(coachingCommitments.agentId, agentId))
     .orderBy(desc(coachingCommitments.createdAt))
     .limit(30);
 
-  return { sessions, commitments };
+  return {
+    sessions,
+    commitments: commitmentRows.map((row: any) => ({ ...row.commitment, ownerName: row.ownerName })),
+  };
 }
 
 // ─── Live call guide — a dependable coaching baseline from current SavvyOS data ──
@@ -1638,6 +1659,7 @@ Please provide your comprehensive coaching analysis.`,
       coachId: z.number().optional(),
       status: z.string().optional(),
       sessionType: z.string().optional(),
+      search: z.string().trim().max(200).optional(),
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
       limit: z.number().default(20),
@@ -1659,6 +1681,15 @@ Please provide your comprehensive coaching analysis.`,
       ));
       if (input?.status) conditions.push(eq(coachingSessions.status, input.status as any));
       if (input?.sessionType) conditions.push(eq(coachingSessions.sessionType, input.sessionType));
+      if (input?.search) {
+        const pattern = `%${input.search}%`;
+        conditions.push(or(
+          like(agentAlias.name, pattern),
+          like(agentAlias.email, pattern),
+          like(coachAlias.name, pattern),
+          like(coachingSessions.sessionType, pattern),
+        ));
+      }
       if (input?.dateFrom) conditions.push(gte(coachingSessions.sessionDate, new Date(input.dateFrom)));
       if (input?.dateTo) conditions.push(lte(coachingSessions.sessionDate, new Date(input.dateTo)));
 
@@ -1679,6 +1710,8 @@ Please provide your comprehensive coaching analysis.`,
           .offset(input?.offset ?? 0),
         db.select({ count: sql<number>`COUNT(*)` })
           .from(coachingSessions)
+          .leftJoin(agentAlias, eq(coachingSessions.agentId, agentAlias.id))
+          .leftJoin(coachAlias, eq(coachingSessions.scheduledCoachId, coachAlias.id))
           .where(whereClause),
       ]);
 
@@ -1847,7 +1880,13 @@ Please provide your comprehensive coaching analysis.`,
       const profile = profileRows[0] ?? null;
       const previousSessions = history.sessions
         .filter((session: any) => session.id !== input.sessionId)
-        .slice(0, 5);
+        .slice(0, 5)
+        .map((previousSession: any) => ({
+          ...previousSession,
+          commitments: history.commitments.filter(
+            (commitment: any) => commitment.sessionId === previousSession.id
+          ),
+        }));
       const liveCallGuide = buildLiveCallGuide({
         agentName: (row as any).agent?.name,
         profile,
@@ -1874,18 +1913,36 @@ Please provide your comprehensive coaching analysis.`,
 
   /** Generate pre-session brief (AI-powered preparation) */
   generatePreSessionBrief: protectedProcedure
-    .input(z.object({ sessionId: z.number() }))
+    .input(z.object({ sessionId: z.number(), forceRegenerate: z.boolean().default(false) }))
     .mutation(async ({ input, ctx }) => {
       requireAdminOrCoach(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const [session] = await db
-        .select({ agentId: coachingSessions.agentId, sessionType: coachingSessions.sessionType })
+        .select({
+          agentId: coachingSessions.agentId,
+          sessionType: coachingSessions.sessionType,
+          aiRecommendedAgenda: coachingSessions.aiRecommendedAgenda,
+          preparationStatus: coachingSessions.preparationStatus,
+        })
         .from(coachingSessions)
         .where(eq(coachingSessions.id, input.sessionId));
 
       if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // Once a guide is prepared, the coach gets the same briefing every time
+      // they return to Prepare. It changes only with an explicit refresh.
+      if (!input.forceRegenerate && session.preparationStatus === "Ready" && session.aiRecommendedAgenda) {
+        try {
+          const storedBrief = JSON.parse(session.aiRecommendedAgenda);
+          if (storedBrief && typeof storedBrief === "object" && !Array.isArray(storedBrief)) {
+            return { brief: storedBrief, source: "stored" as const, generatedAt: null };
+          }
+        } catch {
+          // Regenerate only when the legacy saved payload is invalid.
+        }
+      }
 
       const agentId = session.agentId;
       const [agentRow] = await db.select({ name: users.name }).from(users).where(eq(users.id, agentId));
@@ -1973,6 +2030,8 @@ Open Commitments:\n${openCommitments || "None"}`,
       scheduledCoachId: z.number().optional(),
       sessionDate: z.string().optional(),
       sessionType: z.string().default("Standard COACH"),
+      durationMinutes: z.number().int().min(15).max(240).default(30),
+      schedulingSource: z.enum(["SavvyOS", "External"]).default("SavvyOS"),
       meetingLink: z.string().optional(),
       reasonForSession: z.string().optional(),
     }))
@@ -1987,22 +2046,42 @@ Open Commitments:\n${openCommitments || "None"}`,
         .from(coachingProfiles)
         .where(eq(coachingProfiles.agentId, input.agentId));
 
+      const scheduledCoachId = input.scheduledCoachId ?? profile?.coachOfRecordId ?? null;
+      const sessionDate = input.sessionDate ? new Date(input.sessionDate) : null;
+      if (sessionDate && Number.isNaN(sessionDate.getTime())) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid session date and time." });
+      }
       const [result] = await db.insert(coachingSessions).values({
         agentId: input.agentId,
         coachOfRecordId: profile?.coachOfRecordId ?? null,
-        scheduledCoachId: input.scheduledCoachId ?? profile?.coachOfRecordId ?? null,
-        sessionDate: input.sessionDate ? new Date(input.sessionDate) : null,
+        scheduledCoachId,
+        sessionDate,
         sessionType: input.sessionType,
+        durationMinutes: input.durationMinutes,
+        schedulingSource: input.schedulingSource,
         meetingLink: input.meetingLink,
         reasonForSession: input.reasonForSession,
         status: "Scheduled",
       });
+      const sessionId = Number((result as any).insertId);
+      const integration = await provisionCoachingSession({
+        db,
+        sessionId,
+        agentId: input.agentId,
+        scheduledCoachId,
+        sessionDate,
+        sessionType: input.sessionType,
+        durationMinutes: input.durationMinutes,
+        source: input.schedulingSource,
+        meetingLink: input.meetingLink,
+      });
+      await saveCoachingSessionScheduling(db, sessionId, input.schedulingSource, integration);
 
       // Update profile next session date
-      if (input.sessionDate) {
+      if (sessionDate) {
         await db.update(coachingProfiles).set({
-          nextSessionDate: new Date(input.sessionDate),
-          nextSessionCoachId: input.scheduledCoachId ?? profile?.coachOfRecordId ?? null,
+          nextSessionDate: sessionDate,
+          nextSessionCoachId: scheduledCoachId,
           updatedAt: sql`NOW()`,
         }).where(eq(coachingProfiles.agentId, input.agentId));
       }
@@ -2011,12 +2090,17 @@ Open Commitments:\n${openCommitments || "None"}`,
         userId: ctx.user.id,
         action: "coaching_session_created",
         entityType: "coaching_session",
-        entityId: (result as any).insertId,
+        entityId: sessionId,
         agentId: input.agentId,
-        details: { sessionType: input.sessionType },
+        details: {
+          sessionType: input.sessionType,
+          schedulingSource: input.schedulingSource,
+          calendarSyncStatus: integration.calendarSyncStatus,
+          zoomMeetingCreated: Boolean(integration.zoomMeetingId),
+        },
       });
 
-      return { success: true, sessionId: (result as any).insertId };
+      return { success: true, sessionId, integration };
     }),
 
   /** Start a session (transition to In Progress) */
@@ -2149,6 +2233,7 @@ Open Commitments:\n${openCommitments || "None"}`,
       }).where(eq(coachingProfiles.agentId, session.agentId));
 
       let nextSessionId: number | null = null;
+      let nextSessionIntegration: Awaited<ReturnType<typeof provisionCoachingSession>> | null = null;
       if (nextSessionDate) {
         const existingConditions: any[] = [
           eq(coachingSessions.agentId, session.agentId),
@@ -2171,9 +2256,22 @@ Open Commitments:\n${openCommitments || "None"}`,
             scheduledCoachId: nextSessionCoachId,
             sessionDate: nextSessionDate,
             sessionType: input.nextSessionType ?? "Standard COACH Session",
+            durationMinutes: 30,
+            schedulingSource: "SavvyOS",
             status: "Scheduled",
           });
           nextSessionId = Number((created as any).insertId);
+          nextSessionIntegration = await provisionCoachingSession({
+            db,
+            sessionId: nextSessionId,
+            agentId: session.agentId,
+            scheduledCoachId: nextSessionCoachId,
+            sessionDate: nextSessionDate,
+            sessionType: input.nextSessionType ?? "Standard COACH Session",
+            durationMinutes: 30,
+            source: "SavvyOS",
+          });
+          await saveCoachingSessionScheduling(db, nextSessionId, "SavvyOS", nextSessionIntegration);
         }
       }
 
@@ -2183,9 +2281,13 @@ Open Commitments:\n${openCommitments || "None"}`,
         entityType: "coaching_session",
         entityId: input.sessionId,
         agentId: session.agentId,
-        details: { nextSessionId, noNextSessionReason: input.noNextSessionReason ?? null },
+        details: {
+          nextSessionId,
+          noNextSessionReason: input.noNextSessionReason ?? null,
+          calendarSyncStatus: nextSessionIntegration?.calendarSyncStatus ?? null,
+        },
       });
-      return { success: true, nextSessionId };
+      return { success: true, nextSessionId, integration: nextSessionIntegration };
     }),
 
   /** Update a coaching session */
@@ -2213,6 +2315,7 @@ Open Commitments:\n${openCommitments || "None"}`,
       recordingDurationSeconds: z.number().nullable().optional(),
       transcript: z.string().nullable().optional(),
       transcriptionStatus: z.enum(["None", "Pending", "Processing", "Completed", "Failed"]).optional(),
+      aiSummary: z.string().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       requireAdminOrCoach(ctx.user.role);
@@ -2221,6 +2324,7 @@ Open Commitments:\n${openCommitments || "None"}`,
 
       const { sessionId, ...fields } = input;
       const updateValues: any = { ...fields, updatedAt: sql`NOW()` };
+      if (fields.aiSummary !== undefined) updateValues.isSummaryApproved = false;
       if (fields.sessionDate !== undefined) updateValues.sessionDate = fields.sessionDate ? new Date(fields.sessionDate) : null;
       if (fields.nextSessionDate !== undefined) updateValues.nextSessionDate = fields.nextSessionDate ? new Date(fields.nextSessionDate) : null;
       if (fields.status === "In Progress" && !updateValues.startedAt) updateValues.startedAt = sql`NOW()`;
@@ -2285,9 +2389,119 @@ Open Commitments:\n${openCommitments || "None"}`,
       return { success: true };
     }),
 
+  /** Sends an approved session recap only when the coach explicitly requests it. */
+  sendAgentRecap: protectedProcedure
+    .input(z.object({ sessionId: z.number(), forceResend: z.boolean().default(false) }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const agentAlias = aliasedTable(users, "recapAgent");
+      const [row] = await db
+        .select({
+          session: coachingSessions,
+          agent: { id: agentAlias.id, name: agentAlias.name, email: agentAlias.email },
+        })
+        .from(coachingSessions)
+        .leftJoin(agentAlias, eq(coachingSessions.agentId, agentAlias.id))
+        .where(eq(coachingSessions.id, input.sessionId))
+        .limit(1);
+      if (!row?.session || !row.agent?.email) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This agent needs an email address before SavvyOS can send a coaching recap." });
+      }
+      if (!row.session.isSummaryApproved || !row.session.aiSummary) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Approve the coaching summary before sending an agent recap." });
+      }
+      if (row.session.agentRecapSentAt && !input.forceResend) {
+        throw new TRPCError({ code: "CONFLICT", message: "A recap was already sent for this session. Use Send Again only if the agent asks for another copy." });
+      }
+      const agentId = row.agent.id;
+
+      const sessionCommitments = await db
+        .select({
+          description: coachingCommitments.description,
+          dueDate: coachingCommitments.dueDate,
+          status: coachingCommitments.status,
+          ownerId: coachingCommitments.ownerId,
+        })
+        .from(coachingCommitments)
+        .where(and(
+          eq(coachingCommitments.sessionId, input.sessionId),
+          eq(coachingCommitments.visibilityLabel, "Agent Visible"),
+          ne(coachingCommitments.status, "AI Suggested"),
+        ))
+        .orderBy(coachingCommitments.createdAt);
+      const dateLabel = row.session.sessionDate
+        ? row.session.sessionDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+        : "Recent session";
+      const nextSessionLabel = row.session.nextSessionDate
+        ? `${row.session.nextSessionType ?? "Coaching Session"} · ${row.session.nextSessionDate.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}`
+        : null;
+      const formatCommitment = (commitment: any) => ({
+        description: commitment.description,
+        dueDate: commitment.dueDate ? commitment.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null,
+        status: commitment.status,
+      });
+      const delivery = await sendTransactionalEmail("coaching_agent_recap", {
+        recipientEmail: row.agent.email,
+        recipientName: row.agent.name ?? undefined,
+        coachingSessionDate: dateLabel,
+        coachingSessionSummary: row.session.aiSummary,
+        coachingAgentCommitments: sessionCommitments.filter(commitment => commitment.ownerId === agentId).map(formatCommitment),
+        coachingSavvyCommitments: sessionCommitments.filter(commitment => commitment.ownerId !== agentId).map(formatCommitment),
+        coachingNextSession: nextSessionLabel ?? undefined,
+      }, {
+        idempotencyKey: `coaching-agent-recap:${input.sessionId}:${input.forceResend ? Date.now() : "initial"}`,
+      });
+      if (!delivery.sent) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: delivery.reason ?? "SavvyOS could not send the agent recap." });
+      }
+      await db.update(coachingSessions).set({ agentRecapSentAt: sql`NOW()`, updatedAt: sql`NOW()` })
+        .where(eq(coachingSessions.id, input.sessionId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_agent_recap_sent",
+        entityType: "coaching_session",
+        entityId: input.sessionId,
+        agentId,
+        details: { resent: input.forceResend, commitmentCount: sessionCommitments.length },
+      });
+      return { success: true, sentAt: new Date().toISOString() };
+    }),
+
   // ═══════════════════════════════════════════════════════════════════════════
   // COMMITMENTS — Full lifecycle with verification
   // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Agent-safe checklist: only the signed-in agent's visible, reviewed commitments. */
+  listMyCommitments: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "agent") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Agent access is required." });
+    }
+    const db = await getDb();
+    if (!db) return [];
+    return db
+      .select({
+        id: coachingCommitments.id,
+        description: coachingCommitments.description,
+        dueDate: coachingCommitments.dueDate,
+        status: coachingCommitments.status,
+        expectedResult: coachingCommitments.expectedResult,
+        ownerId: coachingCommitments.ownerId,
+        completedDate: coachingCommitments.completedDate,
+        sessionDate: coachingSessions.sessionDate,
+      })
+      .from(coachingCommitments)
+      .leftJoin(coachingSessions, eq(coachingCommitments.sessionId, coachingSessions.id))
+      .where(and(
+        eq(coachingCommitments.agentId, ctx.user.id),
+        eq(coachingCommitments.visibilityLabel, "Agent Visible"),
+        ne(coachingCommitments.status, "AI Suggested"),
+      ))
+      .orderBy(coachingCommitments.dueDate, desc(coachingCommitments.createdAt))
+      .limit(30);
+  }),
 
   /** List commitments with comprehensive filtering */
   listCommitments: protectedProcedure
@@ -2361,6 +2575,7 @@ Open Commitments:\n${openCommitments || "None"}`,
       coachAssignedId: z.number().nullable().optional(),
       dueDate: z.string().optional(),
       expectedResult: z.string().optional(),
+      agreementEvidence: z.string().optional(),
       relatedGoalId: z.number().nullable().optional(),
       relatedMetric: z.string().optional(),
       visibilityLabel: z.enum(["Agent Visible", "Internal", "Leadership"]).default("Agent Visible"),
@@ -2396,9 +2611,12 @@ Open Commitments:\n${openCommitments || "None"}`,
     .input(z.object({
       commitmentId: z.number(),
       description: z.string().optional(),
+      ownerId: z.number().nullable().optional(),
       status: z.enum(["AI Suggested", "Not Started", "In Progress", "Submitted for Verification", "Completed", "Partially Completed", "Missed", "Waived", "No Longer Relevant"]).optional(),
       dueDate: z.string().nullable().optional(),
       expectedResult: z.string().nullable().optional(),
+      agreementEvidence: z.string().nullable().optional(),
+      relatedMetric: z.string().nullable().optional(),
       completionEvidence: z.string().nullable().optional(),
       coachVerificationStatus: z.enum(["Pending", "Verified", "Rejected"]).optional(),
       consequence: z.string().nullable().optional(),
@@ -2439,12 +2657,17 @@ Open Commitments:\n${openCommitments || "None"}`,
 
       const commitments = await db.select({ id: coachingCommitments.id, agentId: coachingCommitments.agentId })
         .from(coachingCommitments)
-        .where(inArray(coachingCommitments.id, input.commitmentIds));
+        .where(and(
+          inArray(coachingCommitments.id, input.commitmentIds),
+          eq(coachingCommitments.status, "AI Suggested"),
+          isNotNull(coachingCommitments.agreementEvidence),
+        ));
       await db.update(coachingCommitments)
         .set({ status: "Not Started", updatedAt: sql`NOW()` })
         .where(and(
           inArray(coachingCommitments.id, input.commitmentIds),
           eq(coachingCommitments.status, "AI Suggested"),
+          isNotNull(coachingCommitments.agreementEvidence),
         ));
       await Promise.all(commitments.map((commitment) => logCoachingActivity({
         userId: ctx.user.id,
@@ -2454,7 +2677,7 @@ Open Commitments:\n${openCommitments || "None"}`,
         agentId: commitment.agentId,
       })));
 
-      return { success: true, approvedCount: input.commitmentIds.length };
+      return { success: true, approvedCount: commitments.length };
     }),
 
   /** Bulk dismiss AI-suggested commitments */
@@ -3076,20 +3299,26 @@ Open Commitments:\n${openCommitments || "None"}`,
 You specialize in the Four-C coaching framework: Commitment, Capability, Cadence, and Capacity.
 Your role is to analyze coaching session notes and produce structured, actionable summaries.
 
-Definitions:
-- Commitment: The agent's motivation, mindset, and dedication to the work.
-- Capability: The agent's skills, knowledge, and ability to execute.
-- Cadence: The agent's consistency, habits, and activity rhythms.
-- Capacity: External constraints limiting the agent (lead volume, tools, support, market conditions).
+	Definitions:
+	- Commitment: The agent's motivation, mindset, and dedication to the work.
+	- Capability: The agent's skills, knowledge, and ability to execute.
+	- Cadence: The agent's consistency, habits, and activity rhythms.
+	- Capacity: External constraints limiting the agent (lead volume, tools, support, market conditions).
 
-Output JSON with this exact structure:
-{
-  "summary": "2-4 paragraph narrative summary of the session",
-  "primaryDiagnosis": "Commitment|Capability|Cadence|Capacity|null",
-  "secondaryDiagnosis": "Commitment|Capability|Cadence|Capacity|null",
-  "diagnosisEvidence": "1-2 sentences explaining why this diagnosis was selected",
-  "commitments": [{"description":"Specific action item","owner":"agent|coach","dueDate":"YYYY-MM-DD or null","expectedResult":"What success looks like","relatedMetric":"GCI|Closings|Pipeline|Activity|null","confidence":"high|medium|low"}]
-}`;
+	Commitment extraction rule:
+	- A commitment is NOT a recommendation, idea, topic, concern, or action the coach thinks would help.
+	- Include a commitment only when the notes/transcript show an explicit agreement by an owner using language such as "I will", "we will", "I commit", "the agent agreed", or "coach will".
+	- If the owner, action, or evidence of agreement is unclear, do not include it.
+	- Every commitment must include "agreementEvidence": a short quote or near-verbatim source phrase proving the agreement.
+
+	Output JSON with this exact structure:
+	{
+	  "summary": "2-4 paragraph narrative summary of the session",
+	  "primaryDiagnosis": "Commitment|Capability|Cadence|Capacity|null",
+	  "secondaryDiagnosis": "Commitment|Capability|Cadence|Capacity|null",
+	  "diagnosisEvidence": "1-2 sentences explaining why this diagnosis was selected",
+	  "commitments": [{"description":"Specific agreed action item only","owner":"agent|coach","dueDate":"YYYY-MM-DD or null","expectedResult":"What success looks like","relatedMetric":"GCI|Closings|Pipeline|Activity|null","confidence":"high|medium|low","agreementEvidence":"Short quote or source phrase proving agreement"}]
+	}`;
         const response = await invokeLLM({
           model: "gpt-5-mini",
           messages: [
@@ -3115,7 +3344,13 @@ Output JSON with this exact structure:
         ["Commitment", "Capability", "Cadence", "Capacity"].includes(String(value))
           ? value as "Commitment" | "Capability" | "Cadence" | "Capacity"
           : null;
-      const suggestedCommitments = Array.isArray(parsed.commitments) ? parsed.commitments : [];
+      const suggestedCommitments = (Array.isArray(parsed.commitments) ? parsed.commitments : [])
+        .filter((commitment: any) =>
+          typeof commitment?.description === "string" &&
+          commitment.description.trim().length > 0 &&
+          typeof commitment?.agreementEvidence === "string" &&
+          commitment.agreementEvidence.trim().length > 0
+        );
       await db.update(coachingSessions).set({
         aiSummary: parsed.summary ?? fallback.summary,
         primaryDiagnosis: validDiagnosis(parsed.primaryDiagnosis),
@@ -3123,6 +3358,7 @@ Output JSON with this exact structure:
         diagnosisEvidence: parsed.diagnosisEvidence ?? fallback.diagnosisEvidence,
         aiRecommendedCommitments: JSON.stringify(suggestedCommitments),
         aiProcessingStatus: "Completed",
+        isSummaryApproved: false,
         updatedAt: sql`NOW()`,
       }).where(eq(coachingSessions.id, input.sessionId));
 
@@ -3143,6 +3379,7 @@ Output JSON with this exact structure:
               createdById: ctx.user.id,
               dueDate: commitment.dueDate ? new Date(commitment.dueDate) : null,
               expectedResult: commitment.expectedResult ?? null,
+              agreementEvidence: commitment.agreementEvidence?.trim() ?? null,
               relatedMetric: commitment.relatedMetric ?? null,
               status: "AI Suggested" as const,
               isAiExtracted: source === "ai",

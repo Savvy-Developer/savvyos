@@ -111,6 +111,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "monthly_agent_renewals",
   "coaching_weekly_accountability",
   "coaching_tips_for_today",
+  "coaching_agent_recap",
   "operations_escalation_resolved",
   "coaching_feedback_invitation",
   "coaching_feedback_weekly_summary",
@@ -272,6 +273,12 @@ interface EmailContext {
   coachingTipsDate?: string;
   coachingTipsHtml?: string;
   coachingTipsSubject?: string;
+  // Optional, coach-controlled post-session recap fields
+  coachingSessionDate?: string;
+  coachingSessionSummary?: string;
+  coachingAgentCommitments?: Array<{ description: string; dueDate?: string | null; status?: string | null }>;
+  coachingSavvyCommitments?: Array<{ description: string; dueDate?: string | null; status?: string | null }>;
+  coachingNextSession?: string;
   // Operations escalation resolution fields
   operationsEscalationDescription?: string;
   operationsEscalationResolution?: string;
@@ -1632,6 +1639,29 @@ const TEMPLATES: Record<
       760
     ),
   }),
+
+  coaching_agent_recap: ctx => {
+    const commitmentList = (items: EmailContext["coachingAgentCommitments"]) => items?.length
+      ? `<ul style="margin:8px 0 0;padding-left:20px;color:#374151;font-size:14px;line-height:1.65;">${items.map(item => `<li>${escapeHtml(item.description)}${item.dueDate ? ` <span style="color:#6B7280;">(due ${escapeHtml(item.dueDate)})</span>` : ""}</li>`).join("")}</ul>`
+      : `<p style="margin:8px 0 0;font-size:14px;color:#6B7280;">None recorded for this session.</p>`;
+    return {
+      subject: `Your Coaching Recap${ctx.coachingSessionDate ? ` | ${ctx.coachingSessionDate}` : ""}`,
+      html: emailLayout(
+        `${heading("Your Coaching Recap", CYAN)}
+        ${greeting(ctx.recipientName)}
+        ${bodyText("Here is the recap your coach chose to send from your SavvyOS coaching session.")}
+        ${ctx.coachingSessionSummary ? `<p style="margin:20px 0 7px;font-size:14px;font-weight:700;color:${BLACK};">Session summary</p><div style="background:#F9FAFB;border-radius:8px;border-left:3px solid ${CYAN};padding:14px 16px;font-size:14px;line-height:1.6;color:#374151;white-space:pre-wrap;">${escapeHtml(ctx.coachingSessionSummary)}</div>` : ""}
+        <p style="margin:20px 0 7px;font-size:14px;font-weight:700;color:${BLACK};">My commitments</p>
+        ${commitmentList(ctx.coachingAgentCommitments)}
+        <p style="margin:20px 0 7px;font-size:14px;font-weight:700;color:${BLACK};">Savvy and coach commitments</p>
+        ${commitmentList(ctx.coachingSavvyCommitments)}
+        ${ctx.coachingNextSession ? infoCard([`<strong style="color:${BLACK};">Next coaching session</strong>&nbsp;&nbsp; ${escapeHtml(ctx.coachingNextSession)}`], CYAN) : ""}
+        ${ctaButton("Open My Coaching", APP_URL + "/dashboard", CYAN)}`,
+        "Your SavvyOS coaching recap",
+        680
+      ),
+    };
+  },
 
   coaching_feedback_invitation: ctx => ({
     subject:

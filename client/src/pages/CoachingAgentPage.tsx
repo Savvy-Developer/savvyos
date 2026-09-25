@@ -60,6 +60,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { safeFormat, safeFormatET } from "@/lib/safeFormat";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
 import CoachingCommitmentsPanel from "@/components/coaching/CoachingCommitmentsPanel";
 import CoachingAssessmentsPanel from "@/components/coaching/CoachingAssessmentsPanel";
@@ -122,6 +123,7 @@ export default function CoachingAgentPage() {
     sessionDate: "",
     scheduledCoachId: "",
     durationMinutes: "30",
+    schedulingSource: "SavvyOS" as "SavvyOS" | "External",
     meetingLink: "",
     reasonForSession: "",
   });
@@ -131,7 +133,15 @@ export default function CoachingAgentPage() {
   const { data: coaches } = trpc.coaching.listCoaches.useQuery();
 
   const createSession = trpc.coaching.createSession.useMutation({
-    onSuccess: () => { toast.success("Session created"); setShowNewSession(false); refetch(); utils.coaching.listSessions.invalidate(); },
+    onSuccess: (result: any) => {
+      const warnings = result.integration?.warnings ?? [];
+      toast.success(warnings.length ? "Session created. Review the scheduling notice." : "Session created with calendar details.");
+      if (warnings.length) toast.warning(warnings[0]);
+      setShowNewSession(false);
+      refetch();
+      utils.coaching.listSessions.invalidate();
+      navigate(`/coaching/session/${result.sessionId}`);
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -698,18 +708,16 @@ export default function CoachingAgentPage() {
             </div>
             <div><label className="text-xs font-medium">Session Date & Time</label><Input type="datetime-local" value={sessionForm.sessionDate} onChange={(e) => setSessionForm({ ...sessionForm, sessionDate: e.target.value })} className="mt-1" /></div>
             <div><label className="text-xs font-medium">Session Coach</label>
-              <Select value={sessionForm.scheduledCoachId} onValueChange={(v) => setSessionForm({ ...sessionForm, scheduledCoachId: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select coach..." /></SelectTrigger>
-                <SelectContent>{(coaches ?? []).map((c: any) => (<SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>))}</SelectContent>
-              </Select>
+              <div className="mt-1"><SearchableSelect options={(coaches ?? []).slice().sort((a: any, b: any) => String(a.name ?? "").localeCompare(String(b.name ?? ""))).map((coach: any) => ({ value: String(coach.id), label: coach.name ?? coach.email ?? `Coach ${coach.id}`, description: coach.email ?? undefined }))} value={sessionForm.scheduledCoachId} onValueChange={(v) => setSessionForm({ ...sessionForm, scheduledCoachId: v })} placeholder="Search for a coach..." searchPlaceholder="Type a coach name..." /></div>
             </div>
             <div><label className="text-xs font-medium">Duration (minutes)</label><Input type="number" value={sessionForm.durationMinutes} onChange={(e) => setSessionForm({ ...sessionForm, durationMinutes: e.target.value })} className="mt-1" /></div>
-            <div><label className="text-xs font-medium">Meeting Link (optional)</label><Input value={sessionForm.meetingLink} onChange={(e) => setSessionForm({ ...sessionForm, meetingLink: e.target.value })} placeholder="https://..." className="mt-1" /></div>
+            <div><label className="text-xs font-medium">How was this meeting created?</label><Select value={sessionForm.schedulingSource} onValueChange={(v) => setSessionForm({ ...sessionForm, schedulingSource: v as "SavvyOS" | "External" })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="SavvyOS">Create in SavvyOS</SelectItem><SelectItem value="External">Record an existing external meeting</SelectItem></SelectContent></Select><p className="mt-1 text-[11px] text-muted-foreground">SavvyOS creates the Zoom link and calendar event when integrations are connected.</p></div>
+            {sessionForm.schedulingSource === "External" && <div><label className="text-xs font-medium">Meeting Link (optional)</label><Input value={sessionForm.meetingLink} onChange={(e) => setSessionForm({ ...sessionForm, meetingLink: e.target.value })} placeholder="Paste a Calendly, Zoom, or other meeting link" className="mt-1" /></div>}
             <div><label className="text-xs font-medium">Reason (optional)</label><Textarea value={sessionForm.reasonForSession} onChange={(e) => setSessionForm({ ...sessionForm, reasonForSession: e.target.value })} placeholder="Why is this session needed?" className="mt-1" rows={2} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNewSession(false)}>Cancel</Button>
-            <Button onClick={() => createSession.mutate({ agentId, sessionType: sessionForm.sessionType, sessionDate: sessionForm.sessionDate ? new Date(sessionForm.sessionDate).toISOString() : new Date().toISOString(), scheduledCoachId: sessionForm.scheduledCoachId ? Number(sessionForm.scheduledCoachId) : undefined, meetingLink: sessionForm.meetingLink || undefined, reasonForSession: sessionForm.reasonForSession || undefined })} disabled={createSession.isPending}>
+            <Button onClick={() => createSession.mutate({ agentId, sessionType: sessionForm.sessionType, sessionDate: sessionForm.sessionDate ? new Date(sessionForm.sessionDate).toISOString() : new Date().toISOString(), scheduledCoachId: sessionForm.scheduledCoachId ? Number(sessionForm.scheduledCoachId) : undefined, durationMinutes: Number(sessionForm.durationMinutes) || 30, schedulingSource: sessionForm.schedulingSource, meetingLink: sessionForm.meetingLink || undefined, reasonForSession: sessionForm.reasonForSession || undefined })} disabled={createSession.isPending}>
               {createSession.isPending ? "Creating..." : "Create Session"}
             </Button>
           </DialogFooter>

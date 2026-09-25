@@ -63,7 +63,7 @@ import CoachingAgentPortfolio from "@/components/coaching/CoachingAgentPortfolio
 import CoachingCommitmentsView from "@/components/coaching/CoachingCommitmentsView";
 import CoachingResetsView from "@/components/coaching/CoachingResetsView";
 import CoachingMarketCoverage from "@/components/coaching/CoachingMarketCoverage";
-import CoachingEscalationsView from "@/components/coaching/CoachingEscalationsView";
+import OperationsEscalationsPage from "@/pages/OperationsEscalationsPage";
 import CoachingReportsView from "@/components/coaching/CoachingReportsView";
 import CoachingSettingsView from "@/components/coaching/CoachingSettingsView";
 import CoachingHelpView from "@/components/coaching/CoachingHelpView";
@@ -256,7 +256,7 @@ export default function CoachingHubPage() {
       {activeView === "commitments" && <CoachingCommitmentsView />}
       {activeView === "resets" && <CoachingResetsView />}
       {activeView === "markets" && <CoachingMarketCoverage />}
-      {activeView === "escalations" && <CoachingEscalationsView />}
+      {activeView === "escalations" && <OperationsEscalationsPage embedded />}
       {activeView === "reports" && <CoachingReportsView />}
       {activeView === "settings" && <CoachingSettingsView />}
       {activeView === "help" && <CoachingHelpView />}

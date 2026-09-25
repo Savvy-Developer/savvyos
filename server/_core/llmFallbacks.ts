@@ -4,7 +4,8 @@ export type CoachingFallbackCommitment = {
   dueDate: null;
   expectedResult: string;
   relatedMetric: "GCI" | "Closings" | "Pipeline" | "Activity" | null;
-  confidence: "medium";
+  confidence: "high";
+  agreementEvidence: string;
 };
 
 /**
@@ -48,8 +49,10 @@ export function extractCoachingFallbackCommitments(
   const normalized = content.replace(/\r/g, "").trim();
   if (!normalized) return [];
 
-  const commitmentPatterns =
-    /\b(will|commit(?:s|ted)? to|follow up|call|email|send|schedule|complete|review|reach out|contact|update|prepare|submit|finish)\b/i;
+  // Do not infer commitments from a coach's advice or a topic discussed on the
+  // call. A fallback candidate needs an explicit, attributable agreement.
+  const explicitAgreement =
+    /^(?:agent|coach|savvy|hunter|ashleigh|trish)?\s*[:\-–]?\s*(?:i(?:'ll| will)|we(?:'ll| will)|(?:the )?(?:agent|coach|savvy) (?:will|commits? to)|commit(?:s|ted)? to)\b/i;
   const candidates = normalized
     .split(/\n+|(?<=[.!?])\s+(?=[A-Z])/)
     .map(line =>
@@ -60,7 +63,7 @@ export function extractCoachingFallbackCommitments(
     )
     .filter(
       line =>
-        line.length >= 12 && line.length <= 300 && commitmentPatterns.test(line)
+        line.length >= 12 && line.length <= 300 && explicitAgreement.test(line)
     );
 
   const seen = new Set<string>();
@@ -74,12 +77,13 @@ export function extractCoachingFallbackCommitments(
     .slice(0, 5)
     .map(description => ({
       description,
-      owner: /\bcoach\s+(?:will|to|needs? to|should)\b/i.test(description)
+      owner: /^(?:coach|savvy)\s*[:\-–]?/i.test(description)
         ? "coach"
         : "agent",
       dueDate: null,
       expectedResult: "Coach to verify completion at the next session.",
       relatedMetric: inferRelatedMetric(description),
-      confidence: "medium",
+      confidence: "high",
+      agreementEvidence: description,
     }));
 }

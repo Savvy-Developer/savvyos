@@ -42,4 +42,29 @@ describe("extractCoachingFallbackCommitments", () => {
       )
     ).toEqual([]);
   });
+
+  it("preserves explicit source language as agreement evidence", () => {
+    const commitments = extractCoachingFallbackCommitments(
+      "Agent: I will call the five oldest leads before Friday.\nCoach: I will send the listing-training recording today."
+    );
+
+    expect(commitments).toHaveLength(2);
+    expect(commitments[0]).toMatchObject({
+      owner: "agent",
+      agreementEvidence: "Agent: I will call the five oldest leads before Friday.",
+      confidence: "high",
+    });
+    expect(commitments[1]).toMatchObject({
+      owner: "coach",
+      agreementEvidence: "Coach: I will send the listing-training recording today.",
+    });
+  });
+
+  it("does not turn coaching advice into a commitment", () => {
+    expect(
+      extractCoachingFallbackCommitments(
+        "The coach recommended calling five stale leads and reviewing the pipeline tomorrow."
+      )
+    ).toEqual([]);
+  });
 });

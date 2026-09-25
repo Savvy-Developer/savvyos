@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,21 +45,28 @@ const STATUS_COLORS: Record<string, string> = {
   "Not Started": "bg-gray-100 text-gray-600",
   "In Progress": "bg-blue-100 text-blue-700",
   "Submitted for Verification": "bg-amber-100 text-amber-700",
-  "Completed": "bg-emerald-100 text-emerald-700",
+  Completed: "bg-emerald-100 text-emerald-700",
   "Partially Completed": "bg-teal-100 text-teal-700",
-  "Missed": "bg-red-100 text-red-700",
-  "Waived": "bg-gray-100 text-gray-400",
+  Missed: "bg-red-100 text-red-700",
+  Waived: "bg-gray-100 text-gray-400",
   "No Longer Relevant": "bg-gray-100 text-gray-400",
 };
 
-export default function CoachingCommitmentsPanel({ agentId }: { agentId: number }) {
+export default function CoachingCommitmentsPanel({
+  agentId,
+  sessionId,
+}: {
+  agentId: number;
+  sessionId?: number;
+}) {
   const [addOpen, setAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState<string>("open");
 
   const utils = trpc.useUtils();
 
-  const { data: commitments, isLoading } = trpc.coaching.listCommitments.useQuery({ agentId });
+  const { data: commitments, isLoading } =
+    trpc.coaching.listCommitments.useQuery({ agentId });
 
   const createCommitment = trpc.coaching.createCommitment.useMutation({
     onSuccess: () => {
@@ -66,7 +74,7 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
       utils.coaching.listCommitments.invalidate({ agentId });
       setAddOpen(false);
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
   const updateCommitment = trpc.coaching.updateCommitment.useMutation({
@@ -75,7 +83,7 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
       utils.coaching.listCommitments.invalidate({ agentId });
       setEditItem(null);
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
   const deleteCommitment = trpc.coaching.deleteCommitment.useMutation({
@@ -83,17 +91,30 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
       toast.success("Commitment removed");
       utils.coaching.listCommitments.invalidate({ agentId });
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
-  const rows = (commitments as any)?.rows ?? (Array.isArray(commitments) ? commitments : []);
+  const rows =
+    (commitments as any)?.rows ??
+    (Array.isArray(commitments) ? commitments : []);
   const items = rows.map((r: any) => r.commitment ?? r);
   const filtered = items.filter((c: any) => {
     if (statusFilter === "open") {
-      return ["AI Suggested", "Not Started", "In Progress", "Submitted for Verification"].includes(c.status);
+      return [
+        "AI Suggested",
+        "Not Started",
+        "In Progress",
+        "Submitted for Verification",
+      ].includes(c.status);
     }
     if (statusFilter === "closed") {
-      return ["Completed", "Partially Completed", "Missed", "Waived", "No Longer Relevant"].includes(c.status);
+      return [
+        "Completed",
+        "Partially Completed",
+        "Missed",
+        "Waived",
+        "No Longer Relevant",
+      ].includes(c.status);
     }
     return true;
   });
@@ -139,6 +160,7 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
             <TableHeader>
               <TableRow>
                 <TableHead>Commitment</TableHead>
+                <TableHead>Owner</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead>Metric</TableHead>
@@ -151,9 +173,13 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
                 <TableRow key={c.id}>
                   <TableCell>
                     <div className="max-w-xs">
-                      <p className="text-sm font-medium line-clamp-2">{c.description}</p>
+                      <p className="text-sm font-medium line-clamp-2">
+                        {c.description}
+                      </p>
                       {c.expectedResult && (
-                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{c.expectedResult}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                          {c.expectedResult}
+                        </p>
                       )}
                       {c.isAiExtracted && (
                         <span className="inline-flex items-center gap-1 text-xs text-violet-600 mt-0.5">
@@ -162,6 +188,11 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
                         </span>
                       )}
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs text-muted-foreground">
+                      {c.ownerId === c.agentId ? "Agent" : "Coach / Savvy"}
+                    </span>
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -177,14 +208,23 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-muted-foreground">{c.relatedMetric ?? "—"}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {c.relatedMetric ?? "—"}
+                    </span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-muted-foreground">{c.visibilityLabel ?? "—"}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {c.visibilityLabel ?? "—"}
+                    </span>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditItem(c)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setEditItem(c)}
+                      >
                         <Edit2 className="h-3.5 w-3.5" />
                       </Button>
                       <Button
@@ -212,9 +252,10 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
       {addOpen && (
         <CommitmentAddDialog
           agentId={agentId}
+          sessionId={sessionId}
           open={addOpen}
           onClose={() => setAddOpen(false)}
-          onSave={(data) => createCommitment.mutate(data)}
+          onSave={data => createCommitment.mutate(data)}
           saving={createCommitment.isPending}
         />
       )}
@@ -225,7 +266,7 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
           item={editItem}
           open={!!editItem}
           onClose={() => setEditItem(null)}
-          onSave={(data) => updateCommitment.mutate(data)}
+          onSave={data => updateCommitment.mutate(data)}
           saving={updateCommitment.isPending}
         />
       )}
@@ -235,30 +276,45 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
 
 function CommitmentAddDialog({
   agentId,
+  sessionId,
   open,
   onClose,
   onSave,
   saving,
 }: {
   agentId: number;
+  sessionId?: number;
   open: boolean;
   onClose: () => void;
   onSave: (data: any) => void;
   saving: boolean;
 }) {
+  const { user } = useAuth();
   const [form, setForm] = useState({
     agentId,
+    sessionId,
     description: "",
+    ownerType: "agent" as "agent" | "coach",
     dueDate: "",
     expectedResult: "",
+    agreementEvidence: "",
     relatedMetric: "",
     visibilityLabel: "Agent Visible" as const,
     consequence: "",
   });
 
   function handleSave() {
-    if (!form.description.trim()) { toast.error("Description is required"); return; }
-    onSave({ ...form, dueDate: form.dueDate || undefined });
+    if (!form.description.trim()) {
+      toast.error("Description is required");
+      return;
+    }
+    const { ownerType, ...fields } = form;
+    onSave({
+      ...fields,
+      ownerId: ownerType === "agent" ? agentId : (user as any)?.id,
+      dueDate: form.dueDate || undefined,
+      agreementEvidence: form.agreementEvidence.trim() || undefined,
+    });
   }
 
   return (
@@ -273,27 +329,59 @@ function CommitmentAddDialog({
             <Textarea
               placeholder="What is the agent committing to?"
               value={form.description}
-              onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))}
+              onChange={e =>
+                setForm(f => ({ ...f, description: e.target.value }))
+              }
               rows={3}
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
+              <Label>Owner</Label>
+              <Select
+                value={form.ownerType}
+                onValueChange={(v: "agent" | "coach") =>
+                  setForm(f => ({ ...f, ownerType: v }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="agent">Agent Commitment</SelectItem>
+                  <SelectItem value="coach">
+                    Coach / Savvy Commitment
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label>Due Date</Label>
               <Input
                 type="date"
                 value={form.dueDate}
-                onChange={(e) => setForm(f => ({ ...f, dueDate: e.target.value }))}
+                onChange={e =>
+                  setForm(f => ({ ...f, dueDate: e.target.value }))
+                }
               />
             </div>
             <div className="space-y-1.5">
               <Label>Related Metric</Label>
-              <Select value={form.relatedMetric || "none"} onValueChange={(v) => setForm(f => ({ ...f, relatedMetric: v === "none" ? "" : v }))}>
-                <SelectTrigger><SelectValue placeholder="Select metric" /></SelectTrigger>
+              <Select
+                value={form.relatedMetric || "none"}
+                onValueChange={v =>
+                  setForm(f => ({ ...f, relatedMetric: v === "none" ? "" : v }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select metric" />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
                   {["GCI", "Closings", "Pipeline", "Activity"].map(m => (
-                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -304,13 +392,38 @@ function CommitmentAddDialog({
             <Input
               placeholder="What does success look like?"
               value={form.expectedResult}
-              onChange={(e) => setForm(f => ({ ...f, expectedResult: e.target.value }))}
+              onChange={e =>
+                setForm(f => ({ ...f, expectedResult: e.target.value }))
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>
+              Agreement Evidence{" "}
+              <span className="font-normal text-muted-foreground">
+                optional
+              </span>
+            </Label>
+            <Textarea
+              placeholder="What language shows that the owner agreed to this?"
+              value={form.agreementEvidence}
+              onChange={e =>
+                setForm(f => ({ ...f, agreementEvidence: e.target.value }))
+              }
+              rows={2}
             />
           </div>
           <div className="space-y-1.5">
             <Label>Visibility</Label>
-            <Select value={form.visibilityLabel} onValueChange={(v: any) => setForm(f => ({ ...f, visibilityLabel: v }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Select
+              value={form.visibilityLabel}
+              onValueChange={(v: any) =>
+                setForm(f => ({ ...f, visibilityLabel: v }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="Agent Visible">Agent Visible</SelectItem>
                 <SelectItem value="Internal">Internal</SelectItem>
@@ -323,13 +436,17 @@ function CommitmentAddDialog({
             <Textarea
               placeholder="What happens if this is not completed?"
               value={form.consequence}
-              onChange={(e) => setForm(f => ({ ...f, consequence: e.target.value }))}
+              onChange={e =>
+                setForm(f => ({ ...f, consequence: e.target.value }))
+              }
               rows={2}
             />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Add Commitment
@@ -353,12 +470,18 @@ function CommitmentEditDialog({
   onSave: (data: any) => void;
   saving: boolean;
 }) {
+  const { user } = useAuth();
   const [form, setForm] = useState({
     commitmentId: item.id,
     description: item.description ?? "",
+    ownerType:
+      item.ownerId === item.agentId
+        ? ("agent" as "agent" | "coach")
+        : ("coach" as "agent" | "coach"),
     status: item.status ?? "Not Started",
     dueDate: item.dueDate ? safeFormat(item.dueDate, "yyyy-MM-dd") : "",
     expectedResult: item.expectedResult ?? "",
+    agreementEvidence: item.agreementEvidence ?? "",
     completionEvidence: item.completionEvidence ?? "",
     coachVerificationStatus: item.coachVerificationStatus ?? "Pending",
     consequence: item.consequence ?? "",
@@ -366,8 +489,17 @@ function CommitmentEditDialog({
   });
 
   function handleSave() {
-    if (!form.description.trim()) { toast.error("Description is required"); return; }
-    onSave({ ...form, dueDate: form.dueDate || undefined });
+    if (!form.description.trim()) {
+      toast.error("Description is required");
+      return;
+    }
+    const { ownerType, ...fields } = form;
+    onSave({
+      ...fields,
+      ownerId: ownerType === "agent" ? item.agentId : (user as any)?.id,
+      dueDate: form.dueDate || undefined,
+      agreementEvidence: form.agreementEvidence || undefined,
+    });
   }
 
   return (
@@ -381,18 +513,56 @@ function CommitmentEditDialog({
             <Label>Commitment *</Label>
             <Textarea
               value={form.description}
-              onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))}
+              onChange={e =>
+                setForm(f => ({ ...f, description: e.target.value }))
+              }
               rows={3}
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => setForm(f => ({ ...f, status: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>Owner</Label>
+              <Select
+                value={form.ownerType}
+                onValueChange={(v: "agent" | "coach") =>
+                  setForm(f => ({ ...f, ownerType: v }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  {["AI Suggested", "Not Started", "In Progress", "Submitted for Verification", "Completed", "Partially Completed", "Missed", "Waived", "No Longer Relevant"].map(s => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  <SelectItem value="agent">Agent Commitment</SelectItem>
+                  <SelectItem value="coach">
+                    Coach / Savvy Commitment
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Select
+                value={form.status}
+                onValueChange={v => setForm(f => ({ ...f, status: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[
+                    "AI Suggested",
+                    "Not Started",
+                    "In Progress",
+                    "Submitted for Verification",
+                    "Completed",
+                    "Partially Completed",
+                    "Missed",
+                    "Waived",
+                    "No Longer Relevant",
+                  ].map(s => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -402,7 +572,9 @@ function CommitmentEditDialog({
               <Input
                 type="date"
                 value={form.dueDate}
-                onChange={(e) => setForm(f => ({ ...f, dueDate: e.target.value }))}
+                onChange={e =>
+                  setForm(f => ({ ...f, dueDate: e.target.value }))
+                }
               />
             </div>
           </div>
@@ -410,15 +582,35 @@ function CommitmentEditDialog({
             <Label>Expected Result</Label>
             <Input
               value={form.expectedResult}
-              onChange={(e) => setForm(f => ({ ...f, expectedResult: e.target.value }))}
+              onChange={e =>
+                setForm(f => ({ ...f, expectedResult: e.target.value }))
+              }
               placeholder="What does success look like?"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>
+              Agreement Evidence{" "}
+              <span className="font-normal text-muted-foreground">
+                optional
+              </span>
+            </Label>
+            <Textarea
+              value={form.agreementEvidence}
+              onChange={e =>
+                setForm(f => ({ ...f, agreementEvidence: e.target.value }))
+              }
+              placeholder="Language showing the commitment was agreed."
+              rows={2}
             />
           </div>
           <div className="space-y-1.5">
             <Label>Completion Evidence</Label>
             <Textarea
               value={form.completionEvidence}
-              onChange={(e) => setForm(f => ({ ...f, completionEvidence: e.target.value }))}
+              onChange={e =>
+                setForm(f => ({ ...f, completionEvidence: e.target.value }))
+              }
               placeholder="Evidence that this was completed..."
               rows={2}
             />
@@ -426,8 +618,15 @@ function CommitmentEditDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Coach Verification</Label>
-              <Select value={form.coachVerificationStatus} onValueChange={(v) => setForm(f => ({ ...f, coachVerificationStatus: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={form.coachVerificationStatus}
+                onValueChange={v =>
+                  setForm(f => ({ ...f, coachVerificationStatus: v }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Pending">Pending</SelectItem>
                   <SelectItem value="Verified">Verified</SelectItem>
@@ -437,8 +636,15 @@ function CommitmentEditDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Visibility</Label>
-              <Select value={form.visibilityLabel} onValueChange={(v) => setForm(f => ({ ...f, visibilityLabel: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={form.visibilityLabel}
+                onValueChange={v =>
+                  setForm(f => ({ ...f, visibilityLabel: v }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Agent Visible">Agent Visible</SelectItem>
                   <SelectItem value="Internal">Internal</SelectItem>
@@ -449,7 +655,9 @@ function CommitmentEditDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Save Changes

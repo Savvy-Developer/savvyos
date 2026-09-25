@@ -29,47 +29,48 @@ function requireCoachSessionAccess(role: string) {
 }
 
 export const operationsEscalationsRouter = router({
-  /** Coach submission from an active Coaching Hub session. */
+  /** Coach submission from a Coaching Hub session or a standalone agent conversation. */
   create: protectedProcedure
     .input(z.object({
-      sessionId: z.number(),
-      description: z.string().trim().min(3).max(10_000),
+      sessionId: z.number().optional(),
+      agentId: z.number().optional(),
+      description: z.string().trim().min(3).max(10_000).optional(),
+      issueRequest: z.string().trim().min(3).max(5_000).optional(),
+      context: z.string().trim().max(5_000).optional(),
+    }).refine((value) => Boolean(value.sessionId || value.agentId), {
+      message: "Choose an agent or link the escalation to a coaching session.",
     }))
     .mutation(async ({ input, ctx }) => {
       requireCoachSessionAccess(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const [session] = await db
-        .select({
-          id: coachingSessions.id,
-          agentId: coachingSessions.agentId,
-          actualCoachId: coachingSessions.actualCoachId,
-          status: coachingSessions.status,
-        })
-        .from(coachingSessions)
-        .where(eq(coachingSessions.id, input.sessionId))
-        .limit(1);
-
-      if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Coaching session not found." });
-      if (session.status !== "In Progress") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Operations Escalations can only be submitted while the coaching session is in progress.",
-        });
+      let session: { id: number; agentId: number } | null = null;
+      if (input.sessionId) {
+        const [sessionRow] = await db
+          .select({ id: coachingSessions.id, agentId: coachingSessions.agentId })
+          .from(coachingSessions)
+          .where(eq(coachingSessions.id, input.sessionId))
+          .limit(1);
+        if (!sessionRow) throw new TRPCError({ code: "NOT_FOUND", message: "Coaching session not found." });
+        session = sessionRow;
       }
-      if (session.actualCoachId !== ctx.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only the coach conducting this session can submit an Operations Escalation.",
-        });
+      const agentId = session?.agentId ?? input.agentId;
+      if (!agentId) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an agent before submitting the escalation." });
+
+      const description = input.description?.trim() || [
+        input.issueRequest?.trim() ? `Issue / Request:\n${input.issueRequest.trim()}` : null,
+        input.context?.trim() ? `Context:\n${input.context.trim()}` : null,
+      ].filter(Boolean).join("\n\n");
+      if (!description.trim()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Describe the issue or request before submitting." });
       }
 
       const [result] = await db.insert(operationsEscalations).values({
-        sessionId: session.id,
-        agentId: session.agentId,
+        sessionId: session?.id ?? null,
+        agentId,
         submittedById: ctx.user.id,
-        description: input.description,
+        description,
         status: "Open",
       });
       const escalationId = Number((result as any).insertId);
@@ -79,7 +80,7 @@ export const operationsEscalationsRouter = router({
         action: "operations_escalation_created",
         entityType: "operations_escalation",
         entityId: escalationId,
-        details: { sessionId: session.id, agentId: session.agentId },
+        details: { sessionId: session?.id ?? null, agentId },
       });
 
       return { success: true, escalationId };
@@ -107,6 +108,25 @@ export const operationsEscalationsRouter = router({
         .where(eq(operationsEscalations.agentId, input.agentId))
         .orderBy(desc(operationsEscalations.createdAt));
     }),
+
+  /** Status-only records for an agent's own Savvy follow-ups. */
+  listMine: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "agent") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Agent access is required." });
+    }
+    const db = await getDb();
+    if (!db) return [];
+    return db
+      .select({
+        id: operationsEscalations.id,
+        status: operationsEscalations.status,
+        createdAt: operationsEscalations.createdAt,
+        resolvedAt: operationsEscalations.resolvedAt,
+      })
+      .from(operationsEscalations)
+      .where(eq(operationsEscalations.agentId, ctx.user.id))
+      .orderBy(desc(operationsEscalations.createdAt));
+  }),
 
   /** Full operations queue for authorized administrators. */
   list: protectedProcedure

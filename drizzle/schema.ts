@@ -8363,6 +8363,11 @@ export const coachingSessions = mysqlTable(
     sessionType: varchar("sessionType", { length: 128 })
       .default("Standard COACH")
       .notNull(),
+    // A SavvyOS-created session provisions calendar/video resources. External
+    // sessions preserve their existing link and remain valid coaching records.
+    schedulingSource: mysqlEnum("schedulingSource", ["SavvyOS", "External"])
+      .default("SavvyOS")
+      .notNull(),
     status: mysqlEnum("status", [
       "Scheduled",
       "In Progress",
@@ -8374,6 +8379,22 @@ export const coachingSessions = mysqlTable(
       .notNull(),
     durationMinutes: int("durationMinutes"),
     meetingLink: varchar("meetingLink", { length: 512 }),
+    zoomMeetingId: varchar("zoomMeetingId", { length: 64 }),
+    zoomHostUserId: varchar("zoomHostUserId", { length: 255 }),
+    calendarProvider: mysqlEnum("calendarProvider", ["google", "none"])
+      .default("none")
+      .notNull(),
+    calendarEventId: varchar("calendarEventId", { length: 512 }),
+    calendarEventUrl: text("calendarEventUrl"),
+    calendarSyncStatus: mysqlEnum("calendarSyncStatus", [
+      "Not Requested",
+      "Synced",
+      "Needs Attention",
+      "External",
+    ])
+      .default("Not Requested")
+      .notNull(),
+    calendarSyncError: text("calendarSyncError"),
     reasonForSession: text("reasonForSession"),
     preparationStatus: mysqlEnum("preparationStatus", [
       "Not Started",
@@ -8428,6 +8449,7 @@ export const coachingSessions = mysqlTable(
     nextSessionDate: timestamp("nextSessionDate"),
     nextSessionType: varchar("nextSessionType", { length: 128 }),
     noNextSessionReason: text("noNextSessionReason"),
+    agentRecapSentAt: timestamp("agentRecapSentAt"),
     // Session start/end tracking
     startedAt: timestamp("startedAt"),
     completedAt: timestamp("completedAt"),
@@ -8547,6 +8569,9 @@ export const coachingCommitments = mysqlTable(
     coachAssignedId: int("coachAssignedId").references(() => users.id),
     dueDate: timestamp("dueDate"),
     expectedResult: text("expectedResult"),
+    // Verbatim or near-verbatim language establishing that the owner agreed to
+    // the action. AI suggestions without this evidence cannot be created.
+    agreementEvidence: text("agreementEvidence"),
     relatedGoalId: int("relatedGoalId").references(() => agentGoals.id),
     relatedMetric: varchar("relatedMetric", { length: 255 }),
     completionEvidence: text("completionEvidence"),
@@ -8728,9 +8753,11 @@ export const operationsEscalations = mysqlTable(
   "operations_escalations",
   {
     id: int("id").autoincrement().primaryKey(),
-    sessionId: int("sessionId")
-      .notNull()
-      .references(() => coachingSessions.id, { onDelete: "cascade" }),
+    // An Operations Escalation may be created from a coaching call or from an
+    // agent conversation outside a formal session.
+    sessionId: int("sessionId").references(() => coachingSessions.id, {
+      onDelete: "cascade",
+    }),
     agentId: int("agentId")
       .notNull()
       .references(() => users.id),

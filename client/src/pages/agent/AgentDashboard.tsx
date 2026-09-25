@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { TransactionStatusBadge, PriorityBadge } from "@/components/StatusBadge";
+import AgentCoachingChecklist from "@/components/AgentCoachingChecklist";
 import { safeFormat } from "@/lib/safeFormat";
 
 function StatCard({
@@ -800,6 +801,8 @@ export default function AgentDashboard() {
 
         {/* Right: Tasks + Quick Actions */}
         <div className="space-y-4">
+          <AgentCoachingChecklist />
+
           {/* My Tasks */}
           <Card>
             <CardHeader className="pb-3">

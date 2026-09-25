@@ -70,6 +70,7 @@ export default function CoachingSessionsPage() {
   const { data, isLoading } = trpc.coaching.listSessions.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
     coachId: coachFilter !== "all" ? Number(coachFilter) : undefined,
+    search: search.trim() || undefined,
     limit: pageSize,
     offset: (page - 1) * pageSize,
   }, { enabled: defaultFilterApplied });
@@ -80,15 +81,7 @@ export default function CoachingSessionsPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / pageSize);
 
-  const filtered = sessions.filter((row: any) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (
-      row.agent?.name?.toLowerCase().includes(q) ||
-      row.coach?.name?.toLowerCase().includes(q) ||
-      row.session?.sessionType?.toLowerCase().includes(q)
-    );
-  });
+  const filtered = sessions;
 
   return (
     <div className="p-4 sm:p-6 max-w-screen-2xl mx-auto space-y-6">
@@ -120,7 +113,7 @@ export default function CoachingSessionsPage() {
               <Input
                 placeholder="Search agent or coach..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                 className="pl-9"
               />
             </div>

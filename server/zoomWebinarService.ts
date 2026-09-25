@@ -11,6 +11,15 @@ export type ZoomWebinarRecord = {
   created_at?: string;
 };
 
+export type ZoomMeetingRecord = {
+  id: string | number;
+  uuid?: string;
+  join_url?: string;
+  start_url?: string;
+  host_id?: string;
+  created_at?: string;
+};
+
 export type ZoomRegistrant = {
   id?: string;
   registrant_id?: string;
@@ -62,12 +71,26 @@ function requireZoomConfiguration() {
   return config as Required<typeof config>;
 }
 
+/** Meeting scheduling needs the account OAuth app, not the webinar-host setting. */
+function requireZoomApiConfiguration() {
+  const config = getZoomConfig();
+  const missing = [
+    !config.accountId ? "ZOOM_ACCOUNT_ID" : null,
+    !config.clientId ? "ZOOM_CLIENT_ID" : null,
+    !config.clientSecret ? "ZOOM_CLIENT_SECRET" : null,
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    throw new Error(`Zoom meeting integration is not configured. Missing: ${missing.join(", ")}.`);
+  }
+  return config as Required<Pick<typeof config, "accountId" | "clientId" | "clientSecret">> & typeof config;
+}
+
 async function getAccessToken(): Promise<string> {
   if (accessTokenCache && accessTokenCache.expiresAt > Date.now() + 60_000) {
     return accessTokenCache.accessToken;
   }
 
-  const config = requireZoomConfiguration();
+  const config = requireZoomApiConfiguration();
   const authorization = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64");
   const params = new URLSearchParams({ grant_type: "account_credentials", account_id: config.accountId });
   const response = await fetch(`https://zoom.us/oauth/token?${params.toString()}`, {
@@ -135,6 +158,43 @@ export async function createZoomWebinar(input: {
   return zoomRequest<ZoomWebinarRecord>(`/users/${encodeURIComponent(config.hostUserId)}/webinars`, {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Creates a standard Zoom meeting for a coach. The app uses the coach's email
+ * as the host selector, so a meeting is created from that coach's Zoom user
+ * rather than from the webinar host account.
+ */
+export async function createZoomMeeting(input: {
+  coachEmail: string;
+  title: string;
+  description?: string | null;
+  startTime: Date;
+  durationMinutes: number;
+  timezone: string;
+}): Promise<ZoomMeetingRecord> {
+  if (!input.coachEmail.trim()) {
+    throw new Error("The selected coach does not have an email address for Zoom hosting.");
+  }
+  // OAuth credentials are organization-wide, but Zoom resolves this user path
+  // to the selected coach's licensed Zoom account.
+  requireZoomApiConfiguration();
+  return zoomRequest<ZoomMeetingRecord>(`/users/${encodeURIComponent(input.coachEmail.trim())}/meetings`, {
+    method: "POST",
+    body: JSON.stringify({
+      topic: input.title,
+      agenda: input.description ?? "",
+      type: 2,
+      start_time: input.startTime.toISOString(),
+      duration: input.durationMinutes,
+      timezone: input.timezone,
+      settings: {
+        waiting_room: true,
+        join_before_host: false,
+        approval_type: 2,
+      },
+    }),
   });
 }
 

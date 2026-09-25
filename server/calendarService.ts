@@ -377,7 +377,10 @@ export type CalendarEventInput = {
   timezone: string;
   location?: string | null;
   attendeeEmail?: string | null;
-  appointmentId: number;
+  appointmentId?: number;
+  /** Optional generic source fields for non-appointment events, such as coaching. */
+  recordType?: string;
+  recordId?: number;
 };
 
 function calendarEventPayload(input: CalendarEventInput) {
@@ -388,7 +391,13 @@ function calendarEventPayload(input: CalendarEventInput) {
     start: { dateTime: input.startAt.toISOString(), timeZone: input.timezone },
     end: { dateTime: input.endAt.toISOString(), timeZone: input.timezone },
     attendees: input.attendeeEmail ? [{ email: input.attendeeEmail }] : undefined,
-    extendedProperties: { private: { savvyosAppointmentId: String(input.appointmentId) } },
+    extendedProperties: {
+      private: {
+        ...(input.appointmentId ? { savvyosAppointmentId: String(input.appointmentId) } : {}),
+        ...(input.recordType ? { savvyosRecordType: input.recordType } : {}),
+        ...(input.recordId ? { savvyosRecordId: String(input.recordId) } : {}),
+      },
+    },
   };
 }
 
