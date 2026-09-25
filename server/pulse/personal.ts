@@ -9,7 +9,10 @@ import {
   pulsePersonalInputs,
   pulseWeeklySubmissions,
   rrMetricAutoConfigs,
+  rrMetricChangeHistory,
   rrMetricValues,
+  rrScorecardMetrics,
+  rolesResponsibilities,
   users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
@@ -20,6 +23,8 @@ import { visible_meeting_ids } from "./access";
 import { getPendingCascadePayloads } from "./cascadePayload";
 import { getMeetingScorecard, saveCurrentScorecardValue } from "./scorecard";
 import { listAccessibleItems } from "./workItems";
+import { isEventMetric } from "../rrScorecard";
+import { refreshAutomaticMetric } from "../routers/rolesResponsibilities";
 
 const uuid = () => crypto.randomUUID();
 const week = () => {
@@ -69,6 +74,81 @@ function sourceLabel(value?: string | null) {
   if (value === "transactions") return "Transactions";
   if (value === "tasks") return "Tasks";
   return value ? value.replaceAll("_", " ") : "SavvyOS";
+}
+
+function easternCalendarDay(reference = new Date()) {
+  const parts = new Map(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(reference).filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
+  return new Date(Date.UTC(parts.get("year") ?? 0, (parts.get("month") ?? 1) - 1, parts.get("day") ?? 1));
+}
+
+/** Sunday–Saturday reporting window. Monday deliberately opens the week that just ended. */
+export function measurableReportingWeek(reference = new Date()) {
+  const day = easternCalendarDay(reference);
+  const sunday = addDays(day, -day.getUTCDay());
+  const start = day.getUTCDay() === 1 ? addDays(sunday, -7) : sunday;
+  const end = addDays(start, 6);
+  return { start, end, startDate: dateOnly(start), endDate: dateOnly(end) };
+}
+
+function asNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+async function ownedMeasurableRows(db: any, personId: number) {
+  return db.select({ metric: rrScorecardMetrics, responsibility: rolesResponsibilities, autoConfig: rrMetricAutoConfigs })
+    .from(rrScorecardMetrics)
+    .innerJoin(rolesResponsibilities, eq(rolesResponsibilities.id, rrScorecardMetrics.responsibilityId))
+    .leftJoin(rrMetricAutoConfigs, eq(rrMetricAutoConfigs.metricId, rrScorecardMetrics.id))
+    .where(and(
+      eq(rrScorecardMetrics.status, "active"),
+      or(
+        eq(rrScorecardMetrics.ownerId, personId),
+        and(isNull(rrScorecardMetrics.ownerId), eq(rolesResponsibilities.ownerId, personId)),
+      ),
+    ))
+    .orderBy(asc(rolesResponsibilities.title), asc(rrScorecardMetrics.name));
+}
+
+async function personalMeasurables(db: any, personId: number) {
+  const reportingWeek = measurableReportingWeek();
+  const rows = await ownedMeasurableRows(db, personId);
+  const metricIds = rows.map((row: any) => row.metric.id);
+  const values = metricIds.length
+    ? await db.select().from(rrMetricValues).where(inArray(rrMetricValues.metricId, metricIds)).orderBy(desc(rrMetricValues.eventDate), desc(rrMetricValues.periodEnd))
+    : [];
+  const valuesByMetric = new Map<number, any[]>();
+  for (const value of values) valuesByMetric.set(value.metricId, [...(valuesByMetric.get(value.metricId) ?? []), value]);
+
+  return {
+    reportingWeek: { start: reportingWeek.startDate, end: reportingWeek.endDate },
+    measurables: rows.map((row: any) => {
+      const metric = row.metric;
+      const periodStart = reportingWeek.startDate;
+      const periodEnd = reportingWeek.endDate;
+      const history = valuesByMetric.get(metric.id) ?? [];
+      const current = isEventMetric(metric)
+        ? history.find((value: any) => value.eventDate && value.eventDate >= periodStart && value.eventDate <= periodEnd) ?? null
+        : history.find((value: any) => value.periodStart === periodStart && value.periodEnd === periodEnd) ?? null;
+      const automatic = metric.metricType !== "manual";
+      return {
+        metricId: metric.id,
+        name: metric.name,
+        responsibilityName: row.responsibility.title,
+        entryType: automatic ? "automatic" as const : "manual" as const,
+        value: asNumber(current?.actualValue),
+        note: current?.note ?? "",
+        target: asNumber(metric.targetValue),
+        periodStart: current?.periodStart ?? periodStart,
+        periodEnd: current?.periodEnd ?? periodEnd,
+        pulledSource: automatic ? sourceLabel(row.autoConfig?.dataSource) : null,
+        lastRefreshedAt: automatic ? row.autoConfig?.lastRefreshedAt?.toISOString?.() ?? row.autoConfig?.lastRefreshedAt ?? null : null,
+      };
+    }),
+  };
 }
 
 async function personalMeetingPrep(db: any, personId: number) {
@@ -324,6 +404,88 @@ export function nextOccurrence(dayOfWeek?: string | null, startTime?: string | n
 
 export const pulsePersonalRouter = router({
   inputs: pulseProcedure.query(async ({ ctx }) => personalMeetingPrep(await dbOrThrow(), ctx.user.id)),
+
+  myMeasurables: pulseProcedure.query(async ({ ctx }) => personalMeasurables(await dbOrThrow(), ctx.user.id)),
+
+  refreshMyMeasurable: pulseProcedure.input(z.object({ metricId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const owned = await ownedMeasurableRows(db, ctx.user.id);
+    const row = owned.find((candidate: any) => candidate.metric.id === input.metricId);
+    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "That measurable is not assigned to you." });
+    if (row.metric.metricType === "manual" || !row.autoConfig) throw new TRPCError({ code: "BAD_REQUEST", message: "Only automatically pulled measurables can be refreshed." });
+    const reportingWeek = measurableReportingWeek();
+    return refreshAutomaticMetric(db, input.metricId, { start: reportingWeek.start, end: addDays(reportingWeek.end, 1) });
+  }),
+
+  submitMyMeasurables: pulseProcedure.input(z.object({
+    manualValues: z.array(z.object({
+      metricId: z.number().int().positive(),
+      actualValue: z.number().finite(),
+      note: z.string().trim().max(5_000).nullable().optional(),
+    })).max(200),
+  })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const before = await personalMeasurables(db, ctx.user.id);
+    const ownedById = new Map<number, any>(before.measurables.map((measurable: any) => [measurable.metricId, measurable]));
+    const manualById = new Map(input.manualValues.map((value) => [value.metricId, value]));
+    const ownedRows = await ownedMeasurableRows(db, ctx.user.id);
+    const manualRows = ownedRows.filter((row: any) => row.metric.metricType === "manual");
+
+    if (manualById.size !== input.manualValues.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Each manual measurable can be submitted only once." });
+    if (manualRows.length !== manualById.size || manualRows.some((row: any) => !manualById.has(row.metric.id))) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Enter every active manual measurable before submitting." });
+    }
+    if (ownedRows.some((row: any) => row.metric.metricType !== "manual" && !Number.isFinite(Number(ownedById.get(row.metric.id)?.value)))) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Refresh every automatic measurable with a valid value before submitting." });
+    }
+
+    const recorded: Array<{ metricId: number; name: string; value: number; note: string | null; source: "manual" | "automatic" }> = [];
+    await db.transaction(async (tx: any) => {
+      for (const row of manualRows) {
+        const submitted = manualById.get(row.metric.id)!;
+        const periodStart = before.reportingWeek.start;
+        const periodEnd = before.reportingWeek.end;
+        const [existing] = await tx.select({ id: rrMetricValues.id }).from(rrMetricValues).where(and(
+          eq(rrMetricValues.metricId, row.metric.id),
+          eq(rrMetricValues.periodStart, periodStart),
+          eq(rrMetricValues.periodEnd, periodEnd),
+        )).limit(1);
+        const values = { actualValue: String(submitted.actualValue), resultState: "reported", note: submitted.note || null, valueSource: "manual" as const, enteredById: ctx.user.id, enteredAt: new Date() };
+        if (existing) await tx.update(rrMetricValues).set(values).where(eq(rrMetricValues.id, existing.id));
+        else await tx.insert(rrMetricValues).values({ metricId: row.metric.id, periodStart, periodEnd, ...values });
+        await tx.insert(rrMetricChangeHistory).values({
+          metricId: row.metric.id,
+          changeType: existing ? "result_corrected" : "result_reported",
+          details: { periodStart, periodEnd, actualValue: submitted.actualValue, note: submitted.note || null, source: "pulse_my_measurables" },
+          createdById: ctx.user.id,
+        });
+        recorded.push({ metricId: row.metric.id, name: row.metric.name, value: submitted.actualValue, note: submitted.note || null, source: "manual" });
+      }
+      for (const row of ownedRows.filter((candidate: any) => candidate.metric.metricType !== "manual")) {
+        const measurable = ownedById.get(row.metric.id)!;
+        await tx.insert(rrMetricChangeHistory).values({
+          metricId: row.metric.id,
+          changeType: "weekly_submission_confirmed",
+          details: { reportingWeek: before.reportingWeek, periodStart: measurable.periodStart, periodEnd: measurable.periodEnd, actualValue: measurable.value, source: "pulse_my_measurables" },
+          createdById: ctx.user.id,
+        });
+        recorded.push({ metricId: row.metric.id, name: row.metric.name, value: Number(measurable.value), note: measurable.note || null, source: "automatic" });
+      }
+    });
+
+    const [person] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, ctx.user.id)).limit(1);
+    if (person?.email) {
+      const summary = recorded.map((measurable) => `${measurable.name}: ${measurable.value}${measurable.note ? ` (${measurable.note})` : ""}`).join(" · ");
+      await sendTransactionalEmail("pulse_measurables_submission_confirmation", {
+        recipientEmail: person.email,
+        recipientName: person.name ?? undefined,
+        pulseSubmissionSummary: summary,
+        pulseActionUrl: "https://os.savvy-agents.com/pulse/dashboard#my-measurables",
+        measurableReportingWeek: `${before.reportingWeek.start} to ${before.reportingWeek.end}`,
+      }, { idempotencyKey: `pulse-my-measurables:${ctx.user.id}:${before.reportingWeek.start}:${before.reportingWeek.end}` });
+    }
+    return { success: true, reportingWeek: before.reportingWeek, recorded };
+  }),
 
   saveInput: pulseProcedure.input(z.object({
     key: z.string().min(1).max(100),

@@ -336,7 +336,7 @@ function supportingMetadata(config: any, result: ReturnType<typeof aggregateRows
   };
 }
 
-export async function refreshAutomaticMetric(db: Db, metricId: number): Promise<{ metricId: number; value: number | null; recordCount: number; periodStart: string; periodEnd: string; resultState: string }> {
+export async function refreshAutomaticMetric(db: Db, metricId: number, periodOverride?: { start: Date; end: Date }): Promise<{ metricId: number; value: number | null; recordCount: number; periodStart: string; periodEnd: string; resultState: string }> {
   const [record] = await db.select({ metric: rrScorecardMetrics, responsibility: rolesResponsibilities, config: rrMetricAutoConfigs })
     .from(rrScorecardMetrics)
     .innerJoin(rolesResponsibilities, eq(rrScorecardMetrics.responsibilityId, rolesResponsibilities.id))
@@ -345,9 +345,9 @@ export async function refreshAutomaticMetric(db: Db, metricId: number): Promise<
   if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Automatic measurable configuration not found." });
   const metric = record.metric;
   const config = record.config;
-  const bounds = metricPeriodBounds(metric as any);
+  const bounds = periodOverride ?? metricPeriodBounds(metric as any);
   try {
-    const sourceStart = isEventMetric(metric as any) ? new Date(Date.UTC(2000, 0, 1)) : bounds.start;
+    const sourceStart = isEventMetric(metric as any) && !periodOverride ? new Date(Date.UTC(2000, 0, 1)) : bounds.start;
     const ownerId = metric.ownerId ?? record.responsibility.ownerId;
     const all = await loadAutomaticRecords(db, config.dataSource as SupportedSource, ownerId, config.dateField, sourceStart, bounds.end);
     const filtered = all.filter((row) => matchesFilters(row, (config.filters ?? null) as FilterMap | null));

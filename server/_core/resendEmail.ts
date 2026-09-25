@@ -119,6 +119,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "pulse_rock_completed",
   "meeting_reminder",
   "pulse_submission_confirmation",
+  "pulse_measurables_submission_confirmation",
   "pulse_meeting_recap",
   "todo_assigned",
   "cascade_sent",
@@ -167,6 +168,7 @@ interface EmailContext {
   pulseCascadeBody?: string;
   pulseActionUrl?: string;
   pulseSubmissionSummary?: string;
+  measurableReportingWeek?: string;
   pulseRecapHtml?: string;
   // PM mention-specific
   mentionedByName?: string;
@@ -1227,6 +1229,19 @@ const TEMPLATES: Record<
       ${ctx.pulseSubmissionSummary ? infoCard([ctx.pulseSubmissionSummary]) : ""}
       ${ctaButton("Open Weekly Prep", ctx.pulseActionUrl ?? APP_URL + "/pulse/weekly-prep")}`,
       `Weekly prep confirmed for ${ctx.pulseMeetingName ?? "your L10"}`
+    ),
+  }),
+
+  pulse_measurables_submission_confirmation: ctx => ({
+    subject: `Pulse measurables submitted — ${ctx.measurableReportingWeek ?? "this reporting week"}`,
+    html: emailLayout(
+      `${heading("Your Pulse measurables are submitted")}
+      ${subheading(ctx.measurableReportingWeek ?? "Current reporting week")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("Your owned measurables have been recorded in SavvyOS for the reporting week shown above.")}
+      ${ctx.pulseSubmissionSummary ? infoCard([escapeHtml(ctx.pulseSubmissionSummary)]) : ""}
+      ${ctaButton("Open My Measurables", ctx.pulseActionUrl ?? APP_URL + "/pulse/dashboard#my-measurables")}`,
+      `Measurables submitted for ${ctx.measurableReportingWeek ?? "the current reporting week"}`
     ),
   }),
 
