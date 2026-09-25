@@ -92,7 +92,7 @@ async function ensureCompanyChannels(
   const [existingSection] = await db
     .select({ id: chatSections.id })
     .from(chatSections)
-    .where(and(eq(chatSections.name, "Company"), eq(chatSections.isArchived, false)))
+    .where(eq(chatSections.name, "Company"))
     .limit(1);
   const sectionId = existingSection?.id ?? Number((await db.insert(chatSections).values({
     name: "Company",
@@ -108,7 +108,7 @@ async function ensureCompanyChannels(
     const [existingChannel] = await db
       .select({ id: chatChannels.id })
       .from(chatChannels)
-      .where(and(eq(chatChannels.name, channel.name), eq(chatChannels.isPermanent, true), eq(chatChannels.isArchived, false)))
+      .where(and(eq(chatChannels.name, channel.name), eq(chatChannels.isPermanent, true)))
       .limit(1);
     if (!existingChannel) {
       await db.insert(chatChannels).values({
@@ -500,10 +500,13 @@ export const chatRouter = router({
     );
 
     const groupsBySection = new Map<number | null, any[]>();
+    const activeSectionIds = new Set(sections.map(section => section.id));
     for (const group of visiblePermanentGroups) {
-      const collection = groupsBySection.get(group.sectionId) ?? [];
+      const sectionKey =
+        group.sectionId != null && activeSectionIds.has(group.sectionId) ? group.sectionId : null;
+      const collection = groupsBySection.get(sectionKey) ?? [];
       collection.push({ ...group, ...(summaries.get(group.id) ?? { unreadCount: 0, unreadMentionCount: 0 }) });
-      groupsBySection.set(group.sectionId, collection);
+      groupsBySection.set(sectionKey, collection);
     }
     const visibleSections = sections
       .map(section => ({ section, groups: groupsBySection.get(section.id) ?? [] }))
@@ -1000,10 +1003,17 @@ export const chatRouter = router({
       }),
     archive: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const state = await requireChatAdmin(ctx.user);
-      await state.db.transaction(async tx => {
-        await tx.update(chatSections).set({ isArchived: true }).where(eq(chatSections.id, input.id));
-        await tx.update(chatChannels).set({ isArchived: true }).where(and(eq(chatChannels.sectionId, input.id), eq(chatChannels.type, "group")));
-      });
+      const existing = await state.db.select({ id: chatSections.id }).from(chatSections).where(eq(chatSections.id, input.id)).limit(1);
+      if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Chat section not found." });
+      // Archive the heading only. Groups stay in Chat, unsectioned until restored or moved.
+      await state.db.update(chatSections).set({ isArchived: true }).where(eq(chatSections.id, input.id));
+      return { success: true };
+    }),
+    restore: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const state = await requireChatAdmin(ctx.user);
+      const existing = await state.db.select({ id: chatSections.id }).from(chatSections).where(eq(chatSections.id, input.id)).limit(1);
+      if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Chat section not found." });
+      await state.db.update(chatSections).set({ isArchived: false }).where(eq(chatSections.id, input.id));
       return { success: true };
     }),
   }),
@@ -1035,6 +1045,20 @@ export const chatRouter = router({
         if (Object.keys(update).length) await state.db.update(chatChannels).set(update as any).where(eq(chatChannels.id, input.id));
         return { success: true };
       }),
+    archive: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const state = await requireChatAdmin(ctx.user);
+      const group = await getChannelOrThrow(state.db, input.id);
+      if (!group.isPermanent) throw new TRPCError({ code: "BAD_REQUEST", message: "Personal chats cannot be archived here." });
+      await state.db.update(chatChannels).set({ isArchived: true }).where(eq(chatChannels.id, input.id));
+      return { success: true };
+    }),
+    restore: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const state = await requireChatAdmin(ctx.user);
+      const group = await getChannelOrThrow(state.db, input.id);
+      if (!group.isPermanent) throw new TRPCError({ code: "BAD_REQUEST", message: "Personal chats cannot be restored here." });
+      await state.db.update(chatChannels).set({ isArchived: false }).where(eq(chatChannels.id, input.id));
+      return { success: true };
+    }),
     delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const state = await requireChatAdmin(ctx.user);
       const group = await getChannelOrThrow(state.db, input.id);
@@ -1077,6 +1101,25 @@ export const chatRouter = router({
       if (!group.isPermanent) throw new TRPCError({ code: "BAD_REQUEST", message: "Personal chat participants cannot be removed." });
       await state.db.delete(chatChannelMembers).where(and(eq(chatChannelMembers.channelId, input.channelId), eq(chatChannelMembers.userId, input.userId)));
       return { success: true };
+    }),
+  }),
+
+  archived: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const state = await requireChatAdmin(ctx.user);
+      const [sections, channels] = await Promise.all([
+        state.db
+          .select()
+          .from(chatSections)
+          .where(eq(chatSections.isArchived, true))
+          .orderBy(asc(chatSections.name)),
+        state.db
+          .select()
+          .from(chatChannels)
+          .where(and(eq(chatChannels.isArchived, true), eq(chatChannels.isPermanent, true)))
+          .orderBy(asc(chatChannels.name)),
+      ]);
+      return { sections, channels };
     }),
   }),
 

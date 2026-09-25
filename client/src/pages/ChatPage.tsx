@@ -7,12 +7,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Archive, AtSign, ChevronDown, ChevronRight, FileText, Hash, Image as ImageIcon, Loader2, Mail, MessageCircle, MessageSquare, Paperclip, Pencil, Plus, Reply, Search, Send, Settings2, SmilePlus, Trash2, UserPlus, Users, X } from "lucide-react";
+import { Archive, ArchiveRestore, AtSign, ChevronDown, ChevronRight, FileText, Hash, Image as ImageIcon, Loader2, Mail, MessageCircle, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, Reply, Search, Send, Settings2, SmilePlus, Trash2, UserPlus, Users, X } from "lucide-react";
 import { toast } from "sonner";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "🎉", "👀", "✅"] as const;
@@ -44,6 +45,106 @@ function ConversationRow({ channel, title, person, isSelected, onSelect }: { cha
   return <button type="button" onClick={onSelect} className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${isSelected ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>{person ? <Avatar className="h-5 w-5 shrink-0"><AvatarImage src={person.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-[8px] text-primary">{initials(title)}</AvatarFallback></Avatar> : <Hash className="h-3.5 w-3.5 shrink-0" />}<span className="min-w-0 flex-1 truncate">{title}</span><UnreadBadge count={channel.unreadCount ?? 0} mentionCount={channel.unreadMentionCount ?? 0} /></button>;
 }
 
+function ChatSectionHeading({
+  section,
+  isCollapsed,
+  isChatAdmin,
+  onToggle,
+  onChanged,
+}: {
+  section: Section;
+  isCollapsed: boolean;
+  isChatAdmin: boolean;
+  onToggle: () => void;
+  onChanged: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const archive = trpc.chat.sections.archive.useMutation({
+    onSuccess: () => {
+      toast.success("Section deleted");
+      setConfirmDelete(false);
+      onChanged();
+    },
+    onError: error => toast.error(error.message),
+  });
+  return (
+    <>
+      <div className="mb-1 flex min-w-0 items-center gap-0.5 px-1">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+          onClick={onToggle}
+        >
+          {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+          <span className="truncate">{section.name}</span>
+        </button>
+        {isChatAdmin && (
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6 shrink-0 text-muted-foreground"
+                title={`Edit ${section.name}`}
+                onClick={event => event.stopPropagation()}
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+                <span className="sr-only">Section actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                onClick={() => {
+                  setMenuOpen(false);
+                  setEditOpen(true);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit / rename
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setConfirmDelete(true);
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete section
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+      <EditSectionDialog section={section} open={editOpen} onOpenChange={setEditOpen} onChanged={onChanged} />
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {section.name}?</DialogTitle>
+            <DialogDescription>
+              This removes the section heading from Chat. Groups inside it stay available and are not deleted. You can restore the section later from Archived.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={archive.isPending}
+              onClick={() => archive.mutate({ id: section.id })}
+            >
+              {archive.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete section
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function ChatConversationList({
   workspaceLoading,
   personalChats,
@@ -55,10 +156,12 @@ function ChatConversationList({
   myChatsCollapsed,
   showAllMyChats,
   collapsedSections,
+  isChatAdmin,
   onToggleMyChats,
   onToggleShowAllMyChats,
   onToggleSection,
   onSelect,
+  onWorkspaceChanged,
 }: {
   workspaceLoading: boolean;
   personalChats: PersonalChat[];
@@ -70,10 +173,12 @@ function ChatConversationList({
   myChatsCollapsed: boolean;
   showAllMyChats: boolean;
   collapsedSections: Set<number>;
+  isChatAdmin: boolean;
   onToggleMyChats: () => void;
   onToggleShowAllMyChats: () => void;
   onToggleSection: (sectionId: number) => void;
   onSelect: (channelId: number) => void;
+  onWorkspaceChanged: () => void;
 }) {
   if (workspaceLoading) {
     return (
@@ -139,18 +244,13 @@ function ChatConversationList({
         const isCollapsed = collapsedSections.has(section.id);
         return (
           <section key={section.id}>
-            <button
-              type="button"
-              className="mb-1 flex w-full min-w-0 items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
-              onClick={() => onToggleSection(section.id)}
-            >
-              {isCollapsed ? (
-                <ChevronRight className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
-              )}
-              <span className="truncate">{section.name}</span>
-            </button>
+            <ChatSectionHeading
+              section={section}
+              isCollapsed={isCollapsed}
+              isChatAdmin={isChatAdmin}
+              onToggle={() => onToggleSection(section.id)}
+              onChanged={onWorkspaceChanged}
+            />
             {!isCollapsed && (
               <div className="space-y-0.5">
                 {groups.map(group => (
@@ -199,6 +299,125 @@ function NewSectionDialog({ open, onOpenChange, onCreated }: { open: boolean; on
   const [name, setName] = useState(""); const [description, setDescription] = useState("");
   const create = trpc.chat.sections.create.useMutation({ onSuccess: () => { toast.success("Chat section created"); setName(""); setDescription(""); onOpenChange(false); onCreated(); }, onError: error => toast.error(error.message) });
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent><DialogHeader><DialogTitle>New Chat Section</DialogTitle><DialogDescription>Sections organize permanent company groups.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-1.5"><Label htmlFor="chat-section-name">Section name</Label><Input id="chat-section-name" value={name} maxLength={100} autoFocus placeholder="e.g. Operations" onChange={event => setName(event.target.value)} /></div><div className="space-y-1.5"><Label htmlFor="chat-section-description">Description <span className="text-muted-foreground">(optional)</span></Label><Textarea id="chat-section-description" value={description} maxLength={500} placeholder="What belongs here?" onChange={event => setDescription(event.target.value)} /></div></div><DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ name: name.trim(), description: description.trim() || null })}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Section</Button></DialogFooter></DialogContent></Dialog>;
+}
+
+function EditSectionDialog({ section, open, onOpenChange, onChanged }: { section: Section; open: boolean; onOpenChange: (open: boolean) => void; onChanged: () => void }) {
+  const [name, setName] = useState(section.name);
+  const [description, setDescription] = useState(section.description ?? "");
+  useEffect(() => {
+    if (open) {
+      setName(section.name);
+      setDescription(section.description ?? "");
+    }
+  }, [open, section.description, section.name]);
+  const update = trpc.chat.sections.update.useMutation({
+    onSuccess: () => {
+      toast.success("Section updated");
+      onOpenChange(false);
+      onChanged();
+    },
+    onError: error => toast.error(error.message),
+  });
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit section</DialogTitle>
+          <DialogDescription>Rename this heading. Groups inside it stay in place.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor={`edit-section-name-${section.id}`}>Section name</Label>
+            <Input id={`edit-section-name-${section.id}`} value={name} maxLength={100} autoFocus onChange={event => setName(event.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`edit-section-description-${section.id}`}>Description <span className="text-muted-foreground">(optional)</span></Label>
+            <Textarea id={`edit-section-description-${section.id}`} value={description} maxLength={500} onChange={event => setDescription(event.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button disabled={!name.trim() || update.isPending} onClick={() => update.mutate({ id: section.id, name: name.trim(), description: description.trim() || null })}>
+            {update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save section
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ArchivedChatDialog({ open, onOpenChange, onRestored }: { open: boolean; onOpenChange: (open: boolean) => void; onRestored: () => void }) {
+  const { data, isLoading } = trpc.chat.archived.list.useQuery(undefined, { enabled: open });
+  const restoreSection = trpc.chat.sections.restore.useMutation({
+    onSuccess: () => {
+      toast.success("Section restored");
+      onRestored();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const restoreGroup = trpc.chat.groups.restore.useMutation({
+    onSuccess: () => {
+      toast.success("Channel restored");
+      onRestored();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const sections = (data?.sections ?? []) as Section[];
+  const channels = (data?.channels ?? []) as Channel[];
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Archived Chat</DialogTitle>
+          <DialogDescription>Restore a deleted section heading or an archived company channel without losing messages.</DialogDescription>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : (
+          <div className="max-h-[420px] space-y-5 overflow-y-auto py-2">
+            <section className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sections</p>
+              {sections.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No deleted sections.</p>
+              ) : sections.map(section => (
+                <div key={section.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{section.name}</p>
+                    {section.description && <p className="truncate text-xs text-muted-foreground">{section.description}</p>}
+                  </div>
+                  <Button size="sm" variant="outline" disabled={restoreSection.isPending} onClick={() => restoreSection.mutate({ id: section.id })}>
+                    <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
+                    Restore
+                  </Button>
+                </div>
+              ))}
+            </section>
+            <section className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channels</p>
+              {channels.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No archived channels.</p>
+              ) : channels.map(channel => (
+                <div key={channel.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">#{channel.name}</p>
+                    {channel.description && <p className="truncate text-xs text-muted-foreground">{channel.description}</p>}
+                  </div>
+                  <Button size="sm" variant="outline" disabled={restoreGroup.isPending} onClick={() => restoreGroup.mutate({ id: channel.id })}>
+                    <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
+                    Restore
+                  </Button>
+                </div>
+              ))}
+            </section>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function NewPermanentGroupDialog({ open, onOpenChange, sections, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; sections: Section[]; onCreated: (channelId: number) => void }) {
@@ -259,7 +478,7 @@ function ManageGroupDialog({ group, sections, open, onOpenChange, onChanged }: {
   const removeGroup = trpc.chat.groups.delete.useMutation({ onSuccess: () => { toast.success("Permanent group deleted"); setConfirmDelete(false); onOpenChange(false); onChanged(); }, onError: error => toast.error(error.message) });
   const addMember = trpc.chat.members.add.useMutation({ onSuccess: () => { void utils.chat.members.list.invalidate({ channelId }); toast.success("Person added to this group"); setNewMemberId("none"); onChanged(); }, onError: error => toast.error(error.message) }); const removeMember = trpc.chat.members.remove.useMutation({ onSuccess: () => { void utils.chat.members.list.invalidate({ channelId }); toast.success("Person removed from this group"); onChanged(); }, onError: error => toast.error(error.message) });
   const memberIds = useMemo(() => new Set((members as MemberRow[]).map(row => row.user.id)), [members]); const availablePeople = (people as Person[]).filter(person => !memberIds.has(person.id)); if (!group) return null;
-  return <><Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Manage #{group.name}</DialogTitle><DialogDescription>This is a permanent company group. Chat Admins manage its details and membership.</DialogDescription></DialogHeader><div className="grid gap-7 py-2 md:grid-cols-2"><section className="space-y-4"><div className="flex items-center gap-2 text-sm font-semibold"><Settings2 className="h-4 w-4 text-primary" />Group details</div><div className="space-y-1.5"><Label>Name</Label><Input value={name} maxLength={100} onChange={event => setName(event.target.value)} /></div><div className="space-y-1.5"><Label>Section <span className="text-destructive">*</span></Label><Select value={sectionId} onValueChange={setSectionId}><SelectTrigger><SelectValue placeholder="Choose a section" /></SelectTrigger><SelectContent>{sections.map(section => <SelectItem key={section.id} value={String(section.id)}>{section.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label>Purpose</Label><Textarea value={description} maxLength={500} onChange={event => setDescription(event.target.value)} /></div><Button className="w-full" disabled={!name.trim() || !sectionId || update.isPending} onClick={() => update.mutate({ id: group.id, name: name.trim(), description: description.trim() || null, sectionId: Number(sectionId) })}>{update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save Group Details</Button><div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3"><p className="text-sm font-medium">Delete this permanent group</p><p className="mt-1 text-xs text-muted-foreground">This permanently deletes the group, messages, reactions, and attachments. It cannot be undone.</p><Button variant="outline" size="sm" className="mt-3 text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete Group</Button></div></section><section className="space-y-4 border-t pt-6 md:border-l md:border-t-0 md:pl-7 md:pt-0"><div className="flex items-center gap-2 text-sm font-semibold"><Users className="h-4 w-4 text-primary" />People with access <Badge variant="secondary">{(members as MemberRow[]).length}</Badge></div><div className="flex gap-2"><Select value={newMemberId} onValueChange={setNewMemberId}><SelectTrigger className="flex-1"><SelectValue placeholder="Add a SavvyOS user" /></SelectTrigger><SelectContent><SelectItem value="none">Select a person</SelectItem>{availablePeople.map(person => <SelectItem key={person.id} value={String(person.id)}>{displayName(person)} · {roleLabel(person.role)}</SelectItem>)}</SelectContent></Select><Button size="icon" title="Add to group" disabled={newMemberId === "none" || addMember.isPending} onClick={() => addMember.mutate({ channelId, userId: Number(newMemberId) })}>{addMember.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}</Button></div><div className="max-h-[315px] space-y-1 overflow-y-auto rounded-lg border p-2">{(members as MemberRow[]).length === 0 ? <p className="px-2 py-6 text-center text-sm text-muted-foreground">No one has been added yet.</p> : (members as MemberRow[]).map(member => <div key={member.membership.id} className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/60"><Avatar className="h-7 w-7"><AvatarImage src={member.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-[10px] text-primary">{initials(displayName(member.user))}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{displayName(member.user)}</p><p className="truncate text-xs text-muted-foreground">{roleLabel(member.user.role)} · {member.user.email}</p></div><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" title="Remove from group" onClick={() => removeMember.mutate({ channelId, userId: member.user.id })}><X className="h-3.5 w-3.5" /></Button></div>)}</div></section></div><DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Done</Button></DialogFooter></DialogContent></Dialog><Dialog open={confirmDelete} onOpenChange={setConfirmDelete}><DialogContent><DialogHeader><DialogTitle>Delete #{group.name} permanently?</DialogTitle><DialogDescription>This cannot be reversed. The group and all of its messages, files, reactions, and membership records will be deleted for everyone.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button><Button variant="destructive" disabled={removeGroup.isPending} onClick={() => removeGroup.mutate({ id: group.id })}>{removeGroup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Delete Permanently</Button></DialogFooter></DialogContent></Dialog></>;
+  return <><Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Manage #{group.name}</DialogTitle><DialogDescription>This is a permanent company group. Chat Admins manage its details and membership.</DialogDescription></DialogHeader><div className="grid gap-7 py-2 md:grid-cols-2"><section className="space-y-4"><div className="flex items-center gap-2 text-sm font-semibold"><Settings2 className="h-4 w-4 text-primary" />Group details</div><div className="space-y-1.5"><Label>Name</Label><Input value={name} maxLength={100} onChange={event => setName(event.target.value)} /></div><div className="space-y-1.5"><Label>Section <span className="text-destructive">*</span></Label><Select value={sectionId} onValueChange={setSectionId}><SelectTrigger><SelectValue placeholder="Choose a section" /></SelectTrigger><SelectContent>{sections.map(section => <SelectItem key={section.id} value={String(section.id)}>{section.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label>Purpose</Label><Textarea value={description} maxLength={500} onChange={event => setDescription(event.target.value)} /></div><Button className="w-full" disabled={!name.trim() || !sectionId || update.isPending} onClick={() => update.mutate({ id: group.id, name: name.trim(), description: description.trim() || null, sectionId: Number(sectionId) })}>{update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save Group Details</Button><div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3"><p className="text-sm font-medium">Delete this permanent group</p><p className="mt-1 text-xs text-muted-foreground">Prefer Archive in the channel header when you may need this conversation later. Delete permanently removes the group, messages, reactions, and attachments.</p><Button variant="outline" size="sm" className="mt-3 text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete Group</Button></div></section><section className="space-y-4 border-t pt-6 md:border-l md:border-t-0 md:pl-7 md:pt-0"><div className="flex items-center gap-2 text-sm font-semibold"><Users className="h-4 w-4 text-primary" />People with access <Badge variant="secondary">{(members as MemberRow[]).length}</Badge></div><div className="flex gap-2"><Select value={newMemberId} onValueChange={setNewMemberId}><SelectTrigger className="flex-1"><SelectValue placeholder="Add a SavvyOS user" /></SelectTrigger><SelectContent><SelectItem value="none">Select a person</SelectItem>{availablePeople.map(person => <SelectItem key={person.id} value={String(person.id)}>{displayName(person)} · {roleLabel(person.role)}</SelectItem>)}</SelectContent></Select><Button size="icon" title="Add to group" disabled={newMemberId === "none" || addMember.isPending} onClick={() => addMember.mutate({ channelId, userId: Number(newMemberId) })}>{addMember.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}</Button></div><div className="max-h-[315px] space-y-1 overflow-y-auto rounded-lg border p-2">{(members as MemberRow[]).length === 0 ? <p className="px-2 py-6 text-center text-sm text-muted-foreground">No one has been added yet.</p> : (members as MemberRow[]).map(member => <div key={member.membership.id} className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/60"><Avatar className="h-7 w-7"><AvatarImage src={member.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-[10px] text-primary">{initials(displayName(member.user))}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{displayName(member.user)}</p><p className="truncate text-xs text-muted-foreground">{roleLabel(member.user.role)} · {member.user.email}</p></div><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" title="Remove from group" onClick={() => removeMember.mutate({ channelId, userId: member.user.id })}><X className="h-3.5 w-3.5" /></Button></div>)}</div></section></div><DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Done</Button></DialogFooter></DialogContent></Dialog><Dialog open={confirmDelete} onOpenChange={setConfirmDelete}><DialogContent><DialogHeader><DialogTitle>Delete #{group.name} permanently?</DialogTitle><DialogDescription>This cannot be reversed. The group and all of its messages, files, reactions, and membership records will be deleted for everyone.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button><Button variant="destructive" disabled={removeGroup.isPending} onClick={() => removeGroup.mutate({ id: group.id })}>{removeGroup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Delete Permanently</Button></DialogFooter></DialogContent></Dialog></>;
 }
 
 function AttachmentView({ attachment }: { attachment: Attachment }) { if (isImage(attachment.mimeType)) return <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="mt-2 block w-fit"><img src={attachment.fileUrl} alt={attachment.fileName} className="max-h-64 max-w-full rounded-lg border object-contain" /></a>; return <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="mt-2 flex max-w-sm items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors hover:bg-muted"><FileText className="h-5 w-5 shrink-0 text-primary" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{attachment.fileName}</span><span className="block text-xs text-muted-foreground">{formatFileSize(attachment.fileSize)}</span></span></a>; }
@@ -767,6 +986,8 @@ export default function ChatPage() {
   const [newMessageOpen, setNewMessageOpen] = useState(false);
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newSectionOpen, setNewSectionOpen] = useState(false);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [confirmArchiveChannel, setConfirmArchiveChannel] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [manageGroupOpen, setManageGroupOpen] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -861,6 +1082,15 @@ export default function ChatPage() {
   const archivePersonal = trpc.chat.conversations.archive.useMutation({
     onSuccess: () => {
       toast.success("Chat archived from My Chats");
+      setReplyTo(null);
+      refreshConversation();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const archiveCompanyChannel = trpc.chat.groups.archive.useMutation({
+    onSuccess: () => {
+      toast.success("Channel archived");
+      setConfirmArchiveChannel(false);
       setReplyTo(null);
       refreshConversation();
     },
@@ -998,7 +1228,9 @@ export default function ChatPage() {
     selectedPersonal?.channel.type === "direct"
       ? `Direct message with ${title}`
       : selectedChannel?.description;
-  const canArchiveSelected = !!selectedChannel && !selectedChannel.isPermanent;
+  const canArchivePersonal = !!selectedChannel && !selectedChannel.isPermanent;
+  const canArchiveCompanyChannel =
+    !!workspace?.isChatAdmin && !!selectedChannel?.isPermanent;
   const canPostInSelectedChannel =
     selectedChannel?.name.toLowerCase() !== "announcements" ||
     !!workspace?.isChatAdmin;
@@ -1090,14 +1322,16 @@ export default function ChatPage() {
             myChatsCollapsed={myChatsCollapsed}
             showAllMyChats={showAllMyChats}
             collapsedSections={collapsedSections}
+            isChatAdmin={!!workspace?.isChatAdmin}
             onToggleMyChats={() => setMyChatsCollapsed(value => !value)}
             onToggleShowAllMyChats={() => setShowAllMyChats(value => !value)}
             onToggleSection={toggleSection}
             onSelect={chooseChannel}
+            onWorkspaceChanged={refreshConversation}
           />
         </ScrollArea>
         {workspace?.isChatAdmin && (
-          <div className="border-t p-3">
+          <div className="space-y-2 border-t p-3">
             <Button
               variant="outline"
               className="w-full justify-start"
@@ -1105,6 +1339,14 @@ export default function ChatPage() {
             >
               <Plus className="mr-2 h-4 w-4" />
               New section
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full justify-start text-muted-foreground"
+              onClick={() => setArchivedOpen(true)}
+            >
+              <Archive className="mr-2 h-4 w-4" />
+              Archived
             </Button>
           </div>
         )}
@@ -1165,13 +1407,23 @@ export default function ChatPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {canArchiveSelected && (
+                {canArchivePersonal && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() =>
                       archivePersonal.mutate({ channelId: selectedChannel.id })
                     }
+                  >
+                    <Archive className="mr-1.5 h-3.5 w-3.5" />
+                    Archive
+                  </Button>
+                )}
+                {canArchiveCompanyChannel && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setConfirmArchiveChannel(true)}
                   >
                     <Archive className="mr-1.5 h-3.5 w-3.5" />
                     Archive
@@ -1321,10 +1573,12 @@ export default function ChatPage() {
               myChatsCollapsed={myChatsCollapsed}
               showAllMyChats={showAllMyChats}
               collapsedSections={collapsedSections}
+              isChatAdmin={!!workspace?.isChatAdmin}
               onToggleMyChats={() => setMyChatsCollapsed(value => !value)}
               onToggleShowAllMyChats={() => setShowAllMyChats(value => !value)}
               onToggleSection={toggleSection}
               onSelect={chooseChannel}
+              onWorkspaceChanged={refreshConversation}
             />
           </ScrollArea>
         </DialogContent>
@@ -1339,6 +1593,34 @@ export default function ChatPage() {
         onOpenChange={setNewSectionOpen}
         onCreated={refreshConversation}
       />
+      <ArchivedChatDialog
+        open={archivedOpen}
+        onOpenChange={setArchivedOpen}
+        onRestored={() => {
+          void utils.chat.archived.list.invalidate();
+          refreshConversation();
+        }}
+      />
+      <Dialog open={confirmArchiveChannel} onOpenChange={setConfirmArchiveChannel}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Archive #{selectedChannel?.name}?</DialogTitle>
+            <DialogDescription>
+              This hides the channel from Chat. Messages stay saved, and Chat Admins can restore it later from Archived.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmArchiveChannel(false)}>Cancel</Button>
+            <Button
+              disabled={!selectedChannel || archiveCompanyChannel.isPending}
+              onClick={() => selectedChannel && archiveCompanyChannel.mutate({ id: selectedChannel.id })}
+            >
+              {archiveCompanyChannel.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Archive channel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <NewPermanentGroupDialog
         open={newGroupOpen}
         onOpenChange={setNewGroupOpen}
