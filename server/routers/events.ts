@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   eventAlerts,
@@ -8,11 +8,14 @@ import {
   eventHeadcountComponents,
   eventObligations,
   eventPortfolio,
+  eventProjectLinks,
   eventSponsorAsks,
   eventSponsorDeliverables,
   eventSponsors,
   eventSwoogoSyncActivity,
   eventUnaffiliatedContacts,
+  pmProjectActivity,
+  pmProjects,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -23,6 +26,7 @@ import {
   recalculateEventCommittedExpense,
 } from "../eventsFinancials";
 import { canAdminUsePermission } from "./permissions";
+import { assertProjectAccess } from "./pm";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD.");
 const nullableText = (max: number) => z.string().trim().max(max).nullable();
@@ -1314,6 +1318,183 @@ export const eventsRouter = router({
   integrationStatus: protectedProcedure.query(async ({ ctx }) => {
     await requireEventsAccess(ctx.user);
     return getSwoogoConfigurationStatus();
+  }),
+
+  projects: router({
+    candidates: protectedProcedure.query(async ({ ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const projects = await db
+        .select({
+          id: pmProjects.id,
+          title: pmProjects.title,
+          status: pmProjects.status,
+          dueDate: pmProjects.dueDate,
+        })
+        .from(pmProjects)
+        .leftJoin(
+          eventProjectLinks,
+          eq(eventProjectLinks.projectId, pmProjects.id)
+        )
+        .where(
+          and(
+            eq(pmProjects.department, "Events"),
+            isNull(pmProjects.archivedAt),
+            isNull(eventProjectLinks.id)
+          )
+        )
+        .orderBy(asc(pmProjects.title));
+
+      const accessible: (typeof projects)[number][] = [];
+      for (const project of projects) {
+        try {
+          await assertProjectAccess(db, project.id, ctx.user);
+          accessible.push(project);
+        } catch (error) {
+          if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") {
+            throw error;
+          }
+        }
+      }
+      return accessible;
+    }),
+
+    linked: protectedProcedure
+      .input(z.object({ eventId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        await requireEventsAccess(ctx.user);
+        const db = await database();
+        const [link] = await db
+          .select({ projectId: eventProjectLinks.projectId })
+          .from(eventProjectLinks)
+          .where(eq(eventProjectLinks.eventId, input.eventId))
+          .limit(1);
+        if (!link) return { state: "unlinked" as const };
+
+        try {
+          await assertProjectAccess(db, link.projectId, ctx.user);
+        } catch (error) {
+          if (error instanceof TRPCError && error.code === "FORBIDDEN") {
+            return { state: "restricted" as const };
+          }
+          throw error;
+        }
+
+        const [project] = await db
+          .select({
+            id: pmProjects.id,
+            title: pmProjects.title,
+            status: pmProjects.status,
+            dueDate: pmProjects.dueDate,
+            archivedAt: pmProjects.archivedAt,
+          })
+          .from(pmProjects)
+          .where(eq(pmProjects.id, link.projectId))
+          .limit(1);
+        if (!project) return { state: "unlinked" as const };
+        return { state: "accessible" as const, project };
+      }),
+
+    link: protectedProcedure
+      .input(
+        z.object({
+          eventId: z.number().int().positive(),
+          projectId: z.number().int().positive(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await requireEventsAccess(ctx.user);
+        const db = await database();
+        await assertProjectAccess(db, input.projectId, ctx.user);
+
+        try {
+          await db.transaction(async transaction => {
+            const [event] = await transaction
+              .select({ id: eventPortfolio.id })
+              .from(eventPortfolio)
+              .where(eq(eventPortfolio.id, input.eventId))
+              .limit(1);
+            if (!event) {
+              throw new TRPCError({
+                code: "NOT_FOUND",
+                message: "This event is no longer available.",
+              });
+            }
+
+            const [project] = await transaction
+              .select({ id: pmProjects.id, archivedAt: pmProjects.archivedAt, department: pmProjects.department })
+              .from(pmProjects)
+              .where(eq(pmProjects.id, input.projectId))
+              .limit(1);
+            if (!project) {
+              throw new TRPCError({
+                code: "NOT_FOUND",
+                message: "This Project is no longer available.",
+              });
+            }
+            if (project.archivedAt || project.department !== "Events") {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Only active Projects in the Events department can be linked.",
+              });
+            }
+
+            const [result] = await transaction.insert(eventProjectLinks).values({
+              eventId: input.eventId,
+              projectId: input.projectId,
+              createdById: ctx.user.id,
+            });
+            await transaction.insert(pmProjectActivity).values({
+              projectId: input.projectId,
+              actorId: ctx.user.id,
+              action: "event_linked",
+              detail: `Linked this Project to Event #${input.eventId}.`,
+            });
+            return result;
+          });
+        } catch (error: any) {
+          if (error instanceof TRPCError) throw error;
+          if (error?.code === "ER_DUP_ENTRY") {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "That Event or Project is already linked.",
+            });
+          }
+          throw error;
+        }
+        return { success: true };
+      }),
+
+    unlink: protectedProcedure
+      .input(z.object({ eventId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireEventsAccess(ctx.user);
+        const db = await database();
+        const [link] = await db
+          .select({ id: eventProjectLinks.id, projectId: eventProjectLinks.projectId })
+          .from(eventProjectLinks)
+          .where(eq(eventProjectLinks.eventId, input.eventId))
+          .limit(1);
+        if (!link) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "No Project is linked to this Event.",
+          });
+        }
+        await assertProjectAccess(db, link.projectId, ctx.user);
+        await db.transaction(async transaction => {
+          await transaction
+            .delete(eventProjectLinks)
+            .where(eq(eventProjectLinks.id, link.id));
+          await transaction.insert(pmProjectActivity).values({
+            projectId: link.projectId,
+            actorId: ctx.user.id,
+            action: "event_unlinked",
+            detail: `Unlinked this Project from Event #${input.eventId}.`,
+          });
+        });
+        return { success: true };
+      }),
   }),
 
   createEvent: protectedProcedure

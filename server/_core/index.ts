@@ -91,6 +91,7 @@ import { ensureWebinarRequestSchema } from "../webinarRequestSchema";
 import { ensureContactLeadSourceTrigger } from "../contactLeadSourceTrigger";
 import { ensureRrMeasurableSchema } from "../rrMeasurableSchema";
 import { ensureCoachingWorkflowSchema } from "../coachingWorkflowSchema";
+import { ensureEventProjectLinkSchema } from "../eventProjectLinkSchema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -120,6 +121,7 @@ async function startServer() {
   await ensureContactLeadSourceTrigger();
   await ensureRrMeasurableSchema();
   await ensureCoachingWorkflowSchema();
+  await ensureEventProjectLinkSchema();
 
   const app = express();
   const server = createServer(app);

@@ -33,6 +33,8 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import ProjectDetailPage from "@/pages/ProjectDetailPage";
 import {
   AlertTriangle,
   CalendarDays,
@@ -1033,18 +1035,176 @@ function ProfileDatum({
   );
 }
 
+function EventProjectWorkspace({
+  eventId,
+  onChanged,
+}: {
+  eventId: number;
+  onChanged: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [projectId, setProjectId] = useState("");
+  const { data: linked, isLoading } = trpc.events.projects.linked.useQuery(
+    { eventId },
+    { staleTime: 0 }
+  );
+  const { data: candidates = [], isLoading: candidatesLoading } =
+    trpc.events.projects.candidates.useQuery(undefined, {
+      enabled: linkDialogOpen,
+      staleTime: 0,
+    });
+  const refresh = () => {
+    void utils.events.projects.linked.invalidate({ eventId });
+    void utils.events.projects.candidates.invalidate();
+    onChanged();
+  };
+  const linkProject = trpc.events.projects.link.useMutation({
+    onSuccess: () => {
+      toast.success("Project linked to this Event.");
+      setLinkDialogOpen(false);
+      setProjectId("");
+      refresh();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const unlinkProject = trpc.events.projects.unlink.useMutation({
+    onSuccess: () => {
+      toast.success("Project unlinked from this Event.");
+      refresh();
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  const candidateOptions = (candidates as any[]).map(project => ({
+    value: String(project.id),
+    label: project.title,
+    description: [project.status?.replaceAll("_", " "), project.dueDate ? `Due ${dateLabel(project.dueDate)}` : null]
+      .filter(Boolean)
+      .join(" · "),
+  }));
+
+  return (
+    <section className="rounded-xl border bg-slate-50/50 p-4 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">Planning project</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Event planning work stays in Projects and uses the same Project tasks.
+          </p>
+        </div>
+        {linked?.state === "unlinked" ? (
+          <Button size="sm" onClick={() => setLinkDialogOpen(true)}>
+            Link project
+          </Button>
+        ) : null}
+        {linked?.state === "accessible" ? (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={unlinkProject.isPending}
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Unlink this Project? The Project and all of its tasks will stay unchanged."
+                )
+              ) {
+                unlinkProject.mutate({ eventId });
+              }
+            }}
+          >
+            Unlink
+          </Button>
+        ) : null}
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading Project planning…
+        </div>
+      ) : null}
+      {linked?.state === "unlinked" ? (
+        <p className="mt-4 rounded-lg border border-dashed bg-background px-4 py-5 text-sm text-muted-foreground">
+          No Project is linked to this Event yet.
+        </p>
+      ) : null}
+      {linked?.state === "restricted" ? (
+        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-5 text-sm text-amber-950">
+          A Project is linked to this Event. You do not have access to its planning workspace.
+        </p>
+      ) : null}
+      {linked?.state === "accessible" ? (
+        <div className="mt-4 border-t pt-4">
+          <ProjectDetailPage embeddedProjectId={linked.project.id} />
+        </div>
+      ) : null}
+
+      <Dialog
+        open={linkDialogOpen}
+        onOpenChange={open => {
+          setLinkDialogOpen(open);
+          if (!open) setProjectId("");
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Link a Project</DialogTitle>
+            <DialogDescription>
+              Choose an existing Events Project. Projects are created in Projects first.
+            </DialogDescription>
+          </DialogHeader>
+          {candidatesLoading ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading available Projects…
+            </div>
+          ) : candidateOptions.length === 0 ? (
+            <p className="rounded-md border border-dashed bg-muted/20 px-4 py-5 text-sm text-muted-foreground">
+              No Events projects available. Create one in Projects first.
+            </p>
+          ) : (
+            <SearchableSelect
+              options={candidateOptions}
+              value={projectId}
+              onValueChange={setProjectId}
+              placeholder="Choose an Events Project…"
+              searchPlaceholder="Search Projects…"
+              emptyText="No matching Events Projects."
+              showSelectedDescription
+            />
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setLinkDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!projectId || linkProject.isPending}
+              onClick={() =>
+                linkProject.mutate({ eventId, projectId: Number(projectId) })
+              }
+            >
+              {linkProject.isPending ? "Linking…" : "Link project"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}
+
 function EventProfileDialog({
   event,
   sponsors,
   claims,
   onOpenChange,
   onEdit,
+  onProjectLinkChanged,
 }: {
   event: EventRecord | null;
   sponsors: SponsorRecord[];
   claims: any[];
   onOpenChange: (open: boolean) => void;
   onEdit: (event: EventRecord) => void;
+  onProjectLinkChanged: () => void;
 }) {
   if (!event) return null;
   const tier = Number(event.tier);
@@ -1143,6 +1303,11 @@ function EventProfileDialog({
                 detail={event.venue || undefined}
               />
             </section>
+
+            <EventProjectWorkspace
+              eventId={event.id}
+              onChanged={onProjectLinkChanged}
+            />
 
             <section className="grid gap-4 lg:grid-cols-2">
               <Card className="min-w-0">
@@ -4971,6 +5136,7 @@ export default function EventsPage() {
           setProfileEventId(null);
           openEditEvent(event);
         }}
+        onProjectLinkChanged={refresh}
       />
       <EventEditorDialog
         open={editorOpen}

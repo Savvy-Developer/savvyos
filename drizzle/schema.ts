@@ -6859,6 +6859,33 @@ export const eventPortfolio = mysqlTable(
 export type EventPortfolio = typeof eventPortfolio.$inferSelect;
 export type InsertEventPortfolio = typeof eventPortfolio.$inferInsert;
 
+// An Event and its execution Project remain separate records. This optional,
+// one-to-one link owns only the association; it never grants Project access or
+// copies Event work into pm_tasks.
+export const eventProjectLinks = mysqlTable(
+  "event_project_links",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    eventId: int("eventId")
+      .notNull()
+      .references(() => eventPortfolio.id, { onDelete: "restrict" }),
+    projectId: int("projectId")
+      .notNull()
+      .references(() => pmProjects.id, { onDelete: "restrict" }),
+    createdById: int("createdById")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("event_project_links_event_unique").on(table.eventId),
+    uniqueIndex("event_project_links_project_unique").on(table.projectId),
+  ]
+);
+export type EventProjectLink = typeof eventProjectLinks.$inferSelect;
+export type InsertEventProjectLink = typeof eventProjectLinks.$inferInsert;
+
 export const eventHeadcountComponents = mysqlTable(
   "event_headcount_components",
   {

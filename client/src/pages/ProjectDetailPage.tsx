@@ -446,11 +446,19 @@ function WeeklyUpdateForm({ projectId, onSubmitted }: { projectId: number; onSub
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function ProjectDetailPage() {
+type ProjectDetailPageProps = {
+  embeddedProjectId?: number;
+  params?: unknown;
+};
+
+export default function ProjectDetailPage({
+  embeddedProjectId,
+}: ProjectDetailPageProps = {}) {
   const { id } = useParams<{ id: string }>();
   const [location, navigate] = useLocation();
   const goBack = useAppBack("/projects");
-  const projectId = Number(id);
+  const embedded = typeof embeddedProjectId === "number";
+  const projectId = embeddedProjectId ?? Number(id);
 
   const { user } = useAuth();
   const utils = trpc.useUtils();
@@ -469,8 +477,9 @@ export default function ProjectDetailPage() {
   const [editForm, setEditForm] = useState<any>(null);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
-  const initialTab = new URLSearchParams(window.location.search).get("tab");
-  const [activeTab, setActiveTab] = useState(["tasks", "board", "gantt", "notes", "updates", "activity"].includes(initialTab ?? "") ? initialTab! : "tasks");
+  const initialTab = embedded ? "tasks" : new URLSearchParams(window.location.search).get("tab");
+  const allowedTabs = embedded ? ["tasks", "board"] : ["tasks", "board", "gantt", "notes", "updates", "activity"];
+  const [activeTab, setActiveTab] = useState(allowedTabs.includes(initialTab ?? "") ? initialTab! : "tasks");
   const [showCompletedTodos, setShowCompletedTodos] = useState(false);
   const highlightedNoteId = Number(window.location.hash.match(/^#note-(\d+)$/)?.[1] ?? 0) || null;
   const highlightedComment = window.location.hash.match(/^#todo-(\d+)-comment-(\d+)$/);
@@ -739,6 +748,7 @@ export default function ProjectDetailPage() {
 
   function changeTab(tab: string) {
     setActiveTab(tab);
+    if (embedded) return;
     const next = new URL(window.location.href);
     next.searchParams.set("tab", tab);
     if (tab !== "notes") next.hash = "";
@@ -791,15 +801,15 @@ export default function ProjectDetailPage() {
   return (
     <div>
       {/* Back button */}
-      <button
+      {!embedded ? <button
         onClick={goBack}
         className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors"
       >
         <ArrowLeft className="h-4 w-4" /> Back
-      </button>
+      </button> : null}
 
       {/* Project Header */}
-      <div className="bg-card border border-border rounded-lg p-4 mb-5">
+      {!embedded ? <div className="bg-card border border-border rounded-lg p-4 mb-5">
         {editingProject && editForm ? (
           <div className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -955,10 +965,10 @@ export default function ProjectDetailPage() {
             )}
           </div>
         )}
-      </div>
+      </div> : null}
 
       {/* Collaborators */}
-      <div className="mb-5 flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2.5">
+      {!embedded ? <><div className="mb-5 flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2.5">
         <button type="button" onClick={() => setShowCollaborators(true)} className="flex min-w-0 items-center gap-2.5 rounded-md text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
           <div className="flex -space-x-2" aria-hidden="true">
             {(collaborators as any[]).slice(0, 5).map((collaborator: any) => {
@@ -1019,6 +1029,7 @@ export default function ProjectDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </> : null}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={changeTab}>
@@ -1031,11 +1042,11 @@ export default function ProjectDetailPage() {
             <Columns3 className="h-3.5 w-3.5 mr-1.5" />
             Board View
           </TabsTrigger>
-          <TabsTrigger value="gantt" className="shrink-0 whitespace-nowrap">
+          {!embedded ? <TabsTrigger value="gantt" className="shrink-0 whitespace-nowrap">
             <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
             Gantt
-          </TabsTrigger>
-          <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">
+          </TabsTrigger> : null}
+          {!embedded ? <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">
             <StickyNote className="h-3.5 w-3.5 mr-1.5" />
             Notes
             {unreadNoteCount > 0 && (
@@ -1043,15 +1054,15 @@ export default function ProjectDetailPage() {
                 {unreadNoteCount}
               </span>
             )}
-          </TabsTrigger>
-          <TabsTrigger value="updates" className="shrink-0 whitespace-nowrap">
+          </TabsTrigger> : null}
+          {!embedded ? <TabsTrigger value="updates" className="shrink-0 whitespace-nowrap">
             <BarChart3 className="h-3.5 w-3.5 mr-1.5" />
             Weekly Updates ({(project.weeklyUpdates ?? []).length})
-          </TabsTrigger>
-          <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">
+          </TabsTrigger> : null}
+          {!embedded ? <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">
             <Activity className="h-3.5 w-3.5 mr-1.5" />
             Activity
-          </TabsTrigger>
+          </TabsTrigger> : null}
         </TabsList>
 
         {/* List View Tab */}

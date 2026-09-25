@@ -99,7 +99,7 @@ function canViewAllProjects(user: { email?: string | null }) {
   return !!user.email && FULL_PROJECT_VISIBILITY_EMAILS.has(user.email.toLowerCase());
 }
 
-async function assertProjectAccess(
+export async function assertProjectAccess(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
   projectId: number,
   user: { id: number; email?: string | null },
