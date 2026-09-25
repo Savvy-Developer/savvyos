@@ -25,6 +25,9 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { PulseInlineItemRow } from "@/components/pulse/PulseItemEditor";
+import ProjectTodoMoveProjectDialog, {
+  type ProjectMoveOption,
+} from "@/components/ProjectTodoMoveProjectDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -55,6 +58,7 @@ type Todo = {
   commentCount?: number | null;
   attachmentCount?: number | null;
   linkedSubTodoCount?: number | null;
+  subTodoCount?: number | null;
 };
 
 type ProjectTodoForm = {
@@ -167,10 +171,16 @@ function SourceBadge({ todo }: { todo: Todo }) {
 function ProjectTodoWorkspace({
   todo,
   adminUsers,
+  moveProjects,
+  moveProjectPending,
+  onMoveProject,
   onChanged,
 }: {
   todo: Todo;
   adminUsers: any[];
+  moveProjects: ProjectMoveOption[];
+  moveProjectPending: boolean;
+  onMoveProject: (todoId: number, destinationProjectId: number) => void;
   onChanged: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -600,6 +610,19 @@ function ProjectTodoWorkspace({
             </section>
           ) : (
             <div className="mt-2 flex flex-wrap justify-end gap-1.5">
+              {!todo.parentTaskId && todo.projectId ? (
+                <ProjectTodoMoveProjectDialog
+                  todoTitle={todo.title}
+                  currentProjectId={todo.projectId}
+                  currentProjectTitle={todo.sourceLabel}
+                  projects={moveProjects}
+                  childCount={Number(todo.subTodoCount ?? 0)}
+                  isPending={moveProjectPending}
+                  onMove={destinationProjectId =>
+                    onMoveProject(taskId, destinationProjectId)
+                  }
+                />
+              ) : null}
               <Button
                 type="button"
                 size="sm"
@@ -792,6 +815,8 @@ export default function MyTodosDashboard() {
     }
   );
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
+  const { data: moveProjects = [] } =
+    trpc.pm.projects.moveDestinations.useQuery();
   const items = todos as Todo[];
 
   const refreshEverywhere = () => {
@@ -802,6 +827,21 @@ export default function MyTodosDashboard() {
     void utils.pulse.l10.invalidate();
     void utils.pulse.personal.invalidate();
   };
+  const moveProjectTodo = trpc.pm.tasks.moveToProject.useMutation({
+    onSuccess: result => {
+      toast.success(
+        `To-Do moved to its new project${
+          result.movedTaskCount > 1
+            ? ` with ${result.movedTaskCount - 1} sub-To-Do${
+                result.movedTaskCount === 2 ? "" : "s"
+              }`
+            : ""
+        }.`
+      );
+      refreshEverywhere();
+    },
+    onError: error => toast.error(error.message),
+  });
 
   return (
     <section className="mb-4 overflow-hidden rounded-md border border-primary/25 bg-primary/[0.02]">
@@ -843,6 +883,11 @@ export default function MyTodosDashboard() {
               key={todo.id}
               todo={todo}
               adminUsers={adminUsers as any[]}
+              moveProjects={moveProjects as ProjectMoveOption[]}
+              moveProjectPending={moveProjectTodo.isPending}
+              onMoveProject={(id, destinationProjectId) =>
+                moveProjectTodo.mutate({ id, destinationProjectId })
+              }
               onChanged={refreshEverywhere}
             />
           )

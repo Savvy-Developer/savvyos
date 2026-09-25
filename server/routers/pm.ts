@@ -271,6 +271,23 @@ export const pmRouter = router({
         }));
       }),
 
+    moveDestinations: protectedProcedure.query(async ({ ctx }) => {
+      assertPmAccess(ctx);
+      const db = await getDb();
+      if (!db) return [];
+      const accessibleProjectIds = canViewAllProjects(ctx.user)
+        ? null
+        : await getAccessibleProjectIds(db, ctx.user.id);
+      const projects = await db
+        .select({ id: pmProjects.id, title: pmProjects.title })
+        .from(pmProjects)
+        .where(isNull(pmProjects.archivedAt))
+        .orderBy(asc(pmProjects.sortOrder), asc(pmProjects.createdAt));
+      return accessibleProjectIds === null
+        ? projects
+        : projects.filter(project => accessibleProjectIds.includes(project.id));
+    }),
+
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ ctx, input }) => {
@@ -954,6 +971,7 @@ export const pmRouter = router({
             notes: pmTasks.notes,
             createdAt: pmTasks.createdAt,
             commentCount: sql<number>`(select count(*) from ${pmTaskComments} where ${pmTaskComments.taskId} = ${pmTasks.id})`.as("commentCount"),
+            subTodoCount: sql<number>`(select count(*) from pm_tasks child where child.parentTaskId = ${pmTasks.id})`.as("subTodoCount"),
           })
           .from(pmTasks)
           .innerJoin(pmProjects, eq(pmTasks.projectId, pmProjects.id))
@@ -1007,6 +1025,7 @@ export const pmRouter = router({
             sectionName: todo.sectionName,
             createdAt: todo.createdAt,
             commentCount: todo.commentCount,
+            subTodoCount: todo.subTodoCount,
           })),
       ];
       return todos.sort((left, right) => {
@@ -1626,6 +1645,99 @@ export const pmRouter = router({
             : "Updated todo";
         await logActivity(task.projectId, ctx.user.id, action, detail, id);
         return { success: true, rolledForward: completion?.rolledForward ?? false };
+      }),
+
+    moveToProject: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), destinationProjectId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [task] = await db
+          .select({
+            id: pmTasks.id,
+            projectId: pmTasks.projectId,
+            parentTaskId: pmTasks.parentTaskId,
+            title: pmTasks.title,
+          })
+          .from(pmTasks)
+          .where(eq(pmTasks.id, input.id))
+          .limit(1);
+        if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "This To-Do no longer exists." });
+        await assertProjectAccess(db, task.projectId, ctx.user);
+        if (task.parentTaskId !== null) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Move the parent To-Do to move its sub-To-Dos to another project.",
+          });
+        }
+        if (input.destinationProjectId === task.projectId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a different project." });
+        }
+
+        // Destination access is checked independently from the source. This is
+        // intentional: a user who can work a source project must never move its
+        // work into a project that is outside their visibility.
+        await assertProjectAccess(db, input.destinationProjectId, ctx.user);
+        const [destinationProject] = await db
+          .select({ id: pmProjects.id, title: pmProjects.title, archivedAt: pmProjects.archivedAt })
+          .from(pmProjects)
+          .where(eq(pmProjects.id, input.destinationProjectId))
+          .limit(1);
+        if (!destinationProject || destinationProject.archivedAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "The destination project is unavailable." });
+        }
+
+        const sourceTasks = await db
+          .select({ id: pmTasks.id, parentTaskId: pmTasks.parentTaskId })
+          .from(pmTasks)
+          .where(eq(pmTasks.projectId, task.projectId));
+        const familyIds = collectTaskFamilyIds(sourceTasks, task.id);
+        const [[sectionOrder], [taskOrder]] = await Promise.all([
+          db.select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
+            .from(pmTodoSections)
+            .where(eq(pmTodoSections.projectId, input.destinationProjectId)),
+          db.select({ maxSortOrder: sql<number>`coalesce(max(${pmTasks.sortOrder}), -1)` })
+            .from(pmTasks)
+            .where(and(
+              eq(pmTasks.projectId, input.destinationProjectId),
+              isNull(pmTasks.parentTaskId),
+              isNull(pmTasks.sectionId),
+            )),
+        ]);
+        const destinationSortOrder = Math.max(
+          Number(sectionOrder?.maxSortOrder ?? -1),
+          Number(taskOrder?.maxSortOrder ?? -1),
+        ) + 1;
+
+        await db.transaction(async transaction => {
+          await transaction
+            .update(pmTasks)
+            .set({ projectId: input.destinationProjectId, sectionId: null })
+            .where(inArray(pmTasks.id, familyIds));
+          await transaction
+            .update(pmTasks)
+            .set({ sortOrder: destinationSortOrder })
+            .where(eq(pmTasks.id, task.id));
+        });
+
+        await Promise.all([
+          logActivity(
+            task.projectId,
+            ctx.user.id,
+            "task_moved",
+            `Moved To-Do "${task.title}" to project "${destinationProject.title}"`,
+            task.id,
+          ),
+          logActivity(
+            input.destinationProjectId,
+            ctx.user.id,
+            "task_moved",
+            `Moved To-Do "${task.title}" from another project`,
+            task.id,
+          ),
+        ]);
+        return { success: true, destinationProjectId: input.destinationProjectId, movedTaskCount: familyIds.length };
       }),
 
     toggleComplete: protectedProcedure
