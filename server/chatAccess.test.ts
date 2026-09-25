@@ -7,62 +7,40 @@ import {
   canReadChatGroup,
 } from "./chatAccess";
 
-describe("Chat access rules", () => {
-  it("requires explicit conversation membership for non-admin teammates", () => {
-    expect(
-      canOpenChatWorkspace({
-        role: "agent",
-        hasChatViewPermission: false,
-        isChatAdmin: false,
-        isGroupMember: false,
-      })
-    ).toBe(false);
-    expect(
-      canOpenChatWorkspace({
-        role: "agent",
-        hasChatViewPermission: false,
-        isChatAdmin: false,
-        isGroupMember: true,
-      })
-    ).toBe(true);
+const access = (
+  overrides: Partial<Parameters<typeof canOpenChatWorkspace>[0]>
+) =>
+  canOpenChatWorkspace({
+    role: "agent",
+    hasChatViewPermission: false,
+    isChatAdmin: false,
+    hasExplicitAccess: false,
+    hasConversationMembership: false,
+    ...overrides,
   });
 
-  it("grants an ISA Chat access after explicit conversation membership", () => {
-    expect(
-      canOpenChatWorkspace({
-        role: "isa",
-        hasChatViewPermission: false,
-        isChatAdmin: false,
-        isGroupMember: true,
-      })
-    ).toBe(true);
+describe("Chat access rules", () => {
+  it("requires an explicit entitlement or existing conversation membership for non-admin teammates", () => {
+    expect(access({})).toBe(false);
+    expect(access({ hasExplicitAccess: true })).toBe(true);
+    expect(access({ hasConversationMembership: true })).toBe(true);
+  });
+
+  it("does not use a company channel to grant an ISA Chat access", () => {
+    expect(access({ role: "isa", hasExplicitAccess: true })).toBe(true);
+    expect(access({ role: "isa" })).toBe(false);
   });
 
   it("requires the Chat permission for a normal administrator and grants full access to a Chat Admin", () => {
     expect(
-      canOpenChatWorkspace({
+      access({
         role: "admin",
-        hasChatViewPermission: false,
-        isChatAdmin: false,
-        isGroupMember: true,
+        hasExplicitAccess: true,
+        hasConversationMembership: true,
       })
     ).toBe(false);
-    expect(
-      canOpenChatWorkspace({
-        role: "admin",
-        hasChatViewPermission: true,
-        isChatAdmin: false,
-        isGroupMember: false,
-      })
-    ).toBe(true);
-    expect(
-      canOpenChatWorkspace({
-        role: "admin",
-        hasChatViewPermission: false,
-        isChatAdmin: true,
-        isGroupMember: false,
-      })
-    ).toBe(true);
+    expect(access({ role: "admin", hasChatViewPermission: true })).toBe(true);
+    expect(access({ role: "admin", isChatAdmin: true })).toBe(true);
   });
 
   it("limits ordinary users to their own groups while allowing Chat Admins to see all groups", () => {

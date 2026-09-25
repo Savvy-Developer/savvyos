@@ -92,6 +92,7 @@ import { ensureContactLeadSourceTrigger } from "../contactLeadSourceTrigger";
 import { ensureRrMeasurableSchema } from "../rrMeasurableSchema";
 import { ensureCoachingWorkflowSchema } from "../coachingWorkflowSchema";
 import { ensureEventProjectLinkSchema } from "../eventProjectLinkSchema";
+import { ensureChatUserAccessSchema } from "../chatUserAccessSchema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -122,6 +123,7 @@ async function startServer() {
   await ensureRrMeasurableSchema();
   await ensureCoachingWorkflowSchema();
   await ensureEventProjectLinkSchema();
+  await ensureChatUserAccessSchema();
 
   const app = express();
   const server = createServer(app);
@@ -233,13 +235,11 @@ async function startServer() {
             : "Stripe webhook processing failed";
         const isSignatureError = /signature|Stripe-Signature/i.test(message);
         console.error("[Stripe Webhook] Processing error:", message);
-        return res
-          .status(isSignatureError ? 400 : 500)
-          .json({
-            error: isSignatureError
-              ? "Invalid webhook signature."
-              : "Stripe webhook processing failed.",
-          });
+        return res.status(isSignatureError ? 400 : 500).json({
+          error: isSignatureError
+            ? "Invalid webhook signature."
+            : "Stripe webhook processing failed.",
+        });
       }
     }
   );
@@ -370,12 +370,10 @@ async function startServer() {
         "[AnalyticsInsights] Scheduled endpoint error:",
         err.message
       );
-      return res
-        .status(500)
-        .json({
-          error: "Analytics insight refresh failed",
-          detail: err.message,
-        });
+      return res.status(500).json({
+        error: "Analytics insight refresh failed",
+        detail: err.message,
+      });
     }
   });
 
@@ -397,12 +395,10 @@ async function startServer() {
         "[BusinessInsights] Scheduled endpoint error:",
         err.message
       );
-      return res
-        .status(500)
-        .json({
-          error: "Business insight refresh failed",
-          detail: err.message,
-        });
+      return res.status(500).json({
+        error: "Business insight refresh failed",
+        detail: err.message,
+      });
     }
   });
 

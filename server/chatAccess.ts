@@ -1,19 +1,22 @@
 export type ChatRole = "admin" | "agent" | "isa" | "agent_support";
 
 /**
- * Non-admin teammates receive Chat access through explicit membership in at
- * least one conversation. That keeps access controlled while allowing an
- * invited teammate to use every conversation they have been added to.
+ * Entering Chat and belonging to a conversation are distinct permissions.
+ * An explicit entitlement opens the Chat workspace so a teammate can begin a
+ * direct message or private group without receiving a fabricated company
+ * channel. Existing conversation membership remains a backwards-compatible
+ * path for current users.
  */
 export function canOpenChatWorkspace(input: {
   role: ChatRole;
   hasChatViewPermission: boolean;
   isChatAdmin: boolean;
-  isGroupMember: boolean;
+  hasExplicitAccess: boolean;
+  hasConversationMembership: boolean;
 }): boolean {
   if (input.isChatAdmin) return true;
   if (input.role === "admin") return input.hasChatViewPermission;
-  return input.isGroupMember;
+  return input.hasExplicitAccess || input.hasConversationMembership;
 }
 
 export function canReadChatGroup(input: {
@@ -69,7 +72,7 @@ export function canPostInChatGroup(input: {
   return canReadChatGroup(input);
 }
 
-/** Only the author may alter or remove a message. */
+/** Only the author may alter or remove a Chat message. */
 export function canManageChatMessage(input: {
   messageSenderId: number;
   requestingUserId: number;
