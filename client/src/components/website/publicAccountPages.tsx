@@ -26,7 +26,7 @@ import { publicPath, safeNextPath } from "@/lib/publicSitePaths";
  * Investor accounts on the public website.
  *
  * These are the visible half of the accounts built in the previous change: the
- * sign up and sign in pages, password reset, and the three pages an investor
+ * sign up and sign in pages, password reset, and the four pages an investor
  * gets once they are in. They are separate from SavvyOS staff login and share
  * nothing with it, which is why none of this touches the staff session.
  *

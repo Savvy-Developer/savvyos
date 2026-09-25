@@ -31,7 +31,7 @@ export function markdownImageUrls(markdown: string | null | undefined): string[]
   if (!markdown) return [];
   const out: string[] = [];
   const pattern = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
-  for (const match of markdown.matchAll(pattern)) out.push(match[1]);
+  for (const match of Array.from(markdown.matchAll(pattern))) out.push(match[1]);
   return out;
 }
 
