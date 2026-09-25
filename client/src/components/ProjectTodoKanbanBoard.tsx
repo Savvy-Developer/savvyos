@@ -169,9 +169,6 @@ function TaskColumn({
             </p>
           ) : null}
         </div>
-        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">
-          {taskIds.length}
-        </span>
         <Button
           type="button"
           size="icon"

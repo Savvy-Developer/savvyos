@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -24,7 +23,6 @@ import {
 export function ProjectTodoSection({
   section,
   todoCount,
-  completedCount,
   displayCount,
   onAddTodo,
   onUpdate,
@@ -37,7 +35,6 @@ export function ProjectTodoSection({
 }: {
   section: { id: number; title: string; dueDate?: Date | string | null };
   todoCount: number;
-  completedCount: number;
   displayCount: number;
   onAddTodo: () => void;
   onUpdate: (updates: { title: string; dueDate: Date | null }) => void;
@@ -117,13 +114,6 @@ export function ProjectTodoSection({
               autoFocus
             />
             <Input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className="h-7 w-32 shrink-0 bg-background text-xs" aria-label="Section due date" required={isRock} />
-            <Badge
-              variant="secondary"
-              className="shrink-0 text-[11px]"
-              aria-label={`${completedCount} of ${todoCount} todos completed`}
-            >
-              {completedCount}/{todoCount}
-            </Badge>
           </div>
         ) : (
           <CollapsibleTrigger asChild>
@@ -143,13 +133,6 @@ export function ProjectTodoSection({
                 {section.title}
               </span>
               {dueDate || isRock ? <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold", dueDate ? "bg-muted text-muted-foreground" : "bg-destructive/10 text-destructive")}><CalendarDays className="h-3 w-3" />{dueDate ? `Due ${new Date(`${dueDate}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "Due date required"}</span> : null}
-              <Badge
-                variant="secondary"
-                className="shrink-0 text-[11px]"
-                aria-label={`${completedCount} of ${todoCount} todos completed`}
-              >
-                {completedCount}/{todoCount}
-              </Badge>
             </button>
           </CollapsibleTrigger>
         )}

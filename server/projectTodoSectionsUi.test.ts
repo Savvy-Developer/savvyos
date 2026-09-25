@@ -95,6 +95,14 @@ describe("project todo section UI", () => {
     expect(sectionComponent).not.toContain("px-2 py-5 text-center");
   });
 
+  it("keeps project section headers limited to their title and milestone date", () => {
+    expect(sectionComponent).toContain("{section.title}");
+    expect(sectionComponent).toContain("Due ${new Date");
+    expect(sectionComponent).not.toContain("completedCount");
+    expect(sectionComponent).not.toContain("<Badge");
+    expect(projectBoard).not.toContain("{taskIds.length}");
+  });
+
   it("clears regular due dates immediately without a stale-read overwrite", () => {
     expect(projectDetailPage).toContain(
       'updateProjectOverview.mutate({ id: projectId, dueDate: null })'

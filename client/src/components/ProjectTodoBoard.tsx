@@ -396,7 +396,6 @@ function SortableSectionRow({
   section,
   taskIds,
   todoCount,
-  completedCount,
   displayCount,
   onAddTodo,
   onUpdate,
@@ -411,7 +410,6 @@ function SortableSectionRow({
   section: SectionRow;
   taskIds: number[];
   todoCount: number;
-  completedCount: number;
   displayCount: number;
   onAddTodo: () => void;
   onUpdate: (updates: { title: string; dueDate: Date | null }) => void;
@@ -445,7 +443,6 @@ function SortableSectionRow({
       <ProjectTodoSection
         section={section}
         todoCount={todoCount}
-        completedCount={completedCount}
         displayCount={displayCount}
         onAddTodo={onAddTodo}
         onUpdate={onUpdate}
@@ -696,7 +693,6 @@ export function ProjectTodoBoard({
         section={section}
         taskIds={visibleTaskIds}
         todoCount={sectionTodos.length}
-        completedCount={sectionTodos.filter(todo => todo.completed).length}
         displayCount={visibleTaskIds.length}
         onAddTodo={() => onAddTodo(section.id)}
           onUpdate={updates => onUpdateSection(section.id, updates)}
