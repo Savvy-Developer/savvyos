@@ -227,13 +227,17 @@ function buildAgentNav(
   ];
 }
 
-/** The Pulse shell is intentionally capped at five destinations. */
+/** The Pulse shell keeps global destinations compact and lists visible meetings separately. */
 function buildPulseNav(shell?: PulseNavShell): NavGroup[] {
   const icons: Record<string, React.ElementType> = {
     "My EOS Dashboard": CheckSquare,
-    Meetings: Users,
     Settings,
   };
+  const meetingItems: NavItem[] = (shell?.meetings ?? []).map(meeting => ({
+    icon: Users,
+    label: meeting.name,
+    path: `/pulse/meetings/${meeting.id}`,
+  }));
   return [
     {
       label: "Pulse",
@@ -242,6 +246,7 @@ function buildPulseNav(shell?: PulseNavShell): NavGroup[] {
         icon: icons[item.label] ?? Users,
       })),
     },
+    ...(meetingItems.length ? [{ label: "Meetings", items: meetingItems }] : []),
   ];
 }
 

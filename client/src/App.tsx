@@ -502,6 +502,13 @@ function PulseMemberRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** Meeting membership now lives in the collapsible Pulse sidebar section. */
+function PulseMeetingsIndexRedirect() {
+  const [, navigate] = useLocation();
+  useEffect(() => { navigate("/pulse/dashboard", { replace: true }); }, [navigate]);
+  return <div className="min-h-[40vh]" />;
+}
+
 function Router() {
   return (
     <AuthGuard>
@@ -595,7 +602,7 @@ function Router() {
           <Route path="/pulse/settings/meetings/:id">{({ id }: any) => <PulseRoute><PulseMeetingSettingsPage meetingId={id} /></PulseRoute>}</Route>
           <Route path="/pulse/settings/create">{() => <PulseRoute><PulseCreateMeetingPage /></PulseRoute>}</Route>
           <Route path="/pulse/meetings/:id">{() => <PulseMemberRoute><PulseFoundationPage /></PulseMemberRoute>}</Route>
-          <Route path="/pulse/meetings">{() => <PulseMemberRoute><PulseFoundationPage /></PulseMemberRoute>}</Route>
+          <Route path="/pulse/meetings">{() => <PulseMemberRoute><PulseMeetingsIndexRedirect /></PulseMemberRoute>}</Route>
           <Route path="/pulse/mission">{() => <PulseRoute><PulseMissionControlPage /></PulseRoute>}</Route>
           <Route path="/pulse/settings/outstanding">{() => <PulseRoute><PulseMissionControlAdminPage /></PulseRoute>}</Route>
           <Route path="/pulse/settings/attention">{() => <PulseRoute><PulseGlobalAttentionPage /></PulseRoute>}</Route>
