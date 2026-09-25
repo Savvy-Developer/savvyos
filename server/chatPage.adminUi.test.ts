@@ -29,4 +29,12 @@ describe("Chat page section and channel archive controls", () => {
     expect(source).toContain("md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100");
     expect(source).not.toContain("md:hidden md:group-hover:flex");
   });
+
+  it("saves a moved section when Manage is closed instead of discarding the change", () => {
+    expect(source).toContain("detailsDirty");
+    expect(source).toContain('if (detailsDirty) saveDetails(true)');
+    expect(source).toContain("Save & Close");
+    expect(source).toContain("handleDialogOpenChange");
+    expect(source).not.toContain("setSelectedChannelId(null)");
+  });
 });
