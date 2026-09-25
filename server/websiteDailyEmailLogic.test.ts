@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isDailyEmailEngagementCandidate,
   isScheduledSendDue,
+  listUnsubscribeHeaders,
   linkKeyFromUrl,
   parseEmailList,
   renderBroadcastEmail,
@@ -166,5 +167,14 @@ describe("isDailyEmailEngagementCandidate", () => {
     expect(isDailyEmailEngagementCandidate({ type: "email.opened", data: { email_id: "e1" } })).toBe(false);
     expect(isDailyEmailEngagementCandidate({ type: "email.opened", data: { broadcast_id: "b1" } })).toBe(false);
     expect(isDailyEmailEngagementCandidate(null)).toBe(false);
+  });
+});
+
+describe("listUnsubscribeHeaders", () => {
+  it("offers one-click unsubscribe with the signed link", () => {
+    expect(listUnsubscribeHeaders("https://os.example.com/api/unsubscribe?token=abc")).toEqual({
+      "List-Unsubscribe": "<https://os.example.com/api/unsubscribe?token=abc>",
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    });
   });
 });

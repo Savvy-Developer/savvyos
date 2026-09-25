@@ -9,6 +9,9 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Images,
   DollarSign,
   ExternalLink,
   Flame,
@@ -71,7 +74,7 @@ import {
   AccountMobileLinks,
   EmailPreferencesBody,
   ForgotPasswordBody,
-  LockedPanel,
+  LockedGroupPanel,
   MyTransactionsBody,
   ResetPasswordBody,
   SaveButton,
@@ -118,6 +121,12 @@ const money = (value: unknown) =>
       }).format(Number(value));
 const percent = (value: unknown) =>
   value == null || value === "" ? "—" : `${(Number(value) * 100).toFixed(1)}%`;
+/** Bedrooms and bathrooms as people write them: "4", "2.5", never "4.0". */
+const roomCount = (value: unknown) => {
+  const parsed = Number(value);
+  if (value == null || value === "" || !Number.isFinite(parsed) || parsed <= 0) return "—";
+  return String(Math.round(parsed * 10) / 10);
+};
 
 /**
  * The revenue range and the comparable listings behind it.
@@ -179,7 +188,7 @@ function RevenueRangeSection({
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {comps.map((comp, index) => {
               const details = [
-                comp.beds ? `${comp.beds} bed` : null,
+                comp.beds ? `${roomCount(comp.beds)} bed` : null,
                 comp.adr ? `${money(comp.adr)} ADR` : null,
                 comp.occupancy ? `${Math.round(comp.occupancy * 100)}% occupancy` : null,
               ].filter(Boolean);
@@ -702,11 +711,11 @@ function PropertyCard({ item }: { item: any }) {
           <div className="mt-4 grid grid-cols-3 border-y py-3 text-center text-sm text-slate-600">
             <span className="flex items-center justify-center gap-1">
               <BedDouble className="h-4 w-4 text-cyan-600" />
-              {item.beds || "—"}
+              {roomCount(item.beds)}
             </span>
             <span className="flex items-center justify-center gap-1">
               <Bath className="h-4 w-4 text-cyan-600" />
-              {item.baths || "—"}
+              {roomCount(item.baths)}
             </span>
             <span className="flex items-center justify-center gap-1">
               <Square className="h-4 w-4 text-cyan-600" />
@@ -1886,6 +1895,13 @@ function PropertyDetailPage({ slug }: { slug: string }) {
   const [ask, setAsk] = useState<null | "showing" | "analysis" | "financing">(
     null
   );
+  // Full-screen photo viewer: the index of the photo open, or null.
+  const [photoIndex, setPhotoIndex] = useState<number | null>(null);
+  // "More properties" under the page. The whole live list is small, so this
+  // reuses the list query rather than adding a new one.
+  const others = trpc.website.publicProperties.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+  });
   usePageTitle(query.data?.metaTitle || query.data?.address || "Property");
   // Recorded for the signed-in investor only, and only once per listing per
   // visit. Anonymous browsing is not tracked to an account that does not exist.
@@ -1901,6 +1917,21 @@ function PropertyDetailPage({ slug }: { slug: string }) {
   const highlights = Array.isArray(item.investmentHighlights)
     ? item.investmentHighlights
     : [];
+  // Everything a free account unlocks on this page, shown once together.
+  const lockedItems = [
+    item.gated && "Projected revenue, cash-on-cash, cap rate and occupancy",
+    evidence.data?.gated && "The revenue range and the comparable listings behind it",
+    item.blurbGated && "The agent's own take on this property",
+    item.gated && "The investment calculator, at your own down payment and rate",
+  ].filter(Boolean) as string[];
+  // Up to three other live listings, the same state first.
+  const moreProperties = ((others.data as any[]) || [])
+    .filter(other => other.slug !== item.slug)
+    .sort(
+      (a, b) =>
+        Number(b.state === item.state) - Number(a.state === item.state)
+    )
+    .slice(0, 3);
   return (
     <Shell>
       <section className="bg-[#05314a] py-12 text-white">
@@ -1932,29 +1963,81 @@ function PropertyDetailPage({ slug }: { slug: string }) {
               <p className="text-3xl font-black">{money(item.listPrice)}</p>
             </div>
           </div>
-          <div className="mt-8 grid h-[420px] gap-3 overflow-hidden rounded-2xl md:grid-cols-3">
-            <img
-              src={gallery[0]}
-              alt={`${item.address} exterior`}
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              className="h-full w-full object-cover md:col-span-2"
-            />
-            <div className="hidden grid-rows-2 gap-3 md:grid">
-              {[gallery[1] || gallery[0], gallery[2] || gallery[0]].map(
-                (image: string, index: number) => (
+          <div
+            className={`relative mt-8 grid h-[440px] gap-3 overflow-hidden rounded-2xl ${
+              gallery.length >= 3 ? "md:grid-cols-3" : gallery.length === 2 ? "md:grid-cols-2" : ""
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => gallery.length && setPhotoIndex(0)}
+              className={`group relative h-full overflow-hidden ${gallery.length >= 3 ? "md:col-span-2" : ""}`}
+              aria-label="Open photos"
+            >
+              <img
+                src={gallery[0]}
+                alt={`${item.address} exterior`}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
+              />
+            </button>
+            {gallery.length === 2 && (
+              <button
+                type="button"
+                onClick={() => setPhotoIndex(1)}
+                className="group relative hidden h-full overflow-hidden md:block"
+                aria-label="Open photo 2"
+              >
                 <img
-                  key={index}
-                  src={image}
-                  alt={`${item.address} detail ${index + 2}`}
+                  src={gallery[1]}
+                  alt={`${item.address} photo 2`}
                   style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  className="h-full min-h-0 w-full object-cover"
-                  />
-                )
-              )}
-            </div>
+                  className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
+                />
+              </button>
+            )}
+            {gallery.length >= 3 && (
+              <div className="hidden grid-rows-2 gap-3 md:grid">
+                {[1, 2].map(index => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => setPhotoIndex(index)}
+                    className="group relative min-h-0 overflow-hidden"
+                    aria-label={`Open photo ${index + 1}`}
+                  >
+                    <img
+                      src={gallery[index]}
+                      alt={`${item.address} photo ${index + 1}`}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+            {gallery.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setPhotoIndex(0)}
+                className="absolute bottom-4 right-4 flex items-center gap-2 rounded-lg bg-white/95 px-4 py-2 text-sm font-bold text-[#05314a] shadow-lg transition hover:bg-white"
+              >
+                <Images className="h-4 w-4" />
+                View all {gallery.length} photos
+              </button>
+            )}
           </div>
         </div>
       </section>
+      {photoIndex !== null && gallery.length > 0 && (
+        <PhotoViewer
+          photos={gallery as string[]}
+          index={photoIndex}
+          alt={item.address}
+          onChange={setPhotoIndex}
+          onClose={() => setPhotoIndex(null)}
+        />
+      )}
       <section className="bg-slate-50 py-16">
         <div className="mx-auto grid max-w-[1280px] gap-8 px-4 sm:px-6 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] lg:px-8">
           <div className="space-y-7">
@@ -1965,19 +2048,19 @@ function PropertyDetailPage({ slug }: { slug: string }) {
               <h2 className="mt-2 text-3xl font-bold text-[#05314a]">
                 {item.headline || item.address}
               </h2>
-              <p className="mt-5 text-base leading-8 text-slate-650">
+              <p className="mt-5 text-base leading-8 text-slate-600">
                 {item.summary ||
                   "Connect with the assigned Savvy specialist for the complete opportunity review."}
               </p>
               <div className="mt-6 grid grid-cols-3 rounded-xl border bg-slate-50 p-4 text-center">
                 <div>
                   <BedDouble className="mx-auto h-5 w-5 text-cyan-600" />
-                  <p className="mt-1 font-bold">{item.beds || "—"}</p>
+                  <p className="mt-1 font-bold">{roomCount(item.beds)}</p>
                   <p className="text-xs text-slate-500">Bedrooms</p>
                 </div>
                 <div>
                   <Bath className="mx-auto h-5 w-5 text-cyan-600" />
-                  <p className="mt-1 font-bold">{item.baths || "—"}</p>
+                  <p className="mt-1 font-bold">{roomCount(item.baths)}</p>
                   <p className="text-xs text-slate-500">Bathrooms</p>
                 </div>
                 <div>
@@ -1989,12 +2072,8 @@ function PropertyDetailPage({ slug }: { slug: string }) {
                 </div>
               </div>
             </div>
-            {item.gated ? (
-              <LockedPanel
-                title="Projected opportunity"
-                description="Annual revenue, cash-on-cash, cap rate and occupancy for this property are available to investors with a free account."
-              />
-            ) : (
+            <LockedGroupPanel items={lockedItems} />
+            {item.gated ? null : (
               <div className="rounded-2xl border bg-white p-7 shadow-sm">
                 <h2 className="text-2xl font-bold text-[#05314a]">
                   Projected opportunity
@@ -2021,34 +2100,14 @@ function PropertyDetailPage({ slug }: { slug: string }) {
                 </div>
               </div>
             )}
-            {evidence.data?.gated && (
-              <LockedPanel
-                title="Revenue range and comparable listings"
-                description="The projected revenue range for this property, and the nearby listings the projection is built from, are available to investors with a free account."
-              />
-            )}
             {evidence.data?.revenue && (
               <RevenueRangeSection
                 revenue={evidence.data.revenue}
                 comps={evidence.data.comps}
               />
             )}
-            {item.blurbGated ? (
-              <LockedPanel
-                title="Why I like this property"
-                description="The assigned agent's own take on this listing is available to investors with a free account."
-              />
-            ) : (
-              <AgentNote item={item} />
-            )}
-            {item.gated ? (
-              <LockedPanel
-                title="Investment calculator"
-                description="Model this property at your own down payment, rate and operating costs. Available to investors with a free account."
-              />
-            ) : (
-              <InvestmentCalculator item={item} />
-            )}
+            {item.blurbGated ? null : <AgentNote item={item} />}
+            {item.gated ? null : <InvestmentCalculator item={item} />}
             {highlights.length > 0 && (
               <div className="rounded-2xl border bg-white p-7 shadow-sm">
                 <h2 className="text-2xl font-bold text-[#05314a]">
@@ -2162,7 +2221,123 @@ function PropertyDetailPage({ slug }: { slug: string }) {
           </aside>
         </div>
       </section>
+      {moreProperties.length > 0 && (
+        <section className="border-t bg-white py-16">
+          <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[.16em] text-cyan-600">
+                  Keep exploring
+                </p>
+                <h2 className="mt-2 text-3xl font-bold text-[#05314a]">
+                  More investment properties
+                </h2>
+              </div>
+              <a
+                href={path("/properties")}
+                className="inline-flex items-center gap-2 text-sm font-bold text-[#05314a] hover:text-cyan-700"
+              >
+                See all properties
+                <ArrowRight className="h-4 w-4" />
+              </a>
+            </div>
+            <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {moreProperties.map((other: any) => (
+                <PropertyCard key={other.id} item={other} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </Shell>
+  );
+}
+
+/**
+ * Full-screen photos for a property: arrows, the keyboard (left, right,
+ * Escape) and a click on the backdrop to close.
+ */
+function PhotoViewer({
+  photos,
+  index,
+  alt,
+  onChange,
+  onClose,
+}: {
+  photos: string[];
+  index: number;
+  alt: string;
+  onChange: (index: number) => void;
+  onClose: () => void;
+}) {
+  const count = photos.length;
+  const go = (step: number) => onChange((index + step + count) % count);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowRight") go(1);
+      if (event.key === "ArrowLeft") go(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, count]);
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex flex-col bg-black/90"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Photos of ${alt}`}
+      onClick={onClose}
+    >
+      <div className="flex items-center justify-between px-5 py-4 text-sm text-white/80">
+        <span>
+          {index + 1} / {count}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full p-2 text-white hover:bg-white/10"
+          aria-label="Close photos"
+        >
+          <X className="h-6 w-6" />
+        </button>
+      </div>
+      <div className="relative flex min-h-0 flex-1 items-center justify-center px-16 pb-8">
+        <img
+          src={photos[index]}
+          alt={`${alt} photo ${index + 1}`}
+          className="max-h-full max-w-full rounded-lg object-contain"
+          onClick={event => event.stopPropagation()}
+        />
+        {count > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={event => {
+                event.stopPropagation();
+                go(-1);
+              }}
+              className="absolute left-4 rounded-full bg-white/10 p-3 text-white hover:bg-white/20"
+              aria-label="Previous photo"
+            >
+              <ChevronLeft className="h-6 w-6" />
+            </button>
+            <button
+              type="button"
+              onClick={event => {
+                event.stopPropagation();
+                go(1);
+              }}
+              className="absolute right-4 rounded-full bg-white/10 p-3 text-white hover:bg-white/20"
+              aria-label="Next photo"
+            >
+              <ChevronRight className="h-6 w-6" />
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2293,7 +2468,7 @@ function AgentDetailPage({ slug }: { slug: string }) {
               {String(item.shortBio || "")
                 .split(/\n\s*\n/)
                 .map((paragraph: string, index: number) => (
-                  <p key={index} className="mt-5 leading-8 text-slate-650">
+                  <p key={index} className="mt-5 leading-8 text-slate-600">
                     {paragraph.replace(/^"|"$/g, "")}
                   </p>
                 ))}

@@ -76,6 +76,7 @@ import {
   setApproval as setDailyEmailApproval,
 } from "../websiteDailyEmail";
 import { listResendSegments } from "../_core/resendMarketingBroadcast";
+import { moveWebsiteImages } from "../websiteImageRehost";
 import {
   loadRecentPriceDrops,
   priceDropAlertsEnabled,
@@ -3202,6 +3203,31 @@ export const websiteRouter = router({
     .mutation(async ({ input, ctx }) => {
       await requireWebsitePermission(ctx, "canManageWebsiteSettings");
       return sendPriceDropTest(input.recipients);
+    }),
+
+  /**
+   * Copy website images off the old site's storage into SavvyOS. dryRun
+   * only counts; the real run copies and repoints the records.
+   */
+  moveOldSiteImages: protectedProcedure
+    .input(z.object({ dryRun: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      const report = await moveWebsiteImages({ dryRun: input.dryRun });
+      if (!input.dryRun) {
+        await logActivity({
+          userId: ctx.user.id,
+          action: "website_images_moved",
+          entityType: "website",
+          entityId: null,
+          details: {
+            moved: report.moved,
+            recordsUpdated: report.recordsUpdated,
+            failed: report.failed.length,
+          },
+        }).catch(() => undefined);
+      }
+      return report;
     }),
 
   analyzeDailyEmail: protectedProcedure.mutation(async ({ ctx }) => {

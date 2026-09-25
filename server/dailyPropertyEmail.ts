@@ -16,7 +16,7 @@ import {
   type Listing,
   type Preferences,
 } from "./dailyPropertyEmailMatching";
-import { DAILY_EMAIL_TAG, PUBLIC_SITE_BASE } from "./websiteDailyEmailLogic";
+import { DAILY_EMAIL_TAG, PUBLIC_SITE_BASE, listUnsubscribeHeaders } from "./websiteDailyEmailLogic";
 
 /**
  * The personal new-property email for investors with a new-site account.
@@ -257,13 +257,14 @@ export async function sendPersonalPropertyEmails(params: {
       continue;
     }
 
+    const unsubscribeUrl = createMarketingUnsubscribeUrl(account.email);
     const { subject, html } = renderDailyPropertyEmail(
       account.firstName,
       outcome.listings as EmailListing[],
-      createMarketingUnsubscribeUrl(account.email)
+      unsubscribeUrl
     );
 
-    const result = await deliver(account.email, subject, html, params.runId);
+    const result = await deliver(account.email, subject, html, params.runId, undefined, unsubscribeUrl);
     if (result.sent) {
       await recordSend(db, account.id, outcome.listings.length, asOf);
       summary.sent += 1;
@@ -304,7 +305,8 @@ export async function deliver(
   subject: string,
   html: string,
   runId: number,
-  text?: string
+  text?: string,
+  unsubscribeUrl?: string | null
 ): Promise<{ sent: boolean; error?: string }> {
   if (!ENV.resendApiKey) return { sent: false, error: "Resend is not configured" };
   try {
@@ -319,6 +321,9 @@ export async function deliver(
         { name: "category", value: "website_daily_properties" },
         { name: DAILY_EMAIL_TAG, value: String(runId) },
       ],
+      // One-click unsubscribe in the mail client, for emails to investors.
+      // Team copies and tests pass none.
+      ...(unsubscribeUrl ? { headers: listUnsubscribeHeaders(unsubscribeUrl) } : {}),
     });
     if (result.error) {
       return { sent: false, error: result.error.message || "Resend rejected the email" };
