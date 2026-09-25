@@ -27,6 +27,7 @@ import { normalizeTestimonials } from "@shared/websiteTestimonials";
 import { ContentViewsPanel } from "@/components/website/ContentViewsPanel";
 import { AgentProfilesPanel } from "@/components/website/AgentProfilesPanel";
 import { DailyEmailPanel } from "@/components/website/DailyEmailPanel";
+import { MoveOldImagesCard } from "@/components/website/MoveOldImagesCard";
 import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1001,6 +1002,7 @@ export default function WebsitePage() {
       {tab === "settings" && (
         <div className="space-y-6">
           <CmsPagesEditor />
+          <MoveOldImagesCard />
           <SettingsEditor settings={data?.settings} />
         </div>
       )}
