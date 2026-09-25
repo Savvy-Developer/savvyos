@@ -245,6 +245,7 @@ export const pmRouter = router({
             projectId: pmTasks.projectId,
             total: sql<number>`count(*)`,
             completed: sql<number>`sum(case when ${pmTasks.completed} = 1 then 1 else 0 end)`,
+            open: sql<number>`sum(case when ${pmTasks.completed} = 0 then 1 else 0 end)`,
           })
           .from(pmTasks)
           .where(inArray(pmTasks.projectId, projectIds))
@@ -267,6 +268,7 @@ export const pmRouter = router({
           ...p,
           taskTotal: Number(taskCountMap.get(p.id)?.total ?? 0),
           taskCompleted: Number(taskCountMap.get(p.id)?.completed ?? 0),
+          taskOpen: Number(taskCountMap.get(p.id)?.open ?? 0),
           latestUpdate: latestUpdateMap.get(p.id) ?? null,
         }));
       }),

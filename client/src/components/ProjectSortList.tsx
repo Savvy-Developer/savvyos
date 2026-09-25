@@ -26,6 +26,7 @@ export type SortableProject = {
   title: string;
   description: string;
   department: string;
+  taskOpen: number;
 };
 
 type ProjectSortListProps = {
@@ -85,6 +86,12 @@ function SortableProjectRow({
 
         <span className="hidden shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground sm:inline">
           {project.department}
+        </span>
+        <span
+          className="hidden shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground sm:inline"
+          title={`${project.taskOpen} open To-Do${project.taskOpen === 1 ? "" : "s"}`}
+        >
+          {project.taskOpen} open
         </span>
 
         <div className="flex shrink-0 items-center gap-0.5">
