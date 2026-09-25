@@ -19,6 +19,27 @@ describe("Chat access rules", () => {
     ).toBe(false);
   });
 
+  it("allows the named SavvyOS Agent iPhone app pilot account only", () => {
+    expect(
+      canOpenChatWorkspace({
+        role: "agent",
+        email: "  TylerCoon@Savvy.Realty  ",
+        hasChatViewPermission: false,
+        isChatAdmin: false,
+        isGroupMember: false,
+      })
+    ).toBe(true);
+    expect(
+      canOpenChatWorkspace({
+        role: "agent",
+        email: "tylercoon+other@savvy.realty",
+        hasChatViewPermission: false,
+        isChatAdmin: false,
+        isGroupMember: false,
+      })
+    ).toBe(false);
+  });
+
   it("keeps ISAs out during the initial Tyler-only rollout, even when enrolled", () => {
     expect(
       canOpenChatWorkspace({

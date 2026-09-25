@@ -147,6 +147,7 @@ async function getChatState(user: {
   const memberChannelIds = new Set(membershipRows.map(row => row.channelId));
   const canAccess = canOpenChatWorkspace({
     role,
+    email: user.email,
     hasChatViewPermission,
     isChatAdmin,
     isGroupMember: memberChannelIds.size > 0,

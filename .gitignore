@@ -108,3 +108,6 @@ temp/
 
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
+
+# Agent diagnostic artifacts may contain connection metadata
+.manus/db/

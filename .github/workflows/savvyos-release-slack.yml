@@ -30,11 +30,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/savvyos-release"
 
           if [ -z "$BEFORE_SHA" ] || [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
-            git show --format= --name-only "$GITHUB_SHA" > "$RUNNER_TEMP/savvyos-release/changed-files.txt"
-            git show --format= --unified=3 "$GITHUB_SHA" -- . ':!pnpm-lock.yaml' > "$RUNNER_TEMP/savvyos-release/release.diff"
+            git show --format= --name-only "$GITHUB_SHA" -- . ':!pnpm-lock.yaml' ':!.manus/db/**' > "$RUNNER_TEMP/savvyos-release/changed-files.txt"
+            git show --format= --unified=3 "$GITHUB_SHA" -- . ':!pnpm-lock.yaml' ':!.manus/db/**' > "$RUNNER_TEMP/savvyos-release/release.diff"
           else
-            git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" > "$RUNNER_TEMP/savvyos-release/changed-files.txt"
-            git diff --unified=3 "$BEFORE_SHA" "$GITHUB_SHA" -- . ':!pnpm-lock.yaml' > "$RUNNER_TEMP/savvyos-release/release.diff"
+            git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" -- . ':!pnpm-lock.yaml' ':!.manus/db/**' > "$RUNNER_TEMP/savvyos-release/changed-files.txt"
+            git diff --unified=3 "$BEFORE_SHA" "$GITHUB_SHA" -- . ':!pnpm-lock.yaml' ':!.manus/db/**' > "$RUNNER_TEMP/savvyos-release/release.diff"
           fi
 
           # The trusted endpoint accepts a 60 KB diff. Preserve its payload
