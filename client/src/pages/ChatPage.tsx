@@ -472,13 +472,13 @@ function ChatSearchDialog({ open, onOpenChange, onSelect }: { open: boolean; onO
 function ManageGroupDialog({ group, sections, open, onOpenChange, onChanged }: { group: Channel | null; sections: Section[]; open: boolean; onOpenChange: (open: boolean) => void; onChanged: () => void }) {
   const channelId = group?.id ?? 0; const { data: people = [] } = trpc.chat.people.list.useQuery(undefined, { enabled: open }); const { data: members = [] } = trpc.chat.members.list.useQuery({ channelId }, { enabled: open && channelId > 0 });
   const utils = trpc.useUtils();
-  const [name, setName] = useState(""); const [description, setDescription] = useState(""); const [sectionId, setSectionId] = useState(""); const [newMemberId, setNewMemberId] = useState("none"); const [confirmDelete, setConfirmDelete] = useState(false);
+  const [name, setName] = useState(""); const [description, setDescription] = useState(""); const [sectionId, setSectionId] = useState(""); const [newMemberId, setNewMemberId] = useState("none"); const [confirmDelete, setConfirmDelete] = useState(false); const [confirmArchive, setConfirmArchive] = useState(false);
   useEffect(() => { if (group && open) { setName(group.name); setDescription(group.description ?? ""); setSectionId(group.sectionId == null ? "" : String(group.sectionId)); setNewMemberId("none"); } }, [group, open]);
   const update = trpc.chat.groups.update.useMutation({ onSuccess: () => { toast.success("Permanent group updated"); onChanged(); }, onError: error => toast.error(error.message) });
-  const removeGroup = trpc.chat.groups.delete.useMutation({ onSuccess: () => { toast.success("Permanent group deleted"); setConfirmDelete(false); onOpenChange(false); onChanged(); }, onError: error => toast.error(error.message) });
+  const archiveGroup = trpc.chat.groups.archive.useMutation({ onSuccess: () => { toast.success("Channel archived"); setConfirmArchive(false); onOpenChange(false); onChanged(); }, onError: error => toast.error(error.message) }); const removeGroup = trpc.chat.groups.delete.useMutation({ onSuccess: () => { toast.success("Permanent group deleted"); setConfirmDelete(false); onOpenChange(false); onChanged(); }, onError: error => toast.error(error.message) });
   const addMember = trpc.chat.members.add.useMutation({ onSuccess: () => { void utils.chat.members.list.invalidate({ channelId }); toast.success("Person added to this group"); setNewMemberId("none"); onChanged(); }, onError: error => toast.error(error.message) }); const removeMember = trpc.chat.members.remove.useMutation({ onSuccess: () => { void utils.chat.members.list.invalidate({ channelId }); toast.success("Person removed from this group"); onChanged(); }, onError: error => toast.error(error.message) });
   const memberIds = useMemo(() => new Set((members as MemberRow[]).map(row => row.user.id)), [members]); const availablePeople = (people as Person[]).filter(person => !memberIds.has(person.id)); if (!group) return null;
-  return <><Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Manage #{group.name}</DialogTitle><DialogDescription>This is a permanent company group. Chat Admins manage its details and membership.</DialogDescription></DialogHeader><div className="grid gap-7 py-2 md:grid-cols-2"><section className="space-y-4"><div className="flex items-center gap-2 text-sm font-semibold"><Settings2 className="h-4 w-4 text-primary" />Group details</div><div className="space-y-1.5"><Label>Name</Label><Input value={name} maxLength={100} onChange={event => setName(event.target.value)} /></div><div className="space-y-1.5"><Label>Section <span className="text-destructive">*</span></Label><Select value={sectionId} onValueChange={setSectionId}><SelectTrigger><SelectValue placeholder="Choose a section" /></SelectTrigger><SelectContent>{sections.map(section => <SelectItem key={section.id} value={String(section.id)}>{section.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label>Purpose</Label><Textarea value={description} maxLength={500} onChange={event => setDescription(event.target.value)} /></div><Button className="w-full" disabled={!name.trim() || !sectionId || update.isPending} onClick={() => update.mutate({ id: group.id, name: name.trim(), description: description.trim() || null, sectionId: Number(sectionId) })}>{update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save Group Details</Button><div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3"><p className="text-sm font-medium">Delete this permanent group</p><p className="mt-1 text-xs text-muted-foreground">Prefer Archive in the channel header when you may need this conversation later. Delete permanently removes the group, messages, reactions, and attachments.</p><Button variant="outline" size="sm" className="mt-3 text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete Group</Button></div></section><section className="space-y-4 border-t pt-6 md:border-l md:border-t-0 md:pl-7 md:pt-0"><div className="flex items-center gap-2 text-sm font-semibold"><Users className="h-4 w-4 text-primary" />People with access <Badge variant="secondary">{(members as MemberRow[]).length}</Badge></div><div className="flex gap-2"><Select value={newMemberId} onValueChange={setNewMemberId}><SelectTrigger className="flex-1"><SelectValue placeholder="Add a SavvyOS user" /></SelectTrigger><SelectContent><SelectItem value="none">Select a person</SelectItem>{availablePeople.map(person => <SelectItem key={person.id} value={String(person.id)}>{displayName(person)} · {roleLabel(person.role)}</SelectItem>)}</SelectContent></Select><Button size="icon" title="Add to group" disabled={newMemberId === "none" || addMember.isPending} onClick={() => addMember.mutate({ channelId, userId: Number(newMemberId) })}>{addMember.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}</Button></div><div className="max-h-[315px] space-y-1 overflow-y-auto rounded-lg border p-2">{(members as MemberRow[]).length === 0 ? <p className="px-2 py-6 text-center text-sm text-muted-foreground">No one has been added yet.</p> : (members as MemberRow[]).map(member => <div key={member.membership.id} className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/60"><Avatar className="h-7 w-7"><AvatarImage src={member.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-[10px] text-primary">{initials(displayName(member.user))}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{displayName(member.user)}</p><p className="truncate text-xs text-muted-foreground">{roleLabel(member.user.role)} · {member.user.email}</p></div><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" title="Remove from group" onClick={() => removeMember.mutate({ channelId, userId: member.user.id })}><X className="h-3.5 w-3.5" /></Button></div>)}</div></section></div><DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Done</Button></DialogFooter></DialogContent></Dialog><Dialog open={confirmDelete} onOpenChange={setConfirmDelete}><DialogContent><DialogHeader><DialogTitle>Delete #{group.name} permanently?</DialogTitle><DialogDescription>This cannot be reversed. The group and all of its messages, files, reactions, and membership records will be deleted for everyone.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button><Button variant="destructive" disabled={removeGroup.isPending} onClick={() => removeGroup.mutate({ id: group.id })}>{removeGroup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Delete Permanently</Button></DialogFooter></DialogContent></Dialog></>;
+  return <><Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Manage #{group.name}</DialogTitle><DialogDescription>This is a permanent company group. Chat Admins manage its details and membership.</DialogDescription></DialogHeader><div className="grid gap-7 py-2 md:grid-cols-2"><section className="space-y-4"><div className="flex items-center gap-2 text-sm font-semibold"><Settings2 className="h-4 w-4 text-primary" />Group details</div><div className="space-y-1.5"><Label>Name</Label><Input value={name} maxLength={100} onChange={event => setName(event.target.value)} /></div><div className="space-y-1.5"><Label>Section <span className="text-destructive">*</span></Label><Select value={sectionId} onValueChange={setSectionId}><SelectTrigger><SelectValue placeholder="Choose a section" /></SelectTrigger><SelectContent>{sections.map(section => <SelectItem key={section.id} value={String(section.id)}>{section.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label>Purpose</Label><Textarea value={description} maxLength={500} onChange={event => setDescription(event.target.value)} /></div><Button className="w-full" disabled={!name.trim() || !sectionId || update.isPending} onClick={() => update.mutate({ id: group.id, name: name.trim(), description: description.trim() || null, sectionId: Number(sectionId) })}>{update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save Group Details</Button><div className="rounded-lg border bg-muted/30 p-3"><p className="text-sm font-medium">Archive this channel</p><p className="mt-1 text-xs text-muted-foreground">Hides the channel from Chat. Messages stay saved, and Chat Admins can restore it later from Archived.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => setConfirmArchive(true)}><Archive className="mr-1.5 h-3.5 w-3.5" />Archive Channel</Button></div><div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3"><p className="text-sm font-medium">Delete this permanent group</p><p className="mt-1 text-xs text-muted-foreground">This permanently deletes the group, messages, reactions, and attachments. Prefer Archive if you may need it later.</p><Button variant="outline" size="sm" className="mt-3 text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete Group</Button></div></section><section className="space-y-4 border-t pt-6 md:border-l md:border-t-0 md:pl-7 md:pt-0"><div className="flex items-center gap-2 text-sm font-semibold"><Users className="h-4 w-4 text-primary" />People with access <Badge variant="secondary">{(members as MemberRow[]).length}</Badge></div><div className="flex gap-2"><Select value={newMemberId} onValueChange={setNewMemberId}><SelectTrigger className="flex-1"><SelectValue placeholder="Add a SavvyOS user" /></SelectTrigger><SelectContent><SelectItem value="none">Select a person</SelectItem>{availablePeople.map(person => <SelectItem key={person.id} value={String(person.id)}>{displayName(person)} · {roleLabel(person.role)}</SelectItem>)}</SelectContent></Select><Button size="icon" title="Add to group" disabled={newMemberId === "none" || addMember.isPending} onClick={() => addMember.mutate({ channelId, userId: Number(newMemberId) })}>{addMember.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}</Button></div><div className="max-h-[315px] space-y-1 overflow-y-auto rounded-lg border p-2">{(members as MemberRow[]).length === 0 ? <p className="px-2 py-6 text-center text-sm text-muted-foreground">No one has been added yet.</p> : (members as MemberRow[]).map(member => <div key={member.membership.id} className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/60"><Avatar className="h-7 w-7"><AvatarImage src={member.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-[10px] text-primary">{initials(displayName(member.user))}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{displayName(member.user)}</p><p className="truncate text-xs text-muted-foreground">{roleLabel(member.user.role)} · {member.user.email}</p></div><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" title="Remove from group" onClick={() => removeMember.mutate({ channelId, userId: member.user.id })}><X className="h-3.5 w-3.5" /></Button></div>)}</div></section></div><DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Done</Button></DialogFooter></DialogContent></Dialog><Dialog open={confirmArchive} onOpenChange={setConfirmArchive}><DialogContent><DialogHeader><DialogTitle>Archive #{group.name}?</DialogTitle><DialogDescription>This hides the channel from Chat. Messages stay saved, and Chat Admins can restore it later from Archived.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmArchive(false)}>Cancel</Button><Button disabled={archiveGroup.isPending} onClick={() => archiveGroup.mutate({ id: group.id })}>{archiveGroup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Archive channel</Button></DialogFooter></DialogContent></Dialog><Dialog open={confirmDelete} onOpenChange={setConfirmDelete}><DialogContent><DialogHeader><DialogTitle>Delete #{group.name} permanently?</DialogTitle><DialogDescription>This cannot be reversed. The group and all of its messages, files, reactions, and membership records will be deleted for everyone.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button><Button variant="destructive" disabled={removeGroup.isPending} onClick={() => removeGroup.mutate({ id: group.id })}>{removeGroup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Delete Permanently</Button></DialogFooter></DialogContent></Dialog></>;
 }
 
 function AttachmentView({ attachment }: { attachment: Attachment }) { if (isImage(attachment.mimeType)) return <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="mt-2 block w-fit"><img src={attachment.fileUrl} alt={attachment.fileName} className="max-h-64 max-w-full rounded-lg border object-contain" /></a>; return <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="mt-2 flex max-w-sm items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors hover:bg-muted"><FileText className="h-5 w-5 shrink-0 text-primary" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{attachment.fileName}</span><span className="block text-xs text-muted-foreground">{formatFileSize(attachment.fileSize)}</span></span></a>; }
@@ -506,7 +506,7 @@ function ChatMessage({
   const canManage = meId === row.message.senderId;
   const senderName = displayName(row.sender);
   return (
-    <article className="group flex gap-3">
+    <article className="group relative flex gap-3">
       <Avatar className="h-9 w-9 shrink-0">
         <AvatarImage src={row.profilePhotoUrl ?? undefined} />
         <AvatarFallback className="bg-primary/10 text-xs text-primary">
@@ -514,13 +514,13 @@ function ChatMessage({
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
+        <div className="flex min-h-6 items-center gap-2 pr-36">
           <span className="font-medium">{senderName}</span>
           <span className="text-xs text-muted-foreground">
             {formatMessageTime(row.message.createdAt)}
             {row.message.editedAt ? " · edited" : ""}
           </span>
-          <div className="ml-auto flex items-center gap-0.5 md:hidden md:group-hover:flex">
+          <div className="absolute right-0 top-0 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 shadow-sm md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100">
             <div className="relative">
               <Button
                 size="icon"
@@ -987,7 +987,6 @@ export default function ChatPage() {
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newSectionOpen, setNewSectionOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
-  const [confirmArchiveChannel, setConfirmArchiveChannel] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [manageGroupOpen, setManageGroupOpen] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -1082,15 +1081,6 @@ export default function ChatPage() {
   const archivePersonal = trpc.chat.conversations.archive.useMutation({
     onSuccess: () => {
       toast.success("Chat archived from My Chats");
-      setReplyTo(null);
-      refreshConversation();
-    },
-    onError: error => toast.error(error.message),
-  });
-  const archiveCompanyChannel = trpc.chat.groups.archive.useMutation({
-    onSuccess: () => {
-      toast.success("Channel archived");
-      setConfirmArchiveChannel(false);
       setReplyTo(null);
       refreshConversation();
     },
@@ -1229,8 +1219,6 @@ export default function ChatPage() {
       ? `Direct message with ${title}`
       : selectedChannel?.description;
   const canArchivePersonal = !!selectedChannel && !selectedChannel.isPermanent;
-  const canArchiveCompanyChannel =
-    !!workspace?.isChatAdmin && !!selectedChannel?.isPermanent;
   const canPostInSelectedChannel =
     selectedChannel?.name.toLowerCase() !== "announcements" ||
     !!workspace?.isChatAdmin;
@@ -1419,16 +1407,6 @@ export default function ChatPage() {
                     Archive
                   </Button>
                 )}
-                {canArchiveCompanyChannel && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setConfirmArchiveChannel(true)}
-                  >
-                    <Archive className="mr-1.5 h-3.5 w-3.5" />
-                    Archive
-                  </Button>
-                )}
                 {workspace?.isChatAdmin && selectedChannel.isPermanent && (
                   <Button
                     variant="outline"
@@ -1601,26 +1579,6 @@ export default function ChatPage() {
           refreshConversation();
         }}
       />
-      <Dialog open={confirmArchiveChannel} onOpenChange={setConfirmArchiveChannel}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Archive #{selectedChannel?.name}?</DialogTitle>
-            <DialogDescription>
-              This hides the channel from Chat. Messages stay saved, and Chat Admins can restore it later from Archived.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmArchiveChannel(false)}>Cancel</Button>
-            <Button
-              disabled={!selectedChannel || archiveCompanyChannel.isPending}
-              onClick={() => selectedChannel && archiveCompanyChannel.mutate({ id: selectedChannel.id })}
-            >
-              {archiveCompanyChannel.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Archive channel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <NewPermanentGroupDialog
         open={newGroupOpen}
         onOpenChange={setNewGroupOpen}
