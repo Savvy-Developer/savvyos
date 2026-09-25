@@ -1239,7 +1239,7 @@ function EventProfileDialog({
 
   return (
     <Dialog open={Boolean(event)} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(92vw,92vh,1000px)] w-[min(92vw,92vh,1000px)] max-w-[calc(100%-2rem)] overflow-hidden p-0 sm:!max-w-none">
+      <DialogContent className="h-[min(92vh,1000px)] w-[min(96vw,1400px)] max-w-[calc(100%-2rem)] overflow-hidden p-0 sm:!max-w-none">
         <div className="flex h-full min-h-0 flex-col">
           <DialogHeader className="shrink-0 border-b px-5 pt-5 pb-4 pr-12 sm:px-7 sm:pt-7 sm:pb-5 sm:pr-14">
             <div className="grid min-w-0 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
