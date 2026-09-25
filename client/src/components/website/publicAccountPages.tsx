@@ -205,6 +205,56 @@ export function LockedPanel({
   );
 }
 
+/**
+ * One panel for everything on a property page that needs an account, instead
+ * of a separate locked box (each with its own sign-in buttons) for every
+ * section. A visitor sees in one place what a free account unlocks.
+ */
+export function LockedGroupPanel({ items }: { items: string[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="rounded-2xl border border-cyan-200 bg-gradient-to-br from-white to-cyan-50/60 p-7 shadow-sm">
+      <div className="flex items-start gap-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-cyan-100">
+          <Lock className="h-5 w-5 text-cyan-700" />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold" style={{ color: NAVY }}>
+            See the full investment analysis
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            Free for investors. Create an account to unlock:
+          </p>
+        </div>
+      </div>
+      <ul className="mt-5 grid gap-2 sm:grid-cols-2">
+        {items.map(item => (
+          <li key={item} className="flex items-start gap-2 rounded-lg bg-white/80 px-3 py-2.5 text-sm font-medium text-slate-700">
+            <Check className="mt-0.5 h-4 w-4 shrink-0 text-cyan-600" />
+            {item}
+          </li>
+        ))}
+      </ul>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <a
+          href={`${accountPath.signUp}?next=${encodeURIComponent(window.location.pathname)}`}
+          className="rounded-lg px-5 py-2.5 text-sm font-bold text-[#03293c]"
+          style={{ backgroundColor: CYAN }}
+        >
+          Create a free account
+        </a>
+        <button
+          onClick={() => goToSignIn()}
+          className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold"
+          style={{ color: NAVY }}
+        >
+          Sign in
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Sign up, sign in, password reset ────────────────────────────────────────
 
 export function SignUpBody() {
