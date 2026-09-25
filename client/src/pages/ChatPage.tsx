@@ -28,6 +28,7 @@ type ParentMessage = { message: { id: number; body: string; senderId: number; cr
 type MessageRow = { message: { id: number; channelId: number; senderId: number; parentMessageId: number | null; body: string; editedAt: Date | null; createdAt: Date }; sender: Person; profilePhotoUrl: string | null; attachments: Attachment[]; mentions: Array<{ id: number; name: string | null; email: string | null }>; reactions: Array<{ emoji: string; count: number; reactedByMe: boolean }>; parent: ParentMessage | null };
 type MemberRow = { membership: { id: number; channelId: number; userId: number; addedById: number; createdAt: Date }; user: Person; profilePhotoUrl: string | null };
 type StagedAttachment = { id: number; fileName: string; mimeType: string; fileSize: number };
+type PersonalChatMode = "direct" | "group";
 
 function displayName(person: { name: string | null; email: string | null }) { return person.name?.trim() || person.email?.trim() || "Savvy teammate"; }
 function initials(name: string) { return name.split(" ").filter(Boolean).map(part => part[0]).join("").slice(0, 2).toUpperCase(); }
@@ -426,36 +427,187 @@ function NewPermanentGroupDialog({ open, onOpenChange, sections, onCreated }: { 
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent><DialogHeader><DialogTitle>New Permanent Group</DialogTitle><DialogDescription>This is a company group. It must belong to a section, Chat Admins manage it, and members cannot archive it.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-1.5"><Label htmlFor="permanent-group-name">Group name</Label><Input id="permanent-group-name" value={name} maxLength={100} autoFocus placeholder="e.g. ISA Team" onChange={event => setName(event.target.value)} /></div><div className="space-y-1.5"><Label>Section <span className="text-destructive">*</span></Label><Select value={sectionId} onValueChange={setSectionId}><SelectTrigger><SelectValue placeholder={sections.length ? "Choose a section" : "Create a section first"} /></SelectTrigger><SelectContent>{sections.map(section => <SelectItem key={section.id} value={String(section.id)}>{section.name}</SelectItem>)}</SelectContent></Select>{sections.length === 0 && <p className="text-xs text-muted-foreground">Create a section before adding a permanent group.</p>}</div><div className="space-y-1.5"><Label htmlFor="permanent-group-description">Purpose <span className="text-muted-foreground">(optional)</span></Label><Textarea id="permanent-group-description" value={description} maxLength={500} placeholder="A short description for this group" onChange={event => setDescription(event.target.value)} /></div></div><DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!name.trim() || !sectionId || create.isPending} onClick={() => create.mutate({ name: name.trim(), description: description.trim() || null, sectionId: Number(sectionId) })}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Group</Button></DialogFooter></DialogContent></Dialog>;
 }
 
-function NewMessageDialog({ open, onOpenChange, onOpened }: { open: boolean; onOpenChange: (open: boolean) => void; onOpened: (channelId: number) => void }) {
-  const { data: people = [] } = trpc.chat.people.list.useQuery(undefined, { enabled: open });
-  const [query, setQuery] = useState(""); const [selectedIds, setSelectedIds] = useState<number[]>([]); const [groupName, setGroupName] = useState("");
-  useEffect(() => { if (!open) { setQuery(""); setSelectedIds([]); setGroupName(""); } }, [open]);
-  const create = trpc.chat.conversations.create.useMutation({ onSuccess: result => { toast.success(result.type === "direct" ? (result.created ? "Direct message started" : "Direct message opened") : "Group chat created"); onOpenChange(false); onOpened(result.channelId); }, onError: error => toast.error(error.message) });
-  const results = (people as Person[]).filter(person => `${displayName(person)} ${person.email ?? ""}`.toLowerCase().includes(query.toLowerCase()));
-  const toggle = (userId: number) => setSelectedIds(current => current.includes(userId) ? current.filter(id => id !== userId) : [...current, userId]);
+function NewMessageDialog({
+  open,
+  initialMode,
+  onOpenChange,
+  onOpened,
+}: {
+  open: boolean;
+  initialMode: PersonalChatMode;
+  onOpenChange: (open: boolean) => void;
+  onOpened: (channelId: number) => void;
+}) {
+  const { data: people = [] } = trpc.chat.people.list.useQuery(undefined, {
+    enabled: open,
+  });
+  const [mode, setMode] = useState<PersonalChatMode>(initialMode);
+  const [query, setQuery] = useState("");
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [groupName, setGroupName] = useState("");
+
+  useEffect(() => {
+    if (open) setMode(initialMode);
+  }, [initialMode, open]);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      setSelectedIds([]);
+      setGroupName("");
+    }
+  }, [open]);
+
+  const create = trpc.chat.conversations.create.useMutation({
+    onSuccess: result => {
+      toast.success(
+        result.type === "direct"
+          ? result.created
+            ? "Direct message started"
+            : "Direct message opened"
+          : "Group chat created"
+      );
+      onOpenChange(false);
+      onOpened(result.channelId);
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  const results = (people as Person[]).filter(person =>
+    `${displayName(person)} ${person.email ?? ""}`
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+  const minimumPeople = mode === "group" ? 2 : 1;
+  const canCreate = selectedIds.length >= minimumPeople;
+  const chooseMode = (nextMode: PersonalChatMode) => {
+    setMode(nextMode);
+    if (nextMode === "direct") setSelectedIds(current => current.slice(0, 1));
+  };
+  const toggle = (userId: number) =>
+    setSelectedIds(current => {
+      if (mode === "direct") return current.includes(userId) ? [] : [userId];
+      return current.includes(userId)
+        ? current.filter(id => id !== userId)
+        : [...current, userId];
+    });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>New Message</DialogTitle>
-          <DialogDescription>Select one person for a direct message or several people for a private group chat.</DialogDescription>
+          <DialogTitle>
+            {mode === "group" ? "New Group Chat" : "New Message"}
+          </DialogTitle>
+          <DialogDescription>
+            {mode === "group"
+              ? "Choose at least two teammates for a private group chat."
+              : "Choose one teammate for a direct message."}
+          </DialogDescription>
         </DialogHeader>
-        <Input autoFocus value={query} placeholder="Search people" onChange={event => setQuery(event.target.value)} />
-        {selectedIds.length > 1 && <div className="space-y-1.5"><Label htmlFor="personal-group-name">Group chat name <span className="text-muted-foreground">(optional)</span></Label><Input id="personal-group-name" value={groupName} maxLength={100} placeholder="Defaults to participant names" onChange={event => setGroupName(event.target.value)} /></div>}
+        <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted p-1">
+          <button
+            type="button"
+            aria-pressed={mode === "direct"}
+            onClick={() => chooseMode("direct")}
+            className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              mode === "direct"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Direct message
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === "group"}
+            onClick={() => chooseMode("group")}
+            className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              mode === "group"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Group chat
+          </button>
+        </div>
+        <Input
+          autoFocus
+          value={query}
+          placeholder="Search teammates"
+          onChange={event => setQuery(event.target.value)}
+        />
+        {mode === "group" && (
+          <div className="space-y-1.5">
+            <Label htmlFor="personal-group-name">
+              Group name{" "}
+              <span className="text-muted-foreground">(optional)</span>
+            </Label>
+            <Input
+              id="personal-group-name"
+              value={groupName}
+              maxLength={100}
+              placeholder="e.g. Asheville launch team"
+              onChange={event => setGroupName(event.target.value)}
+            />
+          </div>
+        )}
         <ScrollArea className="h-64 rounded-lg border">
           <div className="p-2">
-            {results.map(person => (
-              <label key={person.id} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-muted">
-                <Checkbox checked={selectedIds.includes(person.id)} onCheckedChange={() => toggle(person.id)} />
-                <Avatar className="h-8 w-8"><AvatarImage src={person.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-xs text-primary">{initials(displayName(person))}</AvatarFallback></Avatar>
-                <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{displayName(person)}</span><span className="block truncate text-xs text-muted-foreground">{roleLabel(person.role)} · {person.email}</span></span>
-              </label>
-            ))}
+            {results.length === 0 ? (
+              <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                No teammates match that search.
+              </p>
+            ) : (
+              results.map(person => (
+                <label
+                  key={person.id}
+                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-muted"
+                >
+                  <Checkbox
+                    checked={selectedIds.includes(person.id)}
+                    onCheckedChange={() => toggle(person.id)}
+                  />
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={person.profilePhotoUrl ?? undefined} />
+                    <AvatarFallback className="bg-primary/10 text-xs text-primary">
+                      {initials(displayName(person))}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {displayName(person)}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {roleLabel(person.role)} · {person.email}
+                    </span>
+                  </span>
+                </label>
+              ))
+            )}
           </div>
         </ScrollArea>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={!selectedIds.length || create.isPending} onClick={() => create.mutate({ userIds: selectedIds, name: selectedIds.length > 1 && groupName.trim() ? groupName.trim() : undefined })}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{selectedIds.length > 1 ? "Create Group Chat" : "Start Message"}</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!canCreate || create.isPending}
+            onClick={() =>
+              create.mutate({
+                userIds: selectedIds,
+                name:
+                  mode === "group" && groupName.trim()
+                    ? groupName.trim()
+                    : undefined,
+              })
+            }
+          >
+            {create.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            {mode === "group" ? "Create Group Chat" : "Start Message"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1018,6 +1170,7 @@ export default function ChatPage() {
   const [pendingChannelId, setPendingChannelId] = useState<number | null>(null);
   const openManageWhenReadyRef = useRef(false);
   const [newMessageOpen, setNewMessageOpen] = useState(false);
+  const [newMessageMode, setNewMessageMode] = useState<PersonalChatMode>("direct");
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newSectionOpen, setNewSectionOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
@@ -1286,6 +1439,10 @@ export default function ChatPage() {
       else next.add(sectionId);
       return next;
     });
+  const openPersonalChat = (mode: PersonalChatMode) => {
+    setNewMessageMode(mode);
+    setNewMessageOpen(true);
+  };
   return (
     <div className="-m-4 flex h-[calc(100dvh-56px)] min-h-0 overflow-hidden bg-background md:-m-6">
       <aside className="hidden min-h-0 w-[276px] shrink-0 flex-col border-r bg-muted/20 md:flex">
@@ -1307,38 +1464,47 @@ export default function ChatPage() {
                 variant="ghost"
                 className="h-8 w-8"
                 title="Create a chat"
-                onClick={() =>
-                  workspace?.isChatAdmin
-                    ? setCreateMenuOpen(value => !value)
-                    : setNewMessageOpen(true)
-                }
+                onClick={() => setCreateMenuOpen(value => !value)}
               >
                 <Plus className="h-4 w-4" />
               </Button>
-              {workspace?.isChatAdmin && createMenuOpen && (
-                <div className="absolute right-0 z-30 mt-1 w-40 rounded-lg border bg-popover p-1 shadow-lg">
+              {createMenuOpen && (
+                <div className="absolute right-0 z-30 mt-1 w-48 rounded-lg border bg-popover p-1 shadow-lg">
                   <button
                     type="button"
                     className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted"
                     onClick={() => {
                       setCreateMenuOpen(false);
-                      setNewMessageOpen(true);
+                      openPersonalChat("direct");
                     }}
                   >
                     <MessageCircle className="h-4 w-4" />
-                    New Message
+                    New message
                   </button>
                   <button
                     type="button"
                     className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted"
                     onClick={() => {
                       setCreateMenuOpen(false);
-                      setNewGroupOpen(true);
+                      openPersonalChat("group");
                     }}
                   >
                     <Users className="h-4 w-4" />
-                    New Group
+                    New group chat
                   </button>
+                  {workspace?.isChatAdmin && (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted"
+                      onClick={() => {
+                        setCreateMenuOpen(false);
+                        setNewGroupOpen(true);
+                      }}
+                    >
+                      <Hash className="h-4 w-4" />
+                      New company channel
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1396,24 +1562,34 @@ export default function ChatPage() {
               Create a direct message or invite several teammates into a private
               group chat.
             </p>
-            <Button className="mt-5" onClick={() => setNewMessageOpen(true)}>
-              <MessageCircle className="mr-2 h-4 w-4" />
-              New Message
-            </Button>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <Button onClick={() => openPersonalChat("direct")}>
+                <MessageCircle className="mr-2 h-4 w-4" />
+                New Message
+              </Button>
+              <Button
+                variant="outline"
+                className="md:hidden"
+                onClick={() => setMobileNavigationOpen(true)}
+              >
+                <MessageSquare className="mr-2 h-4 w-4" />
+                Browse Chats
+              </Button>
+            </div>
           </div>
         ) : (
           <>
             <header className="flex min-h-[69px] shrink-0 items-center justify-between gap-3 border-b px-4 py-3 md:px-6">
               <div className="flex min-w-0 items-center gap-2">
                 <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-9 w-9 shrink-0 md:hidden"
-                  title="Browse conversations"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 shrink-0 gap-1.5 px-2 md:hidden"
+                  title="Browse chats"
                   onClick={() => setMobileNavigationOpen(true)}
                 >
                   <MessageSquare className="h-4 w-4" />
-                  <span className="sr-only">Browse conversations</span>
+                  Chats
                 </Button>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -1552,12 +1728,12 @@ export default function ChatPage() {
         open={mobileNavigationOpen}
         onOpenChange={setMobileNavigationOpen}
       >
-        <DialogContent className="left-0 top-0 h-[100dvh] max-w-none translate-x-0 translate-y-0 gap-0 rounded-none p-0 sm:hidden">
+        <DialogContent className="left-0 top-0 h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 gap-0 rounded-none p-0 sm:hidden">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <DialogHeader className="gap-0 text-left">
-              <DialogTitle>Conversations</DialogTitle>
+              <DialogTitle>Chats</DialogTitle>
               <DialogDescription className="text-xs">
-                Switch channels or start a message.
+                Browse channels, messages, and group chats.
               </DialogDescription>
             </DialogHeader>
             <div className="mr-7 flex items-center gap-1">
@@ -1573,16 +1749,45 @@ export default function ChatPage() {
               >
                 <Search className="h-4 w-4" />
               </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setMobileNavigationOpen(false);
-                  setNewMessageOpen(true);
-                }}
-              >
-                <Plus className="mr-1.5 h-4 w-4" />
-                New
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm">
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    New
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setMobileNavigationOpen(false);
+                      openPersonalChat("direct");
+                    }}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    New message
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setMobileNavigationOpen(false);
+                      openPersonalChat("group");
+                    }}
+                  >
+                    <Users className="h-4 w-4" />
+                    New group chat
+                  </DropdownMenuItem>
+                  {workspace?.isChatAdmin && (
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setMobileNavigationOpen(false);
+                        setNewGroupOpen(true);
+                      }}
+                    >
+                      <Hash className="h-4 w-4" />
+                      New company channel
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
           <ScrollArea className="min-h-0 flex-1 px-3 py-3">
@@ -1638,6 +1843,7 @@ export default function ChatPage() {
       />
       <NewMessageDialog
         open={newMessageOpen}
+        initialMode={newMessageMode}
         onOpenChange={setNewMessageOpen}
         onOpened={channelId => {
           refreshConversation();

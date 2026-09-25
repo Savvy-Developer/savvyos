@@ -8,47 +8,26 @@ import {
 } from "./chatAccess";
 
 describe("Chat access rules", () => {
-  it("keeps the initial agent rollout closed even when an agent is enrolled in a group", () => {
+  it("requires explicit conversation membership for non-admin teammates", () => {
+    expect(
+      canOpenChatWorkspace({
+        role: "agent",
+        hasChatViewPermission: false,
+        isChatAdmin: false,
+        isGroupMember: false,
+      })
+    ).toBe(false);
     expect(
       canOpenChatWorkspace({
         role: "agent",
         hasChatViewPermission: false,
         isChatAdmin: false,
         isGroupMember: true,
-      })
-    ).toBe(false);
-  });
-
-  it("allows the named SavvyOS Agent iPhone app pilot account only", () => {
-    expect(
-      canOpenChatWorkspace({
-        role: "agent",
-        email: "  TylerCoon@Savvy.Realty  ",
-        hasChatViewPermission: false,
-        isChatAdmin: false,
-        isGroupMember: false,
       })
     ).toBe(true);
-    expect(
-      canOpenChatWorkspace({
-        role: "agent",
-        email: "tylercoon+other@savvy.realty",
-        hasChatViewPermission: false,
-        isChatAdmin: false,
-        isGroupMember: false,
-      })
-    ).toBe(false);
   });
 
-  it("keeps ISAs out during the initial Tyler-only rollout, even when enrolled", () => {
-    expect(
-      canOpenChatWorkspace({
-        role: "isa",
-        hasChatViewPermission: false,
-        isChatAdmin: false,
-        isGroupMember: false,
-      })
-    ).toBe(false);
+  it("grants an ISA Chat access after explicit conversation membership", () => {
     expect(
       canOpenChatWorkspace({
         role: "isa",
@@ -56,7 +35,7 @@ describe("Chat access rules", () => {
         isChatAdmin: false,
         isGroupMember: true,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("requires the Chat permission for a normal administrator and grants full access to a Chat Admin", () => {

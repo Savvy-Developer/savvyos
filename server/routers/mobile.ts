@@ -124,7 +124,6 @@ export const mobileRouter = router({
 
     const canAccessChat = canOpenChatWorkspace({
       role,
-      email: ctx.user.email,
       hasChatViewPermission,
       isChatAdmin,
       isGroupMember: memberRows.length > 0,

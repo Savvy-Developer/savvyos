@@ -1,36 +1,19 @@
 export type ChatRole = "admin" | "agent" | "isa" | "agent_support";
 
 /**
- * A named launch entitlement for the SavvyOS Agent iPhone app. Keep this
- * explicit until the company-wide agent rollout has been approved.
- */
-const AGENT_CHAT_PILOT_EMAILS = new Set(["tylercoon@savvy.realty"]);
-
-function hasAgentChatPilotEntitlement(email?: string | null): boolean {
-  return AGENT_CHAT_PILOT_EMAILS.has(email?.trim().toLowerCase() ?? "");
-}
-
-/**
- * The first Chat release is intentionally limited to explicitly authorized
- * administrators. Agents and ISAs may be enrolled in Chat groups now, but
- * cannot open Chat until the company-wide rollout is deliberately enabled.
- * The named iPhone-app pilot entitlement below is the sole non-admin exception.
+ * Non-admin teammates receive Chat access through explicit membership in at
+ * least one conversation. That keeps access controlled while allowing an
+ * invited teammate to use every conversation they have been added to.
  */
 export function canOpenChatWorkspace(input: {
   role: ChatRole;
-  email?: string | null;
   hasChatViewPermission: boolean;
   isChatAdmin: boolean;
   isGroupMember: boolean;
 }): boolean {
   if (input.isChatAdmin) return true;
   if (input.role === "admin") return input.hasChatViewPermission;
-  if (hasAgentChatPilotEntitlement(input.email)) return true;
-  // Group membership is provisioned now, but no ISA or Agent can see Chat
-  // during the initial rollout. This remains an explicit gate, not an
-  // accidental side effect of adding somebody to a future group.
-  if (input.role === "isa") return false;
-  return false;
+  return input.isGroupMember;
 }
 
 export function canReadChatGroup(input: {
