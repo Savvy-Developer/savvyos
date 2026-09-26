@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Calendar,
+  CheckCircle,
   ArrowRight,
   Bath,
   BedDouble,
@@ -9,6 +11,8 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
   Images,
@@ -61,7 +65,6 @@ import {
   tagKey,
 } from "@shared/websiteContentFilters";
 import {
-  attributionLine,
   publishedTestimonials,
 } from "@shared/websiteTestimonials";
 import {
@@ -85,6 +88,19 @@ import {
   useRecordPropertyView,
   useWebsiteAccount,
 } from "@/components/website/publicAccountPages";
+import {
+  FinancialDisclaimer,
+  LiveAgentCard,
+  LiveAgentListCard,
+  LiveArticleCard,
+  LiveCaseStudyCard,
+  LiveCaseStudyListCard,
+  LiveHomeArticleCard,
+  LiveInvestorQuotes,
+  LiveOutlineLink,
+  LivePropertyCard,
+  LiveSectionTitle,
+} from "@/components/website/liveSiteParts";
 
 const BASE = PUBLIC_SITE_BASE;
 const LOGO =
@@ -272,78 +288,6 @@ function useListHeading(slug: string) {
   return heading;
 }
 
-/**
- * Gentle fade-and-rise as page sections scroll into view.
- *
- * Works on the direct children of each top-level section, so section
- * backgrounds stay put and only the content moves. Photos and overlays that
- * are absolutely positioned are left alone. Sections that arrive later (after
- * data loads) are picked up by the MutationObserver. Nothing is hidden unless
- * this runs, and it does not run for visitors who ask for reduced motion.
- */
-function useScrollReveal(ref: React.RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    const root = ref.current;
-    if (!root || typeof IntersectionObserver === "undefined") return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    const pending = new Set<Element>();
-    const reveal = (el: Element) => {
-      el.classList.add("sv-in");
-      pending.delete(el);
-      io.unobserve(el);
-    };
-    const io = new IntersectionObserver(
-      entries => {
-        for (const entry of entries) {
-          // Also show anything already above the screen, for instance when
-          // the browser restores a scroll position on Back.
-          if (!entry.isIntersecting && entry.boundingClientRect.top >= 0) continue;
-          reveal(entry.target);
-        }
-      },
-      // Threshold 0, so a very tall block (a long property grid) still
-      // reveals as soon as its top edge is on screen.
-      { rootMargin: "0px 0px -6% 0px", threshold: 0 },
-    );
-    const seen = new WeakSet<Element>();
-    const scan = () => {
-      root.querySelectorAll(":scope > section > *").forEach(el => {
-        if (seen.has(el)) return;
-        seen.add(el);
-        if (getComputedStyle(el).position === "absolute") return;
-        el.classList.add("sv-reveal");
-        pending.add(el);
-        io.observe(el);
-      });
-    };
-    scan();
-    const mo = new MutationObserver(scan);
-    mo.observe(root, { childList: true, subtree: true });
-    // A fast jump (dragging the scrollbar, End, an anchor link) can carry a
-    // section past the screen without it ever intersecting, which left it
-    // invisible. After any scroll, show everything whose top is already above
-    // the bottom of the screen.
-    let frame = 0;
-    const onScroll = () => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(() => {
-        frame = 0;
-        const bottom = window.innerHeight;
-        pending.forEach(el => {
-          if (el.getBoundingClientRect().top < bottom) reveal(el);
-        });
-      });
-    };
-    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
-    return () => {
-      io.disconnect();
-      mo.disconnect();
-      document.removeEventListener("scroll", onScroll, { capture: true });
-      if (frame) window.cancelAnimationFrame(frame);
-    };
-  }, [ref]);
-}
-
 /** The header's About menu: opens on hover or click, closes on the way out,
  *  on Escape, or on a click anywhere else. Styled like the live site's. */
 function AboutMenu({
@@ -409,8 +353,6 @@ function AboutMenu({
 function Shell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { data: siteSettings } = trpc.website.publicSettings.useQuery();
-  const mainRef = useRef<HTMLElement>(null);
-  useScrollReveal(mainRef);
   // The same menu, in the same order, as the live savvy-agents.com header, so
   // the switch-over looks like the same site. About opens a small menu there
   // too. Its "Meet the Team" goes to the agents page, as the old /team
@@ -512,7 +454,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           </nav>
         )}
       </header>
-      <main ref={mainRef}>{children}</main>
+      <main>{children}</main>
       <SiteFooter />
     </div>
   );
@@ -601,115 +543,6 @@ function NotFoundPage() {
   );
 }
 
-/**
- * What real customers said.
- *
- * Three rules, all of them about not overstating:
- *
- * - No star ratings. The previous version drew five filled stars on every
- *   quote. Nobody gave those stars; they were decoration that read as a
- *   rating, on a real person's name.
- * - Every published testimonial is shown, not the first three, so the section
- *   is the whole set rather than a silently truncated sample.
- * - With nothing to show the section does not render at all, heading included.
- *   An empty "What Our Investors Are Saying" is worse than no section.
- *
- * Horizontal scroll with snap points rather than a timed carousel: no library,
- * no autoplay stealing a quote mid-sentence, and it still works with the
- * keyboard and on a phone.
- */
-function TestimonialsSection({ rows }: { rows: unknown }) {
-  const testimonials = publishedTestimonials(rows);
-  // Arrows, because on a desktop without a trackpad the row just looks cut
-  // off at the edge: nothing says there are more quotes to the right.
-  const scroller = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState({ start: true, end: true });
-  useEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const update = () =>
-      setEdges({
-        start: el.scrollLeft <= 4,
-        end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4,
-      });
-    update();
-    el.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
-    return () => {
-      el.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, [testimonials.length]);
-  if (!testimonials.length) return null;
-  const move = (direction: 1 | -1) => {
-    const el = scroller.current;
-    if (!el) return;
-    el.scrollBy({ left: direction * el.clientWidth * 0.8, behavior: "smooth" });
-  };
-  return (
-    <section className="bg-white py-20">
-      <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
-        <SectionHeading
-          eyebrow="Investor confidence"
-          title="What Our Investors Are Saying"
-          body="Specialized guidance matters before, during, and long after closing."
-        />
-        <div
-          ref={scroller}
-          className="mt-10 flex snap-x snap-mandatory gap-5 overflow-x-auto pb-4"
-          tabIndex={0}
-          role="region"
-          aria-label="Investor testimonials"
-        >
-          {testimonials.map((item, index) => {
-            const attribution = attributionLine(item);
-            return (
-              <blockquote
-                key={`${item.name}:${index}`}
-                className="flex min-h-64 w-[19rem] shrink-0 snap-start flex-col rounded-2xl border bg-white p-7 shadow-sm sm:w-[22rem]"
-              >
-                {/* whitespace-pre-line so a quote pasted with paragraph breaks
-                    keeps them instead of collapsing into one block. */}
-                <p className="whitespace-pre-line text-base leading-7 text-slate-700">
-                  “{item.quote}”
-                </p>
-                <footer className="mt-auto pt-6">
-                  <p className="font-bold text-[#05314a]">{item.name}</p>
-                  {attribution && (
-                    <p className="text-xs text-slate-500">{attribution}</p>
-                  )}
-                </footer>
-              </blockquote>
-            );
-          })}
-        </div>
-        {!(edges.start && edges.end) && (
-          <div className="mt-4 flex justify-end gap-2">
-            <button
-              type="button"
-              aria-label="Previous testimonials"
-              disabled={edges.start}
-              onClick={() => move(-1)}
-              className="rounded-full border border-slate-200 bg-white p-2.5 text-[#05314a] shadow-sm transition hover:border-cyan-400 disabled:opacity-40"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              aria-label="More testimonials"
-              disabled={edges.end}
-              onClick={() => move(1)}
-              className="rounded-full border border-slate-200 bg-white p-2.5 text-[#05314a] shadow-sm transition hover:border-cyan-400 disabled:opacity-40"
-            >
-              <ChevronRight className="h-5 w-5" />
-            </button>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
 function SectionHeading({
   eyebrow,
   title,
@@ -741,291 +574,6 @@ function SectionHeading({
         <p className={`mt-4 text-base leading-7 ${tone === "dark" ? "text-cyan-50/85" : "text-slate-600"}`}>{body}</p>
       )}
     </div>
-  );
-}
-
-function PropertyCard({ item }: { item: any }) {
-  const tags = Array.isArray(item.featureTags) ? item.featureTags : [];
-  // Only the figures this property actually has. A card showing three dashes
-  // reads as broken, so the whole strip is dropped when there is nothing to put
-  // in it rather than rendering empty placeholders.
-  const roi = (
-    [
-      ["Revenue", item.projectedRevenue, money],
-      ["Cash-on-cash", item.cashOnCash, percent],
-      ["Cap rate", item.capRate, percent],
-    ] as const
-  )
-    .filter(([, value]) => value != null && value !== "")
-    .map(([label, value, format]) => [label, format(value)] as const);
-  return (
-    <article className="group flex overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
-      <a
-        href={path(`/properties/${item.slug}`)}
-        className="flex w-full flex-col"
-      >
-        <div className="relative aspect-[1.55] overflow-hidden bg-slate-100">
-          <img
-            src={
-              item.heroImageUrl ||
-              "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80"
-            }
-            alt={`${item.address}, ${item.city || ""}`}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-            loading="lazy"
-          />
-          <div className="absolute left-3 top-3 rounded-full bg-[#05314a]/90 px-3 py-1 text-xs font-bold text-white">
-            Savvy opportunity
-          </div>
-          <div className="absolute right-3 top-3">
-            <SaveButton propertyId={item.propertyId} compact />
-          </div>
-        </div>
-        <div className="flex flex-1 flex-col p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-bold text-[#05314a]">
-                {item.address}
-              </h3>
-              <p className="mt-1 flex items-center gap-1 text-sm text-slate-500">
-                <MapPin className="h-3.5 w-3.5" />
-                {[item.city, item.state].filter(Boolean).join(", ")}
-              </p>
-            </div>
-            <p className="shrink-0 text-lg font-black text-[#05314a]">
-              {money(item.listPrice)}
-            </p>
-          </div>
-          <div className="mt-4 grid grid-cols-3 border-y py-3 text-center text-sm text-slate-600">
-            <span className="flex items-center justify-center gap-1">
-              <BedDouble className="h-4 w-4 text-cyan-600" />
-              {roomCount(item.beds)}
-            </span>
-            <span className="flex items-center justify-center gap-1">
-              <Bath className="h-4 w-4 text-cyan-600" />
-              {roomCount(item.baths)}
-            </span>
-            <span className="flex items-center justify-center gap-1">
-              <Square className="h-4 w-4 text-cyan-600" />
-              {item.sqft ? Number(item.sqft).toLocaleString() : "—"}
-            </span>
-          </div>
-          {roi.length ? (
-            <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-cyan-50/70 p-3">
-              {roi.map(([label, value]) => (
-                <div key={label} className="text-center">
-                  <p className="text-sm font-black tabular-nums text-[#05314a]">
-                    {value}
-                  </p>
-                  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-800">
-                    {label}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : item.gated ? (
-            // The figures exist, this visitor just does not have an account
-            // yet. Say which ones, so the offer is concrete.
-            <div className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 p-3 text-center">
-              <Lock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span className="text-[11px] font-semibold text-slate-500">
-                Sign in to see revenue, cash-on-cash and cap rate
-              </span>
-            </div>
-          ) : null}
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {tags.slice(0, 4).map((tag: string) => (
-              <span
-                key={tag}
-                className="rounded-full bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-900"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-          <div className="mt-auto pt-5">
-            <div className="flex items-center justify-between rounded-xl bg-slate-50 p-3">
-              <div className="flex items-center gap-2">
-                {item.assignedAgentImageUrl ? (
-                  <img
-                    className="h-8 w-8 rounded-full object-cover"
-                    src={item.assignedAgentImageUrl}
-                    alt=""
-                  />
-                ) : (
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-cyan-100">
-                    <UserRound className="h-4 w-4 text-cyan-700" />
-                  </div>
-                )}
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                    Your STR specialist
-                  </p>
-                  <p className="text-xs font-bold text-[#05314a]">
-                    {item.assignedAgentName || "Savvy STR Agents"}
-                  </p>
-                </div>
-              </div>
-              <ArrowRight className="h-4 w-4 text-cyan-600" />
-            </div>
-          </div>
-        </div>
-      </a>
-    </article>
-  );
-}
-
-function AgentCard({ item }: { item: any }) {
-  const specialties = Array.isArray(item.specialties) ? item.specialties : [];
-  const markets = Array.isArray(item.markets) ? item.markets : [];
-  return (
-    <article className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
-      <div className="flex items-center gap-4">
-        <img
-          src={
-            item.imageUrl ||
-            "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=400&q=80"
-          }
-          alt={item.name || "Savvy STR Agent"}
-          className="h-20 w-20 rounded-2xl bg-slate-100 object-cover"
-        />
-        <div>
-          <h3 className="text-xl font-bold text-[#05314a]">{item.name}</h3>
-          <p className="mt-1 line-clamp-2 text-sm font-semibold text-cyan-700">
-            {item.headline || "STR Investment Specialist"}
-          </p>
-          {markets[0] && (
-            <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-              <MapPin className="h-3 w-3" />
-              {markets[0]}
-            </p>
-          )}
-        </div>
-      </div>
-      <p className="mt-5 line-clamp-4 text-sm leading-6 text-slate-600">
-        {item.shortBio ||
-          "A Savvy STR specialist focused on helping investors make informed property decisions."}
-      </p>
-      <div className="mt-4 flex flex-wrap gap-1.5">
-        {specialties.slice(0, 3).map((tag: string) => (
-          <span
-            key={tag}
-            className="rounded-full bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-900"
-          >
-            {tag}
-          </span>
-        ))}
-      </div>
-      <div className="mt-auto flex gap-2 pt-6">
-        <a
-          className="flex-1 rounded-lg border border-[#05314a] px-3 py-2 text-center text-sm font-bold text-[#05314a]"
-          href={path(`/agents/${item.slug}`)}
-        >
-          View profile
-        </a>
-        {item.publicPhone && (
-          <a
-            aria-label={`Call ${item.name}`}
-            className="rounded-lg bg-[#05314a] p-2.5 text-white"
-            href={`tel:${item.publicPhone.replace(/[^+\d]/g, "")}`}
-          >
-            <Phone className="h-4 w-4" />
-          </a>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function StoryCard({ item }: { item: any }) {
-  return (
-    // Photo on top, like the property and article cards, so any number of
-    // stories fills a three-column row. The side-by-side version sat two to a
-    // row and left an odd one alone with an empty half beside it.
-    <a
-      href={path(`/case-studies/${item.slug}`)}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
-    >
-      <div className="aspect-[1.65] overflow-hidden bg-slate-100">
-        <img
-          src={item.heroImageUrl}
-          alt={item.title}
-          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-          loading="lazy"
-        />
-      </div>
-      <div className="flex flex-1 flex-col p-6">
-        <p className="text-xs font-bold uppercase tracking-[0.15em] text-cyan-600">
-          {item.eyebrow || "Investor story"}
-        </p>
-        <h3 className="mt-2 text-xl font-bold leading-snug text-[#05314a]">
-          {item.title}
-        </h3>
-        <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">
-          {item.excerpt}
-        </p>
-        <div className="mt-auto flex items-end justify-between gap-3 pt-5">
-          <div>
-            {item.primaryMetricValue && (
-              <p className="text-lg font-black text-[#05314a]">
-                {item.primaryMetricValue}
-                <span className="ml-1 text-xs font-medium text-slate-500">
-                  {item.primaryMetricLabel}
-                </span>
-              </p>
-            )}
-            <p className="mt-1 text-xs text-slate-500">
-              {item.agentName ? `with ${item.agentName}` : "Savvy STR Agents"}
-              {compactMoney(item.investmentAmount) ? (
-                <>
-                  {" · "}Investment{" "}
-                  <span className="font-semibold text-[#05314a]">
-                    {compactMoney(item.investmentAmount)}
-                  </span>
-                </>
-              ) : null}
-            </p>
-          </div>
-          <ArrowRight className="h-5 w-5 text-cyan-600" />
-        </div>
-      </div>
-    </a>
-  );
-}
-
-function ArticleCard({ item }: { item: any }) {
-  return (
-    // flex-col with the footer at mt-auto, so the author line and "Read
-    // article" sit on one line across a row whatever the title length.
-    <a
-      href={path(`/resources/${item.slug}`)}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
-    >
-      <div className="aspect-[1.65] overflow-hidden bg-slate-100">
-        <img
-          src={item.coverImageUrl}
-          alt={item.title}
-          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-          loading="lazy"
-        />
-      </div>
-      <div className="flex flex-1 flex-col p-5">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-600">
-          {item.category || "STR Investing"}
-        </p>
-        <h3 className="mt-2 text-xl font-bold leading-snug text-[#05314a]">
-          {item.title}
-        </h3>
-        <p className="mb-5 mt-3 line-clamp-3 text-sm leading-6 text-slate-600">
-          {item.excerpt}
-        </p>
-        <div className="mt-auto flex items-center justify-between border-t pt-4 text-xs text-slate-500">
-          <span>{item.authorName || "Savvy Team"}</span>
-          <span className="font-bold text-cyan-700">Read article →</span>
-        </div>
-      </div>
-    </a>
   );
 }
 
@@ -1151,6 +699,25 @@ function LeadForm({
   );
 }
 
+/**
+ * The home page, laid out like the live savvy-agents.com home page section
+ * for section: hero with search and stats, featured properties, investor
+ * quotes, the "different game" block, agents, case studies, articles, and
+ * the sign-up band. Words that live in the Website Studio (the hero, the
+ * stats, the quotes) still come from there.
+ */
+const HERO_BACKDROP =
+  "https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=1920&h=1080";
+
+const VALUE_POINTS = [
+  "Get clear on what to buy and where",
+  "Choose the right market for your goals",
+  "Skip the 30% property management fees (we'll show you how)",
+  "Support from trusted local partners",
+  "Launch a high-earning rental in as little as 30 days",
+  "Turn under-performing properties into high-earners",
+];
+
 function HomePage() {
   usePageTitle("");
   const home = trpc.website.publicHome.useQuery();
@@ -1158,208 +725,257 @@ function HomePage() {
   if (home.isLoading) return <LoadingPage />;
   const data = home.data;
   const settings: any = data?.settings || {};
-  const heroTitle = settings.heroTitle || "Short-Term Rental Properties for Sale — Built for STR Investors";
+  const heroTitle =
+    settings.heroTitle || "Short-Term Rental Properties for Sale — Built for STR Investors";
   const [heroLead, ...heroAccentParts] = heroTitle.split("—");
   const heroAccent = heroAccentParts.join("—").trim();
+  const stats: Array<{ value: string; label: string }> = Array.isArray(settings.stats)
+    ? settings.stats
+    : [];
+  // The live site colours its four figures light cyan, cyan, white, light cyan.
+  const statColour = ["text-[#43e8ff]", "text-[#10c0df]", "text-white", "text-[#43e8ff]"];
+  const properties = data?.properties || [];
+  const agents = data?.agents || [];
+  const caseStudies = data?.caseStudies || [];
+  const posts = data?.posts || [];
   return (
     <Shell>
-      <section className="relative flex min-h-[740px] items-center overflow-hidden bg-[#05314a]">
-        <img
-          className="absolute inset-0 h-full w-full object-cover"
-          src={settings.heroImageUrl}
-          alt="Luxury short-term rental property"
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#031f30]/95 via-[#05314a]/82 to-[#0d6e83]/55" />
-        <div className="relative mx-auto w-full max-w-[1280px] px-4 py-24 sm:px-6 lg:px-8">
-          <div className="max-w-4xl">
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-cyan-300">
-              {settings.heroEyebrow || "The STR investment brokerage"}
-            </p>
-            <h1 className="mt-5 max-w-4xl text-5xl font-black leading-[1.04] tracking-tight text-white sm:text-6xl lg:text-7xl">
-              {heroLead.trim()}{heroAccent && <> — <span className="text-[#43e8ff]">{heroAccent}</span></>}
+      <section className="relative overflow-hidden text-white [background-image:linear-gradient(135deg,#05314a_0%,#0b4966_50%,#10c0df_100%)]">
+        <div className="absolute inset-0 bg-[#05314a]/40" />
+        <div className="absolute inset-0 opacity-20">
+          <img src={HERO_BACKDROP} alt="" aria-hidden="true" className="h-full w-full object-cover object-center" />
+        </div>
+        <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+          <div className="mx-auto max-w-4xl text-center lg:mx-0 lg:text-left">
+            <h1 className="mb-4 text-4xl font-bold leading-tight md:text-6xl lg:max-w-3xl">
+              {heroLead.trim()}
+              {heroAccent && (
+                <>
+                  {" — "}
+                  <span className="text-[#43e8ff]">{heroAccent}</span>
+                </>
+              )}
             </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-cyan-50/90">
-              {settings.heroBody}
-            </p>
+            {settings.heroBody ? (
+              <p className="mb-6 text-xl leading-relaxed text-white/80 md:text-2xl lg:max-w-2xl">
+                {settings.heroBody}
+              </p>
+            ) : null}
             <form
-              className="mt-8 flex max-w-2xl flex-col gap-2 rounded-2xl bg-white/95 p-2 shadow-2xl sm:flex-row"
+              className="relative mx-auto mb-6 w-full max-w-2xl text-left lg:mx-0"
               onSubmit={event => {
                 event.preventDefault();
-                window.location.href = `${path("/properties")}?search=${encodeURIComponent(query)}`;
+                const text = query.trim();
+                window.location.href = text
+                  ? `${path("/properties")}?search=${encodeURIComponent(text)}`
+                  : path("/properties");
               }}
             >
-              <div className="flex flex-1 items-center gap-2 px-3">
-                <Search className="h-5 w-5 text-cyan-600" />
-                <input
-                  className="w-full bg-transparent py-3 text-sm outline-none"
-                  placeholder="Search a market, city or address"
-                  value={query}
-                  onChange={event => setQuery(event.target.value)}
-                />
-              </div>
-              <button className="rounded-xl bg-[#05314a] px-6 py-3 text-sm font-bold text-white">
-                Search properties
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+              <input
+                className="h-14 w-full rounded-xl border border-white/30 bg-white/95 pl-12 pr-32 text-base text-gray-900 shadow-lg placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#43e8ff]"
+                placeholder="Search a market, city or address"
+                aria-label="Search properties"
+                value={query}
+                onChange={event => setQuery(event.target.value)}
+              />
+              <button className="absolute right-2 top-1/2 h-10 -translate-y-1/2 rounded-lg bg-[#10c0df] px-5 text-sm font-semibold text-white shadow-sm hover:opacity-90">
+                Search
               </button>
             </form>
-            <div className="mt-5 flex flex-wrap gap-3">
+            <div className="flex flex-col justify-center gap-3 sm:flex-row lg:justify-start">
               <a
-                className="rounded-lg bg-[#10c0df] px-5 py-3 text-sm font-bold text-[#03293c]"
+                className="inline-flex items-center justify-center rounded-md bg-[#10c0df] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-colors hover:bg-[#43e8ff]"
                 href={path("/properties")}
               >
+                <Home className="mr-2 h-5 w-5" />
                 Find Your Next STR
               </a>
               <a
-                className="rounded-lg border border-white/50 bg-white/10 px-5 py-3 text-sm font-bold text-white backdrop-blur"
+                className="inline-flex items-center justify-center rounded-md border border-[#05314a] bg-white px-8 py-4 text-lg font-semibold text-[#05314a] shadow-lg transition-colors hover:bg-[color-mix(in_oklab,#10c0df_12%,white)]"
                 href="https://www.savvy.realty/sellers"
                 target="_blank"
                 rel="noreferrer"
               >
+                <Calendar className="mr-2 h-5 w-5" />
                 Sell My STR for Top Dollar
               </a>
             </div>
           </div>
-          {Array.isArray(settings.stats) && (
-            <div className="mt-16 grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4">
-              {settings.stats.map((item: any) => (
+        </div>
+        {stats.length ? (
+          <div className="relative border-t border-white/20 bg-white/10 backdrop-blur-sm">
+            <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+              <div className="grid grid-cols-2 gap-8 text-center md:grid-cols-4">
+                {stats.slice(0, 4).map((item, index) => (
+                  <div key={`${item.label}-${index}`}>
+                    <div className={`text-3xl font-bold ${statColour[index] || "text-white"}`}>
+                      {item.value}
+                    </div>
+                    <div className="text-sm text-white/80">{item.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="bg-gray-50 py-12">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <LiveSectionTitle
+            title="Featured Properties for Sale"
+            subtitle="Browse a curated selection of STR-friendly properties"
+          />
+          {properties.length ? (
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {properties.map((item: any) => (
+                <LivePropertyCard key={item.id} item={item} />
+              ))}
+            </div>
+          ) : (
+            <div className="py-12 text-center text-gray-500">
+              <p>No properties available at the moment. Check back soon!</p>
+            </div>
+          )}
+          <div className="mt-8 text-center">
+            <LiveOutlineLink href={path("/properties")}>
+              View All Properties <ArrowRight className="ml-1 h-4 w-4" />
+            </LiveOutlineLink>
+          </div>
+        </div>
+      </section>
+
+      <LiveInvestorQuotes quotes={publishedTestimonials(settings.testimonials)} />
+
+      <section className="relative min-h-[700px] overflow-hidden lg:min-h-[800px]">
+        <div className="absolute inset-0">
+          <img
+            src={settings.heroImageUrl || HERO_BACKDROP}
+            alt="Modern short-term rental property"
+            className="h-full w-full object-cover"
+          />
+          <div className="absolute inset-0 bg-black/65" />
+        </div>
+        <div className="relative mx-auto flex min-h-[700px] w-full max-w-7xl items-center px-4 py-16 sm:px-6 lg:min-h-[800px] lg:px-8 lg:py-24">
+          <div className="mx-auto max-w-4xl text-center">
+            <h2 className="mb-8 text-4xl font-bold leading-[1.1] sm:text-5xl lg:text-6xl xl:text-7xl">
+              <span className="font-serif italic text-[#43e8ff]">Short-Term Rental Investing Is a</span>
+              <span className="text-white"> Different Game. We Know How to Win It.</span>
+            </h2>
+            <p className="mb-4 text-xl font-bold text-white lg:text-2xl">
+              Not every agent understands short-term rentals. We do.
+            </p>
+            <p className="mx-auto mb-12 max-w-2xl text-base leading-relaxed text-gray-200 lg:text-lg">
+              We'll help you buy the right property, in the right market, with the right plan — so
+              you cash flow faster and skip the rookie mistakes.
+            </p>
+            <div className="mx-auto mb-14 grid max-w-3xl grid-cols-1 gap-4 text-left md:grid-cols-2">
+              {VALUE_POINTS.map(point => (
                 <div
-                  key={item.label}
-                  className="rounded-xl border border-white/15 bg-white/10 p-4 backdrop-blur"
+                  key={point}
+                  className="flex items-center gap-4 rounded-2xl border border-gray-600/50 bg-gray-800/70 px-6 py-5 backdrop-blur-sm transition-colors hover:bg-gray-700/70"
                 >
-                  <p className="text-3xl font-black text-white">{item.value}</p>
-                  <p className="mt-1 text-xs font-medium text-cyan-100">
-                    {item.label}
-                  </p>
+                  <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[#43e8ff]/20">
+                    <CheckCircle className="h-5 w-5 text-[#43e8ff]" />
+                  </div>
+                  <span className="text-sm font-medium leading-snug text-white lg:text-base">{point}</span>
                 </div>
               ))}
             </div>
-          )}
-        </div>
-      </section>
-      <section className="bg-slate-50 py-20">
-        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            eyebrow="Curated opportunities"
-            title="Featured Properties for Sale"
-            body="Browse investor-focused opportunities with specialist representation and property-level intelligence."
-          />
-          <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {(data?.properties || []).map((item: any) => (
-              <PropertyCard key={item.id} item={item} />
-            ))}
-          </div>
-          <div className="mt-10 text-center">
             <a
-              className="inline-flex items-center gap-2 rounded-lg border border-[#05314a] px-5 py-3 text-sm font-bold text-[#05314a]"
-              href={path("/properties")}
+              href={path("/contact")}
+              className="inline-flex items-center rounded-full bg-[#43e8ff] px-10 py-4 text-base font-bold uppercase tracking-wide text-[#05314a] shadow-2xl transition-all hover:scale-105 hover:bg-yellow-400 lg:text-lg"
             >
-              View all properties <ArrowRight className="h-4 w-4" />
+              Talk to an STR Agent
             </a>
           </div>
         </div>
       </section>
-      <TestimonialsSection rows={settings.testimonials} />
-      <section className="relative overflow-hidden bg-[#04283c] py-24">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_30%,rgba(16,192,223,.24),transparent_35%)]" />
-        <div className="relative mx-auto max-w-[1180px] px-4 text-center sm:px-6">
-          <SectionHeading
-            eyebrow="Built differently"
-            title="More than an agent. Your STR investment team."
-            body="From market selection through underwriting, offer strategy, diligence, launch planning, and local introductions—Savvy is built around the full investment decision."
-            tone="dark"
-          />
-          <div className="mt-10 grid gap-3 text-left md:grid-cols-2 lg:grid-cols-3">
-            {[
-              "STR-specialized local representation",
-              "Property-specific revenue modeling",
-              "Regulation and zoning diligence",
-              "Comparable-market intelligence",
-              "Amenity and design recommendations",
-              "Post-close operator connections",
-            ].map(item => (
-              <div
-                key={item}
-                className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/10 p-4 font-semibold text-white"
+
+      {agents.length ? (
+        <section className="bg-white py-12">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <LiveSectionTitle
+              title="Expert STR Agents by Market"
+              subtitle="Connect with local agents who specialize in STR investments"
+            />
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {agents.slice(0, 6).map((item: any) => (
+                <LiveAgentCard key={item.id} item={item} />
+              ))}
+            </div>
+            <div className="mt-8 text-center">
+              <LiveOutlineLink href={path("/agents")}>View All Agents</LiveOutlineLink>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {caseStudies.length ? (
+        <section className="bg-white py-12">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <LiveSectionTitle
+              title="Proven Investment Success Stories"
+              subtitle="Real results showing returns and transformation journeys"
+            />
+            <div className="grid gap-6 md:grid-cols-2">
+              {caseStudies.map((item: any) => (
+                <LiveCaseStudyCard key={item.id} item={item} />
+              ))}
+            </div>
+            <div className="mt-8 text-center">
+              <LiveOutlineLink href={path("/case-studies")}>View All Case Studies</LiveOutlineLink>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {posts.length ? (
+        <section className="bg-gray-50 py-12">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <LiveSectionTitle
+              title="Featured Insights & Guides"
+              subtitle="Expert tips and strategies for STR investing"
+            />
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {posts.map((item: any) => (
+                <LiveHomeArticleCard key={item.id} item={item} />
+              ))}
+            </div>
+            <div className="mt-8 text-center">
+              <a
+                href={path("/resources")}
+                className="inline-flex items-center gap-2 rounded-lg border border-[#05314a] px-6 py-3 text-sm font-semibold text-[#05314a] transition-colors hover:bg-[#05314a] hover:text-white"
               >
-                <span className="rounded-full bg-cyan-400 p-1 text-[#05314a]">
-                  <Check className="h-3.5 w-3.5" />
-                </span>
-                {item}
-              </div>
-            ))}
+                View all insights and guides
+                <ArrowRight className="h-4 w-4" />
+              </a>
+            </div>
           </div>
-          <a
-            className="mt-10 inline-flex rounded-lg bg-[#10c0df] px-6 py-3 font-bold text-[#03293c]"
-            href={path("/contact")}
-          >
-            Talk to an STR Agent
-          </a>
-        </div>
-      </section>
-      <section className="bg-white py-20">
-        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            eyebrow="Local expertise"
-            title="Expert STR Agents by Market"
-            body="Work with a specialist who understands investor goals and the local operating reality."
-          />
-          <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {(data?.agents || []).slice(0, 4).map((item: any) => (
-              <AgentCard key={item.id} item={item} />
-            ))}
+        </section>
+      ) : null}
+
+      <section className="py-16 text-white [background-image:linear-gradient(135deg,#05314a_0%,#0b4966_50%,#10c0df_100%)]">
+        <div className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
+          <div className="mb-6 flex justify-center">
+            <div className="rounded-full bg-white/10 p-4 backdrop-blur-sm">
+              <BookOpen className="h-12 w-12 text-[#43e8ff]" />
+            </div>
           </div>
-          <div className="mt-10 text-center">
-            <a
-              className="font-bold text-[#05314a] underline decoration-cyan-400 decoration-2 underline-offset-4"
-              href={path("/agents")}
-            >
-              View all agents
-            </a>
-          </div>
-        </div>
-      </section>
-      <section className="bg-slate-50 py-20">
-        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            eyebrow="Real relationships"
-            title="Proven Investment Success Stories"
-            body="See what changes when investors work with a team built around short-term rentals."
-          />
-          <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {(data?.caseStudies || []).map((item: any) => (
-              <StoryCard key={item.id} item={item} />
-            ))}
-          </div>
-        </div>
-      </section>
-      <section className="bg-white py-20">
-        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            eyebrow="Learn before you buy"
-            title="Featured Insights & Guides"
-            body="Practical intelligence from agents and operators working in STR markets every day."
-          />
-          <div className="mt-10 grid gap-6 md:grid-cols-3">
-            {(data?.posts || []).map((item: any) => (
-              <ArticleCard key={item.id} item={item} />
-            ))}
-          </div>
-        </div>
-      </section>
-      <section className="bg-gradient-to-r from-[#05314a] to-[#0f9db7] py-20 text-center">
-        <div className="mx-auto max-w-3xl px-5">
-          <BookOpen className="mx-auto h-10 w-10 text-cyan-300" />
-          <h2 className="mt-5 text-4xl font-black text-white">
+          <h2 className="mb-4 text-3xl font-bold md:text-4xl">
             Ready to Start Investing in STR Properties?
           </h2>
-          <p className="mt-4 text-lg text-cyan-50">
-            Build your buy box and get matched with a specialist who can help
-            you move with confidence.
+          <p className="mx-auto mb-8 max-w-2xl text-xl text-white/80">
+            Create a free account to save properties, connect with expert agents, and get
+            personalized investment insights.
           </p>
           <a
-            className="mt-7 inline-flex rounded-lg bg-[#10c0df] px-6 py-3 font-bold text-[#03293c]"
-            href={path("/contact")}
+            href={accountPath.signUp}
+            className="inline-flex items-center rounded-lg bg-[#43e8ff] px-8 py-4 text-lg font-bold text-[#05314a] shadow-lg transition-all hover:bg-[#43e8ff]/90 hover:shadow-xl"
           >
-            Find My Next STR Investment <ArrowRight className="ml-2 h-5 w-5" />
+            Find My Next STR Investment
+            <ArrowRight className="ml-2 h-5 w-5" />
           </a>
         </div>
       </section>
@@ -1454,6 +1070,7 @@ function readPropertyFilters(): PropertyFilters {
 
 function PropertiesPage() {
   const heading = useListHeading("properties");
+  const [showMore, setShowMore] = useState(false);
   const [filters, setFilters] = useState<PropertyFilters>(readPropertyFilters);
   const set = (key: PropertyFilterKey) => (value: string) =>
     setFilters(current => ({ ...current, [key]: value }));
@@ -1531,236 +1148,253 @@ function PropertiesPage() {
     );
   })();
 
-  const marketName = (id: string) =>
-    facets.data?.markets?.find((item: any) => String(item.id) === id)?.name ||
-    "Market";
-  const chipLabel = (key: PropertyFilterKey): string => {
-    const value = filters[key];
-    switch (key) {
-      case "market":
-        return marketName(value);
-      case "state":
-        return US_STATE_NAMES[value] || value;
-      case "type":
-        return PROPERTY_TYPE_LABELS[value] || value;
-      case "beds":
-        return `${value}+ beds`;
-      case "baths":
-        return `${value}+ baths`;
-      case "minPrice":
-        return `From ${money(value)}`;
-      case "maxPrice":
-        return `Up to ${money(value)}`;
-      default:
-        return value;
-    }
-  };
-
   const hasMarkets = !!facets.data?.markets?.length;
   if (query.isLoading && !query.data) return <LoadingPage />;
   const items = query.data || [];
   const updating = query.isFetching && query.isPlaceholderData;
+  // The live site's price presets, over the same min and max as the finer
+  // steps under More Filters.
+  const PRICE_PRESETS: Array<[string, string, string]> = [
+    ["0-500000", "", "500000"],
+    ["500000-1000000", "500000", "1000000"],
+    ["1000000+", "1000000", ""],
+  ];
+  const pricePreset =
+    PRICE_PRESETS.find(([, min, max]) => filters.minPrice === min && filters.maxPrice === max)?.[0] ??
+    (filters.minPrice || filters.maxPrice ? "custom" : "");
+  const setPricePreset = (value: string) => {
+    if (value === "custom") {
+      setShowMore(true);
+      return;
+    }
+    const preset = PRICE_PRESETS.find(([key]) => key === value);
+    setFilters(current => ({
+      ...current,
+      minPrice: preset ? preset[1] : "",
+      maxPrice: preset ? preset[2] : "",
+    }));
+  };
+  const fieldClass =
+    "h-10 w-full appearance-none rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-black focus:outline-none focus:ring-2 focus:ring-blue-500";
+  const iconFieldClass =
+    "h-10 w-full appearance-none rounded-lg border border-gray-300 bg-white pl-9 pr-9 text-black focus:outline-none focus:ring-2 focus:ring-blue-500";
+  const label = "mb-2 block text-xs text-gray-600";
+  const chevron = (
+    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+  );
+  const anyFilter = activeFilters > 0 || !!filters.search;
   return (
     <Shell>
-      <section className="border-b bg-slate-50 pb-10 pt-14">
-        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              {heading.heroEyebrow && (
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-600">
-                  {heading.heroEyebrow}
-                </p>
-              )}
-              <h1 className="mt-2 text-4xl font-black text-[#05314a] sm:text-5xl">
+      <div className="min-h-screen bg-gray-50">
+        <section className="border-b bg-white">
+          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-12 lg:px-8">
+            <div className="text-center">
+              <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:mb-4 sm:text-3xl md:text-4xl">
                 {heading.heroTitle}
               </h1>
+              {heading.heroSubtitle ? (
+                <p className="mx-auto hidden max-w-3xl text-xl text-gray-600 sm:block">
+                  {heading.heroSubtitle}
+                </p>
+              ) : null}
             </div>
-            <p className="max-w-xl text-base text-slate-600 lg:text-right">
-              {heading.heroSubtitle}
-            </p>
           </div>
+        </section>
 
-          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-cyan-500 focus-within:bg-white">
-              <Search className="h-5 w-5 shrink-0 text-cyan-600" />
-              <input
-                className="w-full bg-transparent px-1 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                placeholder="Search by city, state, address or keyword"
-                value={filters.search}
-                onChange={event => set("search")(event.target.value)}
-              />
-              {filters.search ? (
-                <button
-                  type="button"
-                  onClick={() => set("search")("")}
-                  className="text-xs font-semibold text-slate-500 hover:text-cyan-700"
-                >
-                  Clear
-                </button>
-              ) : null}
-            </div>
-            <div
-              className={`mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 ${hasMarkets ? "lg:grid-cols-7" : "lg:grid-cols-6"}`}
-            >
-              {/* Only markets with a published property are offered, so the
-                  filter is hidden until at least one has something to show. */}
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="mb-8 rounded-2xl border bg-gray-50 p-4 shadow-sm md:p-6">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-[160px] flex-1">
+                <label className={label} htmlFor="listing-search">
+                  Search
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    id="listing-search"
+                    className={iconFieldClass}
+                    placeholder="City, state, keyword"
+                    value={filters.search}
+                    onChange={event => set("search")(event.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
               {hasMarkets ? (
-                <FilterSelect
-                  label="Market"
-                  value={filters.market}
-                  onChange={set("market")}
-                >
-                  <option value="">All markets</option>
-                  {facets.data!.markets.map((item: any) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.name} ({item.propertyCount})
-                    </option>
-                  ))}
-                </FilterSelect>
-              ) : null}
-              <FilterSelect
-                label="State"
-                value={filters.state}
-                onChange={set("state")}
-              >
-                <option value="">All states</option>
-                {(facets.data?.states || []).map((code: string) => (
-                  <option key={code} value={code}>
-                    {US_STATE_NAMES[code] || code}
-                  </option>
-                ))}
-              </FilterSelect>
-              <FilterSelect label="Type" value={filters.type} onChange={set("type")}>
-                <option value="">Any type</option>
-                {(facets.data?.propertyTypes || []).map((type: string) => (
-                  <option key={type} value={type}>
-                    {PROPERTY_TYPE_LABELS[type] || type}
-                  </option>
-                ))}
-              </FilterSelect>
-              <FilterSelect label="Beds" value={filters.beds} onChange={set("beds")}>
-                <option value="">Any</option>
-                {[1, 2, 3, 4, 5, 6].map(n => (
-                  <option key={n} value={String(n)}>
-                    {n}+
-                  </option>
-                ))}
-              </FilterSelect>
-              <FilterSelect label="Baths" value={filters.baths} onChange={set("baths")}>
-                <option value="">Any</option>
-                {[1, 2, 3, 4, 5].map(n => (
-                  <option key={n} value={String(n)}>
-                    {n}+
-                  </option>
-                ))}
-              </FilterSelect>
-              <FilterSelect
-                label="Min price"
-                value={filters.minPrice}
-                onChange={set("minPrice")}
-              >
-                <option value="">No min</option>
-                {priceSteps.map(step => (
-                  <option key={step} value={String(step)}>
-                    {money(step)}
-                  </option>
-                ))}
-              </FilterSelect>
-              <FilterSelect
-                label="Max price"
-                value={filters.maxPrice}
-                onChange={set("maxPrice")}
-              >
-                <option value="">No max</option>
-                {priceSteps.map(step => (
-                  <option key={step} value={String(step)}>
-                    {money(step)}
-                  </option>
-                ))}
-              </FilterSelect>
-            </div>
-            {activeFilters ? (
-              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
-                {chipKeys
-                  .filter(key => filters[key])
-                  .map(key => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => set(key)("")}
-                      className="inline-flex items-center gap-1.5 rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-900 hover:bg-cyan-100"
-                      aria-label={`Remove filter ${chipLabel(key)}`}
+                <div className="min-w-[160px] flex-1">
+                  <label className={label}>Market</label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <select
+                      className={iconFieldClass}
+                      value={filters.market}
+                      onChange={event => set("market")(event.target.value)}
                     >
-                      {chipLabel(key)}
-                      <X className="h-3 w-3" />
-                    </button>
-                  ))}
+                      <option value="">Any Market</option>
+                      {facets.data!.markets.map((item: any) => (
+                        <option key={item.id} value={String(item.id)}>
+                          {item.name} ({item.propertyCount})
+                        </option>
+                      ))}
+                    </select>
+                    {chevron}
+                  </div>
+                </div>
+              ) : null}
+              <div className="min-w-[130px]">
+                <label className={label}>Price Range</label>
+                <div className="relative">
+                  <select
+                    className={fieldClass}
+                    value={pricePreset}
+                    onChange={event => setPricePreset(event.target.value)}
+                  >
+                    <option value="">Any Price</option>
+                    <option value="0-500000">Under $500K</option>
+                    <option value="500000-1000000">$500K - $1M</option>
+                    <option value="1000000+">$1M+</option>
+                    <option value="custom">Custom range…</option>
+                  </select>
+                  {chevron}
+                </div>
+              </div>
+              <div className="min-w-[100px]">
+                <label className={label}>Bedrooms</label>
+                <div className="relative">
+                  <select
+                    className={fieldClass}
+                    value={filters.beds}
+                    onChange={event => set("beds")(event.target.value)}
+                  >
+                    <option value="">Any</option>
+                    {[1, 2, 3, 4, 5].map(n => (
+                      <option key={n} value={String(n)}>
+                        {n}+
+                      </option>
+                    ))}
+                  </select>
+                  {chevron}
+                </div>
+              </div>
+              <div className="ml-auto flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={clearFilters}
-                  className="text-xs font-semibold text-slate-500 underline-offset-2 hover:text-cyan-700 hover:underline"
+                  onClick={() => setShowMore(value => !value)}
+                  className="inline-flex h-10 flex-1 items-center justify-center whitespace-nowrap rounded-xl border bg-white px-3 text-sm font-medium shadow-xs transition-all hover:bg-[#f5f5f5] sm:flex-initial"
                 >
-                  Clear all
+                  <SlidersHorizontal className="mr-2 h-4 w-4" />
+                  More Filters
+                  {showMore ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />}
+                </button>
+                {anyFilter ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearFilters();
+                      set("search")("");
+                    }}
+                    className="inline-flex h-10 items-center whitespace-nowrap rounded-xl px-3 text-sm font-medium text-gray-500 transition-all hover:bg-[#f5f5f5]"
+                  >
+                    <X className="mr-1 h-4 w-4" />
+                    Clear
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDebouncedSearch(filters.search.trim());
+                    document.getElementById("property-results")?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                  className="inline-flex h-10 flex-1 items-center justify-center whitespace-nowrap rounded-xl bg-[#171717] px-5 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#171717]/90 sm:flex-initial"
+                >
+                  <Search className="mr-2 h-4 w-4" />
+                  {updating ? "Search" : `Search ${items.length}`}
                 </button>
               </div>
-            ) : null}
+            </div>
+
+            <p className="mt-3 min-h-[1.25rem] text-sm text-gray-600" aria-live="polite">
+              {updating
+                ? "Counting matches…"
+                : items.length === 0
+                  ? "No properties match these filters. Try a wider price range or fewer bedrooms."
+                  : `${items.length.toLocaleString()} ${items.length === 1 ? "property matches" : "properties match"} these filters.`}
+            </p>
+
+            {showMore && (
+              <div className="mt-4 space-y-4 border-t border-gray-200 pt-4">
+                <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-4">
+                  {[
+                    ["State", "state", [["", "Any State"], ...(facets.data?.states || []).map((code: string) => [code, US_STATE_NAMES[code] || code])]],
+                    ["Type", "type", [["", "Any Type"], ...(facets.data?.propertyTypes || []).map((type: string) => [type, PROPERTY_TYPE_LABELS[type] || type])]],
+                    ["Bathrooms", "baths", [["", "Any"], ...[1, 2, 3, 4, 5].map(n => [String(n), `${n}+`])]],
+                    ["Sort by", "sort", Object.entries(SORT_LABELS)],
+                    ["Min price", "minPrice", [["", "No minimum"], ...priceSteps.map(step => [String(step), money(step)])]],
+                    ["Max price", "maxPrice", [["", "No maximum"], ...priceSteps.map(step => [String(step), money(step)])]],
+                  ].map(([title, key, options]: any) => (
+                    <div key={key}>
+                      <label className={label}>{title}</label>
+                      <div className="relative">
+                        <select
+                          className={fieldClass}
+                          value={filters[key as PropertyFilterKey]}
+                          onChange={event => set(key as PropertyFilterKey)(event.target.value)}
+                        >
+                          {options.map(([value, text]: [string, string]) => (
+                            <option key={value || "any"} value={value}>
+                              {text}
+                            </option>
+                          ))}
+                        </select>
+                        {chevron}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      </section>
-      <section className="py-12">
-        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
-          <div className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-cyan-700">
-                {items.length} {items.length === 1 ? "opportunity" : "opportunities"}
-              </p>
-              <h2 className="text-2xl font-bold text-[#05314a]">
-                Properties matching your search
-              </h2>
-            </div>
-            <div className="sm:w-56">
-              <FilterSelect label="Sort by" value={filters.sort} onChange={set("sort")}>
-                {Object.entries(SORT_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </FilterSelect>
-            </div>
-          </div>
-          {items.length ? (
-            <div
-              className={`grid gap-6 transition-opacity md:grid-cols-2 lg:grid-cols-3 ${updating ? "opacity-60" : ""}`}
-              aria-busy={updating}
-            >
-              {items.map((item: any) => (
-                <PropertyCard key={item.id} item={item} />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed bg-slate-50 p-16 text-center">
-              <Search className="mx-auto h-8 w-8 text-slate-300" />
-              <h3 className="mt-4 text-xl font-bold text-[#05314a]">
-                No properties found
-              </h3>
-              <p className="mt-2 text-slate-500">
-                {activeFilters
-                  ? "No published property matches these filters yet. Try widening them."
-                  : "Try a broader market, city, or address."}
-              </p>
-              {activeFilters ? (
+
+          <div id="property-results">
+            {items.length ? (
+              <>
+                <p className="text-sm text-gray-600">
+                  {items.length === 1
+                    ? "1 property matches your filters"
+                    : `${items.length.toLocaleString()} properties match your filters`}
+                </p>
+                <div
+                  className={`mb-8 grid gap-6 pt-4 transition-opacity md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${updating ? "opacity-60" : ""}`}
+                  aria-busy={updating}
+                >
+                  {items.map((item: any) => (
+                    <LivePropertyCard key={item.id} item={item} />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-[10px] border border-[#e5e5e5] bg-white p-12 text-center shadow-sm">
+                <div className="mb-4 text-gray-400">
+                  <Building2 className="mx-auto mb-4 h-16 w-16" />
+                </div>
+                <h3 className="mb-2 text-xl font-semibold text-gray-900">No Properties Found</h3>
+                <p className="mb-6 text-gray-600">Try adjusting your search filters to find more properties.</p>
                 <button
                   type="button"
-                  onClick={clearFilters}
-                  className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-cyan-700 hover:bg-slate-50"
+                  onClick={() => {
+                    clearFilters();
+                    set("search")("");
+                  }}
+                  className="inline-flex h-9 items-center rounded-md border bg-white px-4 text-sm font-medium shadow-xs hover:bg-[#f5f5f5]"
                 >
-                  Clear filters
+                  Clear All Filters
                 </button>
-              ) : null}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
-      </section>
+        <FinancialDisclaimer />
+      </div>
     </Shell>
   );
 }
@@ -2338,7 +1972,7 @@ function PropertyDetailPage({ slug }: { slug: string }) {
             </div>
             <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {moreProperties.map((other: any) => (
-                <PropertyCard key={other.id} item={other} />
+                <LivePropertyCard key={other.id} item={other} />
               ))}
             </div>
           </div>
@@ -2439,46 +2073,66 @@ function PhotoViewer({
 function AgentsPage() {
   const heading = useListHeading("agents");
   const [search, setSearch] = useState("");
+  const [market, setMarket] = useState("");
   const query = trpc.website.publicAgents.useQuery();
   if (query.isLoading) return <LoadingPage />;
-  const items = (query.data || []).filter(
+  const all: any[] = query.data || [];
+  const markets = Array.from(
+    new Set(all.flatMap((item: any) => (Array.isArray(item.markets) ? item.markets : [])))
+  )
+    .filter(Boolean)
+    .sort((a, b) => String(a).localeCompare(String(b)));
+  const needle = search.trim().toLowerCase();
+  const items = all.filter(
     (item: any) =>
-      !search ||
-      `${item.name} ${item.headline} ${(item.markets || []).join(" ")} ${(item.specialties || []).join(" ")}`
-        .toLowerCase()
-        .includes(search.toLowerCase())
+      (!market || (item.markets || []).includes(market)) &&
+      (!needle ||
+        `${item.name} ${item.headline} ${(item.markets || []).join(" ")} ${(item.specialties || []).join(" ")}`
+          .toLowerCase()
+          .includes(needle))
   );
+  // Laid out like the live /agents page: a plain heading, search and market
+  // filter, then the cards.
   return (
     <Shell>
-      <section className="bg-[#05314a] py-20 text-center text-white">
-        <div className="mx-auto max-w-3xl px-5">
-          {heading.heroEyebrow && (
-            <p className="text-xs font-bold uppercase tracking-[.2em] text-cyan-300">
-              {heading.heroEyebrow}
-            </p>
-          )}
-          <h1 className="mt-3 text-5xl font-black">{heading.heroTitle}</h1>
-          <p className="mt-5 text-lg text-cyan-50">{heading.heroSubtitle}</p>
-        </div>
-      </section>
-      <section className="bg-slate-50 py-14">
-        <div className="mx-auto max-w-[1180px] px-4 sm:px-6">
-          <div className="mb-8 flex items-center gap-3 rounded-xl border bg-white px-4 shadow-sm">
-            <Search className="h-5 w-5 text-cyan-600" />
+      <div className="min-h-screen bg-white">
+        <div className="mx-auto max-w-6xl p-6">
+          <h1 className="mb-4 text-2xl font-semibold">{heading.heroTitle}</h1>
+          {heading.heroSubtitle ? (
+            <p className="-mt-2 mb-4 text-gray-600">{heading.heroSubtitle}</p>
+          ) : null}
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row">
             <input
-              className="w-full py-4 text-sm outline-none"
-              placeholder="Search by name, market, state or specialty"
               value={search}
               onChange={event => setSearch(event.target.value)}
+              placeholder="Search by name, market, state or specialty"
+              className="w-full rounded border px-3 py-2 sm:w-1/2"
             />
+            <select
+              value={market}
+              onChange={event => setMarket(event.target.value)}
+              className="w-full rounded border bg-white px-3 py-2 sm:w-64"
+            >
+              <option value="">All markets</option>
+              {markets.map(name => (
+                <option key={String(name)} value={String(name)}>
+                  {String(name)}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {items.map((item: any) => (
-              <AgentCard key={item.id} item={item} />
-            ))}
-          </div>
+          {items.length ? (
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map((item: any) => (
+                <LiveAgentListCard key={item.id} item={item} />
+              ))}
+            </div>
+          ) : (
+            <p className="py-12 text-center text-gray-500">No agents match that search.</p>
+          )}
         </div>
-      </section>
+        <FinancialDisclaimer />
+      </div>
     </Shell>
   );
 }
@@ -2586,7 +2240,7 @@ function AgentDetailPage({ slug }: { slug: string }) {
                 />
                 <div className="mt-6 grid gap-6 md:grid-cols-2">
                   {item.properties.map((property: any) => (
-                    <PropertyCard key={property.id} item={property} />
+                    <LivePropertyCard key={property.id} item={property} />
                   ))}
                 </div>
               </div>
@@ -2659,83 +2313,99 @@ function CaseStudiesPage() {
     setSearch("");
     setBand("");
   };
+  // Laid out like the live /case-studies page.
   return (
     <Shell>
-      <section className="border-b bg-slate-50 py-16">
-        <div className="mx-auto max-w-[1180px] px-4 text-center sm:px-6">
-          {heading.heroEyebrow && (
-            <p className="mb-3 text-xs font-bold uppercase tracking-[.2em] text-cyan-600">
-              {heading.heroEyebrow}
-            </p>
-          )}
-          <h1 className="text-5xl font-black text-[#05314a]">{heading.heroTitle}</h1>
-          <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
-            {heading.heroSubtitle}
-          </p>
-          <div className="mx-auto mt-8 flex max-w-4xl flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm md:flex-row md:items-center">
-            <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-cyan-500 focus-within:bg-white">
-              <Search className="h-5 w-5 shrink-0 text-cyan-600" />
-              <input
-                className="w-full bg-transparent py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                placeholder="Search case studies by title, summary or agent"
-                value={search}
-                onChange={event => setSearch(event.target.value)}
-              />
+      <div className="min-h-screen bg-gray-50 py-12">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="mb-8 text-center">
+            <h1 className="mb-3 text-3xl font-bold text-[#05314a]">{heading.heroTitle}</h1>
+            {heading.heroSubtitle ? (
+              <p className="mx-auto max-w-2xl text-lg text-[#05314a]/80">{heading.heroSubtitle}</p>
+            ) : null}
+          </div>
+
+          <div className="mx-auto mb-8 max-w-3xl">
+            <div className="relative overflow-hidden rounded-2xl border border-[#05314a]/15 shadow-sm">
+              <div className="absolute inset-0 bg-gradient-to-r from-[#05314a]/10 via-white/60 to-[#10c0df]/10" />
+              <div className="relative bg-white/80 p-3 backdrop-blur">
+                <div className="flex flex-col gap-3 md:flex-row">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search case studies by title or summary..."
+                      value={search}
+                      onChange={event => setSearch(event.target.value)}
+                      className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-12 pr-12 text-[#05314a] transition-all focus:border-[#05314a] focus:outline-none focus:ring-2 focus:ring-[#05314a]/20"
+                    />
+                    {search ? (
+                      <button
+                        type="button"
+                        onClick={() => setSearch("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2 transition-colors hover:bg-gray-100"
+                        aria-label="Clear search"
+                      >
+                        <X className="h-4 w-4 text-gray-400" />
+                      </button>
+                    ) : null}
+                  </div>
+                  <select
+                    aria-label="Investment amount"
+                    value={band}
+                    onChange={event => setBand(event.target.value)}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-[#05314a] transition-all focus:border-[#05314a] focus:outline-none focus:ring-2 focus:ring-[#05314a]/20 md:w-64"
+                  >
+                    <option value="">Any Investment Amount</option>
+                    {INVESTMENT_BANDS.map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {filtered ? (
+                    <button
+                      type="button"
+                      onClick={clear}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-[#05314a] transition-colors hover:bg-gray-50 md:w-auto"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+                {filtered ? (
+                  <div className="mt-2 text-center text-sm text-gray-500">
+                    Showing {items.length} result{items.length !== 1 ? "s" : ""}
+                    {needle ? ` for "${search.trim()}"` : ""}
+                  </div>
+                ) : null}
+              </div>
             </div>
-            <select
-              aria-label="Investment amount"
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-[#05314a] outline-none focus:border-cyan-500 md:w-60"
-              value={band}
-              onChange={event => setBand(event.target.value)}
-            >
-              <option value="">Any investment amount</option>
-              {INVESTMENT_BANDS.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+          </div>
+
+          {items.length === 0 && filtered ? (
+            <div className="rounded-xl border border-gray-100 bg-white py-12 text-center">
+              <Search className="mx-auto mb-4 h-12 w-12 text-gray-300" />
+              <h3 className="mb-2 text-lg font-medium text-gray-600">No results found</h3>
+              <p className="text-gray-500">Try adjusting your search terms or browse all case studies</p>
+              <button
+                type="button"
+                onClick={clear}
+                className="mt-4 rounded-lg bg-[#05314a] px-4 py-2 text-white transition-colors hover:bg-[#05314a]/90"
+              >
+                Clear Filters
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+              {items.map((item: any) => (
+                <LiveCaseStudyListCard key={item.id} item={item} />
               ))}
-            </select>
-          </div>
-          {filtered ? (
-            <p className="mt-4 text-sm text-slate-500">
-              Showing {items.length} of {all.length}{" "}
-              <button
-                type="button"
-                onClick={clear}
-                className="ml-1 font-semibold text-cyan-700 hover:underline"
-              >
-                Clear filters
-              </button>
-            </p>
-          ) : null}
-        </div>
-      </section>
-      <section className="py-16">
-        {items.length ? (
-          <div className="mx-auto grid max-w-[1180px] gap-6 px-4 sm:px-6 md:grid-cols-2 lg:grid-cols-3">
-            {items.map((item: any) => (
-              <StoryCard key={item.id} item={item} />
-            ))}
-          </div>
-        ) : (
-          <div className="mx-auto max-w-[1180px] px-4 sm:px-6">
-            <div className="rounded-2xl border border-dashed bg-slate-50 p-16 text-center">
-              <Search className="mx-auto h-8 w-8 text-slate-300" />
-              <h3 className="mt-4 text-xl font-bold text-[#05314a]">
-                No case studies match
-              </h3>
-              <p className="mt-2 text-slate-500">Try a different search or amount.</p>
-              <button
-                type="button"
-                onClick={clear}
-                className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-cyan-700 hover:bg-slate-50"
-              >
-                Clear filters
-              </button>
             </div>
-          </div>
-        )}
-      </section>
+          )}
+        </div>
+      </div>
+      <FinancialDisclaimer />
     </Shell>
   );
 }
@@ -2842,6 +2512,7 @@ function ResourcesPage() {
   const [search, setSearch] = useQueryParam("search");
   const [category, setCategory] = useQueryParam("category");
   const [tagParam, setTagParam] = useQueryParam("tags");
+  const [filterOpen, setFilterOpen] = useState(false);
   const chosenTags = tagParam ? tagParam.split("|").filter(Boolean) : [];
   const toggleTag = (key: string) => {
     const next = chosenTags.includes(key)
@@ -2859,12 +2530,11 @@ function ResourcesPage() {
     if (item.category)
       categoryCounts.set(item.category, (categoryCounts.get(item.category) || 0) + 1);
   }
-  const categories = Array.from(categoryCounts.entries()).sort(
-    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
-  );
+  const categories = Array.from(categoryCounts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name]) => name);
   const tags = popularTags(all);
-  const tagName = (key: string) =>
-    tags.find(tag => tag.key === key)?.label || key;
+  const tagName = (key: string) => tags.find(tag => tag.key === key)?.label || key;
 
   const needle = search.trim().toLowerCase();
   const items = all.filter(
@@ -2877,131 +2547,273 @@ function ResourcesPage() {
           .includes(needle))
   );
   const filtered = !!(needle || category || chosenTags.length);
+  const activeFilterCount = (category ? 1 : 0) + chosenTags.length;
   const clear = () => {
     setSearch("");
     setCategory("");
     setTagParam("");
+    setFilterOpen(false);
   };
-  const pill = (active: boolean) =>
-    `rounded-full border px-3.5 py-1.5 text-sm font-semibold transition ${
-      active
-        ? "border-[#05314a] bg-[#05314a] text-white"
-        : "border-slate-200 bg-white text-[#05314a] hover:border-cyan-400"
+  const featured = items.filter(item => item.isFeatured);
+  const regular = items.filter(item => !item.isFeatured);
+  const tab = (active: boolean) =>
+    `flex-shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
+      active ? "bg-[#05314a] text-white shadow-[0_2px_6px_0_rgba(5,49,74,0.18)]" : "bg-gray-100 text-gray-600"
     }`;
+  const SubHeading = ({ children }: { children: React.ReactNode }) => (
+    <h2 className="mb-5 flex items-center gap-2.5 text-lg font-semibold text-gray-800">
+      <span className="inline-block h-5 w-1 flex-shrink-0 rounded-full bg-[#10c0df]" />
+      {children}
+    </h2>
+  );
+
+  // Laid out like the live /resources page.
   return (
     <Shell>
-      <section className="border-b bg-white py-16">
-        <div className="mx-auto max-w-[1180px] px-4 sm:px-6">
-          <p className="text-sm text-slate-500">
-            <a href={path()}>Home</a> / Resources
-          </p>
-          {heading.heroEyebrow && (
-            <p className="mt-6 text-xs font-bold uppercase tracking-[.2em] text-cyan-600">
-              {heading.heroEyebrow}
-            </p>
-          )}
-          <h1 className={`${heading.heroEyebrow ? "mt-3" : "mt-6"} text-5xl font-black text-[#05314a]`}>
-            {heading.heroTitle}
-          </h1>
-          <p className="mt-4 text-lg text-slate-600">{heading.heroSubtitle}</p>
-          <div className="mt-8 flex max-w-2xl items-center gap-2 rounded-xl border bg-slate-50 px-4 focus-within:border-cyan-500 focus-within:bg-white">
-            <Search className="h-5 w-5 text-cyan-600" />
-            <input
-              className="w-full bg-transparent py-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-              placeholder="Search articles, topics, tags…"
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-            />
-          </div>
-          {categories.length > 1 ? (
-            <div className="mt-6 flex flex-wrap gap-2" aria-label="Categories">
-              <button type="button" className={pill(!category)} onClick={() => setCategory("")}>
-                All
-              </button>
-              {categories.map(([name, count]) => (
-                <button
-                  key={name}
-                  type="button"
-                  className={pill(category === name)}
-                  onClick={() => setCategory(category === name ? "" : name)}
-                >
-                  {name}
-                  <span className="ml-1.5 text-xs opacity-60">{count}</span>
-                </button>
-              ))}
+      <div className="min-h-screen bg-[#f8f9fb]">
+        <div className="border-b border-gray-200 bg-white">
+          <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+            <div className="mb-2 flex items-center gap-2 text-sm text-gray-500">
+              <a href={path()} className="transition-colors hover:text-gray-900">
+                Home
+              </a>
+              <span>/</span>
+              <span className="text-gray-900">Resources</span>
             </div>
-          ) : null}
-          {tags.length ? (
-            <div className="mt-5">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                Topics
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Topics">
-                {tags.map(tag => {
-                  const active = chosenTags.includes(tag.key);
-                  return (
+            <h1 className="text-3xl font-bold text-gray-900 sm:text-4xl">{heading.heroTitle}</h1>
+            {heading.heroSubtitle ? (
+              <p className="mt-2 text-base text-gray-500 sm:text-lg">{heading.heroSubtitle}</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="sticky top-16 z-30 border-b border-gray-200 bg-white shadow-[0_1px_8px_0_rgba(5,49,74,0.07)]">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-3 py-3">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  placeholder="Search articles, topics, tags…"
+                  value={search}
+                  onChange={event => setSearch(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-gray-200 bg-gray-50 pl-10 pr-10 text-sm outline-none transition-all focus:border-[#10c0df]"
+                />
+                {search ? (
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => setSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-600"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+              {categories.length > 0 || tags.length > 0 ? (
+                <div className="relative flex-shrink-0">
+                  <button
+                    type="button"
+                    aria-expanded={filterOpen}
+                    onClick={() => setFilterOpen(open => !open)}
+                    className={`flex h-10 select-none items-center gap-2 whitespace-nowrap rounded-lg border px-4 text-sm font-medium transition-all ${
+                      activeFilterCount > 0
+                        ? "border-[#10c0df] bg-[#10c0df] text-white"
+                        : "border-gray-300 bg-white text-[#05314a]"
+                    }`}
+                  >
+                    <SlidersHorizontal className="h-4 w-4 flex-shrink-0" />
+                    <span className="hidden sm:inline">Filter</span>
+                    {activeFilterCount > 0 ? (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-white/30 px-1 text-xs font-bold text-white">
+                        {activeFilterCount}
+                      </span>
+                    ) : null}
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${filterOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {filterOpen ? (
+                    <div className="absolute right-0 z-50 mt-2 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-gray-100 bg-white shadow-[0_8px_32px_0_rgba(5,49,74,0.14)]">
+                      <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                        <span className="text-sm font-semibold text-[#05314a]">Filters</span>
+                        {activeFilterCount > 0 ? (
+                          <button type="button" onClick={clear} className="text-xs font-medium text-[#10c0df] hover:underline">
+                            Clear all
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="max-h-[65vh] overflow-y-auto">
+                        {categories.length > 0 ? (
+                          <div className="border-b border-gray-100 px-4 py-3">
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">Category</p>
+                            <div className="space-y-0.5">
+                              {["", ...categories].map(name => {
+                                const active = category === name;
+                                return (
+                                  <button
+                                    key={name || "all"}
+                                    type="button"
+                                    onClick={() => setCategory(active && name ? "" : name)}
+                                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                                      active ? "bg-[color-mix(in_oklab,#10c0df_10%,white)] font-semibold text-[#05314a]" : "text-gray-700"
+                                    }`}
+                                  >
+                                    <span>{name || "All categories"}</span>
+                                    {active ? <Check className="h-4 w-4 flex-shrink-0 text-[#10c0df]" /> : null}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
+                        {tags.length > 0 ? (
+                          <div className="px-4 py-3">
+                            <p className="mb-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Tags</p>
+                            <div className="flex flex-wrap gap-2">
+                              {tags.map(tag => {
+                                const active = chosenTags.includes(tag.key);
+                                return (
+                                  <button
+                                    key={tag.key}
+                                    type="button"
+                                    aria-pressed={active}
+                                    onClick={() => toggleTag(tag.key)}
+                                    className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-all ${
+                                      active ? "border-[#10c0df] bg-[#10c0df] text-white" : "border-gray-200 bg-gray-50 text-gray-700"
+                                    }`}
+                                  >
+                                    {active ? <Check className="h-3 w-3 flex-shrink-0" /> : null}
+                                    {tag.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="border-t border-gray-100 px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => setFilterOpen(false)}
+                          className="h-9 w-full rounded-lg bg-[#05314a] text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            {categories.length > 0 ? (
+              <div className="relative flex items-center border-t border-gray-100 py-1">
+                <div className="no-scrollbar flex w-full select-none items-center gap-1.5 overflow-x-auto py-1.5">
+                  <button type="button" className={tab(!category)} onClick={() => setCategory("")}>
+                    All
+                  </button>
+                  {categories.map(name => (
                     <button
-                      key={tag.key}
+                      key={name}
                       type="button"
-                      aria-pressed={active}
-                      onClick={() => toggleTag(tag.key)}
-                      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                        active
-                          ? "bg-cyan-600 text-white"
-                          : "bg-cyan-50 text-cyan-900 hover:bg-cyan-100"
-                      }`}
+                      className={tab(category === name)}
+                      onClick={() => setCategory(category === name ? "" : name)}
                     >
-                      #{tag.label}
+                      {name}
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {filtered ? (
+          <div className="mx-auto max-w-6xl px-4 pt-4 sm:px-6 lg:px-8">
+            <div className="flex flex-wrap items-center gap-2">
+              {needle ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+                  <Search className="h-3 w-3 flex-shrink-0" />
+                  &ldquo;{search.trim()}&rdquo;
+                  <button type="button" aria-label="Remove search filter" onClick={() => setSearch("")} className="ml-0.5 hover:text-gray-900">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ) : null}
+              {category ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,#05314a_8%,white)] px-3 py-1 text-xs font-medium text-[#05314a]">
+                  {category}
+                  <button type="button" aria-label="Remove category filter" onClick={() => setCategory("")} className="ml-0.5 transition-opacity hover:opacity-70">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ) : null}
+              {chosenTags.map(key => (
+                <span
+                  key={key}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,#10c0df_12%,white)] px-3 py-1 text-xs font-medium text-[#05314a]"
+                >
+                  {tagName(key)}
+                  <button type="button" aria-label={`Remove tag filter: ${tagName(key)}`} onClick={() => toggleTag(key)} className="ml-0.5 transition-opacity hover:opacity-70">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              <button type="button" onClick={clear} className="text-xs font-medium text-[#10c0df] transition-colors hover:underline">
+                Clear all
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+          {items.length === 0 ? (
+            <div className="rounded-2xl border border-gray-200 bg-white py-20 text-center shadow-[0_1px_4px_0_rgba(5,49,74,0.05)]">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color-mix(in_oklab,#10c0df_10%,white)]">
+                <Search className="h-6 w-6 text-[#10c0df]" />
+              </div>
+              <p className="font-medium text-gray-700">No articles match your filters.</p>
+              <p className="mt-1 text-sm text-gray-400">Try adjusting your search or filter criteria.</p>
+              <button
+                type="button"
+                onClick={clear}
+                className="mt-5 rounded-lg bg-[#05314a] px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : filtered ? (
+            <div>
+              <SubHeading>Results ({items.length})</SubHeading>
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {items.map((item: any) => (
+                  <LiveArticleCard key={item.id} item={item} />
+                ))}
               </div>
             </div>
-          ) : null}
-          {filtered ? (
-            <p className="mt-5 text-sm text-slate-500">
-              Showing {items.length} of {all.length}
-              {chosenTags.length
-                ? ` tagged ${chosenTags.map(tagName).join(" or ")}`
-                : ""}{" "}
-              <button
-                type="button"
-                onClick={clear}
-                className="ml-1 font-semibold text-cyan-700 hover:underline"
-              >
-                Clear filters
-              </button>
-            </p>
-          ) : null}
-        </div>
-      </section>
-      <section className="bg-slate-50 py-16">
-        <div className="mx-auto max-w-[1180px] px-4 sm:px-6">
-          <h2 className="border-l-4 border-cyan-400 pl-3 text-2xl font-bold text-[#05314a]">
-            {category || (filtered ? "Matching articles" : "Featured intelligence")}
-          </h2>
-          {items.length ? (
-            <div className="mt-7 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {items.map((item: any) => (
-                <ArticleCard key={item.id} item={item} />
-              ))}
-            </div>
           ) : (
-            <div className="mt-7 rounded-2xl border border-dashed bg-white p-16 text-center">
-              <Search className="mx-auto h-8 w-8 text-slate-300" />
-              <h3 className="mt-4 text-xl font-bold text-[#05314a]">No articles match</h3>
-              <p className="mt-2 text-slate-500">Try another topic or search.</p>
-              <button
-                type="button"
-                onClick={clear}
-                className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-cyan-700 hover:bg-slate-50"
-              >
-                Clear filters
-              </button>
+            <div className="space-y-10">
+              {featured.length > 0 ? (
+                <div>
+                  <SubHeading>Featured</SubHeading>
+                  <div className="grid gap-6 md:grid-cols-2">
+                    {featured.map((item: any) => (
+                      <LiveArticleCard key={item.id} item={item} featured />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {regular.length > 0 ? (
+                <div>
+                  {featured.length > 0 ? <SubHeading>Latest Articles</SubHeading> : null}
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {regular.map((item: any) => (
+                      <LiveArticleCard key={item.id} item={item} />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </div>
-      </section>
+      </div>
     </Shell>
   );
 }

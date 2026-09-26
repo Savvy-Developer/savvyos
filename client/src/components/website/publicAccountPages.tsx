@@ -734,10 +734,10 @@ export function SaveButton({
         onClick={onClick}
         aria-label={isSaved ? "Remove from saved" : "Save this property"}
         aria-pressed={isSaved}
-        className="rounded-full bg-white/90 p-2 shadow-sm backdrop-blur transition hover:bg-white"
+        className="flex size-9 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm transition-colors hover:bg-white"
       >
         <Heart
-          className={`h-4 w-4 ${isSaved ? "fill-rose-500 text-rose-500" : "text-slate-600"}`}
+          className={`h-4 w-4 ${isSaved ? "fill-red-500 text-red-500" : "text-[#0a0a0a]/70"}`}
         />
       </button>
     );

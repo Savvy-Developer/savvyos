@@ -1845,6 +1845,7 @@ export const websiteRouter = router({
         category: websiteBlogPosts.category,
         tags: websiteBlogPosts.tags,
         publishedAt: websiteBlogPosts.publishedAt,
+        isFeatured: websiteBlogPosts.isFeatured,
         authorName: users.name,
         authorImageUrl: userProfiles.profilePhotoUrl,
       })
