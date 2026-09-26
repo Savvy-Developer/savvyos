@@ -37,9 +37,9 @@ import CommissionPage from "./pages/CommissionPage";
 import GroupLeaderCommissionsPage from "./pages/GroupLeaderCommissionsPage";
 import GroupLeaderDashboard from "./pages/GroupLeaderDashboard";
 import UsersPage from "./pages/UsersPage";
-import LeadSourcesPage from "./pages/LeadSourcesPage";
-import GroupsPage from "./pages/GroupsPage";
-import PayoutReportPage from "./pages/PayoutReportPage";
+import LeadSourcesPage from './pages/LeadSourcesPage';
+import GroupsPage from './pages/GroupsPage';
+import PayoutReportPage from './pages/PayoutReportPage';
 import DocumentsPage from "./pages/DocumentsPage";
 import AgentConnectionDetail from "./pages/AgentConnectionDetail";
 import AdminApprovalsPage from "./pages/AdminApprovalsPage";
@@ -147,10 +147,7 @@ import ShortLinksPage from "./pages/ShortLinksPage";
 import VendorListManagementPage from "./pages/VendorListManagementPage";
 import VendorListsAdminPage from "./pages/VendorListsAdminPage";
 import PublicVendorListPage from "./pages/PublicVendorListPage";
-import {
-  VendorPaymentCanceledPage,
-  VendorPaymentConfirmedPage,
-} from "./pages/VendorPaymentStatusPage";
+import { VendorPaymentCanceledPage, VendorPaymentConfirmedPage } from "./pages/VendorPaymentStatusPage";
 import PtoPage from "./pages/PtoPage";
 import PtoManagerQueuePage from "./pages/PtoManagerQueuePage";
 import PtoAdministrationPage from "./pages/PtoAdministrationPage";
@@ -228,8 +225,7 @@ function ChecklistsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const role = (user as any)?.role;
   const isAdmin = role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (role === "agent") return <>{children}</>;
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
@@ -238,9 +234,7 @@ function ChecklistsRoute({ children }: { children: React.ReactNode }) {
 }
 
 function ChatRoute({ children }: { children: React.ReactNode }) {
-  const { data: access, isLoading } = trpc.chat.access.useQuery(undefined, {
-    refetchInterval: 30000,
-  });
+  const { data: access, isLoading } = trpc.chat.access.useQuery(undefined, { refetchInterval: 30000 });
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!access?.canAccess) return <NotFound />;
   return <>{children}</>;
@@ -281,47 +275,33 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  return (
-    <>
-      <ActivityDownloadTracker />
-      <IsaActivityTracker />
-      {children}
-    </>
-  );
+  return <><ActivityDownloadTracker /><IsaActivityTracker />{children}</>;
 }
 
 function IsmDashboardRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewIsmDashboard) return <NotFound />;
   return <>{children}</>;
 }
 
-function ConversationIntelligenceRoute({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function ConversationIntelligenceRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
-  if (!(permissions as any)?.canViewConversationIntelligence)
-    return <NotFound />;
+  if (!(permissions as any)?.canViewConversationIntelligence) return <NotFound />;
   return <>{children}</>;
 }
 
 function CustomReportsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewCustomReports) return <NotFound />;
@@ -331,8 +311,7 @@ function CustomReportsRoute({ children }: { children: React.ReactNode }) {
 function AgentMarketsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewAgentMarkets) return <NotFound />;
@@ -342,8 +321,7 @@ function AgentMarketsRoute({ children }: { children: React.ReactNode }) {
 function AgentCelebrationsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewAgentCelebrations) return <NotFound />;
@@ -353,23 +331,17 @@ function AgentCelebrationsRoute({ children }: { children: React.ReactNode }) {
 function AgentAppointmentsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewAgentAppointments) return <NotFound />;
   return <>{children}</>;
 }
 
-function OperationsEscalationsRoute({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function OperationsEscalationsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewOperationsEscalations) return <NotFound />;
@@ -379,8 +351,7 @@ function OperationsEscalationsRoute({
 function RecruitingRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewRecruiting) return <NotFound />;
@@ -390,8 +361,7 @@ function RecruitingRoute({ children }: { children: React.ReactNode }) {
 function MarketMatchQuizRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewMarketMatchQuiz) return <NotFound />;
@@ -401,8 +371,7 @@ function MarketMatchQuizRoute({ children }: { children: React.ReactNode }) {
 function AffiliateLinksRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewAffiliateLinks) return <NotFound />;
@@ -412,8 +381,7 @@ function AffiliateLinksRoute({ children }: { children: React.ReactNode }) {
 function LandingPagesRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewLandingPages) return <NotFound />;
@@ -423,8 +391,7 @@ function LandingPagesRoute({ children }: { children: React.ReactNode }) {
 function ShortLinksRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewShortLinks) return <NotFound />;
@@ -434,8 +401,7 @@ function ShortLinksRoute({ children }: { children: React.ReactNode }) {
 function WebinarRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewWebinars) return <NotFound />;
@@ -445,8 +411,7 @@ function WebinarRoute({ children }: { children: React.ReactNode }) {
 function EventsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewEvents) return <NotFound />;
@@ -456,8 +421,7 @@ function EventsRoute({ children }: { children: React.ReactNode }) {
 function WebsiteRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewWebsite) return <NotFound />;
@@ -467,8 +431,7 @@ function WebsiteRoute({ children }: { children: React.ReactNode }) {
 function CoachFeedbackRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewCoachFeedback) return <NotFound />;
@@ -478,8 +441,7 @@ function CoachFeedbackRoute({ children }: { children: React.ReactNode }) {
 function AgentRenewalsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewAgentRenewals) return <NotFound />;
@@ -490,8 +452,7 @@ function ReviewsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const role = (user as any)?.role;
   const isAdmin = role === "admin";
-  const { data: permissions, isLoading } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
   if (role === "agent") return <>{children}</>;
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
@@ -522,9 +483,7 @@ function PtoAdministrationRoute({ children }: { children: React.ReactNode }) {
 
 function PulseRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { data, isLoading, error } = trpc.pulse.shell.useQuery(undefined, {
-    enabled: !!user,
-  });
+  const { data, isLoading, error } = trpc.pulse.shell.useQuery(undefined, { enabled: !!user });
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (error || !data?.hasPulseAccess) return <NotFound />;
   return <>{children}</>;
@@ -537,9 +496,7 @@ function PulseRoute({ children }: { children: React.ReactNode }) {
  */
 function PulseMemberRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { data, isLoading, error } = trpc.pulse.shell.useQuery(undefined, {
-    enabled: !!user,
-  });
+  const { data, isLoading, error } = trpc.pulse.shell.useQuery(undefined, { enabled: !!user });
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (error || !data?.hasPulseAccess) return <NotFound />;
   return <>{children}</>;
@@ -548,9 +505,7 @@ function PulseMemberRoute({ children }: { children: React.ReactNode }) {
 /** Meeting membership now lives in the collapsible Pulse sidebar section. */
 function PulseMeetingsIndexRedirect() {
   const [, navigate] = useLocation();
-  useEffect(() => {
-    navigate("/pulse/dashboard", { replace: true });
-  }, [navigate]);
+  useEffect(() => { navigate("/pulse/dashboard", { replace: true }); }, [navigate]);
   return <div className="min-h-[40vh]" />;
 }
 
@@ -558,776 +513,149 @@ function Router() {
   return (
     <AuthGuard>
       <Switch>
-        <Route
-          path="/leaderboard/present"
-          component={AgentLeaderboardPresentationPage}
-        />
+        <Route path="/leaderboard/present" component={AgentLeaderboardPresentationPage} />
         <Route>
           {() => (
             <AppLayout>
               <Switch>
-                <Route path="/" component={Dashboard} />
-                <Route path="/ism-dashboard">
-                  {() => (
-                    <IsmDashboardRoute>
-                      <IsmDashboardPage />
-                    </IsmDashboardRoute>
-                  )}
-                </Route>
-                <Route path="/isa-stats">
-                  {() => (
-                    <AdminOrIsaRoute>
-                      <IsaStatsPage />
-                    </AdminOrIsaRoute>
-                  )}
-                </Route>
-                <Route path="/contacts">
-                  {() => (
-                    <NonAgentRoute>
-                      <ContactsPage />
-                    </NonAgentRoute>
-                  )}
-                </Route>
-                <Route path="/contacts/:id">
-                  {() => (
-                    <NonAgentRoute>
-                      <ContactDetail />
-                    </NonAgentRoute>
-                  )}
-                </Route>
-                <Route path="/agent-appointments">
-                  {() => (
-                    <AgentAppointmentsRoute>
-                      <AgentAppointmentsPage />
-                    </AgentAppointmentsRoute>
-                  )}
-                </Route>
-                <Route path="/market-match/:id">
-                  {() => (
-                    <AdminOrIsaRoute>
-                      <MarketMatchCallPage />
-                    </AdminOrIsaRoute>
-                  )}
-                </Route>
-                <Route path="/admin/market-match-quiz">
-                  {() => (
-                    <MarketMatchQuizRoute>
-                      <MarketMatchQuizAdminPage />
-                    </MarketMatchQuizRoute>
-                  )}
-                </Route>
-                <Route path="/agent-celebrations">
-                  {() => (
-                    <AgentCelebrationsRoute>
-                      <AgentCelebrationPage />
-                    </AgentCelebrationsRoute>
-                  )}
-                </Route>
-                <Route path="/recruiting/:id">
-                  {({ id }: any) => (
-                    <RecruitingRoute>
-                      <RecruitDetailPage id={id} />
-                    </RecruitingRoute>
-                  )}
-                </Route>
-                <Route path="/recruiting">
-                  {() => (
-                    <RecruitingRoute>
-                      <RecruitingPage />
-                    </RecruitingRoute>
-                  )}
-                </Route>
-                <Route path="/transactions" component={TransactionsPage} />
-                <Route path="/transactions/:id" component={TransactionDetail} />
-                <Route path="/reviews">
-                  {() => (
-                    <ReviewsRoute>
-                      <ReviewsPage />
-                    </ReviewsRoute>
-                  )}
-                </Route>
-                <Route path="/coach-feedback">
-                  {() => (
-                    <CoachFeedbackRoute>
-                      <CoachFeedbackPage />
-                    </CoachFeedbackRoute>
-                  )}
-                </Route>
-                <Route path="/vendors">
-                  {() => (
-                    <AgentOnlyRoute>
-                      <VendorListManagementPage />
-                    </AgentOnlyRoute>
-                  )}
-                </Route>
-                <Route path="/properties" component={PropertiesPage} />
-                <Route path="/properties/:id" component={PropertyDetail} />
-                <Route
-                  path="/properties/:id/proforma"
-                  component={ProformaPage}
-                />
-                <Route path="/proformas" component={MyProformasPage} />
-                <Route
-                  path="/proforma-defaults"
-                  component={ProformaDefaultsPage}
-                />
-                <Route path="/pipeline" component={PipelinePage} />
-                <Route path="/daily-report">
-                  {() => (
-                    <AgentOnlyRoute>
-                      <DailyReportPage />
-                    </AgentOnlyRoute>
-                  )}
-                </Route>
-                <Route path="/my-market-ai">
-                  {() => (
-                    <AgentOnlyRoute>
-                      <MyMarketAIPage />
-                    </AgentOnlyRoute>
-                  )}
-                </Route>
-                <Route
-                  path="/market-profile-survey"
-                  component={MarketProfileSurveyPage}
-                />
-                <Route path="/stats">
-                  {() => (
-                    <AgentOnlyRoute>
-                      <StatsPage />
-                    </AgentOnlyRoute>
-                  )}
-                </Route>
-                <Route path="/referral-partners">
-                  {() => (
-                    <AgentOnlyRoute>
-                      <ReferralPartnersPage />
-                    </AgentOnlyRoute>
-                  )}
-                </Route>
-                <Route path="/pipeline/:id" component={AgentConnectionDetail} />
-                <Route
-                  path="/connection-requests"
-                  component={ConnectionRequestsPage}
-                />
-                <Route
-                  path="/request-connection"
-                  component={RequestConnectionPage}
-                />
-                <Route path="/tasks" component={TasksPage} />
-                <Route path="/my-tasks" component={MyTasksPage} />
-                <Route path="/tasks/:id" component={TaskDetailPage} />
-                <Route path="/chat">
-                  {() => (
-                    <ChatRoute>
-                      <ChatPage />
-                    </ChatRoute>
-                  )}
-                </Route>
-                <Route path="/checklists">
-                  {() => (
-                    <ChecklistsRoute>
-                      <ChecklistsPage />
-                    </ChecklistsRoute>
-                  )}
-                </Route>
-                <Route path="/pto">
-                  {() => (
-                    <PtoEmployeeRoute>
-                      <PtoPage />
-                    </PtoEmployeeRoute>
-                  )}
-                </Route>
-                <Route path="/pto/approvals">
-                  {() => (
-                    <PtoApprovalsRoute>
-                      <PtoManagerQueuePage />
-                    </PtoApprovalsRoute>
-                  )}
-                </Route>
-                <Route path="/pto/admin">
-                  {() => (
-                    <PtoAdministrationRoute>
-                      <PtoAdministrationPage />
-                    </PtoAdministrationRoute>
-                  )}
-                </Route>
-                <Route path="/analytics/legacy">
-                  {() => (
-                    <AdminRoute>
-                      <ReportingSuitePage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/analytics/conversation-intelligence">
-                  {() => (
-                    <ConversationIntelligenceRoute>
-                      <ConversationIntelligencePage />
-                    </ConversationIntelligenceRoute>
-                  )}
-                </Route>
-                <Route path="/analytics/lead-cohorts">
-                  {() => (
-                    <AdminRoute>
-                      <LeadCohortConversionPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/analytics/lead-flow-by-ad">
-                  {() => (
-                    <AdminRoute>
-                      <LeadFlowByAdPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/analytics">
-                  {() => (
-                    <AdminRoute>
-                      <ReportingSuitePage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/custom-reports">
-                  {() => (
-                    <CustomReportsRoute>
-                      <CustomReportsPage />
-                    </CustomReportsRoute>
-                  )}
-                </Route>
-                <Route path="/commission" component={CommissionPage} />
-                <Route
-                  path="/group-leader-commissions"
-                  component={GroupLeaderCommissionsPage}
-                />
-                <Route
-                  path="/group-leader-dashboard"
-                  component={GroupLeaderDashboard}
-                />
-                <Route path="/users">
-                  {() => (
-                    <AdminRoute>
-                      <UsersPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/affiliate-links">
-                  {() => (
-                    <AffiliateLinksRoute>
-                      <AffiliateLinksPage />
-                    </AffiliateLinksRoute>
-                  )}
-                </Route>
-                <Route path="/lead-sources">
-                  {() => (
-                    <AdminRoute>
-                      <LeadSourcesPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/groups">
-                  {() => (
-                    <AdminRoute>
-                      <GroupsPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/payout-report">
-                  {() => (
-                    <AdminRoute>
-                      <PayoutReportPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/documents">
-                  {() => (
-                    <AdminRoute>
-                      <DocumentsPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/smart-plans/new">
-                  {() => (
-                    <AdminRoute>
-                      <SmartPlanEditorPage isNew />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/smart-plans/:id">
-                  {() => (
-                    <AdminRoute>
-                      <SmartPlanEditorPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/smart-plans">
-                  {() => (
-                    <AdminRoute>
-                      <SmartPlansPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/approvals">
-                  {() => (
-                    <AdminRoute>
-                      <AdminApprovalsPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/listings" component={ListingsPage} />
-                <Route path="/listings/:id" component={ListingDetail} />
-                <Route path="/email-test">
-                  {() => (
-                    <AdminRoute>
-                      <EmailTestPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/agent-markets">
-                  {() => (
-                    <AgentMarketsRoute>
-                      <AgentMarketsPage />
-                    </AgentMarketsRoute>
-                  )}
-                </Route>
-                <Route path="/admin/market-match-settings">
-                  {() => (
-                    <AdminRoute>
-                      <MarketMatchSettingsPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/market-performance">
-                  {() => (
-                    <AdminRoute>
-                      <MarketPerformancePage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/transaction-reporting">
-                  {() => (
-                    <AdminRoute>
-                      <TransactionReportingPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/feedback">
-                  {() => (
-                    <AdminRoute>
-                      <FeedbackPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/onboarding">
-                  {() => (
-                    <AdminRoute>
-                      <OnboardingPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/onboarding-templates">
-                  {() => (
-                    <AdminRoute>
-                      <OnboardingPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/onboarding-tracker">
-                  {() => (
-                    <AdminRoute>
-                      <OnboardingPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/onboarding-report">
-                  {() => (
-                    <AdminRoute>
-                      <OnboardingPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/leadership-dashboard">
-                  {() => (
-                    <AdminRoute>
-                      <LeadershipDashboardPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/agent-renewals">
-                  {() => (
-                    <AgentRenewalsRoute>
-                      <AgentRenewalsPage />
-                    </AgentRenewalsRoute>
-                  )}
-                </Route>
-                <Route path="/commission-exceptions">
-                  {() => (
-                    <AdminRoute>
-                      <CommissionExceptionsPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/referrals">
-                  {() => (
-                    <AdminOrIsaRoute>
-                      <ReferralsPage />
-                    </AdminOrIsaRoute>
-                  )}
-                </Route>
-                <Route path="/referrals/agents/:id">
-                  {() => (
-                    <AdminOrIsaRoute>
-                      <ReferralAgentDetailPage />
-                    </AdminOrIsaRoute>
-                  )}
-                </Route>
-                <Route path="/referrals/:id">
-                  {() => (
-                    <AdminOrIsaRoute>
-                      <ReferralDetailPage />
-                    </AdminOrIsaRoute>
-                  )}
-                </Route>
-                <Route path="/my-onboarding" component={MyOnboardingPage} />
-                <Route path="/org-chart" component={OrgChartPage} />
-                <Route path="/agent-directory" component={AgentDirectoryPage} />
-                <Route path="/roles-responsibilities">
-                  {() => (
-                    <AdminRoute>
-                      <RolesResponsibilitiesPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/roles-responsibilities/:id">
-                  {() => (
-                    <AdminRoute>
-                      <RoleResponsibilityDetailPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/meetings/:id/run">
-                  {({ id }: any) => (
-                    <PulseMemberRoute>
-                      <PulseMeetingRunPage meetingId={id} />
-                    </PulseMemberRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/settings/meetings/:id">
-                  {({ id }: any) => (
-                    <PulseRoute>
-                      <PulseMeetingSettingsPage meetingId={id} />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/settings/create">
-                  {() => (
-                    <PulseRoute>
-                      <PulseCreateMeetingPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/meetings/:id">
-                  {() => (
-                    <PulseMemberRoute>
-                      <PulseFoundationPage />
-                    </PulseMemberRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/meetings">
-                  {() => (
-                    <PulseMemberRoute>
-                      <PulseMeetingsIndexRedirect />
-                    </PulseMemberRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/mission">
-                  {() => (
-                    <PulseRoute>
-                      <PulseMissionControlPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/settings/outstanding">
-                  {() => (
-                    <PulseRoute>
-                      <PulseMissionControlAdminPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/settings/attention">
-                  {() => (
-                    <PulseRoute>
-                      <PulseGlobalAttentionPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/settings/notifications">
-                  {() => (
-                    <PulseRoute>
-                      <PulseNotificationPreferencesPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/settings/permissioning">
-                  {() => (
-                    <PulseRoute>
-                      <PulsePermissioningPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/settings/effectiveness">
-                  {() => (
-                    <PulseRoute>
-                      <PulseMeetingEffectivenessPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/dashboard">
-                  {() => (
-                    <PulseRoute>
-                      <PulseMyWorkPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/weekly-prep">
-                  {() => (
-                    <PulseRoute>
-                      <PulseMyWorkPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/work">
-                  {() => (
-                    <PulseRoute>
-                      <PulseMyWorkPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/inputs">
-                  {() => (
-                    <PulseRoute>
-                      <PulseMyWorkPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse/settings">
-                  {() => (
-                    <PulseRoute>
-                      <PulseSettingsHubPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/pulse">
-                  {() => (
-                    <PulseRoute>
-                      <PulseMyWorkPage />
-                    </PulseRoute>
-                  )}
-                </Route>
-                <Route path="/profile" component={ProfilePage} />
-                <Route path="/agents/:id" component={AgentProfilePage} />
-                <Route path="/analytics/market/:id">
-                  {(params: any) => (
-                    <AdminRoute>
-                      <MarketDrillDownPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route
-                  path="/marketing-requests"
-                  component={MarketingRequestsPage}
-                />
-                <Route path="/marketing-admin">
-                  {() => (
-                    <AdminRoute>
-                      <MarketingAdminPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/webinars">
-                  {() => (
-                    <WebinarRoute>
-                      <WebinarsAdminPage />
-                    </WebinarRoute>
-                  )}
-                </Route>
-                <Route path="/events">
-                  {() => (
-                    <EventsRoute>
-                      <EventsPage />
-                    </EventsRoute>
-                  )}
-                </Route>
-                <Route path="/website">
-                  {() => (
-                    <WebsiteRoute>
-                      <WebsitePage />
-                    </WebsiteRoute>
-                  )}
-                </Route>
-                <Route path="/landing-pages">
-                  {() => (
-                    <LandingPagesRoute>
-                      <LandingPagesPage />
-                    </LandingPagesRoute>
-                  )}
-                </Route>
-                <Route path="/short-links">
-                  {() => (
-                    <ShortLinksRoute>
-                      <ShortLinksPage />
-                    </ShortLinksRoute>
-                  )}
-                </Route>
-                <Route path="/tech-requests" component={TechRequestsPage} />
-                <Route path="/projects" component={ProjectsPage} />
-                <Route
-                  path="/projects/l10-todos"
-                  component={L10TodosProjectPage}
-                />
-                <Route
-                  path="/projects/personal-todos"
-                  component={PersonalTodosPage}
-                />
-                <Route path="/projects/:id" component={ProjectDetailPage} />
-                <Route
-                  path="/departments"
-                  component={DepartmentManagementPage}
-                />
-                <Route path="/kb" component={KnowledgeBasePage} />
-                <Route path="/agent-support" component={AgentSupportPage} />
-                <Route path="/duplicates">
-                  {() => (
-                    <AdminRoute>
-                      <DuplicatesPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/webhooks">
-                  {() => (
-                    <AdminRoute>
-                      <WebhooksPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/email-notifications">
-                  {() => (
-                    <AdminRoute>
-                      <EmailNotificationsPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route
-                  path="/agent-market-feedback/:requestId"
-                  component={AgentMarketProfileFeedbackPage}
-                />
-                <Route path="/admin/vendors">
-                  {() => (
-                    <AdminRoute>
-                      <VendorListsAdminPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/resend-inbox">
-                  {() => (
-                    <AdminOrIsaRoute>
-                      <ResendInboxPage />
-                    </AdminOrIsaRoute>
-                  )}
-                </Route>
-                <Route path="/marketing-text-inbox">
-                  {() => (
-                    <AdminOrIsaRoute>
-                      <MarketingTextInboxPage />
-                    </AdminOrIsaRoute>
-                  )}
-                </Route>
-                <Route path="/partner-links">
-                  {() => (
-                    <AdminRoute>
-                      <PartnerLinksPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/goals">
-                  {() => (
-                    <AdminRoute>
-                      <GoalsPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/job-board">
-                  {() => (
-                    <AdminRoute>
-                      <JobBoardAdminPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/talent-profile-admin">
-                  {() => (
-                    <AdminRoute>
-                      <TalentProfileAdminPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/contacts" component={ContactsPage} />
-                <Route path="/communications">
-                  {() => (
-                    <IsaRoute>
-                      <CommunicationsPage />
-                    </IsaRoute>
-                  )}
-                </Route>
-                <Route path="/leaderboard" component={AgentLeaderboardPage} />
-                <Route path="/admin/activity">
-                  {() => (
-                    <AdminRoute>
-                      <ActivityTimelinePage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/admin/super-permissions">
-                  {() => (
-                    <AdminRoute>
-                      <SuperPermissionsPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/operations-escalations">
-                  {() => (
-                    <OperationsEscalationsRoute>
-                      <OperationsEscalationsPage />
-                    </OperationsEscalationsRoute>
-                  )}
-                </Route>
-                <Route path="/coaching">
-                  {() => (
-                    <AdminRoute>
-                      <CoachingHubPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/coaching/sessions">
-                  {() => (
-                    <AdminRoute>
-                      <CoachingSessionsPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/coaching/agent/:id">
-                  {() => (
-                    <AdminRoute>
-                      <CoachingAgentPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/coaching/session/:id">
-                  {() => (
-                    <AdminRoute>
-                      <CoachingSessionPage />
-                    </AdminRoute>
-                  )}
-                </Route>
-                <Route path="/hot-leads" component={HotLeadsPage} />
-                <Route path="/passwords" component={PasswordsPage} />
+          <Route path="/" component={Dashboard} />
+          <Route path="/ism-dashboard">{() => <IsmDashboardRoute><IsmDashboardPage /></IsmDashboardRoute>}</Route>
+          <Route path="/isa-stats">{() => <AdminOrIsaRoute><IsaStatsPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/contacts">{() => <NonAgentRoute><ContactsPage /></NonAgentRoute>}</Route>
+          <Route path="/contacts/:id">{() => <NonAgentRoute><ContactDetail /></NonAgentRoute>}</Route>
+          <Route path="/agent-appointments">{() => <AgentAppointmentsRoute><AgentAppointmentsPage /></AgentAppointmentsRoute>}</Route>
+          <Route path="/market-match/:id">{() => <AdminOrIsaRoute><MarketMatchCallPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/admin/market-match-quiz">{() => <MarketMatchQuizRoute><MarketMatchQuizAdminPage /></MarketMatchQuizRoute>}</Route>
+          <Route path="/agent-celebrations">{() => <AgentCelebrationsRoute><AgentCelebrationPage /></AgentCelebrationsRoute>}</Route>
+          <Route path="/recruiting/:id">{({ id }: any) => <RecruitingRoute><RecruitDetailPage id={id} /></RecruitingRoute>}</Route>
+          <Route path="/recruiting">{() => <RecruitingRoute><RecruitingPage /></RecruitingRoute>}</Route>
+          <Route path="/transactions" component={TransactionsPage} />
+          <Route path="/transactions/:id" component={TransactionDetail} />
+          <Route path="/reviews">{() => <ReviewsRoute><ReviewsPage /></ReviewsRoute>}</Route>
+          <Route path="/coach-feedback">{() => <CoachFeedbackRoute><CoachFeedbackPage /></CoachFeedbackRoute>}</Route>
+          <Route path="/vendors">{() => <AgentOnlyRoute><VendorListManagementPage /></AgentOnlyRoute>}</Route>
+          <Route path="/properties" component={PropertiesPage} />
+          <Route path="/properties/:id" component={PropertyDetail} />
+          <Route path="/properties/:id/proforma" component={ProformaPage} />
+          <Route path="/proformas" component={MyProformasPage} />
+          <Route path="/proforma-defaults" component={ProformaDefaultsPage} />
+          <Route path="/pipeline" component={PipelinePage} />
+          <Route path="/daily-report">{() => <AgentOnlyRoute><DailyReportPage /></AgentOnlyRoute>}</Route>
+          <Route path="/my-market-ai">{() => <AgentOnlyRoute><MyMarketAIPage /></AgentOnlyRoute>}</Route>
+          <Route path="/market-profile-survey" component={MarketProfileSurveyPage} />
+          <Route path="/stats">{() => <AgentOnlyRoute><StatsPage /></AgentOnlyRoute>}</Route>
+          <Route path="/referral-partners">{() => <AgentOnlyRoute><ReferralPartnersPage /></AgentOnlyRoute>}</Route>
+          <Route path="/pipeline/:id" component={AgentConnectionDetail} />
+          <Route path="/connection-requests" component={ConnectionRequestsPage} />
+          <Route path="/request-connection" component={RequestConnectionPage} />
+          <Route path="/tasks" component={TasksPage} />
+          <Route path="/my-tasks" component={MyTasksPage} />
+          <Route path="/tasks/:id" component={TaskDetailPage} />
+          <Route path="/chat">{() => <ChatRoute><ChatPage /></ChatRoute>}</Route>
+          <Route path="/checklists">{() => <ChecklistsRoute><ChecklistsPage /></ChecklistsRoute>}</Route>
+          <Route path="/pto">{() => <PtoEmployeeRoute><PtoPage /></PtoEmployeeRoute>}</Route>
+          <Route path="/pto/approvals">{() => <PtoApprovalsRoute><PtoManagerQueuePage /></PtoApprovalsRoute>}</Route>
+          <Route path="/pto/admin">{() => <PtoAdministrationRoute><PtoAdministrationPage /></PtoAdministrationRoute>}</Route>
+          <Route path="/analytics/legacy">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
+          <Route path="/analytics/conversation-intelligence">{() => <ConversationIntelligenceRoute><ConversationIntelligencePage /></ConversationIntelligenceRoute>}</Route>
+          <Route path="/analytics/lead-cohorts">{() => <AdminRoute><LeadCohortConversionPage /></AdminRoute>}</Route>
+          <Route path="/analytics/lead-flow-by-ad">{() => <AdminRoute><LeadFlowByAdPage /></AdminRoute>}</Route>
+          <Route path="/analytics">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
+          <Route path="/custom-reports">{() => <CustomReportsRoute><CustomReportsPage /></CustomReportsRoute>}</Route>
+          <Route path="/commission" component={CommissionPage} />
+          <Route path="/group-leader-commissions" component={GroupLeaderCommissionsPage} />
+          <Route path="/group-leader-dashboard" component={GroupLeaderDashboard} />
+          <Route path="/users">{() => <AdminRoute><UsersPage /></AdminRoute>}</Route>
+          <Route path="/affiliate-links">{() => <AffiliateLinksRoute><AffiliateLinksPage /></AffiliateLinksRoute>}</Route>
+          <Route path="/lead-sources">{() => <AdminRoute><LeadSourcesPage /></AdminRoute>}</Route>
+          <Route path="/groups">{() => <AdminRoute><GroupsPage /></AdminRoute>}</Route>
+          <Route path="/payout-report">{() => <AdminRoute><PayoutReportPage /></AdminRoute>}</Route>
+          <Route path="/documents">{() => <AdminRoute><DocumentsPage /></AdminRoute>}</Route>
+          <Route path="/smart-plans/new">{() => <AdminRoute><SmartPlanEditorPage isNew /></AdminRoute>}</Route>
+          <Route path="/smart-plans/:id">{() => <AdminRoute><SmartPlanEditorPage /></AdminRoute>}</Route>
+          <Route path="/smart-plans">{() => <AdminRoute><SmartPlansPage /></AdminRoute>}</Route>
+          <Route path="/approvals">{() => <AdminRoute><AdminApprovalsPage /></AdminRoute>}</Route>
+          <Route path="/listings" component={ListingsPage} />
+          <Route path="/listings/:id" component={ListingDetail} />
+          <Route path="/email-test">{() => <AdminRoute><EmailTestPage /></AdminRoute>}</Route>
+          <Route path="/agent-markets">{() => <AgentMarketsRoute><AgentMarketsPage /></AgentMarketsRoute>}</Route>
+          <Route path="/admin/market-match-settings">{() => <AdminRoute><MarketMatchSettingsPage /></AdminRoute>}</Route>
+          <Route path="/market-performance">{() => <AdminRoute><MarketPerformancePage /></AdminRoute>}</Route>
+          <Route path="/transaction-reporting">{() => <AdminRoute><TransactionReportingPage /></AdminRoute>}</Route>
+          <Route path="/feedback">{() => <AdminRoute><FeedbackPage /></AdminRoute>}</Route>
+          <Route path="/onboarding">{() => <AdminRoute><OnboardingPage /></AdminRoute>}</Route>
+          <Route path="/onboarding-templates">{() => <AdminRoute><OnboardingPage /></AdminRoute>}</Route>
+          <Route path="/onboarding-tracker">{() => <AdminRoute><OnboardingPage /></AdminRoute>}</Route>
+          <Route path="/onboarding-report">{() => <AdminRoute><OnboardingPage /></AdminRoute>}</Route>
+          <Route path="/leadership-dashboard">{() => <AdminRoute><LeadershipDashboardPage /></AdminRoute>}</Route>
+          <Route path="/agent-renewals">{() => <AgentRenewalsRoute><AgentRenewalsPage /></AgentRenewalsRoute>}</Route>
+          <Route path="/commission-exceptions">{() => <AdminRoute><CommissionExceptionsPage /></AdminRoute>}</Route>
+          <Route path="/referrals">{() => <AdminOrIsaRoute><ReferralsPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/referrals/agents/:id">{() => <AdminOrIsaRoute><ReferralAgentDetailPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/referrals/:id">{() => <AdminOrIsaRoute><ReferralDetailPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/my-onboarding" component={MyOnboardingPage} />
+          <Route path="/org-chart" component={OrgChartPage} />
+          <Route path="/agent-directory" component={AgentDirectoryPage} />
+          <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
+          <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
+          <Route path="/pulse/meetings/:id/run">{({ id }: any) => <PulseMemberRoute><PulseMeetingRunPage meetingId={id} /></PulseMemberRoute>}</Route>
+          <Route path="/pulse/settings/meetings/:id">{({ id }: any) => <PulseRoute><PulseMeetingSettingsPage meetingId={id} /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/create">{() => <PulseRoute><PulseCreateMeetingPage /></PulseRoute>}</Route>
+          <Route path="/pulse/meetings/:id">{() => <PulseMemberRoute><PulseFoundationPage /></PulseMemberRoute>}</Route>
+          <Route path="/pulse/meetings">{() => <PulseMemberRoute><PulseMeetingsIndexRedirect /></PulseMemberRoute>}</Route>
+          <Route path="/pulse/mission">{() => <PulseRoute><PulseMissionControlPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/outstanding">{() => <PulseRoute><PulseMissionControlAdminPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/attention">{() => <PulseRoute><PulseGlobalAttentionPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/notifications">{() => <PulseRoute><PulseNotificationPreferencesPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/permissioning">{() => <PulseRoute><PulsePermissioningPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/effectiveness">{() => <PulseRoute><PulseMeetingEffectivenessPage /></PulseRoute>}</Route>
+          <Route path="/pulse/dashboard">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
+          <Route path="/pulse/weekly-prep">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
+          <Route path="/pulse/work">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
+          <Route path="/pulse/inputs">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings">{() => <PulseRoute><PulseSettingsHubPage /></PulseRoute>}</Route>
+          <Route path="/pulse">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
+          <Route path="/profile" component={ProfilePage} />
+          <Route path="/agents/:id" component={AgentProfilePage} />
+          <Route path="/analytics/market/:id">{(params: any) => <AdminRoute><MarketDrillDownPage /></AdminRoute>}</Route>
+          <Route path="/marketing-requests" component={MarketingRequestsPage} />
+          <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
+          <Route path="/webinars">{() => <WebinarRoute><WebinarsAdminPage /></WebinarRoute>}</Route>
+          <Route path="/events">{() => <EventsRoute><EventsPage /></EventsRoute>}</Route>
+          <Route path="/website">{() => <WebsiteRoute><WebsitePage /></WebsiteRoute>}</Route>
+          <Route path="/landing-pages">{() => <LandingPagesRoute><LandingPagesPage /></LandingPagesRoute>}</Route>
+          <Route path="/short-links">{() => <ShortLinksRoute><ShortLinksPage /></ShortLinksRoute>}</Route>
+          <Route path="/tech-requests" component={TechRequestsPage} />
+          <Route path="/projects" component={ProjectsPage} />
+          <Route path="/projects/l10-todos" component={L10TodosProjectPage} />
+          <Route path="/projects/personal-todos" component={PersonalTodosPage} />
+          <Route path="/projects/:id" component={ProjectDetailPage} />
+          <Route path="/departments" component={DepartmentManagementPage} />
+          <Route path="/kb" component={KnowledgeBasePage} />
+          <Route path="/agent-support" component={AgentSupportPage} />
+          <Route path="/duplicates">{() => <AdminRoute><DuplicatesPage /></AdminRoute>}</Route>
+          <Route path="/webhooks">{() => <AdminRoute><WebhooksPage /></AdminRoute>}</Route>
+          <Route path="/email-notifications">{() => <AdminRoute><EmailNotificationsPage /></AdminRoute>}</Route>
+          <Route path="/agent-market-feedback/:requestId" component={AgentMarketProfileFeedbackPage} />
+          <Route path="/admin/vendors">{() => <AdminRoute><VendorListsAdminPage /></AdminRoute>}</Route>
+          <Route path="/resend-inbox">{() => <AdminOrIsaRoute><ResendInboxPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/marketing-text-inbox">{() => <AdminOrIsaRoute><MarketingTextInboxPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/partner-links">{() => <AdminRoute><PartnerLinksPage /></AdminRoute>}</Route>
+          <Route path="/goals">{() => <AdminRoute><GoalsPage /></AdminRoute>}</Route>
+          <Route path="/job-board">{() => <AdminRoute><JobBoardAdminPage /></AdminRoute>}</Route>
+          <Route path="/talent-profile-admin">{() => <AdminRoute><TalentProfileAdminPage /></AdminRoute>}</Route>
+          <Route path="/contacts" component={ContactsPage} />
+          <Route path="/communications">{() => <IsaRoute><CommunicationsPage /></IsaRoute>}</Route>
+          <Route path="/leaderboard" component={AgentLeaderboardPage} />
+          <Route path="/admin/activity">{() => <AdminRoute><ActivityTimelinePage /></AdminRoute>}</Route>
+          <Route path="/admin/super-permissions">{() => <AdminRoute><SuperPermissionsPage /></AdminRoute>}</Route>
+          <Route path="/operations-escalations">{() => <OperationsEscalationsRoute><OperationsEscalationsPage /></OperationsEscalationsRoute>}</Route>
+          <Route path="/coaching">{() => <AdminRoute><CoachingHubPage /></AdminRoute>}</Route>
+          <Route path="/coaching/sessions">{() => <AdminRoute><CoachingSessionsPage /></AdminRoute>}</Route>
+          <Route path="/coaching/agent/:id">{() => <AdminRoute><CoachingAgentPage /></AdminRoute>}</Route>
+          <Route path="/coaching/session/:id">{() => <AdminRoute><CoachingSessionPage /></AdminRoute>}</Route>
+          <Route path="/hot-leads" component={HotLeadsPage} />
+          <Route path="/passwords" component={PasswordsPage} />
                 <Route path="/404" component={NotFound} />
                 <Route component={NotFound} />
               </Switch>
@@ -1340,66 +668,32 @@ function Router() {
 }
 
 function App() {
-  const publicLandingHost = (
-    import.meta.env.VITE_PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com"
-  ).toLowerCase();
-  const isPublicLandingHost =
-    typeof window !== "undefined" &&
-    [publicLandingHost, `www.${publicLandingHost}`].includes(
-      window.location.hostname.toLowerCase()
-    );
-  const isMarketMatchPublicPath =
-    typeof window !== "undefined" &&
-    window.location.pathname.replace(/\/+$/, "") === "/marketmatch";
-  const isTrishRecruitingPath =
-    typeof window !== "undefined" &&
-    window.location.pathname.replace(/\/+$/, "") === "/trish";
-  const isPublicWebsitePath =
-    typeof window !== "undefined" &&
-    (window.location.pathname === "/newsite" ||
-      window.location.pathname.startsWith("/newsite/"));
+  const publicLandingHost = (import.meta.env.VITE_PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
+  const isPublicLandingHost = typeof window !== "undefined" && [publicLandingHost, `www.${publicLandingHost}`].includes(window.location.hostname.toLowerCase());
+  const isMarketMatchPublicPath = typeof window !== "undefined" && window.location.pathname.replace(/\/+$/, "") === "/marketmatch";
+  const isTrishRecruitingPath = typeof window !== "undefined" && window.location.pathname.replace(/\/+$/, "") === "/trish";
+  const isPublicWebsitePath = typeof window !== "undefined" && (window.location.pathname === "/newsite" || window.location.pathname.startsWith("/newsite/"));
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster richColors position="top-right" />
           {/* Public routes — no auth required */}
-          {isPublicWebsitePath ? (
-            <PublicWebsite />
-          ) : isPublicLandingHost ? (
-            isTrishRecruitingPath ? (
-              <PublicTrishRecruitingPage />
-            ) : isMarketMatchPublicPath ? (
-              <PublicMarketMatchQuizPage />
-            ) : (
-              <PublicLandingPage />
-            )
-          ) : (
-            <Switch>
-              <Route path="/partner-lead" component={PartnerLeadForm} />
-              <Route path="/partner-portal" component={PartnerPortalPage} />
-              <Route path="/review" component={PublicReviewPage} />
-              <Route
-                path="/coach-feedback/survey"
-                component={PublicCoachFeedbackPage}
-              />
-              <Route path="/vendors/:slug" component={PublicVendorListPage} />
-              <Route
-                path="/vendor-payment-confirmed"
-                component={VendorPaymentConfirmedPage}
-              />
-              <Route
-                path="/vendor-payment-canceled"
-                component={VendorPaymentCanceledPage}
-              />
-              <Route path="/careers" component={CareersPage} />
-              <Route path="/talent-profile" component={TalentProfilePage} />
-              <Route path="/login" component={LoginPage} />
-              <Route path="/forgot-password" component={ForgotPasswordPage} />
-              <Route path="/reset-password" component={ResetPasswordPage} />
-              <Route>{() => <Router />}</Route>
-            </Switch>
-          )}
+          {isPublicWebsitePath ? <PublicWebsite /> : isPublicLandingHost ? (isTrishRecruitingPath ? <PublicTrishRecruitingPage /> : isMarketMatchPublicPath ? <PublicMarketMatchQuizPage /> : <PublicLandingPage />) : <Switch>
+            <Route path="/partner-lead" component={PartnerLeadForm} />
+            <Route path="/partner-portal" component={PartnerPortalPage} />
+            <Route path="/review" component={PublicReviewPage} />
+            <Route path="/coach-feedback/survey" component={PublicCoachFeedbackPage} />
+            <Route path="/vendors/:slug" component={PublicVendorListPage} />
+            <Route path="/vendor-payment-confirmed" component={VendorPaymentConfirmedPage} />
+            <Route path="/vendor-payment-canceled" component={VendorPaymentCanceledPage} />
+            <Route path="/careers" component={CareersPage} />
+            <Route path="/talent-profile" component={TalentProfilePage} />
+            <Route path="/login" component={LoginPage} />
+            <Route path="/forgot-password" component={ForgotPasswordPage} />
+            <Route path="/reset-password" component={ResetPasswordPage} />
+            <Route>{() => <Router />}</Route>
+          </Switch>}
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

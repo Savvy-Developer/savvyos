@@ -405,10 +405,7 @@ export const chatUserAccess = mysqlTable(
   },
   table => [
     uniqueIndex("chat_user_access_user_unique").on(table.userId),
-    index("chat_user_access_enabled_user_idx").on(
-      table.isEnabled,
-      table.userId
-    ),
+    index("chat_user_access_enabled_user_idx").on(table.isEnabled, table.userId),
   ]
 );
 export type ChatUserAccess = typeof chatUserAccess.$inferSelect;
@@ -458,10 +455,7 @@ export const chatMessages = mysqlTable(
       table.createdAt,
       table.id
     ),
-    index("chat_messages_sender_created_idx").on(
-      table.senderId,
-      table.createdAt
-    ),
+    index("chat_messages_sender_created_idx").on(table.senderId, table.createdAt),
     index("chat_messages_parent_created_idx").on(
       table.parentMessageId,
       table.createdAt,
@@ -560,19 +554,13 @@ export const chatChannelReads = mysqlTable(
     userId: int("userId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    lastReadMessageId: int("lastReadMessageId").references(
-      () => chatMessages.id,
-      {
-        onDelete: "set null",
-      }
-    ),
+    lastReadMessageId: int("lastReadMessageId").references(() => chatMessages.id, {
+      onDelete: "set null",
+    }),
     lastReadAt: timestamp("lastReadAt").defaultNow().notNull(),
   },
   table => [
-    uniqueIndex("chat_reads_channel_user_unique").on(
-      table.channelId,
-      table.userId
-    ),
+    uniqueIndex("chat_reads_channel_user_unique").on(table.channelId, table.userId),
     index("chat_reads_user_channel_idx").on(table.userId, table.channelId),
   ]
 );
@@ -853,9 +841,7 @@ export const calendarConnections = mysqlTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     provider: mysqlEnum("provider", ["google"]).notNull(),
-    calendarId: varchar("calendarId", { length: 512 })
-      .default("primary")
-      .notNull(),
+    calendarId: varchar("calendarId", { length: 512 }).default("primary").notNull(),
     connectedEmail: varchar("connectedEmail", { length: 320 }),
     refreshTokenEncrypted: text("refreshTokenEncrypted"),
     accessTokenEncrypted: text("accessTokenEncrypted"),
@@ -913,21 +899,13 @@ export const appointments = mysqlTable(
     title: varchar("title", { length: 255 }).notNull(),
     startAt: timestamp("startAt").notNull(),
     endAt: timestamp("endAt").notNull(),
-    timezone: varchar("timezone", { length: 64 })
-      .notNull()
-      .default("America/New_York"),
+    timezone: varchar("timezone", { length: 64 }).notNull().default("America/New_York"),
     location: varchar("location", { length: 512 }),
     notes: text("notes"),
-    calendarProvider: mysqlEnum("calendarProvider", [
-      "google",
-      "calendly",
-      "none",
-    ])
+    calendarProvider: mysqlEnum("calendarProvider", ["google", "calendly", "none"])
       .default("none")
       .notNull(),
-    externalCalendarEventId: varchar("externalCalendarEventId", {
-      length: 512,
-    }),
+    externalCalendarEventId: varchar("externalCalendarEventId", { length: 512 }),
     externalCalendarEventUrl: text("externalCalendarEventUrl"),
     calendlyEventUri: varchar("calendlyEventUri", { length: 500 }),
     calendlyInviteeUri: varchar("calendlyInviteeUri", { length: 500 }),
@@ -950,13 +928,8 @@ export const appointments = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
-    uniqueIndex("appointments_calendly_invitee_unique").on(
-      table.calendlyInviteeUri
-    ),
-    index("appointments_connection_start_idx").on(
-      table.agentConnectionId,
-      table.startAt
-    ),
+    uniqueIndex("appointments_calendly_invitee_unique").on(table.calendlyInviteeUri),
+    index("appointments_connection_start_idx").on(table.agentConnectionId, table.startAt),
     index("appointments_contact_start_idx").on(table.contactId, table.startAt),
     index("appointments_host_start_idx").on(table.hostUserId, table.startAt),
   ]
@@ -988,12 +961,7 @@ export const appointmentEvents = mysqlTable(
     details: json("details").$type<Record<string, unknown>>(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
-  table => [
-    index("appointment_events_appointment_created_idx").on(
-      table.appointmentId,
-      table.createdAt
-    ),
-  ]
+  table => [index("appointment_events_appointment_created_idx").on(table.appointmentId, table.createdAt)]
 );
 export type AppointmentEvent = typeof appointmentEvents.$inferSelect;
 
@@ -1028,12 +996,9 @@ export const recruits = mysqlTable(
     currentBrokerage: varchar("currentBrokerage", { length: 255 }),
     websiteUrl: varchar("websiteUrl", { length: 1024 }),
     socialLinks: json("socialLinks").$type<Record<string, string>>(),
-    primaryMarketId: int("primaryMarketId").references(
-      () => marketProfiles.id,
-      {
-        onDelete: "set null",
-      }
-    ),
+    primaryMarketId: int("primaryMarketId").references(() => marketProfiles.id, {
+      onDelete: "set null",
+    }),
     primaryMarketText: varchar("primaryMarketText", { length: 255 }),
     additionalMarkets: json("additionalMarkets").$type<string[]>(),
     state: varchar("state", { length: 64 }),
@@ -1042,13 +1007,9 @@ export const recruits = mysqlTable(
     transactionCount: int("transactionCount"),
     salesVolume: decimal("salesVolume", { precision: 16, scale: 2 }),
     productionPeriod: varchar("productionPeriod", { length: 80 }),
-    ownerId: int("ownerId")
-      .notNull()
-      .references(() => users.id),
+    ownerId: int("ownerId").notNull().references(() => users.id),
     source: varchar("source", { length: 255 }),
-    stageId: int("stageId")
-      .notNull()
-      .references(() => recruitingStages.id),
+    stageId: int("stageId").notNull().references(() => recruitingStages.id),
     lastContactAt: timestamp("lastContactAt"),
     nextAction: varchar("nextAction", { length: 500 }),
     nextFollowUpAt: timestamp("nextFollowUpAt"),
@@ -1057,9 +1018,7 @@ export const recruits = mysqlTable(
     objections: text("objections"),
     context: text("context"),
     isArchived: boolean("isArchived").notNull().default(false),
-    createdById: int("createdById").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
@@ -1079,9 +1038,7 @@ export const recruitingActivities = mysqlTable(
   "recruiting_activities",
   {
     id: int("id").autoincrement().primaryKey(),
-    recruitId: int("recruitId")
-      .notNull()
-      .references(() => recruits.id, { onDelete: "cascade" }),
+    recruitId: int("recruitId").notNull().references(() => recruits.id, { onDelete: "cascade" }),
     type: mysqlEnum("type", [
       "note",
       "call",
@@ -1102,23 +1059,15 @@ export const recruitingActivities = mysqlTable(
     body: text("body").notNull(),
     outcome: varchar("outcome", { length: 1_000 }),
     occurredAt: timestamp("occurredAt").notNull(),
-    enteredById: int("enteredById").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    enteredById: int("enteredById").references(() => users.id, { onDelete: "set null" }),
     isPinned: boolean("isPinned").notNull().default(false),
     pinnedAt: timestamp("pinnedAt"),
     metadata: json("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => [
-    index("recruiting_activities_recruit_occurred_idx").on(
-      table.recruitId,
-      table.occurredAt
-    ),
-    index("recruiting_activities_recruit_pinned_idx").on(
-      table.recruitId,
-      table.isPinned
-    ),
+    index("recruiting_activities_recruit_occurred_idx").on(table.recruitId, table.occurredAt),
+    index("recruiting_activities_recruit_pinned_idx").on(table.recruitId, table.isPinned),
   ]
 );
 export type RecruitingActivity = typeof recruitingActivities.$inferSelect;
@@ -1128,34 +1077,20 @@ export const recruitingTasks = mysqlTable(
   "recruiting_tasks",
   {
     id: int("id").autoincrement().primaryKey(),
-    recruitId: int("recruitId")
-      .notNull()
-      .references(() => recruits.id, { onDelete: "cascade" }),
+    recruitId: int("recruitId").notNull().references(() => recruits.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 500 }).notNull(),
     notes: text("notes"),
-    assignedToId: int("assignedToId")
-      .notNull()
-      .references(() => users.id),
+    assignedToId: int("assignedToId").notNull().references(() => users.id),
     dueDate: date("dueDate").notNull(),
     completedAt: timestamp("completedAt"),
-    completedById: int("completedById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    createdById: int("createdById").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    completedById: int("completedById").references(() => users.id, { onDelete: "set null" }),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
-    index("recruiting_tasks_assignee_due_idx").on(
-      table.assignedToId,
-      table.dueDate
-    ),
-    index("recruiting_tasks_recruit_due_idx").on(
-      table.recruitId,
-      table.dueDate
-    ),
+    index("recruiting_tasks_assignee_due_idx").on(table.assignedToId, table.dueDate),
+    index("recruiting_tasks_recruit_due_idx").on(table.recruitId, table.dueDate),
   ]
 );
 export type RecruitingTask = typeof recruitingTasks.$inferSelect;
@@ -1166,43 +1101,23 @@ export const recruitingAppointments = mysqlTable(
   "recruiting_appointments",
   {
     id: int("id").autoincrement().primaryKey(),
-    recruitId: int("recruitId")
-      .notNull()
-      .references(() => recruits.id, { onDelete: "cascade" }),
-    hostUserId: int("hostUserId")
-      .notNull()
-      .references(() => users.id),
-    scheduledByUserId: int("scheduledByUserId").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    recruitId: int("recruitId").notNull().references(() => recruits.id, { onDelete: "cascade" }),
+    hostUserId: int("hostUserId").notNull().references(() => users.id),
+    scheduledByUserId: int("scheduledByUserId").references(() => users.id, { onDelete: "set null" }),
     source: mysqlEnum("source", ["public_trish", "admin"]).notNull(),
-    status: mysqlEnum("status", [
-      "pending",
-      "scheduled",
-      "canceled",
-      "completed",
-      "no_show",
-    ])
+    status: mysqlEnum("status", ["pending", "scheduled", "canceled", "completed", "no_show"])
       .notNull()
       .default("pending"),
     title: varchar("title", { length: 255 }).notNull(),
     startAt: timestamp("startAt").notNull(),
     endAt: timestamp("endAt").notNull(),
-    timezone: varchar("timezone", { length: 64 })
-      .notNull()
-      .default("America/New_York"),
+    timezone: varchar("timezone", { length: 64 }).notNull().default("America/New_York"),
     visitorTimezone: varchar("visitorTimezone", { length: 64 }),
     location: varchar("location", { length: 512 }),
     visitorMessage: text("visitorMessage"),
-    externalCalendarEventId: varchar("externalCalendarEventId", {
-      length: 512,
-    }),
+    externalCalendarEventId: varchar("externalCalendarEventId", { length: 512 }),
     externalCalendarEventUrl: text("externalCalendarEventUrl"),
-    invitationDeliveryStatus: mysqlEnum("invitationDeliveryStatus", [
-      "not_needed",
-      "sent",
-      "failed",
-    ])
+    invitationDeliveryStatus: mysqlEnum("invitationDeliveryStatus", ["not_needed", "sent", "failed"])
       .notNull()
       .default("not_needed"),
     invitationDeliveryError: text("invitationDeliveryError"),
@@ -1213,19 +1128,9 @@ export const recruitingAppointments = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
-    uniqueIndex("recruiting_appointments_host_start_unique").on(
-      table.hostUserId,
-      table.startAt
-    ),
-    index("recruiting_appointments_recruit_start_idx").on(
-      table.recruitId,
-      table.startAt
-    ),
-    index("recruiting_appointments_host_status_start_idx").on(
-      table.hostUserId,
-      table.status,
-      table.startAt
-    ),
+    uniqueIndex("recruiting_appointments_host_start_unique").on(table.hostUserId, table.startAt),
+    index("recruiting_appointments_recruit_start_idx").on(table.recruitId, table.startAt),
+    index("recruiting_appointments_host_status_start_idx").on(table.hostUserId, table.status, table.startAt),
   ]
 );
 export type RecruitingAppointment = typeof recruitingAppointments.$inferSelect;
@@ -1234,18 +1139,10 @@ export const recruitingCalendarSettings = mysqlTable(
   "recruiting_calendar_settings",
   {
     id: int("id").autoincrement().primaryKey(),
-    userId: int("userId")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" })
-      .unique(),
+    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
     meetingDurationMinutes: int("meetingDurationMinutes").notNull().default(30),
-    timezone: varchar("timezone", { length: 64 })
-      .notNull()
-      .default("America/New_York"),
-    workingHours:
-      json("workingHours").$type<
-        Record<string, { enabled: boolean; start: string; end: string }>
-      >(),
+    timezone: varchar("timezone", { length: 64 }).notNull().default("America/New_York"),
+    workingHours: json("workingHours").$type<Record<string, { enabled: boolean; start: string; end: string }>>(),
     bufferBeforeMinutes: int("bufferBeforeMinutes").notNull().default(15),
     bufferAfterMinutes: int("bufferAfterMinutes").notNull().default(15),
     minimumNoticeHours: int("minimumNoticeHours").notNull().default(24),
@@ -1254,8 +1151,7 @@ export const recruitingCalendarSettings = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   }
 );
-export type RecruitingCalendarSettings =
-  typeof recruitingCalendarSettings.$inferSelect;
+export type RecruitingCalendarSettings = typeof recruitingCalendarSettings.$inferSelect;
 
 // ─── Properties ───────────────────────────────────────────────────────────────
 export const properties = mysqlTable(
@@ -1314,21 +1210,12 @@ export const websiteProperties = mysqlTable(
   "website_properties",
   {
     id: int("id").autoincrement().primaryKey(),
-    propertyId: int("propertyId")
-      .notNull()
-      .unique()
-      .references(() => properties.id, { onDelete: "cascade" }),
+    propertyId: int("propertyId").notNull().unique().references(() => properties.id, { onDelete: "cascade" }),
     slug: varchar("slug", { length: 255 }).notNull().unique(),
-    status: mysqlEnum("status", ["draft", "published", "archived"])
-      .default("draft")
-      .notNull(),
+    status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
     sourceUrl: text("sourceUrl"),
-    sourceProformaId: int("sourceProformaId").references(() => proformas.id, {
-      onDelete: "set null",
-    }),
-    assignedAgentId: int("assignedAgentId").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    sourceProformaId: int("sourceProformaId").references(() => proformas.id, { onDelete: "set null" }),
+    assignedAgentId: int("assignedAgentId").references(() => users.id, { onDelete: "set null" }),
     headline: varchar("headline", { length: 512 }),
     summary: text("summary"),
     // The assigned agent's own note on this listing, in their voice. Shown as
@@ -1339,18 +1226,14 @@ export const websiteProperties = mysqlTable(
     heroImageUrl: text("heroImageUrl"),
     galleryImageUrls: json("galleryImageUrls").$type<string[]>().notNull(),
     featureTags: json("featureTags").$type<string[]>().notNull(),
-    investmentHighlights: json("investmentHighlights")
-      .$type<string[]>()
-      .notNull(),
+    investmentHighlights: json("investmentHighlights").$type<string[]>().notNull(),
     projectedRevenue: decimal("projectedRevenue", { precision: 12, scale: 2 }),
     cashOnCash: decimal("cashOnCash", { precision: 8, scale: 4 }),
     capRate: decimal("capRate", { precision: 8, scale: 4 }),
     occupancyRate: decimal("occupancyRate", { precision: 8, scale: 4 }),
     averageDailyRate: decimal("averageDailyRate", { precision: 10, scale: 2 }),
     regulationSummary: text("regulationSummary"),
-    callToActionText: varchar("callToActionText", { length: 255 })
-      .default("Request the full investment analysis")
-      .notNull(),
+    callToActionText: varchar("callToActionText", { length: 255 }).default("Request the full investment analysis").notNull(),
     metaTitle: varchar("metaTitle", { length: 255 }),
     metaDescription: text("metaDescription"),
     importedData: json("importedData").$type<Record<string, unknown>>(),
@@ -1367,25 +1250,14 @@ export const websiteProperties = mysqlTable(
     // price when the listing was first checked). A list price below this
     // sends the alert once and becomes the new baseline; a price rise just
     // moves the baseline up.
-    priceAlertBaseline: decimal("priceAlertBaseline", {
-      precision: 12,
-      scale: 2,
-    }),
-    createdById: int("createdById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    updatedById: int("updatedById").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    priceAlertBaseline: decimal("priceAlertBaseline", { precision: 12, scale: 2 }),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
-    index("website_properties_status_featured_idx").on(
-      table.status,
-      table.isFeatured,
-      table.sortOrder
-    ),
+    index("website_properties_status_featured_idx").on(table.status, table.isFeatured, table.sortOrder),
     index("website_properties_agent_idx").on(table.assignedAgentId),
   ]
 );
@@ -1419,12 +1291,8 @@ export const websitePages = mysqlTable(
     metaDescription: text("metaDescription"),
     sortOrder: int("sortOrder").default(0).notNull(),
     publishedAt: timestamp("publishedAt"),
-    createdById: int("createdById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    updatedById: int("updatedById").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
@@ -1480,12 +1348,8 @@ export const websiteCaseStudies = mysqlTable(
     excerpt: text("excerpt"),
     body: mediumtext("body"),
     heroImageUrl: text("heroImageUrl"),
-    propertyId: int("propertyId").references(() => properties.id, {
-      onDelete: "set null",
-    }),
-    agentUserId: int("agentUserId").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    propertyId: int("propertyId").references(() => properties.id, { onDelete: "set null" }),
+    agentUserId: int("agentUserId").references(() => users.id, { onDelete: "set null" }),
     primaryMetricLabel: varchar("primaryMetricLabel", { length: 128 }),
     primaryMetricValue: varchar("primaryMetricValue", { length: 128 }),
     secondaryMetricLabel: varchar("secondaryMetricLabel", { length: 128 }),
@@ -1493,28 +1357,16 @@ export const websiteCaseStudies = mysqlTable(
     // What the investor put in (usually the purchase price). Drives the
     // "Investment amount" filter on the public Case Studies page.
     investmentAmount: decimal("investmentAmount", { precision: 14, scale: 2 }),
-    status: mysqlEnum("status", ["draft", "published", "archived"])
-      .default("draft")
-      .notNull(),
+    status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
     isFeatured: boolean("isFeatured").default(false).notNull(),
     sortOrder: int("sortOrder").default(0).notNull(),
     publishedAt: timestamp("publishedAt"),
-    createdById: int("createdById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    updatedById: int("updatedById").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
-  table => [
-    index("website_case_studies_status_featured_idx").on(
-      table.status,
-      table.isFeatured,
-      table.sortOrder
-    ),
-  ]
+  table => [index("website_case_studies_status_featured_idx").on(table.status, table.isFeatured, table.sortOrder)]
 );
 export type WebsiteCaseStudy = typeof websiteCaseStudies.$inferSelect;
 export type InsertWebsiteCaseStudy = typeof websiteCaseStudies.$inferInsert;
@@ -1531,32 +1383,19 @@ export const websiteBlogPosts = mysqlTable(
     category: varchar("category", { length: 128 }).default("STR Investing"),
     // Topic tags for the Resources page filter. NULL for a post never tagged.
     tags: json("tags").$type<string[]>(),
-    authorUserId: int("authorUserId").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    status: mysqlEnum("status", ["draft", "published", "archived"])
-      .default("draft")
-      .notNull(),
+    authorUserId: int("authorUserId").references(() => users.id, { onDelete: "set null" }),
+    status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
     isFeatured: boolean("isFeatured").default(false).notNull(),
     sortOrder: int("sortOrder").default(0).notNull(),
     publishedAt: timestamp("publishedAt"),
     metaTitle: varchar("metaTitle", { length: 255 }),
     metaDescription: text("metaDescription"),
-    createdById: int("createdById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    updatedById: int("updatedById").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
-  table => [
-    index("website_blog_posts_status_published_idx").on(
-      table.status,
-      table.publishedAt
-    ),
-  ]
+  table => [index("website_blog_posts_status_published_idx").on(table.status, table.publishedAt)]
 );
 export type WebsiteBlogPost = typeof websiteBlogPosts.$inferSelect;
 export type InsertWebsiteBlogPost = typeof websiteBlogPosts.$inferInsert;
@@ -1565,10 +1404,7 @@ export const websiteAgentProfiles = mysqlTable(
   "website_agent_profiles",
   {
     id: int("id").autoincrement().primaryKey(),
-    userId: int("userId")
-      .notNull()
-      .unique()
-      .references(() => users.id, { onDelete: "cascade" }),
+    userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
     slug: varchar("slug", { length: 255 }).notNull().unique(),
     headline: varchar("headline", { length: 512 }),
     shortBio: text("shortBio"),
@@ -1578,50 +1414,30 @@ export const websiteAgentProfiles = mysqlTable(
     publicEmail: varchar("publicEmail", { length: 320 }),
     publicPhone: varchar("publicPhone", { length: 64 }),
     bookingUrl: text("bookingUrl"),
-    status: mysqlEnum("status", ["draft", "published", "archived"])
-      .default("draft")
-      .notNull(),
+    status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
     isFeatured: boolean("isFeatured").default(false).notNull(),
     sortOrder: int("sortOrder").default(0).notNull(),
     publishedAt: timestamp("publishedAt"),
-    createdById: int("createdById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    updatedById: int("updatedById").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
-  table => [
-    index("website_agent_profiles_status_featured_idx").on(
-      table.status,
-      table.isFeatured,
-      table.sortOrder
-    ),
-  ]
+  table => [index("website_agent_profiles_status_featured_idx").on(table.status, table.isFeatured, table.sortOrder)]
 );
 export type WebsiteAgentProfile = typeof websiteAgentProfiles.$inferSelect;
-export type InsertWebsiteAgentProfile =
-  typeof websiteAgentProfiles.$inferInsert;
+export type InsertWebsiteAgentProfile = typeof websiteAgentProfiles.$inferInsert;
 
 export const websiteSiteSettings = mysqlTable("website_site_settings", {
   id: int("id").autoincrement().primaryKey(),
-  singletonKey: varchar("singletonKey", { length: 64 })
-    .default("primary")
-    .notNull()
-    .unique(),
-  siteName: varchar("siteName", { length: 255 })
-    .default("Savvy STR Agents")
-    .notNull(),
+  singletonKey: varchar("singletonKey", { length: 64 }).default("primary").notNull().unique(),
+  siteName: varchar("siteName", { length: 255 }).default("Savvy STR Agents").notNull(),
   announcementText: varchar("announcementText", { length: 512 }),
   heroEyebrow: varchar("heroEyebrow", { length: 255 }),
   heroTitle: varchar("heroTitle", { length: 512 }).notNull(),
   heroBody: text("heroBody"),
   heroImageUrl: text("heroImageUrl"),
-  stats: json("stats")
-    .$type<Array<{ value: string; label: string }>>()
-    .notNull(),
+  stats: json("stats").$type<Array<{ value: string; label: string }>>().notNull(),
   // Stored as rows, not as delimited prose: a customer's words must survive
   // storage exactly. `role` appears on rows written before the rename and is
   // still read. See shared/websiteTestimonials.ts.
@@ -1640,9 +1456,7 @@ export const websiteSiteSettings = mysqlTable("website_site_settings", {
   contactEmail: varchar("contactEmail", { length: 320 }),
   contactPhone: varchar("contactPhone", { length: 64 }),
   footerText: text("footerText"),
-  updatedById: int("updatedById").references(() => users.id, {
-    onDelete: "set null",
-  }),
+  updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -1652,22 +1466,14 @@ export const websiteLeads = mysqlTable(
   "website_leads",
   {
     id: int("id").autoincrement().primaryKey(),
-    contactId: int("contactId").references(() => contacts.id, {
-      onDelete: "set null",
-    }),
-    propertyId: int("propertyId").references(() => properties.id, {
-      onDelete: "set null",
-    }),
-    agentUserId: int("agentUserId").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    contactId: int("contactId").references(() => contacts.id, { onDelete: "set null" }),
+    propertyId: int("propertyId").references(() => properties.id, { onDelete: "set null" }),
+    agentUserId: int("agentUserId").references(() => users.id, { onDelete: "set null" }),
     firstName: varchar("firstName", { length: 128 }).notNull(),
     lastName: varchar("lastName", { length: 128 }).notNull(),
     email: varchar("email", { length: 320 }).notNull(),
     phone: varchar("phone", { length: 64 }),
-    intent: mysqlEnum("intent", ["buy", "sell", "property", "agent", "general"])
-      .default("general")
-      .notNull(),
+    intent: mysqlEnum("intent", ["buy", "sell", "property", "agent", "general"]).default("general").notNull(),
     // Which call to action produced this lead: showing, analysis, financing,
     // or nothing when the general form was used. Separate from `intent`, which
     // says what the person wants rather than where they asked for it.
@@ -1675,9 +1481,7 @@ export const websiteLeads = mysqlTable(
     message: text("message"),
     sourcePath: varchar("sourcePath", { length: 512 }),
     attribution: json("attribution").$type<Record<string, string>>(),
-    status: mysqlEnum("status", ["new", "contacted", "qualified", "closed"])
-      .default("new")
-      .notNull(),
+    status: mysqlEnum("status", ["new", "contacted", "qualified", "closed"]).default("new").notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
@@ -1685,10 +1489,7 @@ export const websiteLeads = mysqlTable(
     index("website_leads_status_created_idx").on(table.status, table.createdAt),
     index("website_leads_property_idx").on(table.propertyId),
     index("website_leads_agent_idx").on(table.agentUserId),
-    index("website_leads_request_type_idx").on(
-      table.requestType,
-      table.createdAt
-    ),
+    index("website_leads_request_type_idx").on(table.requestType, table.createdAt),
   ]
 );
 export type WebsiteLead = typeof websiteLeads.$inferSelect;
@@ -1702,14 +1503,8 @@ export const websiteLeadAttempts = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => [
-    index("website_lead_attempts_ip_created_idx").on(
-      table.ipHash,
-      table.createdAt
-    ),
-    index("website_lead_attempts_email_created_idx").on(
-      table.emailHash,
-      table.createdAt
-    ),
+    index("website_lead_attempts_ip_created_idx").on(table.ipHash, table.createdAt),
+    index("website_lead_attempts_email_created_idx").on(table.emailHash, table.createdAt),
     index("website_lead_attempts_created_idx").on(table.createdAt),
   ]
 );
@@ -1926,8 +1721,7 @@ export const agentCelebrationEvents = mysqlTable(
   ]
 );
 export type AgentCelebrationEvent = typeof agentCelebrationEvents.$inferSelect;
-export type InsertAgentCelebrationEvent =
-  typeof agentCelebrationEvents.$inferInsert;
+export type InsertAgentCelebrationEvent = typeof agentCelebrationEvents.$inferInsert;
 
 // ─── ISA Transaction Outcome Attribution ──────────────────────────────────────
 // Snapshots the ISA who receives downstream transaction credit. This is kept
@@ -2642,10 +2436,8 @@ export const agentChecklistTemplates = mysqlTable(
     ),
   ]
 );
-export type AgentChecklistTemplate =
-  typeof agentChecklistTemplates.$inferSelect;
-export type InsertAgentChecklistTemplate =
-  typeof agentChecklistTemplates.$inferInsert;
+export type AgentChecklistTemplate = typeof agentChecklistTemplates.$inferSelect;
+export type InsertAgentChecklistTemplate = typeof agentChecklistTemplates.$inferInsert;
 
 export const agentChecklistTemplateItems = mysqlTable(
   "agent_checklist_template_items",
@@ -2667,7 +2459,11 @@ export const agentChecklistTemplateItems = mysqlTable(
       "listing_live",
     ]),
     dueOffsetDays: int("dueOffsetDays").default(0).notNull(),
-    assignmentType: mysqlEnum("assignmentType", ["none", "owner", "specific"])
+    assignmentType: mysqlEnum("assignmentType", [
+      "none",
+      "owner",
+      "specific",
+    ])
       .default("none")
       .notNull(),
     assignedUserId: int("assignedUserId").references(() => users.id, {
@@ -2682,15 +2478,11 @@ export const agentChecklistTemplateItems = mysqlTable(
       table.sortOrder,
       table.id
     ),
-    index("agent_checklist_template_items_assignee_idx").on(
-      table.assignedUserId
-    ),
+    index("agent_checklist_template_items_assignee_idx").on(table.assignedUserId),
   ]
 );
-export type AgentChecklistTemplateItem =
-  typeof agentChecklistTemplateItems.$inferSelect;
-export type InsertAgentChecklistTemplateItem =
-  typeof agentChecklistTemplateItems.$inferInsert;
+export type AgentChecklistTemplateItem = typeof agentChecklistTemplateItems.$inferSelect;
+export type InsertAgentChecklistTemplateItem = typeof agentChecklistTemplateItems.$inferInsert;
 
 export const agentChecklistTemplateShares = mysqlTable(
   "agent_checklist_template_shares",
@@ -2718,8 +2510,7 @@ export const agentChecklistTemplateShares = mysqlTable(
     ),
   ]
 );
-export type AgentChecklistTemplateShare =
-  typeof agentChecklistTemplateShares.$inferSelect;
+export type AgentChecklistTemplateShare = typeof agentChecklistTemplateShares.$inferSelect;
 
 export const agentChecklistApplications = mysqlTable(
   "agent_checklist_applications",
@@ -2737,9 +2528,7 @@ export const agentChecklistApplications = mysqlTable(
     targetType: mysqlEnum("targetType", ["transaction", "listing"]).notNull(),
     source: mysqlEnum("source", ["auto", "manual"]).notNull(),
     autoKey: varchar("autoKey", { length: 255 }),
-    templateNameSnapshot: varchar("templateNameSnapshot", {
-      length: 255,
-    }).notNull(),
+    templateNameSnapshot: varchar("templateNameSnapshot", { length: 255 }).notNull(),
     templateDescriptionSnapshot: text("templateDescriptionSnapshot"),
     templateOwnerUserIdSnapshot: int("templateOwnerUserIdSnapshot").notNull(),
     templateTargetTypeSnapshot: mysqlEnum("templateTargetTypeSnapshot", [
@@ -2770,9 +2559,7 @@ export const agentChecklistApplications = mysqlTable(
       "agent_checklist_applications_exact_target_chk",
       sql`((${table.transactionId} IS NOT NULL AND ${table.listingId} IS NULL AND ${table.targetType} = 'transaction') OR (${table.transactionId} IS NULL AND ${table.listingId} IS NOT NULL AND ${table.targetType} = 'listing'))`
     ),
-    uniqueIndex("agent_checklist_applications_autoKey_unique").on(
-      table.autoKey
-    ),
+    uniqueIndex("agent_checklist_applications_autoKey_unique").on(table.autoKey),
     index("agent_checklist_applications_transaction_idx").on(
       table.transactionId,
       table.removedAt,
@@ -2786,10 +2573,8 @@ export const agentChecklistApplications = mysqlTable(
     index("agent_checklist_applications_template_idx").on(table.templateId),
   ]
 );
-export type AgentChecklistApplication =
-  typeof agentChecklistApplications.$inferSelect;
-export type InsertAgentChecklistApplication =
-  typeof agentChecklistApplications.$inferInsert;
+export type AgentChecklistApplication = typeof agentChecklistApplications.$inferSelect;
+export type InsertAgentChecklistApplication = typeof agentChecklistApplications.$inferInsert;
 
 export const agentChecklistApplicationItems = mysqlTable(
   "agent_checklist_application_items",
@@ -2992,25 +2777,25 @@ export const oneTimeSends = mysqlTable(
     bouncedCount: int("bouncedCount").default(0).notNull(),
     complainedCount: int("complainedCount").default(0).notNull(),
     suppressedCount: int("suppressedCount").default(0).notNull(),
-    repliedCount: int("repliedCount").default(0).notNull(),
-    createdById: int("createdById").references(() => users.id),
-    confirmedAt: timestamp("confirmedAt").defaultNow().notNull(),
+   repliedCount: int("repliedCount").default(0).notNull(),
+   createdById: int("createdById").references(() => users.id),
+   confirmedAt: timestamp("confirmedAt").defaultNow().notNull(),
     // A future campaign remains queued until this timestamp. Existing sends
     // default to their confirmation time for immediate-delivery compatibility.
     scheduledAt: timestamp("scheduledAt").defaultNow().notNull(),
     // Optional pacing spreads recipient delivery across the requested hourly rate.
     staggerEnabled: boolean("staggerEnabled").default(false).notNull(),
     staggerPerHour: int("staggerPerHour"),
-    startedAt: timestamp("startedAt"),
-    completedAt: timestamp("completedAt"),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
+   startedAt: timestamp("startedAt"),
+   completedAt: timestamp("completedAt"),
+   createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
-    index("one_time_sends_status_created_idx").on(
-      table.status,
-      table.createdAt
-    ),
+   index("one_time_sends_status_created_idx").on(
+     table.status,
+     table.createdAt
+   ),
     index("one_time_sends_status_scheduled_idx").on(
       table.status,
       table.scheduledAt,
@@ -3034,14 +2819,14 @@ export const oneTimeSendRecipients = mysqlTable(
       .notNull()
       .references(() => contacts.id),
     // The concrete email address or phone number chosen from the contact record.
-    recipientAddress: varchar("recipientAddress", { length: 320 }).notNull(),
-    status: mysqlEnum("status", ["queued", "sent", "skipped", "failed"])
-      .default("queued")
-      .notNull(),
+   recipientAddress: varchar("recipientAddress", { length: 320 }).notNull(),
+   status: mysqlEnum("status", ["queued", "sent", "skipped", "failed"])
+     .default("queued")
+     .notNull(),
     // Staggered campaigns use deterministic per-recipient delivery timestamps.
     scheduledAt: timestamp("scheduledAt").defaultNow().notNull(),
-    provider: varchar("provider", { length: 64 }),
-    providerMessageId: varchar("providerMessageId", { length: 255 }),
+   provider: varchar("provider", { length: 64 }),
+   providerMessageId: varchar("providerMessageId", { length: 255 }),
     // Used as the local part of an optional Resend inbound reply address.
     replyToken: varchar("replyToken", { length: 64 }),
     errorMessage: text("errorMessage"),
@@ -3067,16 +2852,16 @@ export const oneTimeSendRecipients = mysqlTable(
     uniqueIndex("one_time_send_recipients_reply_token_unique").on(
       table.replyToken
     ),
-    index("one_time_send_recipients_send_status_idx").on(
-      table.sendId,
-      table.status
-    ),
+   index("one_time_send_recipients_send_status_idx").on(
+     table.sendId,
+     table.status
+   ),
     index("one_time_send_recipients_send_status_scheduled_idx").on(
       table.sendId,
       table.status,
       table.scheduledAt
     ),
-    index("one_time_send_recipients_provider_message_idx").on(
+   index("one_time_send_recipients_provider_message_idx").on(
       table.providerMessageId
     ),
   ]
@@ -3825,9 +3610,7 @@ export const rrScorecardMetrics = mysqlTable(
       .default("count")
       .notNull(),
     formulaExpression: text("formulaExpression"),
-    manualInputDefinitions: json("manualInputDefinitions").$type<
-      Array<{ key: string; label: string; unit?: string }>
-    >(),
+    manualInputDefinitions: json("manualInputDefinitions").$type<Array<{ key: string; label: string; unit?: string }>>(),
     zeroDenominatorLabel: varchar("zeroDenominatorLabel", { length: 255 }),
     calculationDescription: text("calculationDescription"),
     isCumulative: boolean("isCumulative").default(false).notNull(),
@@ -3875,8 +3658,7 @@ export const rrMetricValues = mysqlTable(
     note: text("note"),
     eventLabel: varchar("eventLabel", { length: 255 }),
     eventDate: date("eventDate", { mode: "string" }),
-    supportingInputs:
-      json("supportingInputs").$type<Record<string, number | null>>(),
+    supportingInputs: json("supportingInputs").$type<Record<string, number | null>>(),
     valueSource: mysqlEnum("valueSource", ["manual", "automatic", "hybrid"])
       .default("manual")
       .notNull(),
@@ -4122,14 +3904,10 @@ export const agentProfileReminderCampaigns = mysqlTable(
   "agent_profile_reminder_campaigns",
   {
     id: int("id").autoincrement().primaryKey(),
-    kind: mysqlEnum("kind", [
-      "initial_active_agents",
-      "quarterly_incomplete",
-    ]).notNull(),
-    audience: mysqlEnum("audience", [
-      "active_snapshot",
-      "incomplete_at_send",
-    ]).notNull(),
+    kind: mysqlEnum("kind", ["initial_active_agents", "quarterly_incomplete"])
+      .notNull(),
+    audience: mysqlEnum("audience", ["active_snapshot", "incomplete_at_send"])
+      .notNull(),
     scheduledFor: timestamp("scheduledFor").notNull(),
     status: mysqlEnum("status", ["scheduled", "processing", "completed"])
       .notNull()
@@ -4162,9 +3940,7 @@ export const agentProfileReminderCampaignRecipients = mysqlTable(
     id: int("id").autoincrement().primaryKey(),
     campaignId: int("campaignId")
       .notNull()
-      .references(() => agentProfileReminderCampaigns.id, {
-        onDelete: "cascade",
-      }),
+      .references(() => agentProfileReminderCampaigns.id, { onDelete: "cascade" }),
     agentUserId: int("agentUserId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -4428,15 +4204,10 @@ export const marketProfileSurveyInvitations = mysqlTable(
       .notNull()
       .unique()
       .references(() => users.id, { onDelete: "cascade" }),
-    marketProfileId: int("marketProfileId").references(
-      () => marketProfiles.id,
-      {
-        onDelete: "set null",
-      }
-    ),
-    surveyTokenHash: varchar("surveyTokenHash", { length: 64 })
-      .notNull()
-      .unique(),
+    marketProfileId: int("marketProfileId").references(() => marketProfiles.id, {
+      onDelete: "set null",
+    }),
+    surveyTokenHash: varchar("surveyTokenHash", { length: 64 }).notNull().unique(),
     status: mysqlEnum("status", ["pending", "in_progress", "completed"])
       .default("pending")
       .notNull(),
@@ -4514,9 +4285,7 @@ export const marketProfileSurveyResponses = mysqlTable(
     invitationId: int("invitationId")
       .notNull()
       .unique()
-      .references(() => marketProfileSurveyInvitations.id, {
-        onDelete: "cascade",
-      }),
+      .references(() => marketProfileSurveyInvitations.id, { onDelete: "cascade" }),
     marketProfileId: int("marketProfileId")
       .notNull()
       .references(() => marketProfiles.id, { onDelete: "cascade" }),
@@ -4679,333 +4448,175 @@ export type MarketMatchSettings = typeof marketMatchSettings.$inferSelect;
 // This deliberately uses dedicated tables instead of overloading Agent Markets
 // or contacts. Agent Markets remains the live market source of truth; each quiz
 // retains the criteria, eligibility decision, and handoff the buyer actually saw.
-export const marketMatchQuizSettings = mysqlTable(
-  "market_match_quiz_settings",
-  {
-    id: int("id").primaryKey().default(1),
-    enabled: boolean("enabled").notNull().default(true),
-    publicTitle: varchar("publicTitle", { length: 255 }).notNull(),
-    publicSubtitle: text("publicSubtitle"),
-    publicCta: varchar("publicCta", { length: 120 }).notNull(),
-    leadSourceId: int("leadSourceId").references(() => leadSources.id, {
-      onDelete: "set null",
-    }),
-    finishPlanId: int("finishPlanId").references(() => smartPlans.id, {
-      onDelete: "set null",
-    }),
-    maxRecommendedMarkets: int("maxRecommendedMarkets").notNull().default(3),
-    maxAgentConnections: int("maxAgentConnections").notNull().default(2),
-    dailyPropertyAudienceId: varchar("dailyPropertyAudienceId", {
-      length: 255,
-    }),
-    questionConfig:
-      json("questionConfig").$type<Array<Record<string, unknown>>>(),
-    aiGuidance: text("aiGuidance"),
-    autoTestingEnabled: boolean("autoTestingEnabled").notNull().default(false),
-    autoPromoteMinCompletions: int("autoPromoteMinCompletions")
-      .notNull()
-      .default(100),
-    updatedById: int("updatedById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  }
-);
-export type MarketMatchQuizSettings =
-  typeof marketMatchQuizSettings.$inferSelect;
+export const marketMatchQuizSettings = mysqlTable("market_match_quiz_settings", {
+  id: int("id").primaryKey().default(1),
+  enabled: boolean("enabled").notNull().default(true),
+  publicTitle: varchar("publicTitle", { length: 255 }).notNull(),
+  publicSubtitle: text("publicSubtitle"),
+  publicCta: varchar("publicCta", { length: 120 }).notNull(),
+  leadSourceId: int("leadSourceId").references(() => leadSources.id, { onDelete: "set null" }),
+  finishPlanId: int("finishPlanId").references(() => smartPlans.id, { onDelete: "set null" }),
+  maxRecommendedMarkets: int("maxRecommendedMarkets").notNull().default(3),
+  maxAgentConnections: int("maxAgentConnections").notNull().default(2),
+  dailyPropertyAudienceId: varchar("dailyPropertyAudienceId", { length: 255 }),
+  questionConfig: json("questionConfig").$type<Array<Record<string, unknown>>>(),
+  aiGuidance: text("aiGuidance"),
+  autoTestingEnabled: boolean("autoTestingEnabled").notNull().default(false),
+  autoPromoteMinCompletions: int("autoPromoteMinCompletions").notNull().default(100),
+  updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type MarketMatchQuizSettings = typeof marketMatchQuizSettings.$inferSelect;
 
-export const marketMatchQuizVariants = mysqlTable(
-  "market_match_quiz_variants",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    name: varchar("name", { length: 160 }).notNull(),
-    description: text("description"),
-    hypothesis: text("hypothesis"),
-    status: mysqlEnum("status", ["draft", "published", "paused", "archived"])
-      .notNull()
-      .default("draft"),
-    trafficAllocation: int("trafficAllocation").notNull().default(0),
-    isControl: boolean("isControl").notNull().default(false),
-    questionConfig:
-      json("questionConfig").$type<Array<Record<string, unknown>>>(),
-    createdById: int("createdById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    publishedAt: timestamp("publishedAt"),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [
-    index("market_match_quiz_variants_status_idx").on(
-      table.status,
-      table.updatedAt
-    ),
-  ]
-);
-export type MarketMatchQuizVariant =
-  typeof marketMatchQuizVariants.$inferSelect;
+export const marketMatchQuizVariants = mysqlTable("market_match_quiz_variants", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  description: text("description"),
+  hypothesis: text("hypothesis"),
+  status: mysqlEnum("status", ["draft", "published", "paused", "archived"]).notNull().default("draft"),
+  trafficAllocation: int("trafficAllocation").notNull().default(0),
+  isControl: boolean("isControl").notNull().default(false),
+  questionConfig: json("questionConfig").$type<Array<Record<string, unknown>>>(),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  publishedAt: timestamp("publishedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  index("market_match_quiz_variants_status_idx").on(table.status, table.updatedAt),
+]);
+export type MarketMatchQuizVariant = typeof marketMatchQuizVariants.$inferSelect;
 
-export const marketMatchQuizSessions = mysqlTable(
-  "market_match_quiz_sessions",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    // The browser credential is stored only as a SHA-256 digest. It is never an
-    // email-derived identifier, which prevents lookup by a guessed address.
-    browserTokenHash: varchar("browserTokenHash", { length: 64 })
-      .notNull()
-      .unique(),
-    resumeNonce: varchar("resumeNonce", { length: 64 }).notNull(),
-    contactId: int("contactId")
-      .notNull()
-      .references(() => contacts.id, { onDelete: "cascade" }),
-    variantId: int("variantId").references(() => marketMatchQuizVariants.id, {
-      onDelete: "set null",
-    }),
-    status: mysqlEnum("status", ["in_progress", "completed", "abandoned"])
-      .notNull()
-      .default("in_progress"),
-    currentStep: varchar("currentStep", { length: 100 })
-      .notNull()
-      .default("email"),
-    answers: json("answers").$type<Record<string, unknown>>().notNull(),
-    firstTouch: json("firstTouch").$type<Record<string, unknown>>(),
-    lastTouch: json("lastTouch").$type<Record<string, unknown>>(),
-    deviceCategory: varchar("deviceCategory", { length: 24 }),
-    emailReminderConsent: boolean("emailReminderConsent")
-      .notNull()
-      .default(false),
-    marketingEmailConsent: boolean("marketingEmailConsent")
-      .notNull()
-      .default(false),
-    marketingSmsConsent: boolean("marketingSmsConsent")
-      .notNull()
-      .default(false),
-    isNewContact: boolean("isNewContact").notNull().default(false),
-    isTest: boolean("isTest").notNull().default(false),
-    lastActiveAt: timestamp("lastActiveAt").defaultNow().notNull(),
-    completedAt: timestamp("completedAt"),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [
-    index("market_match_quiz_sessions_contact_idx").on(
-      table.contactId,
-      table.createdAt
-    ),
-    index("market_match_quiz_sessions_status_active_idx").on(
-      table.status,
-      table.lastActiveAt
-    ),
-  ]
-);
-export type MarketMatchQuizSession =
-  typeof marketMatchQuizSessions.$inferSelect;
+export const marketMatchQuizSessions = mysqlTable("market_match_quiz_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  // The browser credential is stored only as a SHA-256 digest. It is never an
+  // email-derived identifier, which prevents lookup by a guessed address.
+  browserTokenHash: varchar("browserTokenHash", { length: 64 }).notNull().unique(),
+  resumeNonce: varchar("resumeNonce", { length: 64 }).notNull(),
+  contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  variantId: int("variantId").references(() => marketMatchQuizVariants.id, { onDelete: "set null" }),
+  status: mysqlEnum("status", ["in_progress", "completed", "abandoned"]).notNull().default("in_progress"),
+  currentStep: varchar("currentStep", { length: 100 }).notNull().default("email"),
+  answers: json("answers").$type<Record<string, unknown>>().notNull(),
+  firstTouch: json("firstTouch").$type<Record<string, unknown>>(),
+  lastTouch: json("lastTouch").$type<Record<string, unknown>>(),
+  deviceCategory: varchar("deviceCategory", { length: 24 }),
+  emailReminderConsent: boolean("emailReminderConsent").notNull().default(false),
+  marketingEmailConsent: boolean("marketingEmailConsent").notNull().default(false),
+  marketingSmsConsent: boolean("marketingSmsConsent").notNull().default(false),
+  isNewContact: boolean("isNewContact").notNull().default(false),
+  isTest: boolean("isTest").notNull().default(false),
+  lastActiveAt: timestamp("lastActiveAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  index("market_match_quiz_sessions_contact_idx").on(table.contactId, table.createdAt),
+  index("market_match_quiz_sessions_status_active_idx").on(table.status, table.lastActiveAt),
+]);
+export type MarketMatchQuizSession = typeof marketMatchQuizSessions.$inferSelect;
 
-export const marketMatchQuizAnswerRevisions = mysqlTable(
-  "market_match_quiz_answer_revisions",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    sessionId: int("sessionId")
-      .notNull()
-      .references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
-    questionId: varchar("questionId", { length: 100 }).notNull(),
-    answer: json("answer").$type<unknown>(),
-    answerSource: mysqlEnum("answerSource", ["explicit", "inference"])
-      .notNull()
-      .default("explicit"),
-    aiInterpretation: json("aiInterpretation").$type<Record<string, unknown>>(),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-  },
-  table => [
-    index("market_match_answer_revisions_session_idx").on(
-      table.sessionId,
-      table.createdAt
-    ),
-  ]
-);
-export type MarketMatchQuizAnswerRevision =
-  typeof marketMatchQuizAnswerRevisions.$inferSelect;
+export const marketMatchQuizAnswerRevisions = mysqlTable("market_match_quiz_answer_revisions", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull().references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
+  questionId: varchar("questionId", { length: 100 }).notNull(),
+  answer: json("answer").$type<unknown>(),
+  answerSource: mysqlEnum("answerSource", ["explicit", "inference"]).notNull().default("explicit"),
+  aiInterpretation: json("aiInterpretation").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [
+  index("market_match_answer_revisions_session_idx").on(table.sessionId, table.createdAt),
+]);
+export type MarketMatchQuizAnswerRevision = typeof marketMatchQuizAnswerRevisions.$inferSelect;
 
 // Participation is scoped only to the public quiz. It never changes an Agent
 // Market's operating status or an agent's availability in another workflow.
-export const marketMatchQuizMarketSettings = mysqlTable(
-  "market_match_quiz_market_settings",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    marketProfileId: int("marketProfileId")
-      .notNull()
-      .references(() => marketProfiles.id, { onDelete: "cascade" }),
-    isEnabled: boolean("isEnabled").notNull().default(true),
-    priorityWeight: int("priorityWeight").notNull().default(0),
-    connectionCap: int("connectionCap"),
-    updatedById: int("updatedById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [
-    uniqueIndex("market_match_quiz_market_unique").on(table.marketProfileId),
-  ]
-);
-export type MarketMatchQuizMarketSetting =
-  typeof marketMatchQuizMarketSettings.$inferSelect;
+export const marketMatchQuizMarketSettings = mysqlTable("market_match_quiz_market_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  marketProfileId: int("marketProfileId").notNull().references(() => marketProfiles.id, { onDelete: "cascade" }),
+  isEnabled: boolean("isEnabled").notNull().default(true),
+  priorityWeight: int("priorityWeight").notNull().default(0),
+  connectionCap: int("connectionCap"),
+  updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("market_match_quiz_market_unique").on(table.marketProfileId),
+]);
+export type MarketMatchQuizMarketSetting = typeof marketMatchQuizMarketSettings.$inferSelect;
 
-export const marketMatchQuizAgentSettings = mysqlTable(
-  "market_match_quiz_agent_settings",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    marketProfileId: int("marketProfileId")
-      .notNull()
-      .references(() => marketProfiles.id, { onDelete: "cascade" }),
-    agentId: int("agentId")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    isEnabled: boolean("isEnabled").notNull().default(true),
-    connectionCap: int("connectionCap"),
-    updatedById: int("updatedById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [
-    uniqueIndex("market_match_quiz_agent_unique").on(
-      table.marketProfileId,
-      table.agentId
-    ),
-  ]
-);
-export type MarketMatchQuizAgentSetting =
-  typeof marketMatchQuizAgentSettings.$inferSelect;
+export const marketMatchQuizAgentSettings = mysqlTable("market_match_quiz_agent_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  marketProfileId: int("marketProfileId").notNull().references(() => marketProfiles.id, { onDelete: "cascade" }),
+  agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  isEnabled: boolean("isEnabled").notNull().default(true),
+  connectionCap: int("connectionCap"),
+  updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("market_match_quiz_agent_unique").on(table.marketProfileId, table.agentId),
+]);
+export type MarketMatchQuizAgentSetting = typeof marketMatchQuizAgentSettings.$inferSelect;
 
-export const marketMatchQuizResultSnapshots = mysqlTable(
-  "market_match_quiz_result_snapshots",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    sessionId: int("sessionId")
-      .notNull()
-      .references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
-    buyBox: json("buyBox").$type<Record<string, unknown>>().notNull(),
-    matches: json("matches").$type<Array<Record<string, unknown>>>().notNull(),
-    noFitReason: text("noFitReason"),
-    eligibilityContext:
-      json("eligibilityContext").$type<Record<string, unknown>>(),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-  },
-  table => [
-    index("market_match_result_snapshots_session_idx").on(
-      table.sessionId,
-      table.createdAt
-    ),
-  ]
-);
-export type MarketMatchQuizResultSnapshot =
-  typeof marketMatchQuizResultSnapshots.$inferSelect;
+export const marketMatchQuizResultSnapshots = mysqlTable("market_match_quiz_result_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull().references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
+  buyBox: json("buyBox").$type<Record<string, unknown>>().notNull(),
+  matches: json("matches").$type<Array<Record<string, unknown>>>().notNull(),
+  noFitReason: text("noFitReason"),
+  eligibilityContext: json("eligibilityContext").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [
+  index("market_match_result_snapshots_session_idx").on(table.sessionId, table.createdAt),
+]);
+export type MarketMatchQuizResultSnapshot = typeof marketMatchQuizResultSnapshots.$inferSelect;
 
-export const marketMatchQuizConnectionRequests = mysqlTable(
-  "market_match_quiz_connection_requests",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    sessionId: int("sessionId")
-      .notNull()
-      .references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
-    contactId: int("contactId")
-      .notNull()
-      .references(() => contacts.id, { onDelete: "cascade" }),
-    marketProfileId: int("marketProfileId")
-      .notNull()
-      .references(() => marketProfiles.id, { onDelete: "cascade" }),
-    agentId: int("agentId")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    agentConnectionId: int("agentConnectionId").references(
-      () => agentConnections.id,
-      { onDelete: "set null" }
-    ),
-    requestedPath: mysqlEnum("requestedPath", [
-      "introduction",
-      "schedule",
-    ]).notNull(),
-    introDeliveryStatus: mysqlEnum("introDeliveryStatus", [
-      "pending",
-      "sent",
-      "failed",
-      "skipped",
-    ])
-      .notNull()
-      .default("pending"),
-    introDeliveryError: text("introDeliveryError"),
-    introSentAt: timestamp("introSentAt"),
-    scheduleOpenedAt: timestamp("scheduleOpenedAt"),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [
-    uniqueIndex("market_match_connection_request_unique").on(
-      table.sessionId,
-      table.marketProfileId
-    ),
-    index("market_match_connection_agent_idx").on(
-      table.marketProfileId,
-      table.agentId,
-      table.createdAt
-    ),
-    index("market_match_connection_contact_idx").on(
-      table.contactId,
-      table.createdAt
-    ),
-  ]
-);
-export type MarketMatchQuizConnectionRequest =
-  typeof marketMatchQuizConnectionRequests.$inferSelect;
+export const marketMatchQuizConnectionRequests = mysqlTable("market_match_quiz_connection_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull().references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
+  contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  marketProfileId: int("marketProfileId").notNull().references(() => marketProfiles.id, { onDelete: "cascade" }),
+  agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  agentConnectionId: int("agentConnectionId").references(() => agentConnections.id, { onDelete: "set null" }),
+  requestedPath: mysqlEnum("requestedPath", ["introduction", "schedule"]).notNull(),
+  introDeliveryStatus: mysqlEnum("introDeliveryStatus", ["pending", "sent", "failed", "skipped"]).notNull().default("pending"),
+  introDeliveryError: text("introDeliveryError"),
+  introSentAt: timestamp("introSentAt"),
+  scheduleOpenedAt: timestamp("scheduleOpenedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("market_match_connection_request_unique").on(table.sessionId, table.marketProfileId),
+  index("market_match_connection_agent_idx").on(table.marketProfileId, table.agentId, table.createdAt),
+  index("market_match_connection_contact_idx").on(table.contactId, table.createdAt),
+]);
+export type MarketMatchQuizConnectionRequest = typeof marketMatchQuizConnectionRequests.$inferSelect;
 
-export const marketMatchQuizBookings = mysqlTable(
-  "market_match_quiz_bookings",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    connectionRequestId: int("connectionRequestId").references(
-      () => marketMatchQuizConnectionRequests.id,
-      { onDelete: "set null" }
-    ),
-    lenderRequestId: int("lenderRequestId"),
-    sessionId: int("sessionId")
-      .notNull()
-      .references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
-    contactId: int("contactId")
-      .notNull()
-      .references(() => contacts.id, { onDelete: "cascade" }),
-    agentId: int("agentId").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    // Calendly API resource URIs fit comfortably below 512 characters. Keeping
-    // these indexed values within MySQL's utf8mb4 key limit enables webhook
-    // idempotency without a fragile prefix index.
-    calendlyEventUri: varchar("calendlyEventUri", { length: 500 }),
-    calendlyInviteeUri: varchar("calendlyInviteeUri", { length: 500 }),
-    status: mysqlEnum("status", ["confirmed", "canceled", "rescheduled"])
-      .notNull()
-      .default("confirmed"),
-    attributionLabel: varchar("attributionLabel", { length: 64 })
-      .notNull()
-      .default("MarketMatchSurvey"),
-    occurredAt: timestamp("occurredAt").defaultNow().notNull(),
-    canceledAt: timestamp("canceledAt"),
-    rawPayload: json("rawPayload").$type<Record<string, unknown>>(),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [
-    uniqueIndex("market_match_booking_event_unique").on(table.calendlyEventUri),
-    index("market_match_booking_session_idx").on(
-      table.sessionId,
-      table.createdAt
-    ),
-  ]
-);
-export type MarketMatchQuizBooking =
-  typeof marketMatchQuizBookings.$inferSelect;
+export const marketMatchQuizBookings = mysqlTable("market_match_quiz_bookings", {
+  id: int("id").autoincrement().primaryKey(),
+  connectionRequestId: int("connectionRequestId").references(() => marketMatchQuizConnectionRequests.id, { onDelete: "set null" }),
+  lenderRequestId: int("lenderRequestId"),
+  sessionId: int("sessionId").notNull().references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
+  contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  agentId: int("agentId").references(() => users.id, { onDelete: "set null" }),
+  // Calendly API resource URIs fit comfortably below 512 characters. Keeping
+  // these indexed values within MySQL's utf8mb4 key limit enables webhook
+  // idempotency without a fragile prefix index.
+  calendlyEventUri: varchar("calendlyEventUri", { length: 500 }),
+  calendlyInviteeUri: varchar("calendlyInviteeUri", { length: 500 }),
+  status: mysqlEnum("status", ["confirmed", "canceled", "rescheduled"]).notNull().default("confirmed"),
+  attributionLabel: varchar("attributionLabel", { length: 64 }).notNull().default("MarketMatchSurvey"),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+  canceledAt: timestamp("canceledAt"),
+  rawPayload: json("rawPayload").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("market_match_booking_event_unique").on(table.calendlyEventUri),
+  index("market_match_booking_session_idx").on(table.sessionId, table.createdAt),
+]);
+export type MarketMatchQuizBooking = typeof marketMatchQuizBookings.$inferSelect;
 
 export const marketMatchQuizLenders = mysqlTable("market_match_quiz_lenders", {
   id: int("id").autoincrement().primaryKey(),
@@ -5015,107 +4626,60 @@ export const marketMatchQuizLenders = mysqlTable("market_match_quiz_lenders", {
   availabilityNote: text("availabilityNote"),
   bookingLink: varchar("bookingLink", { length: 1024 }),
   isEnabled: boolean("isEnabled").notNull().default(true),
-  createdById: int("createdById").references(() => users.id, {
-    onDelete: "set null",
-  }),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type MarketMatchQuizLender = typeof marketMatchQuizLenders.$inferSelect;
 
-export const marketMatchQuizLenderRequests = mysqlTable(
-  "market_match_quiz_lender_requests",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    sessionId: int("sessionId")
-      .notNull()
-      .references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
-    contactId: int("contactId")
-      .notNull()
-      .references(() => contacts.id, { onDelete: "cascade" }),
-    lenderId: int("lenderId")
-      .notNull()
-      .references(() => marketMatchQuizLenders.id, { onDelete: "cascade" }),
-    requestedPath: mysqlEnum("requestedPath", [
-      "introduction",
-      "schedule",
-    ]).notNull(),
-    introDeliveryStatus: mysqlEnum("introDeliveryStatus", [
-      "pending",
-      "sent",
-      "failed",
-      "skipped",
-    ])
-      .notNull()
-      .default("pending"),
-    introDeliveryError: text("introDeliveryError"),
-    introSentAt: timestamp("introSentAt"),
-    scheduleOpenedAt: timestamp("scheduleOpenedAt"),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [
-    uniqueIndex("market_match_lender_request_unique").on(
-      table.sessionId,
-      table.lenderId
-    ),
-  ]
-);
-export type MarketMatchQuizLenderRequest =
-  typeof marketMatchQuizLenderRequests.$inferSelect;
+export const marketMatchQuizLenderRequests = mysqlTable("market_match_quiz_lender_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull().references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
+  contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  lenderId: int("lenderId").notNull().references(() => marketMatchQuizLenders.id, { onDelete: "cascade" }),
+  requestedPath: mysqlEnum("requestedPath", ["introduction", "schedule"]).notNull(),
+  introDeliveryStatus: mysqlEnum("introDeliveryStatus", ["pending", "sent", "failed", "skipped"]).notNull().default("pending"),
+  introDeliveryError: text("introDeliveryError"),
+  introSentAt: timestamp("introSentAt"),
+  scheduleOpenedAt: timestamp("scheduleOpenedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("market_match_lender_request_unique").on(table.sessionId, table.lenderId),
+]);
+export type MarketMatchQuizLenderRequest = typeof marketMatchQuizLenderRequests.$inferSelect;
 
-export const marketMatchQuizEvents = mysqlTable(
-  "market_match_quiz_events",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    sessionId: int("sessionId").references(() => marketMatchQuizSessions.id, {
-      onDelete: "set null",
-    }),
-    contactId: int("contactId").references(() => contacts.id, {
-      onDelete: "set null",
-    }),
-    eventType: varchar("eventType", { length: 80 }).notNull(),
-    metadata: json("metadata").$type<Record<string, unknown>>(),
-    occurredAt: timestamp("occurredAt").defaultNow().notNull(),
-  },
-  table => [
-    index("market_match_events_type_time_idx").on(
-      table.eventType,
-      table.occurredAt
-    ),
-    index("market_match_events_session_idx").on(
-      table.sessionId,
-      table.occurredAt
-    ),
-  ]
-);
+export const marketMatchQuizEvents = mysqlTable("market_match_quiz_events", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").references(() => marketMatchQuizSessions.id, { onDelete: "set null" }),
+  contactId: int("contactId").references(() => contacts.id, { onDelete: "set null" }),
+  eventType: varchar("eventType", { length: 80 }).notNull(),
+  metadata: json("metadata").$type<Record<string, unknown>>(),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+}, table => [
+  index("market_match_events_type_time_idx").on(table.eventType, table.occurredAt),
+  index("market_match_events_session_idx").on(table.sessionId, table.occurredAt),
+]);
 export type MarketMatchQuizEvent = typeof marketMatchQuizEvents.$inferSelect;
 
-export const marketAgentAssignments = mysqlTable(
-  "market_agent_assignments",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    marketProfileId: int("marketProfileId")
-      .notNull()
-      .references(() => marketProfiles.id),
-    agentId: int("agentId")
-      .notNull()
-      .references(() => users.id),
-    isPrimary: boolean("isPrimary").default(false),
-    budgetSpecialization: varchar("budgetSpecialization", { length: 100 }),
-    maxLeadCapacity: int("maxLeadCapacity").default(20),
-    currentLeadCount: int("currentLeadCount").default(0),
-    isAvailable: boolean("isAvailable").default(true),
-    notes: text("notes"),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-  },
-  table => [
-    uniqueIndex("market_agent_assignment_market_agent_unique").on(
-      table.marketProfileId,
-      table.agentId
-    ),
-  ]
-);
+export const marketAgentAssignments = mysqlTable("market_agent_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  marketProfileId: int("marketProfileId")
+    .notNull()
+    .references(() => marketProfiles.id),
+  agentId: int("agentId")
+    .notNull()
+    .references(() => users.id),
+  isPrimary: boolean("isPrimary").default(false),
+  budgetSpecialization: varchar("budgetSpecialization", { length: 100 }),
+  maxLeadCapacity: int("maxLeadCapacity").default(20),
+  currentLeadCount: int("currentLeadCount").default(0),
+  isAvailable: boolean("isAvailable").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [
+  uniqueIndex("market_agent_assignment_market_agent_unique").on(table.marketProfileId, table.agentId),
+]);
 export type MarketAgentAssignment = typeof marketAgentAssignments.$inferSelect;
 
 // ─── Affiliate Links ─────────────────────────────────────────────────────────
@@ -5142,10 +4706,7 @@ export const affiliateLinks = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
-    index("affiliate_links_active_company_idx").on(
-      table.isActive,
-      table.companyName
-    ),
+    index("affiliate_links_active_company_idx").on(table.isActive, table.companyName),
   ]
 );
 export type AffiliateLink = typeof affiliateLinks.$inferSelect;
@@ -5479,11 +5040,7 @@ export const connectionRequests = mysqlTable("connection_requests", {
   requestedPipelineStatus: varchar("requestedPipelineStatus", { length: 64 })
     .notNull()
     .default("new_lead"),
-  requestedRelationshipType: mysqlEnum("requestedRelationshipType", [
-    "buyer",
-    "seller",
-    "both",
-  ])
+  requestedRelationshipType: mysqlEnum("requestedRelationshipType", ["buyer", "seller", "both"])
     .default("both")
     .notNull(),
   status: varchar("status", { length: 32 }).notNull().default("pending"), // pending | approved | denied
@@ -5516,15 +5073,7 @@ export const pmProjects = mysqlTable("pm_projects", {
   isRock: boolean("isRock").notNull().default(false),
   rockQuarter: varchar("rockQuarter", { length: 16 }),
   definitionOfDone: text("definitionOfDone"),
-  rockStatus: mysqlEnum("rockStatus", [
-    "on_track",
-    "at_risk",
-    "off_track",
-    "done",
-    "dropped",
-  ])
-    .notNull()
-    .default("on_track"),
+  rockStatus: mysqlEnum("rockStatus", ["on_track", "at_risk", "off_track", "done", "dropped"]).notNull().default("on_track"),
   sortOrder: int("sortOrder").notNull().default(0),
   archivedAt: timestamp("archivedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -5551,18 +5100,9 @@ export const pmProjectRockMeetings = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => [
-    uniqueIndex("pm_project_rock_meeting_unique").on(
-      table.projectId,
-      table.meetingId
-    ),
-    index("pm_project_rock_meeting_project_idx").on(
-      table.projectId,
-      table.sortOrder
-    ),
-    index("pm_project_rock_meeting_meeting_idx").on(
-      table.meetingId,
-      table.sortOrder
-    ),
+    uniqueIndex("pm_project_rock_meeting_unique").on(table.projectId, table.meetingId),
+    index("pm_project_rock_meeting_project_idx").on(table.projectId, table.sortOrder),
+    index("pm_project_rock_meeting_meeting_idx").on(table.meetingId, table.sortOrder),
   ]
 );
 export type PmProjectRockMeeting = typeof pmProjectRockMeetings.$inferSelect;
@@ -5580,12 +5120,7 @@ export const pmTodoSections = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
-  table => [
-    index("pm_todo_sections_project_order_idx").on(
-      table.projectId,
-      table.sortOrder
-    ),
-  ]
+  table => [index("pm_todo_sections_project_order_idx").on(table.projectId, table.sortOrder)]
 );
 export type PmTodoSection = typeof pmTodoSections.$inferSelect;
 export type InsertPmTodoSection = typeof pmTodoSections.$inferInsert;
@@ -5618,9 +5153,7 @@ export const pmTasks = mysqlTable(
       .notNull()
       .references(() => pmProjects.id, { onDelete: "cascade" }),
     parentTaskId: int("parentTaskId"),
-    sectionId: int("sectionId").references(() => pmTodoSections.id, {
-      onDelete: "set null",
-    }),
+    sectionId: int("sectionId").references(() => pmTodoSections.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     ownerId: int("ownerId")
       .notNull()
@@ -5643,16 +5176,8 @@ export const pmTasks = mysqlTable(
       name: "pm_tasks_parentTaskId_pm_tasks_id_fk",
     }).onDelete("set null"),
     index("pm_tasks_parent_idx").on(table.parentTaskId),
-    index("pm_tasks_section_order_idx").on(
-      table.sectionId,
-      table.sortOrder,
-      table.createdAt
-    ),
-    index("pm_tasks_project_status_idx").on(
-      table.projectId,
-      table.status,
-      table.dueDate
-    ),
+    index("pm_tasks_section_order_idx").on(table.sectionId, table.sortOrder, table.createdAt),
+    index("pm_tasks_project_status_idx").on(table.projectId, table.status, table.dueDate),
   ]
 );
 export type PmTask = typeof pmTasks.$inferSelect;
@@ -6099,9 +5624,7 @@ export const emailNotificationDeliveries = mysqlTable(
       "complained",
       "suppressed",
       "failed",
-    ])
-      .notNull()
-      .default("sent"),
+    ]).notNull().default("sent"),
     errorMessage: text("errorMessage"),
     sentAt: timestamp("sentAt").defaultNow().notNull(),
     deliveredAt: timestamp("deliveredAt"),
@@ -6125,8 +5648,7 @@ export const emailNotificationDeliveries = mysqlTable(
     ),
   ]
 );
-export type EmailNotificationDelivery =
-  typeof emailNotificationDeliveries.$inferSelect;
+export type EmailNotificationDelivery = typeof emailNotificationDeliveries.$inferSelect;
 
 // ─── Durable Resend Webhook Inbox ───────────────────────────────────────────
 // The public webhook route stores a verified callback here before returning 2xx
@@ -7129,9 +6651,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewChat: boolean("canViewChat").default(false).notNull(),
   canManageChat: boolean("canManageChat").default(false).notNull(),
   canViewIsmDashboard: boolean("canViewIsmDashboard").default(false).notNull(),
-  canViewConversationIntelligence: boolean("canViewConversationIntelligence")
-    .default(true)
-    .notNull(),
+  canViewConversationIntelligence: boolean("canViewConversationIntelligence").default(true).notNull(),
   canViewReporting: boolean("canViewReporting").default(true).notNull(),
   canViewCustomReports: boolean("canViewCustomReports").default(true).notNull(),
   canViewLeaderboard: boolean("canViewLeaderboard").default(true).notNull(),
@@ -7198,9 +6718,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
     .notNull(),
   // Operations
   canViewTasks: boolean("canViewTasks").default(true).notNull(),
-  canViewTransactionChecklists: boolean("canViewTransactionChecklists")
-    .default(true)
-    .notNull(),
+  canViewTransactionChecklists: boolean("canViewTransactionChecklists").default(true).notNull(),
   // PTO access, approval, and administration are intentionally opt-in and must be assigned through Super Permissions.
   canViewPto: boolean("canViewPto").default(false).notNull(),
   canApprovePto: boolean("canApprovePto").default(false).notNull(),
@@ -7222,9 +6740,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewActivityLog: boolean("canViewActivityLog").default(true).notNull(),
   // Admin
   canViewUsers: boolean("canViewUsers").default(true).notNull(),
-  canViewAffiliateLinks: boolean("canViewAffiliateLinks")
-    .default(true)
-    .notNull(),
+  canViewAffiliateLinks: boolean("canViewAffiliateLinks").default(true).notNull(),
   canViewAdminApprovals: boolean("canViewAdminApprovals")
     .default(true)
     .notNull(),
@@ -7274,21 +6790,11 @@ export const adminPermissions = mysqlTable("admin_permissions", {
     .notNull(),
   // Website CMS access is opt-in. Tyler's synthetic permissions remain all-true.
   canViewWebsite: boolean("canViewWebsite").default(false).notNull(),
-  canManageWebsiteProperties: boolean("canManageWebsiteProperties")
-    .default(false)
-    .notNull(),
-  canManageWebsiteAgents: boolean("canManageWebsiteAgents")
-    .default(false)
-    .notNull(),
-  canManageWebsiteCaseStudies: boolean("canManageWebsiteCaseStudies")
-    .default(false)
-    .notNull(),
-  canManageWebsiteBlog: boolean("canManageWebsiteBlog")
-    .default(false)
-    .notNull(),
-  canManageWebsiteSettings: boolean("canManageWebsiteSettings")
-    .default(false)
-    .notNull(),
+  canManageWebsiteProperties: boolean("canManageWebsiteProperties").default(false).notNull(),
+  canManageWebsiteAgents: boolean("canManageWebsiteAgents").default(false).notNull(),
+  canManageWebsiteCaseStudies: boolean("canManageWebsiteCaseStudies").default(false).notNull(),
+  canManageWebsiteBlog: boolean("canManageWebsiteBlog").default(false).notNull(),
+  canManageWebsiteSettings: boolean("canManageWebsiteSettings").default(false).notNull(),
   canViewWebsiteLeads: boolean("canViewWebsiteLeads").default(false).notNull(),
   // Short Links send public traffic through the Savvy-owned redirect domain.
   canViewShortLinks: boolean("canViewShortLinks").default(false).notNull(),
@@ -7530,13 +7036,7 @@ export const eventExpenses = mysqlTable(
     description: varchar("description", { length: 500 }).notNull(),
     category: varchar("category", { length: 128 }).notNull().default("Other"),
     amount: decimal("amount", { precision: 15, scale: 2 }),
-    status: mysqlEnum("status", [
-      "planned",
-      "invoiced",
-      "paid",
-      "reimbursed",
-      "void",
-    ])
+    status: mysqlEnum("status", ["planned", "invoiced", "paid", "reimbursed", "void"])
       .notNull()
       .default("planned"),
     invoiceFileName: varchar("invoiceFileName", { length: 500 }),
@@ -7586,10 +7086,8 @@ export const eventSponsorDeliverables = mysqlTable(
     index("event_sponsor_deliverables_status_idx").on(table.status),
   ]
 );
-export type EventSponsorDeliverable =
-  typeof eventSponsorDeliverables.$inferSelect;
-export type InsertEventSponsorDeliverable =
-  typeof eventSponsorDeliverables.$inferInsert;
+export type EventSponsorDeliverable = typeof eventSponsorDeliverables.$inferSelect;
+export type InsertEventSponsorDeliverable = typeof eventSponsorDeliverables.$inferInsert;
 
 export const eventExclusivityClaims = mysqlTable(
   "event_exclusivity_claims",
@@ -8337,9 +7835,7 @@ export const aircallLiveTranscriptEvents = mysqlTable(
     receivedAt: timestamp("receivedAt").defaultNow().notNull(),
   },
   table => [
-    uniqueIndex("aircall_live_transcript_events_event_key_unique").on(
-      table.eventKey
-    ),
+    uniqueIndex("aircall_live_transcript_events_event_key_unique").on(table.eventKey),
     index("aircall_live_transcript_events_call_received_idx").on(
       table.aircallCallId,
       table.receivedAt
@@ -8401,9 +7897,7 @@ export const contactIntelligenceBackfillRuns = mysqlTable(
     queuedContacts: int("queuedContacts").notNull().default(0),
     completedContacts: int("completedContacts").notNull().default(0),
     structuredContacts: int("structuredContacts").notNull().default(0),
-    nativeSummaryOnlyContacts: int("nativeSummaryOnlyContacts")
-      .notNull()
-      .default(0),
+    nativeSummaryOnlyContacts: int("nativeSummaryOnlyContacts").notNull().default(0),
     lastQueuedAt: timestamp("lastQueuedAt"),
     completedAt: timestamp("completedAt"),
     lastError: varchar("lastError", { length: 512 }),
@@ -8489,8 +7983,7 @@ export const contactIntelligenceJobs = mysqlTable(
     ),
   ]
 );
-export type ContactIntelligenceJob =
-  typeof contactIntelligenceJobs.$inferSelect;
+export type ContactIntelligenceJob = typeof contactIntelligenceJobs.$inferSelect;
 export type InsertContactIntelligenceJob =
   typeof contactIntelligenceJobs.$inferInsert;
 
@@ -8505,12 +7998,7 @@ export const contactIntelligenceProfiles = mysqlTable(
     // A resolved, review-aware snapshot used for fast CRM rendering and analytics.
     profile: json("profile").$type<Record<string, unknown>>().notNull(),
     aiSummary: text("aiSummary"),
-    intentTier: mysqlEnum("intentTier", [
-      "priority",
-      "active",
-      "nurture",
-      "unknown",
-    ])
+    intentTier: mysqlEnum("intentTier", ["priority", "active", "nurture", "unknown"])
       .notNull()
       .default("unknown"),
     intentScore: int("intentScore").notNull().default(0),
@@ -8555,12 +8043,9 @@ export const contactIntelligenceSignals = mysqlTable(
     contactId: int("contactId")
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
-    profileId: int("profileId").references(
-      () => contactIntelligenceProfiles.id,
-      {
-        onDelete: "set null",
-      }
-    ),
+    profileId: int("profileId").references(() => contactIntelligenceProfiles.id, {
+      onDelete: "set null",
+    }),
     aircallCallId: bigint("aircallCallId", { mode: "number" }).notNull(),
     communicationId: int("communicationId")
       .notNull()
@@ -8653,11 +8138,12 @@ export const contactIntelligenceActionReviews = mysqlTable(
       .references(() => contacts.id, { onDelete: "cascade" }),
     profileId: int("profileId")
       .notNull()
-      .references(() => contactIntelligenceProfiles.id, {
-        onDelete: "cascade",
-      }),
+      .references(() => contactIntelligenceProfiles.id, { onDelete: "cascade" }),
     reviewedProfileUpdatedAt: timestamp("reviewedProfileUpdatedAt").notNull(),
-    disposition: mysqlEnum("disposition", ["reviewed_no_task", "deferred"])
+    disposition: mysqlEnum("disposition", [
+      "reviewed_no_task",
+      "deferred",
+    ])
       .notNull()
       .default("reviewed_no_task"),
     note: text("note"),
@@ -9330,7 +8816,9 @@ export const operationsEscalations = mysqlTable(
       .notNull()
       .references(() => users.id),
     description: text("description").notNull(),
-    status: mysqlEnum("status", ["Open", "Resolved"]).default("Open").notNull(),
+    status: mysqlEnum("status", ["Open", "Resolved"])
+      .default("Open")
+      .notNull(),
     resolution: text("resolution"),
     resolvedById: int("resolvedById").references(() => users.id),
     resolvedAt: timestamp("resolvedAt"),
@@ -9338,20 +8826,13 @@ export const operationsEscalations = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
-    index("operations_escalations_session_idx").on(
-      table.sessionId,
-      table.createdAt
-    ),
+    index("operations_escalations_session_idx").on(table.sessionId, table.createdAt),
     index("operations_escalations_agent_idx").on(table.agentId, table.status),
-    index("operations_escalations_status_created_idx").on(
-      table.status,
-      table.createdAt
-    ),
+    index("operations_escalations_status_created_idx").on(table.status, table.createdAt),
   ]
 );
 export type OperationsEscalation = typeof operationsEscalations.$inferSelect;
-export type InsertOperationsEscalation =
-  typeof operationsEscalations.$inferInsert;
+export type InsertOperationsEscalation = typeof operationsEscalations.$inferInsert;
 
 // Coach-out recommendations.
 export const coachOutRecommendations = mysqlTable("coach_out_recommendations", {
@@ -10389,9 +9870,7 @@ export const pulseWorkItems = mysqlTable(
     // Proposed AI-derived issues stay unassigned until a person chooses otherwise.
     assigneeId: int("assigneeId").references(() => users.id),
     // When current work is blocked, this optional person is the named teammate who can unblock it.
-    blockerPersonId: int("blockerPersonId").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    blockerPersonId: int("blockerPersonId").references(() => users.id, { onDelete: "set null" }),
     createdById: int("createdById")
       .notNull()
       .references(() => users.id),
@@ -10408,14 +9887,7 @@ export const pulseWorkItems = mysqlTable(
     // issue can transition to solved; resulting to-dos are held in a FK-backed join table.
     // Numeric priority preserves issue ordering; priorityLevel is the human-facing urgency.
     priority: int("priority"),
-    priorityLevel: mysqlEnum("priorityLevel", [
-      "low",
-      "medium",
-      "high",
-      "urgent",
-    ])
-      .default("medium")
-      .notNull(),
+    priorityLevel: mysqlEnum("priorityLevel", ["low", "medium", "high", "urgent"]).default("medium").notNull(),
     issueTimeframe: mysqlEnum("issueTimeframe", ["short_term", "long_term"]),
     solvedNote: text("solvedNote"),
     // Rocks require a durable, testable completion condition.
@@ -10430,9 +9902,7 @@ export const pulseWorkItems = mysqlTable(
       .notNull(),
     // A Project-resolved L10 To-Do remains visible to its L10 until a participant
     // acknowledges the documented resolution.
-    requiresL10Acknowledgement: boolean("requiresL10Acknowledgement")
-      .default(false)
-      .notNull(),
+    requiresL10Acknowledgement: boolean("requiresL10Acknowledgement").default(false).notNull(),
     origin: mysqlEnum("origin", [
       "manual",
       "cascaded",
@@ -10527,47 +9997,32 @@ export const pulseTodoAcknowledgements = mysqlTable(
   },
   table => [
     uniqueIndex("pulse_todo_acknowledgements_item_unique").on(table.workItemId),
-    index("pulse_todo_acknowledgements_person_idx").on(
-      table.acknowledgedById,
-      table.acknowledgedAt
-    ),
+    index("pulse_todo_acknowledgements_person_idx").on(table.acknowledgedById, table.acknowledgedAt),
   ]
 );
-export type PulseTodoAcknowledgement =
-  typeof pulseTodoAcknowledgements.$inferSelect;
+export type PulseTodoAcknowledgement = typeof pulseTodoAcknowledgements.$inferSelect;
 
 /** Document metadata for Pulse items; file content remains in the existing SavvyOS S3 storage path. */
 export const pulseWorkItemAttachments = mysqlTable(
   "pulse_work_item_attachments",
   {
     id: varchar("id", { length: 36 }).primaryKey(),
-    workItemId: varchar("workItemId", { length: 36 })
-      .notNull()
-      .references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+    workItemId: varchar("workItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
     fileName: varchar("fileName", { length: 500 }).notNull(),
     fileKey: varchar("fileKey", { length: 1024 }).notNull(),
     url: varchar("url", { length: 2048 }).notNull(),
     mimeType: varchar("mimeType", { length: 128 }),
     fileSize: bigint("fileSize", { mode: "number" }),
-    uploadedById: int("uploadedById")
-      .notNull()
-      .references(() => users.id),
+    uploadedById: int("uploadedById").notNull().references(() => users.id),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     deletedAt: timestamp("deletedAt"),
   },
   table => [
-    index("pulse_work_item_attachments_item_idx").on(
-      table.workItemId,
-      table.deletedAt
-    ),
-    index("pulse_work_item_attachments_uploader_idx").on(
-      table.uploadedById,
-      table.createdAt
-    ),
+    index("pulse_work_item_attachments_item_idx").on(table.workItemId, table.deletedAt),
+    index("pulse_work_item_attachments_uploader_idx").on(table.uploadedById, table.createdAt),
   ]
 );
-export type PulseWorkItemAttachment =
-  typeof pulseWorkItemAttachments.$inferSelect;
+export type PulseWorkItemAttachment = typeof pulseWorkItemAttachments.$inferSelect;
 
 /** One accountable owner is held on the work item; this table records the remaining RACI collaborators. */
 export const pulseRockRaciAssignments = mysqlTable(
@@ -11417,9 +10872,7 @@ export const websiteAccounts = mysqlTable(
     // The SavvyOS contact this investor became, set when an enquiry creates or
     // matches one, so an agent sees a single person rather than two records.
     contactId: int("contactId"),
-    status: mysqlEnum("status", ["active", "suspended"])
-      .default("active")
-      .notNull(),
+    status: mysqlEnum("status", ["active", "suspended"]).default("active").notNull(),
     emailVerifiedAt: timestamp("emailVerifiedAt"),
     lastSignInAt: timestamp("lastSignInAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -11438,21 +10891,13 @@ export const websiteAccountTokens = mysqlTable(
     accountId: int("accountId")
       .notNull()
       .references(() => websiteAccounts.id, { onDelete: "cascade" }),
-    purpose: mysqlEnum("purpose", [
-      "password_reset",
-      "email_verification",
-    ]).notNull(),
+    purpose: mysqlEnum("purpose", ["password_reset", "email_verification"]).notNull(),
     tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
     expiresAt: timestamp("expiresAt").notNull(),
     usedAt: timestamp("usedAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
-  table => [
-    index("website_account_tokens_account_idx").on(
-      table.accountId,
-      table.purpose
-    ),
-  ]
+  table => [index("website_account_tokens_account_idx").on(table.accountId, table.purpose)]
 );
 export type WebsiteAccountToken = typeof websiteAccountTokens.$inferSelect;
 
@@ -11491,38 +10936,27 @@ export type WebsiteAccountEmailSend =
  * stays the master switch: turning "enabled" on here does nothing until that
  * is set, so a click in the Studio cannot start mailing the whole list.
  */
-export const websiteDailyEmailSettings = mysqlTable(
-  "website_daily_email_settings",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    singletonKey: varchar("singletonKey", { length: 32 })
-      .default("primary")
-      .notNull()
-      .unique(),
-    enabled: boolean("enabled").default(false).notNull(),
-    /** Hour of the day, Eastern time, 0 to 23. */
-    sendHourEt: int("sendHourEt").default(17).notNull(),
-    /** Resend segment (audience) IDs the shared email is broadcast to. */
-    segmentIds: json("segmentIds").$type<string[]>(),
-    /** Who gets a copy of every send, so a person sees what went out. */
-    internalRecipients: json("internalRecipients").$type<string[]>(),
-    /** Also send the personal, preference-matched email to new-site accounts. */
-    personalEmailsEnabled: boolean("personalEmailsEnabled")
-      .default(true)
-      .notNull(),
-    /** {count} becomes the number of properties. Blank uses the default. */
-    subjectTemplate: varchar("subjectTemplate", { length: 200 }),
-    introText: text("introText"),
-    /** Email investors who viewed or saved a listing when its price drops. */
-    priceDropAlertsEnabled: boolean("priceDropAlertsEnabled")
-      .default(false)
-      .notNull(),
-    updatedById: int("updatedById"),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  }
-);
-export type WebsiteDailyEmailSettings =
-  typeof websiteDailyEmailSettings.$inferSelect;
+export const websiteDailyEmailSettings = mysqlTable("website_daily_email_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  singletonKey: varchar("singletonKey", { length: 32 }).default("primary").notNull().unique(),
+  enabled: boolean("enabled").default(false).notNull(),
+  /** Hour of the day, Eastern time, 0 to 23. */
+  sendHourEt: int("sendHourEt").default(17).notNull(),
+  /** Resend segment (audience) IDs the shared email is broadcast to. */
+  segmentIds: json("segmentIds").$type<string[]>(),
+  /** Who gets a copy of every send, so a person sees what went out. */
+  internalRecipients: json("internalRecipients").$type<string[]>(),
+  /** Also send the personal, preference-matched email to new-site accounts. */
+  personalEmailsEnabled: boolean("personalEmailsEnabled").default(true).notNull(),
+  /** {count} becomes the number of properties. Blank uses the default. */
+  subjectTemplate: varchar("subjectTemplate", { length: 200 }),
+  introText: text("introText"),
+  /** Email investors who viewed or saved a listing when its price drops. */
+  priceDropAlertsEnabled: boolean("priceDropAlertsEnabled").default(false).notNull(),
+  updatedById: int("updatedById"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type WebsiteDailyEmailSettings = typeof websiteDailyEmailSettings.$inferSelect;
 
 /** One row per daily email sent, tested or skipped. */
 export const websiteDailyEmailRuns = mysqlTable(
@@ -11533,13 +10967,7 @@ export const websiteDailyEmailRuns = mysqlTable(
     idempotencyKey: varchar("idempotencyKey", { length: 64 }).unique(),
     runDate: varchar("runDate", { length: 10 }).notNull(),
     trigger: mysqlEnum("trigger", ["scheduled", "manual", "test"]).notNull(),
-    status: mysqlEnum("status", [
-      "sending",
-      "sent",
-      "partial",
-      "failed",
-      "skipped",
-    ]).notNull(),
+    status: mysqlEnum("status", ["sending", "sent", "partial", "failed", "skipped"]).notNull(),
     subject: varchar("subject", { length: 255 }),
     propertyIds: json("propertyIds").$type<number[]>(),
     propertyCount: int("propertyCount").default(0).notNull(),
@@ -11572,12 +11000,7 @@ export const websiteDailyEmailEngagement = mysqlTable(
     clickedAt: timestamp("clickedAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
-  table => [
-    uniqueIndex("website_daily_email_engagement_run_email").on(
-      table.runId,
-      table.emailId
-    ),
-  ]
+  table => [uniqueIndex("website_daily_email_engagement_run_email").on(table.runId, table.emailId)]
 );
 
 /** Which property each click went to. One row per email per link. */
@@ -11592,11 +11015,7 @@ export const websiteDailyEmailClicks = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => [
-    uniqueIndex("website_daily_email_clicks_run_email_link").on(
-      table.runId,
-      table.emailId,
-      table.linkKey
-    ),
+    uniqueIndex("website_daily_email_clicks_run_email_link").on(table.runId, table.emailId, table.linkKey),
     index("website_daily_email_clicks_run_link").on(table.runId, table.linkKey),
   ]
 );
@@ -11610,20 +11029,11 @@ export const websitePriceDropAlerts = mysqlTable(
   "website_price_drop_alerts",
   {
     id: int("id").autoincrement().primaryKey(),
-    idempotencyKey: varchar("idempotencyKey", { length: 96 })
-      .notNull()
-      .unique(),
+    idempotencyKey: varchar("idempotencyKey", { length: 96 }).notNull().unique(),
     propertyId: int("propertyId").notNull(),
     oldPrice: decimal("oldPrice", { precision: 12, scale: 2 }).notNull(),
     newPrice: decimal("newPrice", { precision: 12, scale: 2 }).notNull(),
-    status: mysqlEnum("status", [
-      "sending",
-      "sent",
-      "partial",
-      "failed",
-      "no_recipients",
-      "skipped",
-    ]).notNull(),
+    status: mysqlEnum("status", ["sending", "sent", "partial", "failed", "no_recipients", "skipped"]).notNull(),
     recipients: int("recipients").default(0).notNull(),
     sent: int("sent").default(0).notNull(),
     failed: int("failed").default(0).notNull(),
@@ -11650,15 +11060,11 @@ export const websiteAccountSavedProperties = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => [
-    uniqueIndex("website_saved_account_property_unique").on(
-      table.accountId,
-      table.propertyId
-    ),
+    uniqueIndex("website_saved_account_property_unique").on(table.accountId, table.propertyId),
     index("website_saved_property_idx").on(table.propertyId),
   ]
 );
-export type WebsiteAccountSavedProperty =
-  typeof websiteAccountSavedProperties.$inferSelect;
+export type WebsiteAccountSavedProperty = typeof websiteAccountSavedProperties.$inferSelect;
 
 /**
  * What an investor wants emailed to them. This is the control panel for the
@@ -11672,12 +11078,8 @@ export const websiteAccountPreferences = mysqlTable(
     accountId: int("accountId")
       .notNull()
       .references(() => websiteAccounts.id, { onDelete: "cascade" }),
-    notificationsEnabled: boolean("notificationsEnabled")
-      .default(true)
-      .notNull(),
-    emailFrequency: mysqlEnum("emailFrequency", ["daily", "weekly", "never"])
-      .default("daily")
-      .notNull(),
+    notificationsEnabled: boolean("notificationsEnabled").default(true).notNull(),
+    emailFrequency: mysqlEnum("emailFrequency", ["daily", "weekly", "never"]).default("daily").notNull(),
     budgetMin: decimal("budgetMin", { precision: 12, scale: 2 }),
     budgetMax: decimal("budgetMax", { precision: 12, scale: 2 }),
     minBedrooms: int("minBedrooms"),
@@ -11686,12 +11088,9 @@ export const websiteAccountPreferences = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
-  table => [
-    uniqueIndex("website_preferences_account_unique").on(table.accountId),
-  ]
+  table => [uniqueIndex("website_preferences_account_unique").on(table.accountId)]
 );
-export type WebsiteAccountPreferences =
-  typeof websiteAccountPreferences.$inferSelect;
+export type WebsiteAccountPreferences = typeof websiteAccountPreferences.$inferSelect;
 
 /**
  * Recently viewed properties. One row per account and property with a count,
@@ -11711,15 +11110,11 @@ export const websiteAccountPropertyViews = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => [
-    uniqueIndex("website_views_account_property_unique").on(
-      table.accountId,
-      table.propertyId
-    ),
+    uniqueIndex("website_views_account_property_unique").on(table.accountId, table.propertyId),
     index("website_views_recent_idx").on(table.accountId, table.lastViewedAt),
   ]
 );
-export type WebsiteAccountPropertyView =
-  typeof websiteAccountPropertyViews.$inferSelect;
+export type WebsiteAccountPropertyView = typeof websiteAccountPropertyViews.$inferSelect;
 
 // ─── Mobile Devices ──────────────────────────────────────────────────────────
 export const mobileDevices = mysqlTable(

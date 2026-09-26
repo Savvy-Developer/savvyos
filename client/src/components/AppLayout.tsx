@@ -246,9 +246,7 @@ function buildPulseNav(shell?: PulseNavShell): NavGroup[] {
         icon: icons[item.label] ?? Users,
       })),
     },
-    ...(meetingItems.length
-      ? [{ label: "Meetings", items: meetingItems }]
-      : []),
+    ...(meetingItems.length ? [{ label: "Meetings", items: meetingItems }] : []),
   ];
 }
 
@@ -325,9 +323,7 @@ function buildIsaNav(
     {
       label: "Work",
       items: [
-        ...(canUseChat
-          ? [{ icon: MessageSquare, label: "Chat", path: "/chat" }]
-          : []),
+        ...(canUseChat ? [{ icon: MessageSquare, label: "Chat", path: "/chat" }] : []),
         {
           icon: ClipboardList,
           label: "Tasks",
@@ -462,11 +458,7 @@ function buildAdminNav(
       items: [
         { icon: Users, label: "All Contacts", path: "/contacts" },
         { icon: GitBranch, label: "Agent Pipelines", path: "/pipeline" },
-        {
-          icon: CalendarDays,
-          label: "Agent Appointments",
-          path: "/agent-appointments",
-        },
+        { icon: CalendarDays, label: "Agent Appointments", path: "/agent-appointments" },
         {
           icon: ClipboardList,
           label: "CRM Tasks",
@@ -672,13 +664,7 @@ function buildAdminNav(
           badge: pendingFeedback > 0 ? pendingFeedback : undefined,
         },
         ...(canManageSuperPermissions
-          ? [
-              {
-                icon: ShieldCheck,
-                label: "Super Permissions",
-                path: "/admin/super-permissions",
-              },
-            ]
+          ? [{ icon: ShieldCheck, label: "Super Permissions", path: "/admin/super-permissions" }]
           : []),
         { icon: Lock, label: "Passwords", path: "/passwords" },
       ],
@@ -1091,16 +1077,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   );
 
   // Fetch admin permissions for nav filtering
-  const { data: adminPerms, isLoading: loadingAdminPerms } =
-    trpc.permissions.getMyPermissions.useQuery(undefined, {
-      enabled: role === "admin",
-      staleTime: 30000,
-    });
-  const { data: canManageSuperPermissions } =
-    trpc.permissions.canManagePermissions.useQuery(undefined, {
-      enabled: role === "admin",
-      staleTime: 30000,
-    });
+  const { data: adminPerms, isLoading: loadingAdminPerms } = trpc.permissions.getMyPermissions.useQuery(
+    undefined,
+    { enabled: role === "admin", staleTime: 30000 }
+  );
+  const { data: canManageSuperPermissions } = trpc.permissions.canManagePermissions.useQuery(
+    undefined,
+    { enabled: role === "admin", staleTime: 30000 }
+  );
 
   // Chat stays invisible until a user is explicitly permitted. Query every
   // authenticated role so the top bar becomes available automatically when a
@@ -1171,18 +1155,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     (marketingTextInboxUnreadData as any)?.count ?? 0;
   const chatUnreadCount = chatWorkspace?.totalUnreadCount ?? 0;
   const currentAdminPermissionKey = isAdmin
-    ? Object.entries(PERM_PATH_MAP).find(
-        ([, path]) => path === currentPath
-      )?.[0]
+    ? Object.entries(PERM_PATH_MAP).find(([, path]) => path === currentPath)?.[0]
     : null;
-  const isCheckingCurrentAdminPath =
-    !!currentAdminPermissionKey && loadingAdminPerms;
+  const isCheckingCurrentAdminPath = !!currentAdminPermissionKey && loadingAdminPerms;
   const currentAdminPathDenied =
     !!currentAdminPermissionKey &&
     !loadingAdminPerms &&
-    !(adminPerms as Record<string, boolean> | null | undefined)?.[
-      currentAdminPermissionKey
-    ];
+    !(adminPerms as Record<string, boolean> | null | undefined)?.[currentAdminPermissionKey];
 
   const standardNavGroups =
     role === "admin"
@@ -1356,12 +1335,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         ]
       : employmentFilteredNavGroups;
   const pulseScopedNavGroups = isPulsePath
-    ? sidebarNavGroups
-        .map(group => ({
-          ...group,
-          items: group.items.filter(item => !item.path.startsWith("/pto")),
-        }))
-        .filter(group => group.items.length > 0)
+    ? sidebarNavGroups.map((group) => ({ ...group, items: group.items.filter((item) => !item.path.startsWith("/pto")) })).filter((group) => group.items.length > 0)
     : sidebarNavGroups;
   const rankedCommandItems = availableAdminNavItems.sort((left, right) => {
     const usageDifference =
@@ -1565,11 +1539,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={() => navigate("/chat")}
                 className="relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted md:hidden"
-                aria-label={
-                  chatUnreadCount > 0
-                    ? `Open Chat, ${chatUnreadCount} unread messages`
-                    : "Open Chat"
-                }
+                aria-label={chatUnreadCount > 0 ? `Open Chat, ${chatUnreadCount} unread messages` : "Open Chat"}
                 title="Open Chat"
               >
                 <MessageSquare className="h-5 w-5" />
@@ -1594,11 +1564,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={() => navigate("/chat")}
                 className="relative mr-1 hidden min-h-9 min-w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted md:inline-flex"
-                aria-label={
-                  chatUnreadCount > 0
-                    ? `Open Chat, ${chatUnreadCount} unread messages`
-                    : "Open Chat"
-                }
+                aria-label={chatUnreadCount > 0 ? `Open Chat, ${chatUnreadCount} unread messages` : "Open Chat"}
                 title="Open Chat"
               >
                 <MessageSquare className="h-4 w-4" />
@@ -1644,11 +1610,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <main
             id="main-content"
             tabIndex={-1}
-            className={
-              isChatPath
-                ? "flex-1 min-h-0 overflow-hidden bg-background"
-                : "flex-1 overflow-y-auto overscroll-y-contain bg-background p-4 pb-safe md:p-6"
-            }
+            className={isChatPath ? "flex-1 min-h-0 overflow-hidden bg-background" : "flex-1 overflow-y-auto overscroll-y-contain p-4 md:p-6 bg-background pb-safe"}
           >
             {isCheckingCurrentAdminPath ? (
               <div className="flex min-h-[40vh] items-center justify-center">
@@ -1660,8 +1622,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <div>
                   <p className="font-semibold">Access Restricted</p>
                   <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                    This SavvyOS area is not enabled for your administrator
-                    account.
+                    This SavvyOS area is not enabled for your administrator account.
                   </p>
                 </div>
               </div>

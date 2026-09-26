@@ -3,14 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb, getMyOverdueTaskCount } from "../db";
-import {
-  mobileDevices,
-  chatChannelMembers,
-  chatMessages,
-  chatChannelReads,
-  chatUserAccess,
-  tasks,
-} from "../../drizzle/schema";
+import { mobileDevices, chatChannelMembers, chatMessages, chatChannelReads, chatUserAccess, tasks } from "../../drizzle/schema";
 import { canOpenChatWorkspace, type ChatRole } from "../chatAccess";
 import { canAdminUsePermission } from "./permissions";
 
@@ -27,11 +20,7 @@ export const mobileRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db)
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Database unavailable",
-        });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
 
       const [existing] = await db
         .select()
@@ -162,9 +151,7 @@ export const mobileRouter = router({
           )
         );
 
-      const readsMap = new Map(
-        reads.map(r => [r.channelId, r.lastReadMessageId ?? 0])
-      );
+      const readsMap = new Map(reads.map(r => [r.channelId, r.lastReadMessageId ?? 0]));
 
       for (const channelId of channelIds) {
         const lastRead = readsMap.get(channelId) ?? 0;

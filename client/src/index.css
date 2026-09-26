@@ -55,36 +55,36 @@
   /* White: #FFFFFF      →  oklch(1 0 0)                                       */
 
   /* Brand accent — exact logo cyan */
-  --brand: oklch(0.74 0.13 215.1);
+  --brand: oklch(0.74 0.130 215.1);
   --brand-foreground: oklch(0.08 0 0);
 
   /* Page background — very light, almost white with a faint cool tint */
   --background: oklch(0.975 0.004 215);
-  --foreground: oklch(0.1 0.005 215);
+  --foreground: oklch(0.10 0.005 215);
 
   /* Cards — pure white */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.1 0.005 215);
+  --card-foreground: oklch(0.10 0.005 215);
 
   /* Popover */
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.1 0.005 215);
+  --popover-foreground: oklch(0.10 0.005 215);
 
   /* Primary — exact Savvy logo cyan #0fc0df */
-  --primary: oklch(0.74 0.13 215.1);
+  --primary: oklch(0.74 0.130 215.1);
   --primary-foreground: oklch(0.08 0 0);
 
   /* Secondary — light cool gray with cyan tint */
   --secondary: oklch(0.94 0.005 215);
-  --secondary-foreground: oklch(0.2 0.01 215);
+  --secondary-foreground: oklch(0.20 0.01 215);
 
   /* Muted */
   --muted: oklch(0.95 0.004 215);
-  --muted-foreground: oklch(0.5 0.015 215);
+  --muted-foreground: oklch(0.50 0.015 215);
 
   /* Accent — subtle cyan tint for hover states */
   --accent: oklch(0.92 0.04 215);
-  --accent-foreground: oklch(0.1 0.005 215);
+  --accent-foreground: oklch(0.10 0.005 215);
 
   /* Destructive */
   --destructive: oklch(0.55 0.22 25);
@@ -93,24 +93,24 @@
   /* Borders & inputs */
   --border: oklch(0.88 0.008 215);
   --input: oklch(0.88 0.008 215);
-  --ring: oklch(0.74 0.13 215.1);
+  --ring: oklch(0.74 0.130 215.1);
 
   /* Charts — cyan-based palette */
-  --chart-1: oklch(0.74 0.13 215.1);
-  --chart-2: oklch(0.6 0.11 215);
-  --chart-3: oklch(0.48 0.09 215);
+  --chart-1: oklch(0.74 0.130 215.1);
+  --chart-2: oklch(0.60 0.110 215);
+  --chart-3: oklch(0.48 0.090 215);
   --chart-4: oklch(0.35 0.065 215);
-  --chart-5: oklch(0.22 0.04 215);
+  --chart-5: oklch(0.22 0.040 215);
 
   /* ── Sidebar — white with exact logo cyan accents ──────────────────────── */
   --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.2 0.01 215);
-  --sidebar-primary: oklch(0.74 0.13 215.1);
+  --sidebar-foreground: oklch(0.20 0.01 215);
+  --sidebar-primary: oklch(0.74 0.130 215.1);
   --sidebar-primary-foreground: oklch(0.08 0 0);
   --sidebar-accent: oklch(0.94 0.04 215);
-  --sidebar-accent-foreground: oklch(0.1 0.005 215);
+  --sidebar-accent-foreground: oklch(0.10 0.005 215);
   --sidebar-border: oklch(0.88 0.008 215);
-  --sidebar-ring: oklch(0.74 0.13 215.1);
+  --sidebar-ring: oklch(0.74 0.130 215.1);
 }
 
 /* Dark mode */
@@ -121,10 +121,10 @@
   --card-foreground: oklch(0.92 0.005 215);
   --popover: oklch(0.16 0.008 215);
   --popover-foreground: oklch(0.92 0.005 215);
-  --primary: oklch(0.74 0.13 215.1);
+  --primary: oklch(0.74 0.130 215.1);
   --primary-foreground: oklch(0.08 0 0);
-  --secondary: oklch(0.2 0.008 215);
-  --secondary-foreground: oklch(0.8 0.005 215);
+  --secondary: oklch(0.20 0.008 215);
+  --secondary-foreground: oklch(0.80 0.005 215);
   --muted: oklch(0.22 0.008 215);
   --muted-foreground: oklch(0.58 0.015 215);
   --accent: oklch(0.22 0.015 215);
@@ -133,26 +133,24 @@
   --destructive-foreground: oklch(0.98 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.74 0.13 215.1);
-  --chart-1: oklch(0.74 0.13 215.1);
-  --chart-2: oklch(0.62 0.11 215);
-  --chart-3: oklch(0.5 0.09 215);
-  --chart-4: oklch(0.38 0.07 215);
-  --chart-5: oklch(0.26 0.05 215);
+  --ring: oklch(0.74 0.130 215.1);
+  --chart-1: oklch(0.74 0.130 215.1);
+  --chart-2: oklch(0.62 0.110 215);
+  --chart-3: oklch(0.50 0.090 215);
+  --chart-4: oklch(0.38 0.070 215);
+  --chart-5: oklch(0.26 0.050 215);
   --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.2 0.01 215);
-  --sidebar-primary: oklch(0.74 0.13 215.1);
+  --sidebar-foreground: oklch(0.20 0.01 215);
+  --sidebar-primary: oklch(0.74 0.130 215.1);
   --sidebar-primary-foreground: oklch(0.08 0 0);
   --sidebar-accent: oklch(0.94 0.04 215);
-  --sidebar-accent-foreground: oklch(0.1 0.005 215);
+  --sidebar-accent-foreground: oklch(0.10 0.005 215);
   --sidebar-border: oklch(0.88 0.008 215);
-  --sidebar-ring: oklch(0.74 0.13 215.1);
+  --sidebar-ring: oklch(0.74 0.130 215.1);
 }
 
 @layer base {
-  html,
-  body,
-  #root {
+  html, body, #root {
     height: 100%;
     overflow: hidden;
     margin: 0;
@@ -197,11 +195,11 @@
   }
   /* Brand cyan text utility */
   .text-brand {
-    color: oklch(0.74 0.13 215.1);
+    color: oklch(0.74 0.130 215.1);
   }
   /* Brand cyan background utility */
   .bg-brand {
-    background-color: oklch(0.74 0.13 215.1);
+    background-color: oklch(0.74 0.130 215.1);
   }
   /* Sticky surfaces must be opaque so scrolling content cannot bleed through. */
   .sticky-surface {
@@ -408,13 +406,7 @@
    The logos are listed twice, so moving by half the width loops cleanly. */
 .sv-marquee {
   overflow: hidden;
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 8%,
-    #000 92%,
-    transparent
-  );
+  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
 }
 
 .sv-marquee-track {

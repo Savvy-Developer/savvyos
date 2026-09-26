@@ -1,12 +1,4 @@
-import {
-  ChangeEvent,
-  KeyboardEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { ChangeEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -14,237 +6,44 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Archive,
-  ArchiveRestore,
-  ArrowLeft,
-  AtSign,
-  ChevronDown,
-  ChevronRight,
-  FileText,
-  Hash,
-  Image as ImageIcon,
-  Loader2,
-  Mail,
-  MessageCircle,
-  MessageSquare,
-  MoreHorizontal,
-  Paperclip,
-  Pencil,
-  Plus,
-  Reply,
-  Search,
-  Send,
-  Settings2,
-  SmilePlus,
-  Trash2,
-  UserPlus,
-  Users,
-  X,
-} from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, AtSign, ChevronDown, ChevronRight, FileText, Hash, Image as ImageIcon, Loader2, Mail, MessageCircle, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, Reply, Search, Send, Settings2, SmilePlus, Trash2, UserPlus, Users, X } from "lucide-react";
 import { toast } from "sonner";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "🎉", "👀", "✅"] as const;
 
-type Channel = {
-  id: number;
-  sectionId: number | null;
-  type: "group" | "direct";
-  isPermanent: boolean;
-  name: string;
-  description: string | null;
-  isArchived: boolean;
-  unreadCount?: number;
-  unreadMentionCount?: number;
-  updatedAt: Date;
-};
-type Section = {
-  id: number;
-  name: string;
-  description: string | null;
-  sortOrder: number;
-};
-type Person = {
-  id: number;
-  name: string | null;
-  email: string | null;
-  role: string;
-  profilePhotoUrl: string | null;
-};
+type Channel = { id: number; sectionId: number | null; type: "group" | "direct"; isPermanent: boolean; name: string; description: string | null; isArchived: boolean; unreadCount?: number; unreadMentionCount?: number; updatedAt: Date };
+type Section = { id: number; name: string; description: string | null; sortOrder: number };
+type Person = { id: number; name: string | null; email: string | null; role: string; profilePhotoUrl: string | null };
 type WorkspaceSection = { section: Section; groups: Channel[] };
-type PersonalChat = {
-  channel: Channel;
-  person: Person | null;
-  participants: Person[];
-  title: string;
-  lastMessageAt: Date;
-  unreadCount: number;
-  unreadMentionCount: number;
-};
-type Attachment = {
-  id: number;
-  fileName: string;
-  fileUrl: string;
-  mimeType: string;
-  fileSize: number;
-};
-type ParentMessage = {
-  message: { id: number; body: string; senderId: number; createdAt: Date };
-  sender: { id: number; name: string | null; email: string | null };
-};
-type MessageRow = {
-  message: {
-    id: number;
-    channelId: number;
-    senderId: number;
-    parentMessageId: number | null;
-    body: string;
-    editedAt: Date | null;
-    createdAt: Date;
-  };
-  sender: Person;
-  profilePhotoUrl: string | null;
-  attachments: Attachment[];
-  mentions: Array<{ id: number; name: string | null; email: string | null }>;
-  reactions: Array<{ emoji: string; count: number; reactedByMe: boolean }>;
-  parent: ParentMessage | null;
-};
-type MemberRow = {
-  membership: {
-    id: number;
-    channelId: number;
-    userId: number;
-    addedById: number;
-    createdAt: Date;
-  };
-  user: Person;
-  profilePhotoUrl: string | null;
-};
-type StagedAttachment = {
-  id: number;
-  fileName: string;
-  mimeType: string;
-  fileSize: number;
-};
+type PersonalChat = { channel: Channel; person: Person | null; participants: Person[]; title: string; lastMessageAt: Date; unreadCount: number; unreadMentionCount: number };
+type Attachment = { id: number; fileName: string; fileUrl: string; mimeType: string; fileSize: number };
+type ParentMessage = { message: { id: number; body: string; senderId: number; createdAt: Date }; sender: { id: number; name: string | null; email: string | null } };
+type MessageRow = { message: { id: number; channelId: number; senderId: number; parentMessageId: number | null; body: string; editedAt: Date | null; createdAt: Date }; sender: Person; profilePhotoUrl: string | null; attachments: Attachment[]; mentions: Array<{ id: number; name: string | null; email: string | null }>; reactions: Array<{ emoji: string; count: number; reactedByMe: boolean }>; parent: ParentMessage | null };
+type MemberRow = { membership: { id: number; channelId: number; userId: number; addedById: number; createdAt: Date }; user: Person; profilePhotoUrl: string | null };
+type StagedAttachment = { id: number; fileName: string; mimeType: string; fileSize: number };
 type PersonalChatMode = "direct" | "group";
 
-function displayName(person: { name: string | null; email: string | null }) {
-  return person.name?.trim() || person.email?.trim() || "Savvy teammate";
-}
-function initials(name: string) {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map(part => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
-function roleLabel(role: string) {
-  return role === "isa"
-    ? "ISA"
-    : role === "agent_support"
-      ? "Agent Support"
-      : role.charAt(0).toUpperCase() + role.slice(1);
-}
-function formatMessageTime(value: Date) {
-  const date = new Date(value);
-  const sameDay = date.toDateString() === new Date().toDateString();
-  return new Intl.DateTimeFormat("en-US", {
-    month: sameDay ? undefined : "short",
-    day: sameDay ? undefined : "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-function formatFileSize(fileSize: number) {
-  return fileSize < 1024 * 1024
-    ? `${Math.max(1, Math.round(fileSize / 1024))} KB`
-    : `${(fileSize / (1024 * 1024)).toFixed(1)} MB`;
-}
-function isImage(mimeType: string) {
-  return mimeType.startsWith("image/");
-}
+function displayName(person: { name: string | null; email: string | null }) { return person.name?.trim() || person.email?.trim() || "Savvy teammate"; }
+function initials(name: string) { return name.split(" ").filter(Boolean).map(part => part[0]).join("").slice(0, 2).toUpperCase(); }
+function roleLabel(role: string) { return role === "isa" ? "ISA" : role === "agent_support" ? "Agent Support" : role.charAt(0).toUpperCase() + role.slice(1); }
+function formatMessageTime(value: Date) { const date = new Date(value); const sameDay = date.toDateString() === new Date().toDateString(); return new Intl.DateTimeFormat("en-US", { month: sameDay ? undefined : "short", day: sameDay ? undefined : "numeric", hour: "numeric", minute: "2-digit" }).format(date); }
+function formatFileSize(fileSize: number) { return fileSize < 1024 * 1024 ? `${Math.max(1, Math.round(fileSize / 1024))} KB` : `${(fileSize / (1024 * 1024)).toFixed(1)} MB`; }
+function isImage(mimeType: string) { return mimeType.startsWith("image/"); }
 
-function UnreadBadge({
-  count,
-  mentionCount,
-}: {
-  count: number;
-  mentionCount: number;
-}) {
+function UnreadBadge({ count, mentionCount }: { count: number; mentionCount: number }) {
   if (!count) return null;
-  return (
-    <span className="ml-auto flex items-center gap-1">
-      {mentionCount > 0 && <AtSign className="h-3 w-3 text-amber-500" />}
-      <span className="min-w-5 rounded-full bg-primary px-1.5 py-0.5 text-center text-[10px] font-semibold leading-none text-primary-foreground">
-        {count > 99 ? "99+" : count}
-      </span>
-    </span>
-  );
+  return <span className="ml-auto flex items-center gap-1">{mentionCount > 0 && <AtSign className="h-3 w-3 text-amber-500" />}<span className="min-w-5 rounded-full bg-primary px-1.5 py-0.5 text-center text-[10px] font-semibold leading-none text-primary-foreground">{count > 99 ? "99+" : count}</span></span>;
 }
 
-function ConversationRow({
-  channel,
-  title,
-  person,
-  isSelected,
-  onSelect,
-}: {
-  channel: Channel;
-  title: string;
-  person?: Person | null;
-  isSelected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${isSelected ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-    >
-      {person ? (
-        <Avatar className="h-5 w-5 shrink-0">
-          <AvatarImage src={person.profilePhotoUrl ?? undefined} />
-          <AvatarFallback className="bg-primary/10 text-[8px] text-primary">
-            {initials(title)}
-          </AvatarFallback>
-        </Avatar>
-      ) : (
-        <Hash className="h-3.5 w-3.5 shrink-0" />
-      )}
-      <span className="min-w-0 flex-1 truncate">{title}</span>
-      <UnreadBadge
-        count={channel.unreadCount ?? 0}
-        mentionCount={channel.unreadMentionCount ?? 0}
-      />
-    </button>
-  );
+function ConversationRow({ channel, title, person, isSelected, onSelect }: { channel: Channel; title: string; person?: Person | null; isSelected: boolean; onSelect: () => void }) {
+  return <button type="button" onClick={onSelect} className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${isSelected ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>{person ? <Avatar className="h-5 w-5 shrink-0"><AvatarImage src={person.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-[8px] text-primary">{initials(title)}</AvatarFallback></Avatar> : <Hash className="h-3.5 w-3.5 shrink-0" />}<span className="min-w-0 flex-1 truncate">{title}</span><UnreadBadge count={channel.unreadCount ?? 0} mentionCount={channel.unreadMentionCount ?? 0} /></button>;
 }
 
 function ChatSectionHeading({
@@ -279,11 +78,7 @@ function ChatSectionHeading({
           className="flex min-w-0 flex-1 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
           onClick={onToggle}
         >
-          {isCollapsed ? (
-            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-          )}
+          {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
           <span className="truncate">{section.name}</span>
         </button>
         {isChatAdmin && (
@@ -325,34 +120,23 @@ function ChatSectionHeading({
           </DropdownMenu>
         )}
       </div>
-      <EditSectionDialog
-        section={section}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        onChanged={onChanged}
-      />
+      <EditSectionDialog section={section} open={editOpen} onOpenChange={setEditOpen} onChanged={onChanged} />
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete {section.name}?</DialogTitle>
             <DialogDescription>
-              This removes the section heading from Chat. Groups inside it stay
-              available and are not deleted. You can restore the section later
-              from Archived.
+              This removes the section heading from Chat. Groups inside it stay available and are not deleted. You can restore the section later from Archived.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDelete(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
             <Button
               variant="destructive"
               disabled={archive.isPending}
               onClick={() => archive.mutate({ id: section.id })}
             >
-              {archive.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
+              {archive.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Delete section
             </Button>
           </DialogFooter>
@@ -512,97 +296,13 @@ function ChatConversationList({
   );
 }
 
-function NewSectionDialog({
-  open,
-  onOpenChange,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onCreated: () => void;
-}) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const create = trpc.chat.sections.create.useMutation({
-    onSuccess: () => {
-      toast.success("Chat section created");
-      setName("");
-      setDescription("");
-      onOpenChange(false);
-      onCreated();
-    },
-    onError: error => toast.error(error.message),
-  });
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>New Chat Section</DialogTitle>
-          <DialogDescription>
-            Sections organize permanent company groups.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="chat-section-name">Section name</Label>
-            <Input
-              id="chat-section-name"
-              value={name}
-              maxLength={100}
-              autoFocus
-              placeholder="e.g. Operations"
-              onChange={event => setName(event.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="chat-section-description">
-              Description{" "}
-              <span className="text-muted-foreground">(optional)</span>
-            </Label>
-            <Textarea
-              id="chat-section-description"
-              value={description}
-              maxLength={500}
-              placeholder="What belongs here?"
-              onChange={event => setDescription(event.target.value)}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!name.trim() || create.isPending}
-            onClick={() =>
-              create.mutate({
-                name: name.trim(),
-                description: description.trim() || null,
-              })
-            }
-          >
-            {create.isPending && (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            )}
-            Create Section
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+function NewSectionDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void }) {
+  const [name, setName] = useState(""); const [description, setDescription] = useState("");
+  const create = trpc.chat.sections.create.useMutation({ onSuccess: () => { toast.success("Chat section created"); setName(""); setDescription(""); onOpenChange(false); onCreated(); }, onError: error => toast.error(error.message) });
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent><DialogHeader><DialogTitle>New Chat Section</DialogTitle><DialogDescription>Sections organize permanent company groups.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-1.5"><Label htmlFor="chat-section-name">Section name</Label><Input id="chat-section-name" value={name} maxLength={100} autoFocus placeholder="e.g. Operations" onChange={event => setName(event.target.value)} /></div><div className="space-y-1.5"><Label htmlFor="chat-section-description">Description <span className="text-muted-foreground">(optional)</span></Label><Textarea id="chat-section-description" value={description} maxLength={500} placeholder="What belongs here?" onChange={event => setDescription(event.target.value)} /></div></div><DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ name: name.trim(), description: description.trim() || null })}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Section</Button></DialogFooter></DialogContent></Dialog>;
 }
 
-function EditSectionDialog({
-  section,
-  open,
-  onOpenChange,
-  onChanged,
-}: {
-  section: Section;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onChanged: () => void;
-}) {
+function EditSectionDialog({ section, open, onOpenChange, onChanged }: { section: Section; open: boolean; onOpenChange: (open: boolean) => void; onChanged: () => void }) {
   const [name, setName] = useState(section.name);
   const [description, setDescription] = useState(section.description ?? "");
   useEffect(() => {
@@ -624,53 +324,22 @@ function EditSectionDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit section</DialogTitle>
-          <DialogDescription>
-            Rename this heading. Groups inside it stay in place.
-          </DialogDescription>
+          <DialogDescription>Rename this heading. Groups inside it stay in place.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor={`edit-section-name-${section.id}`}>
-              Section name
-            </Label>
-            <Input
-              id={`edit-section-name-${section.id}`}
-              value={name}
-              maxLength={100}
-              autoFocus
-              onChange={event => setName(event.target.value)}
-            />
+            <Label htmlFor={`edit-section-name-${section.id}`}>Section name</Label>
+            <Input id={`edit-section-name-${section.id}`} value={name} maxLength={100} autoFocus onChange={event => setName(event.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor={`edit-section-description-${section.id}`}>
-              Description{" "}
-              <span className="text-muted-foreground">(optional)</span>
-            </Label>
-            <Textarea
-              id={`edit-section-description-${section.id}`}
-              value={description}
-              maxLength={500}
-              onChange={event => setDescription(event.target.value)}
-            />
+            <Label htmlFor={`edit-section-description-${section.id}`}>Description <span className="text-muted-foreground">(optional)</span></Label>
+            <Textarea id={`edit-section-description-${section.id}`} value={description} maxLength={500} onChange={event => setDescription(event.target.value)} />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!name.trim() || update.isPending}
-            onClick={() =>
-              update.mutate({
-                id: section.id,
-                name: name.trim(),
-                description: description.trim() || null,
-              })
-            }
-          >
-            {update.isPending && (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            )}
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button disabled={!name.trim() || update.isPending} onClick={() => update.mutate({ id: section.id, name: name.trim(), description: description.trim() || null })}>
+            {update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save section
           </Button>
         </DialogFooter>
@@ -679,18 +348,8 @@ function EditSectionDialog({
   );
 }
 
-function ArchivedChatDialog({
-  open,
-  onOpenChange,
-  onRestored,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onRestored: () => void;
-}) {
-  const { data, isLoading } = trpc.chat.archived.list.useQuery(undefined, {
-    enabled: open,
-  });
+function ArchivedChatDialog({ open, onOpenChange, onRestored }: { open: boolean; onOpenChange: (open: boolean) => void; onRestored: () => void }) {
+  const { data, isLoading } = trpc.chat.archived.list.useQuery(undefined, { enabled: open });
   const restoreSection = trpc.chat.sections.restore.useMutation({
     onSuccess: () => {
       toast.success("Section restored");
@@ -712,214 +371,60 @@ function ArchivedChatDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Archived Chat</DialogTitle>
-          <DialogDescription>
-            Restore a deleted section heading or an archived company channel
-            without losing messages.
-          </DialogDescription>
+          <DialogDescription>Restore a deleted section heading or an archived company channel without losing messages.</DialogDescription>
         </DialogHeader>
         {isLoading ? (
-          <div className="flex justify-center py-10">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
         ) : (
           <div className="max-h-[420px] space-y-5 overflow-y-auto py-2">
             <section className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Sections
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sections</p>
               {sections.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No deleted sections.
-                </p>
-              ) : (
-                sections.map(section => (
-                  <div
-                    key={section.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {section.name}
-                      </p>
-                      {section.description && (
-                        <p className="truncate text-xs text-muted-foreground">
-                          {section.description}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={restoreSection.isPending}
-                      onClick={() => restoreSection.mutate({ id: section.id })}
-                    >
-                      <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
-                      Restore
-                    </Button>
+                <p className="text-sm text-muted-foreground">No deleted sections.</p>
+              ) : sections.map(section => (
+                <div key={section.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{section.name}</p>
+                    {section.description && <p className="truncate text-xs text-muted-foreground">{section.description}</p>}
                   </div>
-                ))
-              )}
+                  <Button size="sm" variant="outline" disabled={restoreSection.isPending} onClick={() => restoreSection.mutate({ id: section.id })}>
+                    <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
+                    Restore
+                  </Button>
+                </div>
+              ))}
             </section>
             <section className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Channels
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channels</p>
               {channels.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No archived channels.
-                </p>
-              ) : (
-                channels.map(channel => (
-                  <div
-                    key={channel.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        #{channel.name}
-                      </p>
-                      {channel.description && (
-                        <p className="truncate text-xs text-muted-foreground">
-                          {channel.description}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={restoreGroup.isPending}
-                      onClick={() => restoreGroup.mutate({ id: channel.id })}
-                    >
-                      <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
-                      Restore
-                    </Button>
+                <p className="text-sm text-muted-foreground">No archived channels.</p>
+              ) : channels.map(channel => (
+                <div key={channel.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">#{channel.name}</p>
+                    {channel.description && <p className="truncate text-xs text-muted-foreground">{channel.description}</p>}
                   </div>
-                ))
-              )}
+                  <Button size="sm" variant="outline" disabled={restoreGroup.isPending} onClick={() => restoreGroup.mutate({ id: channel.id })}>
+                    <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
+                    Restore
+                  </Button>
+                </div>
+              ))}
             </section>
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-function NewPermanentGroupDialog({
-  open,
-  onOpenChange,
-  sections,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  sections: Section[];
-  onCreated: (channelId: number) => void;
-}) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [sectionId, setSectionId] = useState("");
-  const create = trpc.chat.groups.create.useMutation({
-    onSuccess: result => {
-      toast.success("Permanent company group created");
-      setName("");
-      setDescription("");
-      setSectionId("");
-      onOpenChange(false);
-      onCreated(result.id);
-    },
-    onError: error => toast.error(error.message),
-  });
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>New Permanent Group</DialogTitle>
-          <DialogDescription>
-            This is a company group. It must belong to a section, Chat Admins
-            manage it, and members cannot archive it.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="permanent-group-name">Group name</Label>
-            <Input
-              id="permanent-group-name"
-              value={name}
-              maxLength={100}
-              autoFocus
-              placeholder="e.g. ISA Team"
-              onChange={event => setName(event.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>
-              Section <span className="text-destructive">*</span>
-            </Label>
-            <Select value={sectionId} onValueChange={setSectionId}>
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={
-                    sections.length
-                      ? "Choose a section"
-                      : "Create a section first"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {sections.map(section => (
-                  <SelectItem key={section.id} value={String(section.id)}>
-                    {section.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {sections.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Create a section before adding a permanent group.
-              </p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="permanent-group-description">
-              Purpose <span className="text-muted-foreground">(optional)</span>
-            </Label>
-            <Textarea
-              id="permanent-group-description"
-              value={description}
-              maxLength={500}
-              placeholder="A short description for this group"
-              onChange={event => setDescription(event.target.value)}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!name.trim() || !sectionId || create.isPending}
-            onClick={() =>
-              create.mutate({
-                name: name.trim(),
-                description: description.trim() || null,
-                sectionId: Number(sectionId),
-              })
-            }
-          >
-            {create.isPending && (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            )}
-            Create Group
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+function NewPermanentGroupDialog({ open, onOpenChange, sections, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; sections: Section[]; onCreated: (channelId: number) => void }) {
+  const [name, setName] = useState(""); const [description, setDescription] = useState(""); const [sectionId, setSectionId] = useState("");
+  const create = trpc.chat.groups.create.useMutation({ onSuccess: result => { toast.success("Permanent company group created"); setName(""); setDescription(""); setSectionId(""); onOpenChange(false); onCreated(result.id); }, onError: error => toast.error(error.message) });
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent><DialogHeader><DialogTitle>New Permanent Group</DialogTitle><DialogDescription>This is a company group. It must belong to a section, Chat Admins manage it, and members cannot archive it.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-1.5"><Label htmlFor="permanent-group-name">Group name</Label><Input id="permanent-group-name" value={name} maxLength={100} autoFocus placeholder="e.g. ISA Team" onChange={event => setName(event.target.value)} /></div><div className="space-y-1.5"><Label>Section <span className="text-destructive">*</span></Label><Select value={sectionId} onValueChange={setSectionId}><SelectTrigger><SelectValue placeholder={sections.length ? "Choose a section" : "Create a section first"} /></SelectTrigger><SelectContent>{sections.map(section => <SelectItem key={section.id} value={String(section.id)}>{section.name}</SelectItem>)}</SelectContent></Select>{sections.length === 0 && <p className="text-xs text-muted-foreground">Create a section before adding a permanent group.</p>}</div><div className="space-y-1.5"><Label htmlFor="permanent-group-description">Purpose <span className="text-muted-foreground">(optional)</span></Label><Textarea id="permanent-group-description" value={description} maxLength={500} placeholder="A short description for this group" onChange={event => setDescription(event.target.value)} /></div></div><DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!name.trim() || !sectionId || create.isPending} onClick={() => create.mutate({ name: name.trim(), description: description.trim() || null, sectionId: Number(sectionId) })}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Group</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 function NewMessageDialog({
@@ -1109,356 +614,38 @@ function NewMessageDialog({
   );
 }
 
-function ChatAccessManagementDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+function ChatAccessManagementDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const utils = trpc.useUtils();
-  const { data: people = [], isLoading: peopleLoading } =
-    trpc.chat.people.list.useQuery(undefined, { enabled: open });
-  const { data: accessRows = [], isLoading: accessLoading } =
-    trpc.chat.accessManagement.list.useQuery(undefined, { enabled: open });
+  const { data: people = [], isLoading: peopleLoading } = trpc.chat.people.list.useQuery(undefined, { enabled: open });
+  const { data: accessRows = [], isLoading: accessLoading } = trpc.chat.accessManagement.list.useQuery(undefined, { enabled: open });
   const [query, setQuery] = useState("");
   const setAccess = trpc.chat.accessManagement.set.useMutation({
-    onSuccess: (_, variables) => {
-      void utils.chat.accessManagement.list.invalidate();
-      toast.success(
-        variables.isEnabled ? "Chat access enabled" : "Chat access removed"
-      );
-    },
+    onSuccess: (_, variables) => { void utils.chat.accessManagement.list.invalidate(); toast.success(variables.isEnabled ? "Chat access enabled" : "Chat access removed"); },
     onError: error => toast.error(error.message),
   });
-  const enabledIds = useMemo(
-    () =>
-      new Set(
-        (accessRows as Array<{ userId: number; isEnabled: boolean }>)
-          .filter(row => row.isEnabled)
-          .map(row => row.userId)
-      ),
-    [accessRows]
-  );
-  const visiblePeople = (people as Person[]).filter(person =>
-    `${displayName(person)} ${person.email ?? ""}`
-      .toLowerCase()
-      .includes(query.trim().toLowerCase())
-  );
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-hidden sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Chat access</DialogTitle>
-          <DialogDescription>
-            Enable Chat without changing this person&apos;s company channels.
-            Channel membership remains the source of truth for what they can
-            see.
-          </DialogDescription>
-        </DialogHeader>
-        <Input
-          autoFocus
-          value={query}
-          placeholder="Search teammates"
-          onChange={event => setQuery(event.target.value)}
-        />
-        <ScrollArea className="h-72 rounded-lg border">
-          <div className="p-2">
-            {peopleLoading || accessLoading ? (
-              <div className="flex justify-center py-10">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : visiblePeople.length === 0 ? (
-              <p className="px-2 py-8 text-center text-sm text-muted-foreground">
-                No teammates match that search.
-              </p>
-            ) : (
-              visiblePeople.map(person => {
-                const enabled = enabledIds.has(person.id);
-                const updating =
-                  setAccess.isPending &&
-                  setAccess.variables?.userId === person.id;
-                return (
-                  <button
-                    key={person.id}
-                    type="button"
-                    className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-muted disabled:cursor-wait"
-                    disabled={updating}
-                    onClick={() =>
-                      setAccess.mutate({
-                        userId: person.id,
-                        isEnabled: !enabled,
-                      })
-                    }
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${
-                        enabled
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-input bg-background text-transparent"
-                      }`}
-                    >
-                      ✓
-                    </span>
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src={person.profilePhotoUrl ?? undefined} />
-                      <AvatarFallback className="bg-primary/10 text-xs text-primary">
-                        {initials(displayName(person))}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
-                        {displayName(person)}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {roleLabel(person.role)} · {person.email}
-                      </span>
-                    </span>
-                    {updating && <Loader2 className="h-4 w-4 animate-spin" />}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </ScrollArea>
-      </DialogContent>
-    </Dialog>
-  );
+  const enabledIds = useMemo(() => new Set((accessRows as Array<{ userId: number; isEnabled: boolean }>).filter(row => row.isEnabled).map(row => row.userId)), [accessRows]);
+  const visiblePeople = (people as Person[]).filter(person => `${displayName(person)} ${person.email ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()));
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] overflow-hidden sm:max-w-lg"><DialogHeader><DialogTitle>Chat access</DialogTitle><DialogDescription>Enable Chat without changing this person&apos;s company channels. Channel membership controls what they can see.</DialogDescription></DialogHeader><Input autoFocus value={query} placeholder="Search teammates" onChange={event => setQuery(event.target.value)} /><ScrollArea className="h-72 rounded-lg border"><div className="p-2">{peopleLoading || accessLoading ? <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div> : visiblePeople.length === 0 ? <p className="px-2 py-8 text-center text-sm text-muted-foreground">No teammates match that search.</p> : visiblePeople.map(person => { const enabled = enabledIds.has(person.id); const updating = setAccess.isPending && setAccess.variables?.userId === person.id; return <button key={person.id} type="button" className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-muted disabled:cursor-wait" disabled={updating} onClick={() => setAccess.mutate({ userId: person.id, isEnabled: !enabled })}><span aria-hidden="true" className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${enabled ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background text-transparent"}`}>✓</span><Avatar className="h-8 w-8"><AvatarImage src={person.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-xs text-primary">{initials(displayName(person))}</AvatarFallback></Avatar><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{displayName(person)}</span><span className="block truncate text-xs text-muted-foreground">{roleLabel(person.role)} · {person.email}</span></span>{updating && <Loader2 className="h-4 w-4 animate-spin" />}</button>; })}</div></ScrollArea></DialogContent></Dialog>;
 }
 
-function SearchResultSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section>
-      <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </p>
-      <div className="space-y-0.5">{children}</div>
-    </section>
-  );
-}
-function ChatSearchDialog({
-  open,
-  onOpenChange,
-  onSelect,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSelect: (channelId: number) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim();
-  const { data, isFetching } = trpc.chat.search.useQuery(
-    { query: normalizedQuery },
-    { enabled: open && normalizedQuery.length >= 2, staleTime: 15_000 }
-  );
-  useEffect(() => {
-    if (!open) setQuery("");
-  }, [open]);
-  const choose = (channelId: number) => {
-    onSelect(channelId);
-    onOpenChange(false);
-  };
-  const hint =
-    normalizedQuery.length < 2
-      ? "Search messages, groups, people in messages, and file names."
-      : isFetching
-        ? "Searching Chat..."
-        : "No Chat results found.";
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[82vh] overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle className="flex items-center gap-2">
-            <Search className="h-5 w-5 text-primary" />
-            Search Chat
-          </DialogTitle>
-          <DialogDescription>
-            Only searches conversations, messages, and attachments you are
-            allowed to see.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="p-4 pb-0">
-          <Input
-            autoFocus
-            value={query}
-            placeholder="Search messages, groups, direct messages, or files"
-            onChange={event => setQuery(event.target.value)}
-          />
-        </div>
-        <ScrollArea className="h-[430px] px-4 pb-4">
-          {!data ? (
-            <p className="px-1 py-10 text-center text-sm text-muted-foreground">
-              {hint}
-            </p>
-          ) : (
-            <div className="space-y-5 py-4">
-              {data.conversations.length > 0 && (
-                <SearchResultSection title="Conversations">
-                  {data.conversations.map((item: any) => (
-                    <button
-                      key={item.channel.id}
-                      type="button"
-                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-muted"
-                      onClick={() => choose(item.channel.id)}
-                    >
-                      {item.person ? (
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage
-                            src={item.profilePhotoUrl ?? undefined}
-                          />
-                          <AvatarFallback className="text-[9px]">
-                            {initials(displayName(item.person))}
-                          </AvatarFallback>
-                        </Avatar>
-                      ) : (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
-                          <Hash className="h-4 w-4" />
-                        </div>
-                      )}
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">
-                          {item.person
-                            ? displayName(item.person)
-                            : item.channel.name}
-                        </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {item.person
-                            ? "Direct message"
-                            : item.channel.description || "Group conversation"}
-                        </span>
-                      </span>
-                    </button>
-                  ))}
-                </SearchResultSection>
-              )}
-              {data.messages.length > 0 && (
-                <SearchResultSection title="Messages">
-                  {data.messages.map((item: any) => (
-                    <button
-                      key={item.message.id}
-                      type="button"
-                      className="w-full rounded-lg px-3 py-2.5 text-left hover:bg-muted"
-                      onClick={() => choose(item.message.channelId)}
-                    >
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <MessageSquare className="h-3.5 w-3.5" />
-                        <span className="font-medium text-foreground">
-                          {item.channelType === "group"
-                            ? `#${item.channelTitle}`
-                            : item.channelTitle}
-                        </span>
-                        <span>·</span>
-                        <span>{displayName(item.sender)}</span>
-                        <span>·</span>
-                        <span>{formatMessageTime(item.message.createdAt)}</span>
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-sm leading-5">
-                        {item.message.body}
-                      </p>
-                    </button>
-                  ))}
-                </SearchResultSection>
-              )}
-              {data.attachments.length > 0 && (
-                <SearchResultSection title="Files">
-                  {data.attachments.map((item: any) => (
-                    <button
-                      key={item.attachment.id}
-                      type="button"
-                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-muted"
-                      onClick={() => choose(item.message.channelId)}
-                    >
-                      {isImage(item.attachment.mimeType) ? (
-                        <ImageIcon className="h-5 w-5 text-primary" />
-                      ) : (
-                        <FileText className="h-5 w-5 text-primary" />
-                      )}
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">
-                          {item.attachment.fileName}
-                        </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {item.channelType === "group"
-                            ? `#${item.channelTitle}`
-                            : item.channelTitle}{" "}
-                          · {displayName(item.sender)}
-                        </span>
-                      </span>
-                    </button>
-                  ))}
-                </SearchResultSection>
-              )}
-              {data.conversations.length === 0 &&
-                data.messages.length === 0 &&
-                data.attachments.length === 0 && (
-                  <p className="px-1 py-10 text-center text-sm text-muted-foreground">
-                    No Chat results found.
-                  </p>
-                )}
-            </div>
-          )}
-        </ScrollArea>
-        <div className="border-t px-5 py-2.5 text-xs text-muted-foreground">
-          Search stays inside Chat. Press{" "}
-          <kbd className="rounded border bg-muted px-1.5 py-0.5">Esc</kbd> to
-          close.
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
+function SearchResultSection({ title, children }: { title: string; children: React.ReactNode }) { return <section><p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p><div className="space-y-0.5">{children}</div></section>; }
+function ChatSearchDialog({ open, onOpenChange, onSelect }: { open: boolean; onOpenChange: (open: boolean) => void; onSelect: (channelId: number) => void }) {
+  const [query, setQuery] = useState(""); const normalizedQuery = query.trim(); const { data, isFetching } = trpc.chat.search.useQuery({ query: normalizedQuery }, { enabled: open && normalizedQuery.length >= 2, staleTime: 15_000 });
+  useEffect(() => { if (!open) setQuery(""); }, [open]); const choose = (channelId: number) => { onSelect(channelId); onOpenChange(false); }; const hint = normalizedQuery.length < 2 ? "Search messages, groups, people in messages, and file names." : isFetching ? "Searching Chat..." : "No Chat results found.";
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[82vh] overflow-hidden p-0 sm:max-w-2xl"><DialogHeader className="border-b px-5 py-4"><DialogTitle className="flex items-center gap-2"><Search className="h-5 w-5 text-primary" />Search Chat</DialogTitle><DialogDescription>Only searches conversations, messages, and attachments you are allowed to see.</DialogDescription></DialogHeader><div className="p-4 pb-0"><Input autoFocus value={query} placeholder="Search messages, groups, direct messages, or files" onChange={event => setQuery(event.target.value)} /></div><ScrollArea className="h-[430px] px-4 pb-4">{!data ? <p className="px-1 py-10 text-center text-sm text-muted-foreground">{hint}</p> : <div className="space-y-5 py-4">{data.conversations.length > 0 && <SearchResultSection title="Conversations">{data.conversations.map((item: any) => <button key={item.channel.id} type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-muted" onClick={() => choose(item.channel.id)}>{item.person ? <Avatar className="h-8 w-8"><AvatarImage src={item.profilePhotoUrl ?? undefined} /><AvatarFallback className="text-[9px]">{initials(displayName(item.person))}</AvatarFallback></Avatar> : <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary"><Hash className="h-4 w-4" /></div>}<span className="min-w-0"><span className="block truncate text-sm font-medium">{item.person ? displayName(item.person) : item.channel.name}</span><span className="block truncate text-xs text-muted-foreground">{item.person ? "Direct message" : item.channel.description || "Group conversation"}</span></span></button>)}</SearchResultSection>}{data.messages.length > 0 && <SearchResultSection title="Messages">{data.messages.map((item: any) => <button key={item.message.id} type="button" className="w-full rounded-lg px-3 py-2.5 text-left hover:bg-muted" onClick={() => choose(item.message.channelId)}><div className="flex items-center gap-2 text-xs text-muted-foreground"><MessageSquare className="h-3.5 w-3.5" /><span className="font-medium text-foreground">{item.channelType === "group" ? `#${item.channelTitle}` : item.channelTitle}</span><span>·</span><span>{displayName(item.sender)}</span><span>·</span><span>{formatMessageTime(item.message.createdAt)}</span></div><p className="mt-1 line-clamp-2 text-sm leading-5">{item.message.body}</p></button>)}</SearchResultSection>}{data.attachments.length > 0 && <SearchResultSection title="Files">{data.attachments.map((item: any) => <button key={item.attachment.id} type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-muted" onClick={() => choose(item.message.channelId)}>{isImage(item.attachment.mimeType) ? <ImageIcon className="h-5 w-5 text-primary" /> : <FileText className="h-5 w-5 text-primary" />}<span className="min-w-0"><span className="block truncate text-sm font-medium">{item.attachment.fileName}</span><span className="block truncate text-xs text-muted-foreground">{item.channelType === "group" ? `#${item.channelTitle}` : item.channelTitle} · {displayName(item.sender)}</span></span></button>)}</SearchResultSection>}{data.conversations.length === 0 && data.messages.length === 0 && data.attachments.length === 0 && <p className="px-1 py-10 text-center text-sm text-muted-foreground">No Chat results found.</p>}</div>}</ScrollArea><div className="border-t px-5 py-2.5 text-xs text-muted-foreground">Search stays inside Chat. Press <kbd className="rounded border bg-muted px-1.5 py-0.5">Esc</kbd> to close.</div></DialogContent></Dialog>;
 }
 
-function ManageGroupDialog({
-  group,
-  sections,
-  open,
-  onOpenChange,
-  onChanged,
-}: {
-  group: Channel | null;
-  sections: Section[];
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onChanged: () => void;
-}) {
-  const channelId = group?.id ?? 0;
-  const { data: people = [] } = trpc.chat.people.list.useQuery(undefined, {
-    enabled: open,
-  });
-  const { data: members = [] } = trpc.chat.members.list.useQuery(
-    { channelId },
-    { enabled: open && channelId > 0 }
-  );
+function ManageGroupDialog({ group, sections, open, onOpenChange, onChanged }: { group: Channel | null; sections: Section[]; open: boolean; onOpenChange: (open: boolean) => void; onChanged: () => void }) {
+  const channelId = group?.id ?? 0; const { data: people = [] } = trpc.chat.people.list.useQuery(undefined, { enabled: open }); const { data: members = [] } = trpc.chat.members.list.useQuery({ channelId }, { enabled: open && channelId > 0 });
   const utils = trpc.useUtils();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [sectionId, setSectionId] = useState("");
-  const [newMemberId, setNewMemberId] = useState("none");
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [name, setName] = useState(""); const [description, setDescription] = useState(""); const [sectionId, setSectionId] = useState(""); const [newMemberId, setNewMemberId] = useState("none"); const [confirmDelete, setConfirmDelete] = useState(false); const [confirmArchive, setConfirmArchive] = useState(false);
   const closeAfterSaveRef = useRef(false);
-  useEffect(() => {
-    if (group && open) {
-      setName(group.name);
-      setDescription(group.description ?? "");
-      setSectionId(group.sectionId == null ? "" : String(group.sectionId));
-      setNewMemberId("none");
-      closeAfterSaveRef.current = false;
-    }
-  }, [group, open]);
-  const detailsDirty =
-    !!group &&
-    (name.trim() !== group.name ||
-      (description.trim() || null) !== (group.description ?? null) ||
-      Number(sectionId || 0) !== (group.sectionId ?? 0));
+  useEffect(() => { if (group && open) { setName(group.name); setDescription(group.description ?? ""); setSectionId(group.sectionId == null ? "" : String(group.sectionId)); setNewMemberId("none"); closeAfterSaveRef.current = false; } }, [group, open]);
+  const detailsDirty = !!group && (
+    name.trim() !== group.name
+    || (description.trim() || null) !== (group.description ?? null)
+    || Number(sectionId || 0) !== (group.sectionId ?? 0)
+  );
   const update = trpc.chat.groups.update.useMutation({
     onSuccess: () => {
       toast.success("Permanent group updated");
@@ -1473,12 +660,7 @@ function ManageGroupDialog({
   const saveDetails = (closeOnSuccess = false) => {
     if (!group || !name.trim() || !sectionId || update.isPending) return;
     closeAfterSaveRef.current = closeOnSuccess;
-    update.mutate({
-      id: group.id,
-      name: name.trim(),
-      description: description.trim() || null,
-      sectionId: Number(sectionId),
-    });
+    update.mutate({ id: group.id, name: name.trim(), description: description.trim() || null, sectionId: Number(sectionId) });
   };
   const handleDialogOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
@@ -1491,338 +673,13 @@ function ManageGroupDialog({
     }
     onOpenChange(false);
   };
-  const archiveGroup = trpc.chat.groups.archive.useMutation({
-    onSuccess: () => {
-      toast.success("Channel archived");
-      setConfirmArchive(false);
-      onOpenChange(false);
-      onChanged();
-    },
-    onError: error => toast.error(error.message),
-  });
-  const removeGroup = trpc.chat.groups.delete.useMutation({
-    onSuccess: () => {
-      toast.success("Permanent group deleted");
-      setConfirmDelete(false);
-      onOpenChange(false);
-      onChanged();
-    },
-    onError: error => toast.error(error.message),
-  });
-  const addMember = trpc.chat.members.add.useMutation({
-    onSuccess: () => {
-      void utils.chat.members.list.invalidate({ channelId });
-      toast.success("Person added to this group");
-      setNewMemberId("none");
-      onChanged();
-    },
-    onError: error => toast.error(error.message),
-  });
-  const removeMember = trpc.chat.members.remove.useMutation({
-    onSuccess: () => {
-      void utils.chat.members.list.invalidate({ channelId });
-      toast.success("Person removed from this group");
-      onChanged();
-    },
-    onError: error => toast.error(error.message),
-  });
-  const memberIds = useMemo(
-    () => new Set((members as MemberRow[]).map(row => row.user.id)),
-    [members]
-  );
-  const availablePeople = (people as Person[]).filter(
-    person => !memberIds.has(person.id)
-  );
-  if (!group) return null;
-  return (
-    <>
-      <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Manage #{group.name}</DialogTitle>
-            <DialogDescription>
-              This is a permanent company group. Chat Admins manage its details
-              and membership.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-7 py-2 md:grid-cols-2">
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Settings2 className="h-4 w-4 text-primary" />
-                Group details
-              </div>
-              <div className="space-y-1.5">
-                <Label>Name</Label>
-                <Input
-                  value={name}
-                  maxLength={100}
-                  onChange={event => setName(event.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>
-                  Section <span className="text-destructive">*</span>
-                </Label>
-                <Select value={sectionId} onValueChange={setSectionId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a section" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sections.map(section => (
-                      <SelectItem key={section.id} value={String(section.id)}>
-                        {section.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Purpose</Label>
-                <Textarea
-                  value={description}
-                  maxLength={500}
-                  onChange={event => setDescription(event.target.value)}
-                />
-              </div>
-              <Button
-                className="w-full"
-                disabled={!name.trim() || !sectionId || update.isPending}
-                onClick={() => saveDetails(false)}
-              >
-                {update.isPending && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                Save Group Details
-              </Button>
-              <div className="rounded-lg border bg-muted/30 p-3">
-                <p className="text-sm font-medium">Archive this channel</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Hides the channel from Chat. Messages stay saved, and Chat
-                  Admins can restore it later from Archived.
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => setConfirmArchive(true)}
-                >
-                  <Archive className="mr-1.5 h-3.5 w-3.5" />
-                  Archive Channel
-                </Button>
-              </div>
-              <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3">
-                <p className="text-sm font-medium">
-                  Delete this permanent group
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  This permanently deletes the group, messages, reactions, and
-                  attachments. Prefer Archive if you may need it later.
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3 text-destructive hover:text-destructive"
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                  Delete Group
-                </Button>
-              </div>
-            </section>
-            <section className="space-y-4 border-t pt-6 md:border-l md:border-t-0 md:pl-7 md:pt-0">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Users className="h-4 w-4 text-primary" />
-                People with access{" "}
-                <Badge variant="secondary">
-                  {(members as MemberRow[]).length}
-                </Badge>
-              </div>
-              <div className="flex gap-2">
-                <Select value={newMemberId} onValueChange={setNewMemberId}>
-                  <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Add a SavvyOS user" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Select a person</SelectItem>
-                    {availablePeople.map(person => (
-                      <SelectItem key={person.id} value={String(person.id)}>
-                        {displayName(person)} · {roleLabel(person.role)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  size="icon"
-                  title="Add to group"
-                  disabled={newMemberId === "none" || addMember.isPending}
-                  onClick={() =>
-                    addMember.mutate({ channelId, userId: Number(newMemberId) })
-                  }
-                >
-                  {addMember.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <UserPlus className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-              <div className="max-h-[315px] space-y-1 overflow-y-auto rounded-lg border p-2">
-                {(members as MemberRow[]).length === 0 ? (
-                  <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                    No one has been added yet.
-                  </p>
-                ) : (
-                  (members as MemberRow[]).map(member => (
-                    <div
-                      key={member.membership.id}
-                      className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/60"
-                    >
-                      <Avatar className="h-7 w-7">
-                        <AvatarImage
-                          src={member.profilePhotoUrl ?? undefined}
-                        />
-                        <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
-                          {initials(displayName(member.user))}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">
-                          {displayName(member.user)}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {roleLabel(member.user.role)} · {member.user.email}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        title="Remove from group"
-                        onClick={() =>
-                          removeMember.mutate({
-                            channelId,
-                            userId: member.user.id,
-                          })
-                        }
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={
-                update.isPending ||
-                (detailsDirty && (!name.trim() || !sectionId))
-              }
-              onClick={() => {
-                if (detailsDirty) saveDetails(true);
-                else onOpenChange(false);
-              }}
-            >
-              {update.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              {detailsDirty ? "Save & Close" : "Done"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={confirmArchive} onOpenChange={setConfirmArchive}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Archive #{group.name}?</DialogTitle>
-            <DialogDescription>
-              This hides the channel from Chat. Messages stay saved, and Chat
-              Admins can restore it later from Archived.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmArchive(false)}>
-              Cancel
-            </Button>
-            <Button
-              disabled={archiveGroup.isPending}
-              onClick={() => archiveGroup.mutate({ id: group.id })}
-            >
-              {archiveGroup.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Archive channel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete #{group.name} permanently?</DialogTitle>
-            <DialogDescription>
-              This cannot be reversed. The group and all of its messages, files,
-              reactions, and membership records will be deleted for everyone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDelete(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={removeGroup.isPending}
-              onClick={() => removeGroup.mutate({ id: group.id })}
-            >
-              {removeGroup.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Delete Permanently
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
+  const archiveGroup = trpc.chat.groups.archive.useMutation({ onSuccess: () => { toast.success("Channel archived"); setConfirmArchive(false); onOpenChange(false); onChanged(); }, onError: error => toast.error(error.message) }); const removeGroup = trpc.chat.groups.delete.useMutation({ onSuccess: () => { toast.success("Permanent group deleted"); setConfirmDelete(false); onOpenChange(false); onChanged(); }, onError: error => toast.error(error.message) });
+  const addMember = trpc.chat.members.add.useMutation({ onSuccess: () => { void utils.chat.members.list.invalidate({ channelId }); toast.success("Person added to this group"); setNewMemberId("none"); onChanged(); }, onError: error => toast.error(error.message) }); const removeMember = trpc.chat.members.remove.useMutation({ onSuccess: () => { void utils.chat.members.list.invalidate({ channelId }); toast.success("Person removed from this group"); onChanged(); }, onError: error => toast.error(error.message) });
+  const memberIds = useMemo(() => new Set((members as MemberRow[]).map(row => row.user.id)), [members]); const availablePeople = (people as Person[]).filter(person => !memberIds.has(person.id)); if (!group) return null;
+  return <><Dialog open={open} onOpenChange={handleDialogOpenChange}><DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Manage #{group.name}</DialogTitle><DialogDescription>This is a permanent company group. Chat Admins manage its details and membership.</DialogDescription></DialogHeader><div className="grid gap-7 py-2 md:grid-cols-2"><section className="space-y-4"><div className="flex items-center gap-2 text-sm font-semibold"><Settings2 className="h-4 w-4 text-primary" />Group details</div><div className="space-y-1.5"><Label>Name</Label><Input value={name} maxLength={100} onChange={event => setName(event.target.value)} /></div><div className="space-y-1.5"><Label>Section <span className="text-destructive">*</span></Label><Select value={sectionId} onValueChange={setSectionId}><SelectTrigger><SelectValue placeholder="Choose a section" /></SelectTrigger><SelectContent>{sections.map(section => <SelectItem key={section.id} value={String(section.id)}>{section.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label>Purpose</Label><Textarea value={description} maxLength={500} onChange={event => setDescription(event.target.value)} /></div><Button className="w-full" disabled={!name.trim() || !sectionId || update.isPending} onClick={() => saveDetails(false)}>{update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save Group Details</Button><div className="rounded-lg border bg-muted/30 p-3"><p className="text-sm font-medium">Archive this channel</p><p className="mt-1 text-xs text-muted-foreground">Hides the channel from Chat. Messages stay saved, and Chat Admins can restore it later from Archived.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => setConfirmArchive(true)}><Archive className="mr-1.5 h-3.5 w-3.5" />Archive Channel</Button></div><div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3"><p className="text-sm font-medium">Delete this permanent group</p><p className="mt-1 text-xs text-muted-foreground">This permanently deletes the group, messages, reactions, and attachments. Prefer Archive if you may need it later.</p><Button variant="outline" size="sm" className="mt-3 text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete Group</Button></div></section><section className="space-y-4 border-t pt-6 md:border-l md:border-t-0 md:pl-7 md:pt-0"><div className="flex items-center gap-2 text-sm font-semibold"><Users className="h-4 w-4 text-primary" />People with access <Badge variant="secondary">{(members as MemberRow[]).length}</Badge></div><div className="flex gap-2"><Select value={newMemberId} onValueChange={setNewMemberId}><SelectTrigger className="flex-1"><SelectValue placeholder="Add a SavvyOS user" /></SelectTrigger><SelectContent><SelectItem value="none">Select a person</SelectItem>{availablePeople.map(person => <SelectItem key={person.id} value={String(person.id)}>{displayName(person)} · {roleLabel(person.role)}</SelectItem>)}</SelectContent></Select><Button size="icon" title="Add to group" disabled={newMemberId === "none" || addMember.isPending} onClick={() => addMember.mutate({ channelId, userId: Number(newMemberId) })}>{addMember.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}</Button></div><div className="max-h-[315px] space-y-1 overflow-y-auto rounded-lg border p-2">{(members as MemberRow[]).length === 0 ? <p className="px-2 py-6 text-center text-sm text-muted-foreground">No one has been added yet.</p> : (members as MemberRow[]).map(member => <div key={member.membership.id} className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/60"><Avatar className="h-7 w-7"><AvatarImage src={member.profilePhotoUrl ?? undefined} /><AvatarFallback className="bg-primary/10 text-[10px] text-primary">{initials(displayName(member.user))}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{displayName(member.user)}</p><p className="truncate text-xs text-muted-foreground">{roleLabel(member.user.role)} · {member.user.email}</p></div><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" title="Remove from group" onClick={() => removeMember.mutate({ channelId, userId: member.user.id })}><X className="h-3.5 w-3.5" /></Button></div>)}</div></section></div><DialogFooter><Button variant="outline" disabled={update.isPending || (detailsDirty && (!name.trim() || !sectionId))} onClick={() => { if (detailsDirty) saveDetails(true); else onOpenChange(false); }}>{update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{detailsDirty ? "Save & Close" : "Done"}</Button></DialogFooter></DialogContent></Dialog><Dialog open={confirmArchive} onOpenChange={setConfirmArchive}><DialogContent><DialogHeader><DialogTitle>Archive #{group.name}?</DialogTitle><DialogDescription>This hides the channel from Chat. Messages stay saved, and Chat Admins can restore it later from Archived.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmArchive(false)}>Cancel</Button><Button disabled={archiveGroup.isPending} onClick={() => archiveGroup.mutate({ id: group.id })}>{archiveGroup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Archive channel</Button></DialogFooter></DialogContent></Dialog><Dialog open={confirmDelete} onOpenChange={setConfirmDelete}><DialogContent><DialogHeader><DialogTitle>Delete #{group.name} permanently?</DialogTitle><DialogDescription>This cannot be reversed. The group and all of its messages, files, reactions, and membership records will be deleted for everyone.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button><Button variant="destructive" disabled={removeGroup.isPending} onClick={() => removeGroup.mutate({ id: group.id })}>{removeGroup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Delete Permanently</Button></DialogFooter></DialogContent></Dialog></>;
 }
 
-function AttachmentView({ attachment }: { attachment: Attachment }) {
-  if (isImage(attachment.mimeType))
-    return (
-      <a
-        href={attachment.fileUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-2 block w-fit"
-      >
-        <img
-          src={attachment.fileUrl}
-          alt={attachment.fileName}
-          className="max-h-64 max-w-full rounded-lg border object-contain"
-        />
-      </a>
-    );
-  return (
-    <a
-      href={attachment.fileUrl}
-      target="_blank"
-      rel="noreferrer"
-      className="mt-2 flex max-w-sm items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors hover:bg-muted"
-    >
-      <FileText className="h-5 w-5 shrink-0 text-primary" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">
-          {attachment.fileName}
-        </span>
-        <span className="block text-xs text-muted-foreground">
-          {formatFileSize(attachment.fileSize)}
-        </span>
-      </span>
-    </a>
-  );
-}
+function AttachmentView({ attachment }: { attachment: Attachment }) { if (isImage(attachment.mimeType)) return <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="mt-2 block w-fit"><img src={attachment.fileUrl} alt={attachment.fileName} className="max-h-64 max-w-full rounded-lg border object-contain" /></a>; return <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="mt-2 flex max-w-sm items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors hover:bg-muted"><FileText className="h-5 w-5 shrink-0 text-primary" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{attachment.fileName}</span><span className="block text-xs text-muted-foreground">{formatFileSize(attachment.fileSize)}</span></span></a>; }
 function ChatMessage({
   row,
   meId,
@@ -2314,10 +1171,8 @@ export default function ChatPage() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
-  const { data: access, isLoading: accessLoading } = trpc.chat.access.useQuery(
-    undefined,
-    { refetchInterval: 30000 }
-  );
+  const { data: access, isLoading: accessLoading } =
+    trpc.chat.access.useQuery(undefined, { refetchInterval: 30000 });
   const { data: workspace, isLoading: workspaceLoading } =
     trpc.chat.workspace.useQuery(undefined, {
       enabled: !!access?.canAccess,
@@ -2329,13 +1184,11 @@ export default function ChatPage() {
   const [pendingChannelId, setPendingChannelId] = useState<number | null>(null);
   const openManageWhenReadyRef = useRef(false);
   const [newMessageOpen, setNewMessageOpen] = useState(false);
-  const [newMessageMode, setNewMessageMode] =
-    useState<PersonalChatMode>("direct");
+  const [newMessageMode, setNewMessageMode] = useState<PersonalChatMode>("direct");
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newSectionOpen, setNewSectionOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
-  const [chatAccessManagementOpen, setChatAccessManagementOpen] =
-    useState(false);
+  const [chatAccessManagementOpen, setChatAccessManagementOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [manageGroupOpen, setManageGroupOpen] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -2372,10 +1225,7 @@ export default function ChatPage() {
     ? personalChats
     : personalChats.slice(0, 3);
   useEffect(() => {
-    if (
-      pendingChannelId &&
-      allChannels.some(channel => channel.id === pendingChannelId)
-    ) {
+    if (pendingChannelId && allChannels.some(channel => channel.id === pendingChannelId)) {
       setSelectedChannelId(pendingChannelId);
       setPendingChannelId(null);
       if (openManageWhenReadyRef.current) {
@@ -2697,11 +1547,7 @@ export default function ChatPage() {
         </ScrollArea>
         {workspace?.isChatAdmin && (
           <div className="space-y-2 border-t p-3">
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => setChatAccessManagementOpen(true)}
-            >
+            <Button variant="outline" className="w-full justify-start" onClick={() => setChatAccessManagementOpen(true)}>
               <UserPlus className="mr-2 h-4 w-4" />
               Chat access
             </Button>
@@ -2740,10 +1586,7 @@ export default function ChatPage() {
                 <MessageCircle className="mr-2 h-4 w-4" />
                 New Message
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => openPersonalChat("group")}
-              >
+              <Button variant="outline" onClick={() => openPersonalChat("group")}>
                 <Users className="mr-2 h-4 w-4" />
                 New Group Chat
               </Button>
@@ -2908,26 +1751,16 @@ export default function ChatPage() {
         open={mobileNavigationOpen}
         onOpenChange={setMobileNavigationOpen}
       >
-        <DialogContent
-          showCloseButton={false}
-          className="inset-0 h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 p-0 sm:hidden"
-        >
+        <DialogContent showCloseButton={false} className="inset-0 h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 p-0 sm:hidden">
           <div className="flex items-center justify-between gap-2 border-b px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
             <div className="flex min-w-0 items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-10 shrink-0 gap-1 px-2"
-                onClick={() => setMobileNavigationOpen(false)}
-              >
+              <Button variant="outline" size="sm" className="h-10 shrink-0 gap-1 px-2" onClick={() => setMobileNavigationOpen(false)}>
                 <ArrowLeft className="h-4 w-4" />
                 Back
               </Button>
               <DialogHeader className="min-w-0 gap-0 text-left">
                 <DialogTitle>Chats</DialogTitle>
-                <DialogDescription className="truncate text-xs">
-                  Your conversations
-                </DialogDescription>
+                <DialogDescription className="truncate text-xs">Your conversations</DialogDescription>
               </DialogHeader>
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -2970,12 +1803,7 @@ export default function ChatPage() {
                     New group chat
                   </DropdownMenuItem>
                   {workspace?.isChatAdmin && (
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setMobileNavigationOpen(false);
-                        setChatAccessManagementOpen(true);
-                      }}
-                    >
+                    <DropdownMenuItem onClick={() => { setMobileNavigationOpen(false); setChatAccessManagementOpen(true); }}>
                       <UserPlus className="h-4 w-4" />
                       Chat access
                     </DropdownMenuItem>
