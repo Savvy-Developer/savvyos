@@ -92,7 +92,7 @@ export function LiveSectionTitle({ title, subtitle }: { title: string; subtitle?
   return (
     <div className="mb-8 text-center">
       <h2 className="text-3xl font-bold text-[#05314a]">{title}</h2>
-      {subtitle ? <p className="mt-2 text-lg text-[#05314a]/70">{subtitle}</p> : null}
+      {subtitle ? <p className="mt-2 text-lg">{subtitle}</p> : null}
     </div>
   );
 }
@@ -102,7 +102,7 @@ export function LiveOutlineLink({ href, children }: { href: string; children: Re
   return (
     <a
       href={href}
-      className="inline-flex items-center rounded-md border border-[#05314a] px-6 py-3 font-medium text-[#05314a] transition-colors hover:bg-[#05314a]/10"
+      className="inline-flex items-center rounded-md border border-[#05314a] px-6 py-3 font-medium text-[#05314a] transition-colors"
     >
       {children}
     </a>
@@ -216,8 +216,11 @@ function CardGallery({ photos, alt }: { photos: string[]; alt: string }) {
   );
 }
 
-/** Share a listing: copy the link, or open X, Facebook or WhatsApp. */
-function ShareButton({ url, text }: { url: string; text: string }) {
+/**
+ * Share a listing: copy the link, or open X, Facebook or WhatsApp. The round
+ * icon sits on a card's photo; the pill is the property page's top bar.
+ */
+export function ShareButton({ url, text, pill = false }: { url: string; text: string; pill?: boolean }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const stop = (event: React.MouseEvent) => {
@@ -240,7 +243,7 @@ function ShareButton({ url, text }: { url: string; text: string }) {
     window.open(href, "_blank", "noopener,noreferrer");
   };
   return (
-    <div className="absolute right-3 top-3">
+    <div className={pill ? "relative" : "absolute right-3 top-3"}>
       <button
         type="button"
         aria-label="Share property"
@@ -248,9 +251,14 @@ function ShareButton({ url, text }: { url: string; text: string }) {
           stop(event);
           setOpen(value => !value);
         }}
-        className="flex size-9 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm transition-colors hover:bg-white"
+        className={
+          pill
+            ? "inline-flex items-center gap-1.5 rounded-full border border-[#e5e5e5] px-3 py-1.5 text-sm font-medium text-[#05314a] transition-all duration-200 hover:scale-105 hover:text-[#10c0df]"
+            : "flex size-9 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm transition-colors hover:bg-white"
+        }
       >
-        <Share2 className="h-4 w-4 text-[#0a0a0a]/70" />
+        <Share2 className={pill ? "h-4 w-4" : "h-4 w-4 text-[#0a0a0a]/70"} />
+        {pill ? <span className="hidden sm:inline">Share</span> : null}
       </button>
       {open && (
         <>
@@ -285,7 +293,7 @@ function ShareButton({ url, text }: { url: string; text: string }) {
                 type="button"
                 onClick={copy}
                 className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors ${
-                  copied ? "bg-green-100 text-green-700" : "bg-[#05314a]/10 text-[#05314a] hover:bg-[#05314a]/20"
+                  copied ? "bg-green-100 text-green-700" : "text-[#05314a]"
                 }`}
               >
                 {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
@@ -447,13 +455,13 @@ export function LivePropertyCard({ item }: { item: any }) {
                 <button
                   type="button"
                   onClick={goTo(signIn)}
-                  className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg bg-[#05314a]/5 px-3 py-2 text-sm font-medium text-[#05314a] transition-colors hover:bg-[#05314a]/10"
+                  className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[#05314a] transition-colors"
                 >
                   <Lock className="h-3.5 w-3.5" />
                   Login to view details
                 </button>
               ) : null}
-              <div className="flex items-center gap-1.5 rounded-lg border border-[#05314a]/10 bg-[#05314a]/5 px-2.5 py-1.5">
+              <div className="flex items-center gap-1.5 rounded-lg border border-[#e5e5e5] px-2.5 py-1.5">
                 <span title="Projected yearly revenue based on current market data and property metrics.">
                   <Info className="h-3 w-3 flex-shrink-0 text-[#737373]" />
                 </span>
@@ -463,7 +471,7 @@ export function LivePropertyCard({ item }: { item: any }) {
                     type="button"
                     onClick={goTo(signIn)}
                     aria-label="Sign in to view projected revenue"
-                    className="truncate text-xs font-bold tracking-widest text-[#05314a]/40"
+                    className="truncate text-xs font-bold tracking-widest text-[#0a0a0a]"
                   >
                     ••••••
                   </button>
@@ -496,10 +504,10 @@ export function LiveAgentCard({ item }: { item: any }) {
   const phone = item.publicPhone ? String(item.publicPhone).replace(/[^+\d]/g, "") : "";
   const secondary = phone ? `tel:${phone}` : item.bookingUrl || `${profile}#contact`;
   return (
-    <div className="group relative overflow-hidden rounded-[14px] border border-[#e5e5e5] bg-white shadow-sm transition-all duration-300 hover:border-[#05314a]/20 hover:shadow-md">
+    <div className="group relative overflow-hidden rounded-[14px] border border-[#e5e5e5] bg-white shadow-sm transition-all duration-300 hover:shadow-md">
       <div className="p-6">
         <div className="flex items-start gap-4">
-          <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-[#05314a]/20">
+          <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-[#e5e5e5]">
             <img
               src={item.imageUrl || PLACEHOLDER_PHOTO}
               alt={item.name || "Agent"}
@@ -534,7 +542,7 @@ export function LiveAgentCard({ item }: { item: any }) {
       <div className="flex gap-2 p-6 pt-0">
         <a
           href={`${profile}#contact`}
-          className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-md border border-[#05314a]/30 bg-white px-4 text-sm font-medium text-[#05314a] shadow-xs transition-all hover:border-[#05314a]/50 hover:bg-gray-50"
+          className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-md border border-[#e5e5e5] bg-white px-4 text-sm font-medium text-[#05314a] shadow-xs transition-all hover:bg-gray-50"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -544,7 +552,7 @@ export function LiveAgentCard({ item }: { item: any }) {
         <a
           href={secondary}
           {...(!phone && item.bookingUrl ? { target: "_blank", rel: "noreferrer" } : {})}
-          className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-md bg-[#05314a] px-4 text-sm font-medium text-white transition-all hover:bg-[#05314a]/90"
+          className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-md bg-[#05314a] px-4 text-sm font-medium text-white transition-all"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
@@ -713,15 +721,15 @@ export function LiveCaseStudyListCard({ item }: { item: any }) {
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-[#05314a]/10">
-            <span className="text-[#05314a]/40">No Image</span>
+          <div className="flex h-full w-full items-center justify-center">
+            <span>No Image</span>
           </div>
         )}
       </a>
       <div className="p-5 pb-2">
         {item.eyebrow ? (
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center rounded-full border border-transparent bg-[#10c0df]/10 px-2.5 py-0.5 text-xs font-semibold text-[#10c0df]">
+            <span className="inline-flex items-center rounded-full border border-transparent bg-[#171717] px-2.5 py-0.5 text-xs font-semibold text-[#10c0df]">
               {item.eyebrow}
             </span>
           </div>
@@ -733,13 +741,13 @@ export function LiveCaseStudyListCard({ item }: { item: any }) {
         </h2>
       </div>
       <div className="flex-1 p-5 pt-0">
-        <p className="mb-4 line-clamp-2 text-[#05314a]/80">{item.excerpt || "No description available"}</p>
-        {item.agentName ? <p className="mb-4 text-sm text-[#05314a]/70">Agent: {item.agentName}</p> : null}
+        <p className="mb-4 line-clamp-2">{item.excerpt || "No description available"}</p>
+        {item.agentName ? <p className="mb-4 text-sm">Agent: {item.agentName}</p> : null}
         {metric || invested ? (
           <div className="mt-4 grid grid-cols-2 gap-3">
             {metric ? (
-              <div className="rounded-lg bg-[#05314a]/5 p-3">
-                <div className="mb-1 flex items-center text-sm text-[#05314a]/70">
+              <div className="rounded-lg p-3">
+                <div className="mb-1 flex items-center text-sm">
                   <DollarSign className="mr-1.5 h-4 w-4" />
                   <span className="truncate">{metric[0]}</span>
                 </div>
@@ -747,8 +755,8 @@ export function LiveCaseStudyListCard({ item }: { item: any }) {
               </div>
             ) : null}
             {invested ? (
-              <div className="rounded-lg bg-[#05314a]/5 p-3">
-                <div className="mb-1 flex items-center text-sm text-[#05314a]/70">
+              <div className="rounded-lg p-3">
+                <div className="mb-1 flex items-center text-sm">
                   <TrendingUp className="mr-1.5 h-4 w-4" />
                   <span>Investment</span>
                 </div>
@@ -761,7 +769,7 @@ export function LiveCaseStudyListCard({ item }: { item: any }) {
       <div className="p-5 pt-0">
         <a
           href={href}
-          className="block w-full rounded-md border border-[#05314a]/20 px-4 py-2 text-center text-[#05314a] transition-colors duration-200 hover:bg-[#05314a]/5"
+          className="block w-full rounded-md border border-[#e5e5e5] px-4 py-2 text-center text-[#05314a] transition-colors duration-200"
         >
           View Case Study
         </a>
@@ -838,8 +846,8 @@ export function LiveArticleCard({ item, featured = false }: { item: any; feature
               className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
             />
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center bg-[#05314a]/5">
-              <span className="text-sm font-medium text-[#05314a]/45">Savvy Resource</span>
+            <div className="absolute inset-0 flex items-center justify-center" style={{ background: "color-mix(in oklab, #05314a 5%, white)" }}>
+              <span className="text-sm font-medium text-[#05314a] opacity-45">Savvy Resource</span>
             </div>
           )}
           {featured ? (

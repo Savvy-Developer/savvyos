@@ -195,8 +195,9 @@ export const EDITABLE_LIST_PAGES: EditableListPage[] = [
     name: "Markets",
     starter: {
       heroEyebrow: "",
-      heroTitle: "STR Markets",
-      heroSubtitle: "The markets we cover, and what is on the market in each one today.",
+      heroTitle: "Top Markets for Short-Term Rental Investing",
+      heroSubtitle:
+        "Local expert agents. Find where your next vacation rental investment makes the most sense.",
       metaTitle: "STR Markets",
     },
   },

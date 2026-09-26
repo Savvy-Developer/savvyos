@@ -1812,8 +1812,15 @@ export const websiteRouter = router({
           investmentAmount: websiteCaseStudies.investmentAmount,
           propertyId: websiteCaseStudies.propertyId,
           agentUserId: websiteCaseStudies.agentUserId,
+          publishedAt: websiteCaseStudies.publishedAt,
           agentName: users.name,
           agentSlug: websiteAgentProfiles.slug,
+          // The agent's public card details, for the side panel. The same
+          // fields the agent's own public profile already shows.
+          agentImageUrl: websiteAgentProfiles.imageUrl,
+          agentEmail: websiteAgentProfiles.publicEmail,
+          agentPhone: websiteAgentProfiles.publicPhone,
+          agentBookingUrl: websiteAgentProfiles.bookingUrl,
         })
         .from(websiteCaseStudies)
         .leftJoin(users, eq(websiteCaseStudies.agentUserId, users.id))
@@ -1828,7 +1835,8 @@ export const websiteRouter = router({
           )
         )
         .limit(1);
-      return rows[0] ?? null;
+      const row = rows[0];
+      return row ? { ...row, agentBookingUrl: normalizeBookingUrl(row.agentBookingUrl) } : null;
     }),
 
   publicPosts: publicProcedure.query(async () => {
