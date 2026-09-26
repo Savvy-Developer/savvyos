@@ -562,29 +562,44 @@ export function AccountMenu({ dark = false }: { dark?: boolean }) {
 
   if (account.isLoading) return null;
 
+  // Login and Sign Up, then an initials avatar once signed in: the same as
+  // the live savvy-agents.com header.
   if (!account.data) {
+    const next = `?next=${encodeURIComponent(window.location.pathname)}`;
     return (
-      <a
-        className={`rounded-lg px-4 py-2 text-sm font-semibold ${dark ? "text-white" : ""}`}
-        style={dark ? undefined : { color: NAVY }}
-        href={`${accountPath.signIn}?next=${encodeURIComponent(window.location.pathname)}`}
-      >
-        Investor sign in
-      </a>
+      <div className="flex items-center gap-3">
+        <a
+          className={`inline-flex h-8 items-center rounded-md px-3 text-sm font-medium transition-colors ${dark ? "text-white hover:bg-white/10" : "text-gray-700 hover:bg-[#05314a]/5 hover:text-[#05314a]"}`}
+          href={`${accountPath.signIn}${next}`}
+        >
+          Login
+        </a>
+        <a
+          className="inline-flex h-8 items-center rounded-md bg-[#10c0df] px-3 text-sm font-medium text-white transition-colors hover:bg-[#10c0df]/90"
+          href={`${accountPath.signUp}${next}`}
+        >
+          Sign Up
+        </a>
+      </div>
     );
   }
 
-  const label =
-    account.data.firstName || account.data.email.split("@")[0] || "Account";
+  const initials =
+    [account.data.firstName, account.data.lastName]
+      .map(part => (part || "").trim().charAt(0))
+      .join("")
+      .toUpperCase() ||
+    account.data.email.charAt(0).toUpperCase();
   return (
     <div className="relative">
       <button
         onClick={() => setOpen(value => !value)}
-        className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${dark ? "text-white" : ""}`}
-        style={dark ? undefined : { color: NAVY }}
+        aria-label="Your account"
+        className="flex items-center rounded-full p-0.5 transition-colors hover:ring-2 hover:ring-[#10c0df]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#10c0df]"
       >
-        <UserRound className="h-4 w-4" />
-        {label}
+        <span className="flex size-8 items-center justify-center rounded-full bg-[#05314a] text-xs font-medium text-white">
+          {initials}
+        </span>
       </button>
       {open && (
         <div className="absolute right-0 z-50 mt-2 w-56 rounded-xl border bg-white p-2 shadow-xl">
@@ -638,9 +653,17 @@ export function AccountMobileLinks({ dark = false }: { dark?: boolean }) {
   if (account.isLoading) return null;
   if (!account.data) {
     return (
-      <a className={itemClass} href={accountPath.signIn}>
-        Investor sign in
-      </a>
+      <>
+        <a className={itemClass} href={accountPath.signIn}>
+          Login
+        </a>
+        <a
+          className="mt-2 block rounded-md bg-[#10c0df] px-3 py-3 text-center text-sm font-medium text-white hover:bg-[#10c0df]/90"
+          href={accountPath.signUp}
+        >
+          Sign Up
+        </a>
+      </>
     );
   }
   return (

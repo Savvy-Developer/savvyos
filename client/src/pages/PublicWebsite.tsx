@@ -13,7 +13,6 @@ import {
   ChevronRight,
   Images,
   DollarSign,
-  ExternalLink,
   Flame,
   Globe2,
   Heart,
@@ -82,7 +81,9 @@ import {
   SignInBody,
   SignUpBody,
   ViewHistoryBody,
+  accountPath,
   useRecordPropertyView,
+  useWebsiteAccount,
 } from "@/components/website/publicAccountPages";
 
 const BASE = PUBLIC_SITE_BASE;
@@ -343,178 +344,218 @@ function useScrollReveal(ref: React.RefObject<HTMLElement | null>) {
   }, [ref]);
 }
 
-function Shell({
-  children,
-  darkHeader = false,
+/** The header's About menu: opens on hover or click, closes on the way out,
+ *  on Escape, or on a click anywhere else. Styled like the live site's. */
+function AboutMenu({
+  items,
+  linkClass,
 }: {
-  children: React.ReactNode;
-  darkHeader?: boolean;
+  items: Array<[string, string]>;
+  linkClass: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (box.current && !box.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div
+      ref={box}
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={() => setOpen(value => !value)}
+        className={`flex items-center gap-1 ${linkClass}`}
+      >
+        About
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 w-48 pt-2">
+          <div className="rounded-lg border border-gray-200 bg-white py-2 shadow-lg">
+            {items.map(([label, href]) => (
+              <a
+                key={label}
+                href={path(href)}
+                className="block px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-[#05314a]/5 hover:text-[#05314a]"
+              >
+                {label}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { data: siteSettings } = trpc.website.publicSettings.useQuery();
   const mainRef = useRef<HTMLElement>(null);
   useScrollReveal(mainRef);
-  const nav = [
+  // The same menu, in the same order, as the live savvy-agents.com header, so
+  // the switch-over looks like the same site. About opens a small menu there
+  // too. Its "Meet the Team" goes to the agents page, as the old /team
+  // address already does.
+  const nav: Array<[string, string]> = [
     ["Properties", "/properties"],
-    ["Markets", "/markets"],
     ["Our Agents", "/agents"],
     ["Case Studies", "/case-studies"],
-    ["About", "/about"],
-    ["Resources", "/resources"],
-    ["Contact", "/contact"],
   ];
+  const aboutMenu: Array<[string, string]> = [
+    ["About Savvy", "/about"],
+    ["Meet the Team", "/agents"],
+    ["Markets", "/markets"],
+  ];
+  const navAfter: Array<[string, string]> = [["Resources", "/resources"]];
+  const linkClass =
+    "text-sm font-medium text-gray-700 transition-colors hover:text-[#05314a]";
+  const mobileLinkClass =
+    "block rounded-lg px-3 py-3 text-sm font-medium text-gray-700 hover:bg-gray-100 hover:text-[#05314a]";
   return (
     <div className="sv-site h-full overflow-y-auto bg-white text-slate-950 selection:bg-cyan-200">
-      <header
-        className={`sticky top-0 z-50 border-b ${darkHeader ? "border-white/10 bg-[#052d43]" : "border-slate-200 bg-white"}`}
-      >
+      <header className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white shadow-sm">
         {siteSettings?.announcementText && (
           <div className="bg-[#10c0df] px-4 py-1.5 text-center text-[11px] font-bold tracking-wide text-[#03293c]">
             {siteSettings.announcementText}
           </div>
         )}
-        <div className="mx-auto flex h-16 max-w-[1280px] items-center justify-between px-4 sm:px-6 lg:px-8">
-          <a href={path()} aria-label="Savvy STR Agents home">
-            <img
-              src={LOGO}
-              alt="Savvy STR Agents"
-              className={`h-7 w-auto ${darkHeader ? "brightness-0 invert" : ""}`}
-            />
-          </a>
-          <nav className="hidden items-center gap-6 lg:flex">
-            {nav.map(([label, href]) => (
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center justify-between">
+            <a href={path()} aria-label="Savvy STR Agents home" className="flex-shrink-0">
+              <img
+                src={LOGO}
+                alt="Savvy STR Agents"
+                className="block h-6 w-auto object-contain md:h-[30px]"
+              />
+            </a>
+            <nav className="hidden flex-1 items-center justify-center gap-8 lg:flex">
+              {nav.map(([label, href]) => (
+                <a key={label} className={linkClass} href={path(href)}>
+                  {label}
+                </a>
+              ))}
+              <AboutMenu items={aboutMenu} linkClass={linkClass} />
+              {navAfter.map(([label, href]) => (
+                <a key={label} className={linkClass} href={path(href)}>
+                  {label}
+                </a>
+              ))}
               <a
-                key={href}
-                className={`text-sm font-semibold transition hover:text-cyan-500 ${darkHeader ? "text-white/85" : "text-[#05314a]"}`}
-                href={path(href)}
+                className={linkClass}
+                href="https://www.savvy.realty/sellers"
+                target="_blank"
+                rel="noreferrer"
               >
+                Sell
+              </a>
+              <a className={linkClass} href={path("/contact")}>
+                Contact
+              </a>
+              <a className={linkClass} href={path("/join-our-team")}>
+                Join The Team
+              </a>
+            </nav>
+            <div className="hidden items-center gap-3 lg:flex">
+              <AccountMenu />
+            </div>
+            <button
+              className="inline-flex items-center justify-center rounded-md p-2 text-gray-700 transition-colors hover:bg-gray-100 hover:text-[#05314a] lg:hidden"
+              onClick={() => setMobileOpen(value => !value)}
+              aria-label="Toggle navigation"
+            >
+              {mobileOpen ? <X /> : <Menu />}
+            </button>
+          </div>
+        </div>
+        {mobileOpen && (
+          <nav className="border-t border-gray-200 bg-white px-4 py-4 lg:hidden">
+            {[...nav, ...aboutMenu, ...navAfter].map(([label, href]) => (
+              <a key={label} className={mobileLinkClass} href={path(href)}>
                 {label}
               </a>
             ))}
             <a
-              className={`text-sm font-semibold ${darkHeader ? "text-white/85" : "text-[#05314a]"}`}
+              className={mobileLinkClass}
               href="https://www.savvy.realty/sellers"
               target="_blank"
               rel="noreferrer"
             >
-              Sell <ExternalLink className="ml-1 inline h-3 w-3" />
+              Sell
             </a>
-            {/* Very wide screens only. At 1280px the menu already reaches the
-                logo, so this link would push it into it. It is always in the
-                mobile menu and the footer. */}
-            <a
-              className={`hidden text-sm font-semibold transition hover:text-cyan-500 2xl:inline ${darkHeader ? "text-white/85" : "text-[#05314a]"}`}
-              href={path("/join-our-team")}
-            >
-              Join the team
+            <a className={mobileLinkClass} href={path("/contact")}>
+              Contact
             </a>
-          </nav>
-          <div className="hidden items-center gap-2 lg:flex">
-            <AccountMenu dark={darkHeader} />
-            <a
-              className="rounded-lg bg-[#10c0df] px-4 py-2 text-sm font-bold text-[#03293c] shadow-sm transition hover:bg-[#43e8ff]"
-              href={path("/contact")}
-            >
-              Talk to an STR Agent
+            <a className={mobileLinkClass} href={path("/join-our-team")}>
+              Join The Team
             </a>
-          </div>
-          <button
-            className={`rounded-lg p-2 lg:hidden ${darkHeader ? "text-white" : "text-[#05314a]"}`}
-            onClick={() => setMobileOpen(value => !value)}
-            aria-label="Toggle navigation"
-          >
-            {mobileOpen ? <X /> : <Menu />}
-          </button>
-        </div>
-        {mobileOpen && (
-          <nav
-            className={`border-t px-4 py-4 lg:hidden ${darkHeader ? "border-white/10 bg-[#052d43]" : "border-slate-200 bg-white"}`}
-          >
-            {nav.map(([label, href]) => (
-              <a
-                key={href}
-                className={`block rounded-lg px-3 py-3 text-sm font-semibold ${darkHeader ? "text-white hover:bg-white/10" : "text-[#05314a] hover:bg-slate-50"}`}
-                href={path(href)}
-              >
-                {label}
-              </a>
-            ))}
-            <a
-              className={`block rounded-lg px-3 py-3 text-sm font-semibold ${darkHeader ? "text-white hover:bg-white/10" : "text-[#05314a] hover:bg-slate-50"}`}
-              href={path("/join-our-team")}
-            >
-              Join the team
-            </a>
-            <div
-              className={`my-2 border-t ${darkHeader ? "border-white/10" : "border-slate-200"}`}
-            />
-            <AccountMobileLinks dark={darkHeader} />
-            <a
-              className="mt-2 block rounded-lg bg-[#10c0df] px-3 py-3 text-center text-sm font-bold text-[#03293c]"
-              href={path("/contact")}
-            >
-              Talk to an STR Agent
-            </a>
+            <div className="my-2 border-t border-gray-200" />
+            <AccountMobileLinks />
           </nav>
         )}
       </header>
       <main ref={mainRef}>{children}</main>
-      <SiteFooter settings={siteSettings} />
+      <SiteFooter />
     </div>
   );
 }
 
-function SiteFooter({ settings }: { settings?: any }) {
-  // Legal and Privacy are CMS pages, not built-in ones, so a link is shown
-  // only once the page is published. A footer link to "Page not found" on a
-  // legal page is worse than no link.
+/**
+ * The footer from the live savvy-agents.com: one line, copyright on the left,
+ * links on the right. Legal and Privacy are CMS pages, not built-in ones, so
+ * each link shows only once its page is published; a footer link to "Page not
+ * found" on a legal page is worse than no link.
+ */
+function SiteFooter() {
   const legal = trpc.website.publicPage.useQuery({ slug: "legal" }, { staleTime: 10 * 60_000 });
   const privacy = trpc.website.publicPage.useQuery({ slug: "privacy" }, { staleTime: 10 * 60_000 });
+  const account = useWebsiteAccount();
+  const linkClass = "transition-colors hover:text-[#10c0df]";
   return (
-    <footer className="border-t border-slate-200 bg-white">
-      <div className="mx-auto max-w-[1280px] px-4 py-10 sm:px-6 lg:px-8">
-        <div className="flex flex-col justify-between gap-8 md:flex-row">
-          <div>
-            <img src={LOGO} alt="Savvy STR Agents" className="h-7 w-auto" />
-            <p className="mt-4 max-w-sm text-sm leading-6 text-slate-500">
-              {settings?.footerText || "Specialized real estate representation, property intelligence, and a national agent network built for short-term rental investors."}
-            </p>
-            {(settings?.contactEmail || settings?.contactPhone) && <p className="mt-3 text-sm text-slate-500">{[settings.contactEmail, settings.contactPhone].filter(Boolean).join(" · ")}</p>}
-          </div>
-          <div className="grid grid-cols-2 gap-x-10 gap-y-3 text-sm font-medium text-[#05314a]">
-            <a href={path("/properties")}>Properties</a>
-            <a href={path("/markets")}>Markets</a>
-            <a href={path("/agents")}>Our Agents</a>
-            <a href={path("/case-studies")}>Case Studies</a>
-            <a href={path("/resources")}>Resources</a>
-            <a href={path("/about")}>About</a>
-            <a href={path("/contact")}>Contact</a>
-            <a href={path("/join-our-team")}>Join the team</a>
-            {legal.data && <a href={path("/legal")}>Legal</a>}
-            {privacy.data && <a href={path("/privacy")}>Privacy Policy</a>}
-            {/* Staff sign in is a different door from the investor account in
-                the header, and it belongs down here rather than competing with
-                it. Agents still need the link, so it is kept rather than
-                dropped. */}
-            <a
-              className="text-slate-500"
-              href="https://os.savvy-agents.com/login"
-            >
-              Savvy team login
-            </a>
-          </div>
-        </div>
-        <div className="mt-8 border-t pt-5 text-xs leading-5 text-slate-500">
-          <p>
-            <strong>Financial & Investment Disclaimer:</strong> Information and
-            projections are educational estimates, not guarantees. Verify
-            regulations, financing, expenses, and operating assumptions before
-            investing.
-          </p>
-          <p className="mt-3">
-            © {new Date().getFullYear()} Savvy STR Agents. All rights reserved.
-          </p>
-        </div>
+    <footer className="mt-auto border-t bg-white">
+      <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-8 text-sm text-[#05314a]/70 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+        <p>© {new Date().getFullYear()} Savvy STR Agents. All rights reserved.</p>
+        <nav className="flex flex-wrap gap-4">
+          <a className={linkClass} href={path("/properties")}>Properties</a>
+          <a className={linkClass} href={path("/markets")}>Markets</a>
+          <a className={linkClass} href={path("/case-studies")}>Case Studies</a>
+          <a className={linkClass} href={path("/resources")}>Resources</a>
+          <a
+            className={linkClass}
+            href="https://www.savvy.realty/sellers"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Sell Your STR
+          </a>
+          {legal.data && <a className={linkClass} href={path("/legal")}>Legal</a>}
+          {privacy.data && <a className={linkClass} href={path("/privacy")}>Privacy Policy</a>}
+          <a
+            className={`flex items-center gap-1 ${linkClass}`}
+            href={account.data ? accountPath.saved : accountPath.signIn}
+          >
+            <UserRound className="h-3.5 w-3.5" />
+            My Account
+          </a>
+        </nav>
       </div>
     </footer>
   );
@@ -1121,7 +1162,7 @@ function HomePage() {
   const [heroLead, ...heroAccentParts] = heroTitle.split("—");
   const heroAccent = heroAccentParts.join("—").trim();
   return (
-    <Shell darkHeader>
+    <Shell>
       <section className="relative flex min-h-[740px] items-center overflow-hidden bg-[#05314a]">
         <img
           className="absolute inset-0 h-full w-full object-cover"
@@ -3106,7 +3147,7 @@ function AboutPage() {
     ],
   ];
   return (
-    <Shell darkHeader>
+    <Shell>
       <section className="relative overflow-hidden bg-black py-28 text-center text-white">
         <PhotoBackdrop src={heroImageUrl} eager />
         <div className="relative mx-auto max-w-4xl px-5">
@@ -3371,7 +3412,7 @@ function JoinEyebrow({ children, light = false }: { children: React.ReactNode; l
 function JoinTeamPage() {
   usePageTitle("Join Our Team");
   return (
-    <Shell darkHeader>
+    <Shell>
       {/* Hero */}
       <section className="relative overflow-hidden bg-[#031f30] py-20 text-white lg:py-28">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(16,192,223,0.25),transparent_60%)]" />
@@ -3677,7 +3718,7 @@ function ContactPage() {
   const contactPhone = settings?.contactPhone || "(828) 407-1705";
   const contactEmail = settings?.contactEmail || "hello@savvy.realty";
   return (
-    <Shell darkHeader>
+    <Shell>
       <section className="relative overflow-hidden bg-[#05314a] py-24 text-white">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_85%_20%,rgba(16,192,223,.28),transparent_35%)]" />
         <div className="relative mx-auto grid max-w-[1180px] gap-10 px-5 lg:grid-cols-2 lg:items-center">
