@@ -173,10 +173,10 @@ export const EDITABLE_LIST_PAGES: EditableListPage[] = [
     slug: "properties",
     name: "Properties",
     starter: {
-      heroEyebrow: "Properties for sale",
-      heroTitle: "Short-Term Rental Properties",
+      heroEyebrow: "",
+      heroTitle: "Short-Term Rental Properties for Sale",
       heroSubtitle:
-        "Investor-focused opportunities, specialist agents, and property intelligence in one place.",
+        "Every listing includes projected revenue and an expert STR agent. Filter by market, price, and bedrooms to find your next short-term rental investment.",
       metaTitle: "Short-Term Rental Properties for Sale",
     },
   },
@@ -184,10 +184,9 @@ export const EDITABLE_LIST_PAGES: EditableListPage[] = [
     slug: "agents",
     name: "Agents",
     starter: {
-      heroEyebrow: "National network. Local expertise.",
-      heroTitle: "Find Your STR Investment Agent",
-      heroSubtitle:
-        "Search by name, market, state, or specialty and meet an agent who speaks investor.",
+      heroEyebrow: "",
+      heroTitle: "Agents",
+      heroSubtitle: "",
       metaTitle: "Our STR Investment Agents",
     },
   },
@@ -196,8 +195,9 @@ export const EDITABLE_LIST_PAGES: EditableListPage[] = [
     name: "Markets",
     starter: {
       heroEyebrow: "",
-      heroTitle: "STR Markets",
-      heroSubtitle: "The markets we cover, and what is on the market in each one today.",
+      heroTitle: "Top Markets for Short-Term Rental Investing",
+      heroSubtitle:
+        "Local expert agents. Find where your next vacation rental investment makes the most sense.",
       metaTitle: "STR Markets",
     },
   },
@@ -208,7 +208,7 @@ export const EDITABLE_LIST_PAGES: EditableListPage[] = [
       heroEyebrow: "",
       heroTitle: "Case Studies",
       heroSubtitle:
-        "The decisions, relationships, and execution behind successful STR purchases.",
+        "Explore our successful short-term rental transformations and investment opportunities",
       metaTitle: "STR Investment Case Studies",
     },
   },
@@ -219,7 +219,7 @@ export const EDITABLE_LIST_PAGES: EditableListPage[] = [
       heroEyebrow: "",
       heroTitle: "Insights & Resources",
       heroSubtitle:
-        "Investment strategies, market analysis, and STR guidance from specialist agents.",
+        "Investment strategies, market analysis, and STR tips from our expert agents.",
       metaTitle: "Insights & Resources",
     },
   },

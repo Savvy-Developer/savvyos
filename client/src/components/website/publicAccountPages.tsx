@@ -701,9 +701,12 @@ export function AccountMobileLinks({ dark = false }: { dark?: boolean }) {
 export function SaveButton({
   propertyId,
   compact = false,
+  pill = false,
 }: {
   propertyId: number | null | undefined;
   compact?: boolean;
+  /** The rounded "Save" button in the property page's top bar. */
+  pill?: boolean;
 }) {
   const account = useWebsiteAccount();
   const utils = trpc.useUtils();
@@ -728,16 +731,30 @@ export function SaveButton({
     setSaved.mutate({ propertyId, saved: !isSaved });
   };
 
+  if (pill) {
+    return (
+      <button
+        onClick={onClick}
+        aria-label={isSaved ? "Remove from saved" : "Save property"}
+        aria-pressed={isSaved}
+        className="inline-flex items-center gap-1.5 rounded-full border border-[#e5e5e5] px-3 py-1.5 text-sm font-medium text-[#05314a] transition-all duration-200 hover:scale-105 hover:text-[#10c0df]"
+      >
+        <Heart className={`h-4 w-4 transition-colors ${isSaved ? "fill-red-500 text-red-500" : ""}`} />
+        <span className="hidden sm:inline">{isSaved ? "Saved" : "Save"}</span>
+      </button>
+    );
+  }
+
   if (compact) {
     return (
       <button
         onClick={onClick}
         aria-label={isSaved ? "Remove from saved" : "Save this property"}
         aria-pressed={isSaved}
-        className="rounded-full bg-white/90 p-2 shadow-sm backdrop-blur transition hover:bg-white"
+        className="flex size-9 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm transition-colors hover:bg-white"
       >
         <Heart
-          className={`h-4 w-4 ${isSaved ? "fill-rose-500 text-rose-500" : "text-slate-600"}`}
+          className={`h-4 w-4 ${isSaved ? "fill-red-500 text-red-500" : "text-[#0a0a0a]/70"}`}
         />
       </button>
     );

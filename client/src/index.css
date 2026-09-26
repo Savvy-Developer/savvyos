@@ -346,60 +346,26 @@
 }
 
 /*
- * Public website motion (PublicWebsite.tsx). Kept subtle: sections fade and
- * rise into view, and cards and main buttons lift a little on hover.
- * .sv-reveal is only ever added by script, so nothing is hidden without it.
+ * Public website (PublicWebsite.tsx). Styled to match the live
+ * savvy-agents.com: its system font rather than the app's Inter, no
+ * scroll-in animation, and no lift on cards or buttons (the live site only
+ * deepens a card's shadow on hover, which the components do themselves).
  */
-.sv-site .sv-reveal {
-  opacity: 0;
-  transform: translateY(22px);
-  transition:
-    opacity 0.7s ease-out,
-    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+.sv-site {
+  font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  color: #0a0a0a;
 }
 
-.sv-site .sv-reveal.sv-in {
-  opacity: 1;
-  transform: none;
+/* A scroll-snap strip driven by swiping and its own arrows, such as the photo
+   strip on a property card: the scrollbar would only eat into the image. */
+.sv-site .no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-/* Cards: skip any that already have their own hover lift. */
-.sv-site main :is(article, a.group):not([class*="hover:-translate"]) {
-  transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease;
-}
-
-.sv-site main :is(article, a.group):not([class*="hover:-translate"]):hover {
-  transform: translateY(-4px);
-  box-shadow: 0 18px 40px -18px rgb(3 41 60 / 0.35);
-}
-
-/* Main cyan call-to-action buttons. */
-.sv-site :is(a, button)[class*="bg-[#10c0df]"] {
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    filter 0.2s ease;
-}
-
-.sv-site :is(a, button)[class*="bg-[#10c0df]"]:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 24px -12px rgb(16 192 223 / 0.7);
-  filter: brightness(1.05);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sv-site .sv-reveal {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-
-  .sv-site main :is(article, a.group):hover,
-  .sv-site :is(a, button)[class*="bg-[#10c0df]"]:hover {
-    transform: none;
-  }
+.sv-site .no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Partner logo strip on the Join Our Team page: scrolls sideways forever.
