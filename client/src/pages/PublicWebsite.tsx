@@ -579,7 +579,32 @@ function NotFoundPage() {
  */
 function TestimonialsSection({ rows }: { rows: unknown }) {
   const testimonials = publishedTestimonials(rows);
+  // Arrows, because on a desktop without a trackpad the row just looks cut
+  // off at the edge: nothing says there are more quotes to the right.
+  const scroller = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ start: true, end: true });
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const update = () =>
+      setEdges({
+        start: el.scrollLeft <= 4,
+        end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4,
+      });
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      el.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [testimonials.length]);
   if (!testimonials.length) return null;
+  const move = (direction: 1 | -1) => {
+    const el = scroller.current;
+    if (!el) return;
+    el.scrollBy({ left: direction * el.clientWidth * 0.8, behavior: "smooth" });
+  };
   return (
     <section className="bg-white py-20">
       <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
@@ -589,6 +614,7 @@ function TestimonialsSection({ rows }: { rows: unknown }) {
           body="Specialized guidance matters before, during, and long after closing."
         />
         <div
+          ref={scroller}
           className="mt-10 flex snap-x snap-mandatory gap-5 overflow-x-auto pb-4"
           tabIndex={0}
           role="region"
@@ -616,6 +642,28 @@ function TestimonialsSection({ rows }: { rows: unknown }) {
             );
           })}
         </div>
+        {!(edges.start && edges.end) && (
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              aria-label="Previous testimonials"
+              disabled={edges.start}
+              onClick={() => move(-1)}
+              className="rounded-full border border-slate-200 bg-white p-2.5 text-[#05314a] shadow-sm transition hover:border-cyan-400 disabled:opacity-40"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              aria-label="More testimonials"
+              disabled={edges.end}
+              onClick={() => move(1)}
+              className="rounded-full border border-slate-200 bg-white p-2.5 text-[#05314a] shadow-sm transition hover:border-cyan-400 disabled:opacity-40"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -803,7 +851,7 @@ function AgentCard({ item }: { item: any }) {
         />
         <div>
           <h3 className="text-xl font-bold text-[#05314a]">{item.name}</h3>
-          <p className="mt-1 text-sm font-semibold text-cyan-700">
+          <p className="mt-1 line-clamp-2 text-sm font-semibold text-cyan-700">
             {item.headline || "STR Investment Specialist"}
           </p>
           {markets[0] && (
@@ -851,18 +899,22 @@ function AgentCard({ item }: { item: any }) {
 
 function StoryCard({ item }: { item: any }) {
   return (
+    // Photo on top, like the property and article cards, so any number of
+    // stories fills a three-column row. The side-by-side version sat two to a
+    // row and left an odd one alone with an empty half beside it.
     <a
       href={path(`/case-studies/${item.slug}`)}
-      className="group grid overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:grid-cols-[42%_1fr]"
+      className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
     >
-      <div className="min-h-52 overflow-hidden">
+      <div className="aspect-[1.65] overflow-hidden bg-slate-100">
         <img
           src={item.heroImageUrl}
           alt={item.title}
           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+          loading="lazy"
         />
       </div>
-      <div className="flex flex-col p-6">
+      <div className="flex flex-1 flex-col p-6">
         <p className="text-xs font-bold uppercase tracking-[0.15em] text-cyan-600">
           {item.eyebrow || "Investor story"}
         </p>
@@ -903,9 +955,11 @@ function StoryCard({ item }: { item: any }) {
 
 function ArticleCard({ item }: { item: any }) {
   return (
+    // flex-col with the footer at mt-auto, so the author line and "Read
+    // article" sit on one line across a row whatever the title length.
     <a
       href={path(`/resources/${item.slug}`)}
-      className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
     >
       <div className="aspect-[1.65] overflow-hidden bg-slate-100">
         <img
@@ -915,17 +969,17 @@ function ArticleCard({ item }: { item: any }) {
           loading="lazy"
         />
       </div>
-      <div className="p-5">
+      <div className="flex flex-1 flex-col p-5">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-600">
           {item.category || "STR Investing"}
         </p>
         <h3 className="mt-2 text-xl font-bold leading-snug text-[#05314a]">
           {item.title}
         </h3>
-        <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">
+        <p className="mb-5 mt-3 line-clamp-3 text-sm leading-6 text-slate-600">
           {item.excerpt}
         </p>
-        <div className="mt-5 flex items-center justify-between border-t pt-4 text-xs text-slate-500">
+        <div className="mt-auto flex items-center justify-between border-t pt-4 text-xs text-slate-500">
           <span>{item.authorName || "Savvy Team"}</span>
           <span className="font-bold text-cyan-700">Read article →</span>
         </div>
@@ -1229,7 +1283,7 @@ function HomePage() {
             title="Proven Investment Success Stories"
             body="See what changes when investors work with a team built around short-term rentals."
           />
-          <div className="mt-10 grid gap-6 lg:grid-cols-2">
+          <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {(data?.caseStudies || []).map((item: any) => (
               <StoryCard key={item.id} item={item} />
             ))}
@@ -1635,7 +1689,7 @@ function PropertiesPage() {
           </div>
           {items.length ? (
             <div
-              className={`grid gap-6 transition-opacity md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${updating ? "opacity-60" : ""}`}
+              className={`grid gap-6 transition-opacity md:grid-cols-2 lg:grid-cols-3 ${updating ? "opacity-60" : ""}`}
               aria-busy={updating}
             >
               {items.map((item: any) => (
@@ -2617,7 +2671,7 @@ function CaseStudiesPage() {
       </section>
       <section className="py-16">
         {items.length ? (
-          <div className="mx-auto grid max-w-[1180px] gap-6 px-4 sm:px-6 lg:grid-cols-2">
+          <div className="mx-auto grid max-w-[1180px] gap-6 px-4 sm:px-6 md:grid-cols-2 lg:grid-cols-3">
             {items.map((item: any) => (
               <StoryCard key={item.id} item={item} />
             ))}
