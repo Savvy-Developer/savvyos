@@ -231,10 +231,20 @@ function TagPicker({
 function ProformaPublishState({
   proforma,
   listingPublished,
+  propertyId,
 }: {
   proforma: any;
   listingPublished: boolean;
+  propertyId: number;
 }) {
+  const utils = trpc.useUtils();
+  const markFinal = trpc.properties.setProformaStatus.useMutation({
+    onSuccess: async () => {
+      await utils.website.propertyWebsiteContent.invalidate({ propertyId });
+      toast.success("Pro-forma marked final. Its revenue range and comps can now show on the listing.");
+    },
+    onError: error => toast.error(error.message),
+  });
   if (!proforma) {
     return (
       <p className="mt-2 text-xs text-muted-foreground">
@@ -248,8 +258,16 @@ function ProformaPublishState({
     return (
       <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
         This pro-forma is a <strong>draft</strong>, so nothing from it reaches
-        the public listing. Mark it final in the pro-forma to publish its
-        revenue range and comparable properties.
+        the public listing. Mark it final to publish its revenue range and
+        comparable properties.{" "}
+        <button
+          type="button"
+          className="font-semibold underline underline-offset-2 disabled:opacity-50"
+          disabled={markFinal.isPending}
+          onClick={() => markFinal.mutate({ id: proforma.id, status: "final" })}
+        >
+          {markFinal.isPending ? "Marking final..." : "Mark it final now"}
+        </button>
       </p>
     );
   }
@@ -610,6 +628,7 @@ export default function PropertyWebsiteTab({
                   (item: any) => String(item.id) === draft.sourceProformaId
                 )}
                 listingPublished={draft.status === "published"}
+                propertyId={propertyId}
               />
             </div>
           )}
@@ -706,8 +725,8 @@ export default function PropertyWebsiteTab({
             </div>
             {missing.length > 0 && (
               <p className="w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                {publishBlockedMessage(missing)} The address, price, beds, baths and
-                ZIP are edited on the property above; photos are in this form.
+                {publishBlockedMessage(missing)} Price, beds, baths and ZIP: use
+                "Edit details" on the property's Overview tab. Photos go in this form.
               </p>
             )}
             <Button disabled={save.isPending} onClick={submit}>
