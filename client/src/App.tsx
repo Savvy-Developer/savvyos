@@ -157,6 +157,7 @@ import AffiliateLinksPage from "./pages/AffiliateLinksPage";
 import MarketProfileSurveyPage from "./pages/MarketProfileSurveyPage";
 import EventsPage from "./pages/EventsPage";
 import WebsitePage from "./pages/WebsitePage";
+import MyWebsiteContentPage from "./pages/MyWebsiteContentPage";
 import PublicWebsite from "./pages/PublicWebsite";
 import AgentCelebrationPage from "./pages/AgentCelebrationPage";
 import AgentAppointmentsPage from "./pages/AgentAppointmentsPage";
@@ -617,6 +618,8 @@ function Router() {
           <Route path="/pulse">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />
+          <Route path="/my-website/case-studies">{() => <MyWebsiteContentPage kind="case" />}</Route>
+          <Route path="/my-website/blog">{() => <MyWebsiteContentPage kind="post" />}</Route>
           <Route path="/analytics/market/:id">{(params: any) => <AdminRoute><MarketDrillDownPage /></AdminRoute>}</Route>
           <Route path="/marketing-requests" component={MarketingRequestsPage} />
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>

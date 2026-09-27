@@ -32,6 +32,10 @@ import {
   splitLines,
 } from "./websiteFormBits";
 import {
+  missingForPublish,
+  publishBlockedMessage,
+} from "@shared/websitePublishChecklist";
+import {
   AMENITY_TAGS,
   STRATEGY_TAGS,
   splitTags,
@@ -360,6 +364,25 @@ export default function PropertyWebsiteTab({
     );
   }
 
+  // A failed load is not the same as having no access. Before this, any
+  // server error here (such as the missing price-drop column in September)
+  // showed "You do not have access to publish this property", which sent
+  // people looking at permissions instead of at the actual fault.
+  if (content.error) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Website</CardTitle>
+          <CardDescription>
+            The website details could not be loaded: {content.error.message}. This
+            is a server problem, not a permissions one. Try again in a minute, and
+            report it if it keeps happening.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
   if (!canEdit) {
     return (
       <Card>
@@ -374,6 +397,15 @@ export default function PropertyWebsiteTab({
       </Card>
     );
   }
+
+  const missing =
+    draft.status === "published"
+      ? missingForPublish({
+          ...(content.data?.facts ?? {}),
+          heroImageUrl: draft.heroImageUrl,
+          galleryImageUrls: splitLines(draft.galleryImageUrls),
+        })
+      : [];
 
   function submit() {
     save.mutate({
@@ -672,6 +704,12 @@ export default function PropertyWebsiteTab({
                 Feature on the homepage
               </label>
             </div>
+            {missing.length > 0 && (
+              <p className="w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {publishBlockedMessage(missing)} The address, price, beds, baths and
+                ZIP are edited on the property above; photos are in this form.
+              </p>
+            )}
             <Button disabled={save.isPending} onClick={submit}>
               {save.isPending
                 ? "Saving..."

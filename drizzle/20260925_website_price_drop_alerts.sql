@@ -1,6 +1,8 @@
 -- Price drop alerts (Website Studio > Daily Email > Price drop alerts).
 --
--- MUST BE APPLIED BEFORE THE CODE MERGES. Railway does not run these files.
+-- Applied at app startup by server/websitePriceDropSchema.ts (checks first,
+-- additive, safe to repeat). Kept here for the record and for manual use.
+-- It was never run by hand on production, which is why the startup guard exists.
 -- The Studio and the public site read website_properties whole, so code that
 -- names the new column fails against a table without it.
 --

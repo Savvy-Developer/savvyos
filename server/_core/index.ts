@@ -94,6 +94,7 @@ import { ensureCoachingWorkflowSchema } from "../coachingWorkflowSchema";
 import { ensureEventProjectLinkSchema } from "../eventProjectLinkSchema";
 import { ensureChatUserAccessSchema } from "../chatUserAccessSchema";
 import { ensureWebsiteTeamSchema } from "../websiteTeamSchema";
+import { ensureWebsitePriceDropSchema } from "../websitePriceDropSchema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -126,6 +127,7 @@ async function startServer() {
   await ensureEventProjectLinkSchema();
   await ensureChatUserAccessSchema();
   await ensureWebsiteTeamSchema();
+  await ensureWebsitePriceDropSchema();
 
   const app = express();
   const server = createServer(app);
