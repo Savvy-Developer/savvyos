@@ -775,7 +775,7 @@ export default function OneTimeSmartPlanSendDialog({
           ) : (
             <>
               <Button variant="outline" onClick={() => { setIsReviewing(false); setReviewRequested(false); }}><ArrowLeft className="mr-1.5 h-4 w-4" /> Back to edit</Button>
-              <Button disabled={!preview.data?.recipientCount || queueSend.isPending} onClick={confirmSend} className="bg-emerald-600 hover:bg-emerald-700"><CheckCircle2 className="mr-1.5 h-4 w-4" />{queueSend.isPending ? "Queueing..." : scheduledAt ? `Schedule ${preview.data?.recipientCount?.toLocaleString() ?? 0} recipients` : `Queue ${preview.data?.recipientCount?.toLocaleString() ?? 0} recipients`}</Button>
+              <Button disabled={!preview.data?.recipientCount || queueSend.isPending} onClick={confirmSend} className="bg-emerald-600 text-white hover:bg-emerald-700"><CheckCircle2 className="mr-1.5 h-4 w-4" />{queueSend.isPending ? "Queueing..." : scheduledAt ? `Schedule ${preview.data?.recipientCount?.toLocaleString() ?? 0} recipients` : `Queue ${preview.data?.recipientCount?.toLocaleString() ?? 0} recipients`}</Button>
             </>
           )}
         </DialogFooter>

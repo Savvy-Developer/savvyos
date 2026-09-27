@@ -196,7 +196,7 @@ export function AgentProfilesPanel({
                         {canManage && agent.status !== "published" && (
                           <Button
                             size="sm"
-                            className="bg-[#05314a] hover:bg-[#07546b]"
+                            className="bg-[#05314a] text-white hover:bg-[#07546b]"
                             disabled={save.isPending}
                             onClick={() => setStatus(agent, "published")}
                           >
