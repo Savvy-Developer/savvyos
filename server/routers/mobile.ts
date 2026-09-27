@@ -200,6 +200,7 @@ export const mobileRouter = router({
         underContractCount: 0,
         underContractVolume: 0,
         closedCountYtd: 0,
+        closedVolumeYtd: 0,
         closedGciYtd: 0,
         annualGciGoal: 0,
         goalPacePct: 0,
@@ -290,6 +291,7 @@ export const mobileRouter = router({
     const [closedYtdRow] = await db
       .select({
         count: sql<number>`COUNT(DISTINCT ${transactions.id})`,
+        volume: sql<number>`COALESCE(SUM(CAST(${transactions.purchasePrice} AS DECIMAL(15,2))), 0)`,
         gci: sql<number>`COALESCE(SUM(CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2))), 0)`,
       })
       .from(transactions)
@@ -297,11 +299,16 @@ export const mobileRouter = router({
         and(
           eq(transactions.agentId, ctx.user.id),
           eq(transactions.status, "closed"),
-          sql`YEAR(${transactions.closingDate}) = ${currentYear}`
+          sql`YEAR(${transactions.closingDate}) = ${currentYear}`,
+          sql`${transactions.referralId} IS NULL AND NOT EXISTS (
+            SELECT 1 FROM \`referral_transaction_links\` rtl
+            WHERE rtl.\`transactionId\` = ${transactions.id}
+          )`
         )
       );
 
     const closedCountYtd = Number(closedYtdRow?.count ?? 0);
+    const closedVolumeYtd = Number(closedYtdRow?.volume ?? 0);
     const closedGciYtd = Number(closedYtdRow?.gci ?? 0);
 
     const [goalRow] = await db
@@ -461,6 +468,7 @@ export const mobileRouter = router({
       underContractCount,
       underContractVolume,
       closedCountYtd,
+      closedVolumeYtd,
       closedGciYtd,
       annualGciGoal,
       goalPacePct,
