@@ -18,6 +18,7 @@ import {
   Trash2,
   Upload,
   UserRound,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -28,6 +29,7 @@ import { ContentViewsPanel } from "@/components/website/ContentViewsPanel";
 import { AgentProfilesPanel } from "@/components/website/AgentProfilesPanel";
 import { DailyEmailPanel } from "@/components/website/DailyEmailPanel";
 import { MoveOldImagesCard } from "@/components/website/MoveOldImagesCard";
+import { TeamMembersPanel } from "@/components/website/TeamMembersPanel";
 import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,6 +66,7 @@ type TabKey =
   | "case-studies"
   | "blog"
   | "agents"
+  | "team"
   | "leads"
   | "daily-email"
   | "settings";
@@ -74,6 +77,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ElementType }> = [
   { key: "case-studies", label: "Case Studies", icon: Sparkles },
   { key: "blog", label: "Blog", icon: BookOpen },
   { key: "agents", label: "Agents", icon: UserRound },
+  { key: "team", label: "Team", icon: Users },
   { key: "leads", label: "Leads", icon: Mail },
   { key: "daily-email", label: "Daily Email", icon: Send },
   { key: "settings", label: "CMS", icon: Settings2 },
@@ -747,7 +751,8 @@ export default function WebsitePage() {
   const visibleTabs = tabs.filter(
     item =>
       item.key !== "leads" &&
-      (item.key !== "daily-email" || can("canManageWebsiteSettings"))
+      (item.key !== "daily-email" || can("canManageWebsiteSettings")) &&
+      (item.key !== "team" || can("canManageWebsiteSettings"))
   );
   const data = overview.data;
   const counts = useMemo(
@@ -942,6 +947,9 @@ export default function WebsitePage() {
           canManage={can("canManageWebsiteAgents")}
           previewUrl={slug => `${PUBLIC_PREVIEW_URL}agents/${slug}`}
         />
+      )}
+      {tab === "team" && can("canManageWebsiteSettings") && (
+        <TeamMembersPanel previewUrl={`${PUBLIC_PREVIEW_URL}team`} />
       )}
       {tab === "leads" && can("canViewWebsiteLeads") && (
         <Card>

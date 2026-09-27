@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Award,
+  BarChart3,
   Clock,
   Share2,
   Link2,
@@ -43,6 +45,7 @@ import {
   Sparkles,
   Square,
   Star,
+  Target,
   TrendingUp,
   UserRound,
   Users,
@@ -71,6 +74,17 @@ import {
 import {
   publishedTestimonials,
 } from "@shared/websiteTestimonials";
+import { teamInitials } from "@shared/websiteTeam";
+import {
+  SELLER_LISTED_OPTIONS,
+  SELLER_TIMELINES,
+  buildSellerMessage,
+  canSubmitSeller,
+  emptySellerValues,
+  validateSellerField,
+  type SellerField,
+  type SellerValues,
+} from "@shared/websiteSellerLead";
 import {
   CALCULATOR_DEFAULTS,
   runCalculator,
@@ -239,8 +253,8 @@ function Shell({ children }: { children: React.ReactNode }) {
   const { data: siteSettings } = trpc.website.publicSettings.useQuery();
   // The same menu, in the same order, as the live savvy-agents.com header, so
   // the switch-over looks like the same site. About opens a small menu there
-  // too. Its "Meet the Team" goes to the agents page, as the old /team
-  // address already does.
+  // too, with Meet the Team on its own page. Sell is the site's own seller
+  // page, whose form puts the seller in the SavvyOS ISA queue.
   const nav: Array<[string, string]> = [
     ["Properties", "/properties"],
     ["Our Agents", "/agents"],
@@ -248,7 +262,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   ];
   const aboutMenu: Array<[string, string]> = [
     ["About Savvy", "/about"],
-    ["Meet the Team", "/agents"],
+    ["Meet the Team", "/team"],
     ["Markets", "/markets"],
   ];
   const navAfter: Array<[string, string]> = [["Resources", "/resources"]];
@@ -285,12 +299,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                   {label}
                 </a>
               ))}
-              <a
-                className={linkClass}
-                href="https://www.savvy.realty/sellers"
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a className={linkClass} href={path("/sell")}>
                 Sell
               </a>
               <a className={linkClass} href={path("/contact")}>
@@ -319,12 +328,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                 {label}
               </a>
             ))}
-            <a
-              className={mobileLinkClass}
-              href="https://www.savvy.realty/sellers"
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a className={mobileLinkClass} href={path("/sell")}>
               Sell
             </a>
             <a className={mobileLinkClass} href={path("/contact")}>
@@ -364,14 +368,7 @@ function SiteFooter() {
           <a className={linkClass} href={path("/markets")}>Markets</a>
           <a className={linkClass} href={path("/case-studies")}>Case Studies</a>
           <a className={linkClass} href={path("/resources")}>Resources</a>
-          <a
-            className={linkClass}
-            href="https://www.savvy.realty/sellers"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Sell Your STR
-          </a>
+          <a className={linkClass} href={path("/sell")}>Sell Your STR</a>
           {legal.data && <a className={linkClass} href={path("/legal")}>Legal</a>}
           {privacy.data && <a className={linkClass} href={path("/privacy")}>Privacy Policy</a>}
           <a
@@ -676,9 +673,7 @@ function HomePage() {
               </a>
               <a
                 className="inline-flex items-center justify-center rounded-md border border-[#05314a] bg-white px-8 py-4 text-lg font-semibold text-[#05314a] shadow-lg transition-colors hover:bg-[color-mix(in_oklab,#10c0df_12%,white)]"
-                href="https://www.savvy.realty/sellers"
-                target="_blank"
-                rel="noreferrer"
+                href={path("/sell")}
               >
                 <Calendar className="mr-2 h-5 w-5" />
                 Sell My STR for Top Dollar
@@ -4598,6 +4593,721 @@ function ContentPageView({ page }: { page: any }) {
   );
 }
 
+/**
+ * Meet the Team, laid out like the live savvy-agents.com /team page: gradient
+ * hero, the vision with the site's figures, core values, a closing call to
+ * action. Three things differ on purpose. The people come from Website Studio >
+ * Team (on the live page that section is hidden and holds one placeholder). The
+ * figures are the same Website Studio stats the home page shows, not the live
+ * page's "1000+ properties" and "100% satisfaction". And the live page's
+ * invented testimonials, its timeline (which names the founder wrongly) and
+ * its "coming soon" press cards are left out; real testimonials from the
+ * Studio show instead, when there are any.
+ */
+const TEAM_STAT_ICONS = [Users, MapPin, Building2, Star];
+
+const TEAM_VALUES: Array<[any, string, string]> = [
+  [Target, "Mission-Driven", "We're on a mission to make short-term rental investing accessible to everyone, not just the wealthy few."],
+  [Heart, "Client-First", "Every decision we make starts with one question: How does this benefit our clients and their investment goals?"],
+  [TrendingUp, "Data-Informed", "We leverage market data and analytics to provide accurate projections and help investors make informed decisions."],
+  [Award, "Excellence", "We hold ourselves to the highest standards, partnering only with top-performing agents in each market."],
+];
+
+function TeamMemberCard({ member }: { member: any }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
+      <div className="relative aspect-[3/4] w-full bg-gray-100">
+        {member.imageUrl ? (
+          <img
+            src={member.imageUrl}
+            alt={member.name}
+            loading="lazy"
+            className="h-full w-full object-cover object-top"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <div className="flex size-32 items-center justify-center rounded-full [background-image:linear-gradient(to_bottom_right,#05314a,#10c0df)]">
+              <span className="text-5xl font-bold text-white">{teamInitials(member.name)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="p-6">
+        <h3 className="mb-1 text-xl font-bold text-[#05314a]">{member.name}</h3>
+        {member.title && <p className="mb-3 text-sm font-semibold text-[#10c0df]">{member.title}</p>}
+        {member.bio && <p className="mb-4 whitespace-pre-line text-sm leading-relaxed text-gray-600">{member.bio}</p>}
+        {(member.email || member.linkedinUrl) && (
+          <div className="flex items-center gap-3 border-t border-gray-100 pt-3">
+            {member.email && (
+              <a
+                href={`mailto:${member.email}`}
+                className="rounded-full bg-gray-100 p-2 text-gray-700 transition-colors hover:bg-[#05314a] hover:text-white"
+                title={`Email ${member.name}`}
+                aria-label={`Email ${member.name}`}
+              >
+                <Mail className="h-4 w-4" />
+              </a>
+            )}
+            {member.linkedinUrl && (
+              <a
+                href={member.linkedinUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-bold text-gray-700 transition-colors hover:bg-[#0077b5] hover:text-white"
+                title={`${member.name} on LinkedIn`}
+              >
+                LinkedIn
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TeamPage() {
+  usePageTitle("Meet the Team");
+  const team = trpc.website.publicTeamMembers.useQuery();
+  const { data: settings } = trpc.website.publicSettings.useQuery();
+  const members = team.data ?? [];
+  const stats: Array<{ value: string; label: string }> = Array.isArray(settings?.stats)
+    ? (settings!.stats as Array<{ value: string; label: string }>).slice(0, 4)
+    : [];
+  const testimonials = publishedTestimonials(settings?.testimonials);
+  return (
+    <Shell>
+      <div className="min-h-screen bg-white">
+        <section className="relative flex min-h-[60vh] items-center overflow-hidden">
+          <div
+            className="absolute inset-0"
+            style={{ background: "linear-gradient(135deg, #05314A 0%, #0b4966 40%, #10C0DF 100%)" }}
+          />
+          <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+            <div className="absolute -right-40 -top-40 h-80 w-80 rounded-full blur-3xl" style={{ backgroundColor: "rgba(67, 232, 255, 0.2)" }} />
+            <div className="absolute -bottom-40 -left-40 h-96 w-96 rounded-full blur-3xl" style={{ backgroundColor: "rgba(255, 255, 255, 0.1)" }} />
+            <div className="absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl" style={{ backgroundColor: "rgba(16, 192, 223, 0.2)" }} />
+          </div>
+          <div className="relative mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8 lg:py-32">
+            <div className="mx-auto max-w-4xl text-center">
+              <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-2 text-sm font-semibold text-white">
+                <Users className="h-4 w-4" />
+                Meet the People Behind Savvy
+              </div>
+              <h1 className="mb-8 text-4xl font-bold leading-tight text-white md:text-5xl lg:text-7xl">
+                We Believe in <br />
+                <span style={{ color: "#43E8FF" }}>Building Wealth</span> Together
+              </h1>
+              <p className="mx-auto max-w-3xl text-xl leading-relaxed text-white/90 md:text-2xl">
+                Behind every successful investment is an experienced team, dedicated to helping you achieve your
+                financial goals through short-term rental properties.
+              </p>
+              <div className="mt-10 flex flex-wrap justify-center gap-4">
+                <a
+                  href={path("/contact")}
+                  className="inline-flex items-center gap-2 rounded-full px-8 py-4 text-lg font-bold shadow-xl transition-all hover:scale-105"
+                  style={{ backgroundColor: "#43E8FF", color: "#05314A" }}
+                >
+                  Get in Touch <ChevronRight className="h-5 w-5" />
+                </a>
+                <a
+                  href={path("/properties")}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-8 py-4 text-lg font-bold text-white transition-all hover:bg-white/20"
+                >
+                  View Properties
+                </a>
+              </div>
+            </div>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0" aria-hidden="true">
+            <svg viewBox="0 0 1440 120" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full">
+              <path
+                d="M0 120L60 110C120 100 240 80 360 70C480 60 600 60 720 65C840 70 960 80 1080 85C1200 90 1320 90 1380 90L1440 90V120H1380C1320 120 1200 120 1080 120C960 120 840 120 720 120C600 120 480 120 360 120C240 120 120 120 60 120H0Z"
+                fill="white"
+              />
+            </svg>
+          </div>
+        </section>
+
+        {members.length > 0 && (
+          <section className="bg-white py-16 lg:py-24">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <div className="mb-12 text-center">
+                <h2 className="text-3xl font-bold text-[#05314a] md:text-4xl">Meet the Team</h2>
+                <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-600">
+                  The passionate people behind Savvy, dedicated to helping you succeed in STR investing.
+                </p>
+              </div>
+              <div
+                className={`mx-auto grid gap-8 md:grid-cols-2 lg:grid-cols-3 ${members.length === 1 ? "max-w-sm md:grid-cols-1 lg:grid-cols-1" : members.length === 2 ? "max-w-3xl lg:grid-cols-2" : "max-w-6xl"}`}
+              >
+                {members.map((member: any) => (
+                  <TeamMemberCard key={member.id ?? member.name} member={member} />
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className={`py-16 lg:py-24 ${members.length ? "bg-gray-50" : "bg-white"}`}>
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className={`grid items-center gap-12 ${stats.length ? "lg:grid-cols-2" : ""}`}>
+              <div className={stats.length ? "" : "mx-auto max-w-3xl"}>
+                <span className="text-sm font-semibold uppercase tracking-wider text-[#10c0df]">Our Vision</span>
+                <h2 className="mb-6 mt-2 text-3xl font-bold text-[#05314a] md:text-4xl">
+                  Democratizing Real Estate Investment
+                </h2>
+                <p className="mb-6 text-lg leading-relaxed text-gray-600">
+                  At Savvy, we believe that everyone deserves access to wealth-building opportunities through real
+                  estate. Short-term rentals have created incredible returns for investors, but finding the right
+                  properties and agents has traditionally been reserved for those with insider connections.
+                </p>
+                <p className="mb-8 text-lg leading-relaxed text-gray-600">
+                  We&apos;re changing that. By connecting investors with vetted, STR-specialized agents and providing
+                  transparent data on property performance, we&apos;re making it possible for anyone to invest
+                  confidently in short-term rentals.
+                </p>
+                <a
+                  href={path("/contact")}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#05314a] px-6 py-3 font-semibold text-white transition-colors hover:bg-[#0b4966]"
+                >
+                  Get Started <ChevronRight className="h-5 w-5" />
+                </a>
+              </div>
+              {stats.length > 0 && (
+                <div className="rounded-2xl p-8 lg:p-12">
+                  <div className="grid grid-cols-2 gap-6">
+                    {stats.map((stat, index) => {
+                      const Icon = TEAM_STAT_ICONS[index] ?? Star;
+                      return (
+                        <div key={`${stat.label}-${index}`} className="text-center">
+                          <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white shadow-md">
+                            <Icon className="h-6 w-6 text-[#05314a]" />
+                          </div>
+                          <div className="text-3xl font-bold text-[#05314a]">{stat.value}</div>
+                          <div className="text-sm text-gray-600">{stat.label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className={`py-16 lg:py-24 ${members.length ? "bg-white" : "bg-gray-50"}`}>
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mb-12 text-center">
+              <span className="text-sm font-semibold uppercase tracking-wider text-[#10c0df]">What Drives Us</span>
+              <h2 className="mt-2 text-3xl font-bold text-[#05314a] md:text-4xl">Our Core Values</h2>
+            </div>
+            <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+              {TEAM_VALUES.map(([Icon, title, body]) => (
+                <div key={title} className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-100 transition-shadow hover:shadow-lg">
+                  <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-xl">
+                    <Icon className="h-7 w-7 text-[#05314a]" />
+                  </div>
+                  <h3 className="mb-2 text-xl font-bold text-[#05314a]">{title}</h3>
+                  <p className="text-gray-600">{body}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <LiveInvestorQuotes quotes={testimonials} />
+
+        <section className="bg-[#10c0df] py-16 lg:py-20">
+          <div className="mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
+            <h2 className="mb-4 text-3xl font-bold text-white md:text-4xl">Ready to Start Your Investment Journey?</h2>
+            <p className="mx-auto mb-8 max-w-2xl text-xl text-white/80">
+              Connect with our team and discover how Savvy can help you build wealth through short-term rentals.
+            </p>
+            <div className="flex flex-col justify-center gap-4 sm:flex-row">
+              <a
+                href={path("/properties")}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-8 py-4 font-semibold text-[#05314a] transition-colors hover:bg-gray-100"
+              >
+                Browse Properties
+              </a>
+              <a
+                href={path("/contact")}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#05314a] px-8 py-4 font-semibold text-white transition-colors hover:bg-[#0b4966]"
+              >
+                Schedule a Call
+              </a>
+            </div>
+          </div>
+        </section>
+      </div>
+    </Shell>
+  );
+}
+
+/**
+ * The Sell page's form. A seller becomes a SavvyOS contact through the same
+ * submitLead every website form uses, with intent "sell": new contacts land in
+ * the ISA queue as a New Lead tagged "Seller lead", and the property details
+ * are written into the contact's notes. The rules live in
+ * shared/websiteSellerLead.ts so they are tested.
+ */
+function SellerLeadForm({ phone, tel }: { phone: string; tel: string }) {
+  const [values, setValues] = useState<SellerValues>(emptySellerValues());
+  const [honeypot, setHoneypot] = useState("");
+  const [touched, setTouched] = useState(false);
+  const [sent, setSent] = useState(false);
+  const submit = trpc.website.submitLead.useMutation({
+    onSuccess: () => setSent(true),
+    onError: error => toast.error(error.message || "Could not send your details"),
+  });
+  const set = (field: keyof SellerValues) => (
+    event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => setValues(current => ({ ...current, [field]: event.target.value }));
+  const errorFor = (field: SellerField) => (touched ? validateSellerField(field, values) : null);
+  const fieldClass = (invalid: boolean) =>
+    `mt-1 block h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm text-gray-900 shadow-xs outline-none placeholder:text-gray-400 focus-visible:ring-[3px] ${
+      invalid
+        ? "border-red-400 focus-visible:ring-red-200"
+        : "border-gray-300 focus-visible:border-[#10c0df] focus-visible:ring-[#10c0df]/30"
+    }`;
+  const labelClass = "text-xs font-semibold uppercase tracking-wide text-gray-900";
+  const errorText = (field: SellerField) =>
+    errorFor(field) ? <p className="mt-1 text-xs text-red-600">{errorFor(field)}</p> : null;
+
+  if (sent) {
+    return (
+      <div className="rounded-2xl border border-gray-100 bg-white p-8 shadow-lg">
+        <h2 className="text-2xl font-bold text-[#05314a]">Thanks, that is all we need</h2>
+        <p className="mt-3 leading-relaxed text-gray-600">
+          An STR agent who knows your market will come back to you at{" "}
+          <span className="font-semibold text-[#05314a]">{values.email}</span>, usually the same working day. There
+          is nothing else for you to do.
+        </p>
+        <p className="mt-4 text-sm text-gray-500">
+          If it is urgent, call{" "}
+          <a href={tel} className="font-semibold text-[#10c0df] hover:underline">
+            {phone}
+          </a>
+          .
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      id="seller-form"
+      noValidate
+      className="scroll-mt-24 rounded-2xl border border-gray-100 bg-white p-6 text-gray-900 shadow-lg sm:p-8"
+      onSubmit={event => {
+        event.preventDefault();
+        setTouched(true);
+        if (!canSubmitSeller(values)) return;
+        submit.mutate({
+          firstName: values.firstName.trim(),
+          lastName: values.lastName.trim(),
+          email: values.email.trim(),
+          phone: values.phone.trim(),
+          message: buildSellerMessage(values),
+          intent: "sell",
+          sourcePath: window.location.pathname,
+          attribution: formAttribution(),
+          website: honeypot,
+        });
+      }}
+    >
+      <h2 className="text-2xl font-bold text-[#05314a]">Tell us about your rental</h2>
+      <p className="mt-2 text-sm text-gray-600">A few fields, no obligation, and no call booked until you want one.</p>
+
+      <div className="mt-6 grid gap-5 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label htmlFor="seller-address" className={labelClass}>Property address</label>
+          <input
+            id="seller-address"
+            className={fieldClass(!!errorFor("address"))}
+            value={values.address}
+            onChange={set("address")}
+            placeholder="412 Gulf Shore Dr, Destin, FL 32541"
+            autoComplete="street-address"
+            aria-invalid={!!errorFor("address")}
+          />
+          {errorText("address")}
+        </div>
+        <div>
+          <label htmlFor="seller-first" className={labelClass}>First name</label>
+          <input
+            id="seller-first"
+            className={fieldClass(!!errorFor("firstName"))}
+            value={values.firstName}
+            onChange={set("firstName")}
+            autoComplete="given-name"
+            aria-invalid={!!errorFor("firstName")}
+          />
+          {errorText("firstName")}
+        </div>
+        <div>
+          <label htmlFor="seller-last" className={labelClass}>Last name</label>
+          <input
+            id="seller-last"
+            className={fieldClass(!!errorFor("lastName"))}
+            value={values.lastName}
+            onChange={set("lastName")}
+            autoComplete="family-name"
+            aria-invalid={!!errorFor("lastName")}
+          />
+          {errorText("lastName")}
+        </div>
+        <div>
+          <label htmlFor="seller-email" className={labelClass}>Email</label>
+          <input
+            id="seller-email"
+            type="email"
+            className={fieldClass(!!errorFor("email"))}
+            value={values.email}
+            onChange={set("email")}
+            autoComplete="email"
+            aria-invalid={!!errorFor("email")}
+          />
+          {errorText("email")}
+        </div>
+        <div>
+          <label htmlFor="seller-phone" className={labelClass}>Phone</label>
+          <input
+            id="seller-phone"
+            type="tel"
+            className={fieldClass(!!errorFor("phone"))}
+            value={values.phone}
+            onChange={set("phone")}
+            autoComplete="tel"
+            aria-invalid={!!errorFor("phone")}
+          />
+          {errorText("phone")}
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="seller-timeline" className={labelClass}>Timeline</label>
+          <select
+            id="seller-timeline"
+            className={fieldClass(!!errorFor("timeline"))}
+            value={values.timeline}
+            onChange={set("timeline")}
+            aria-invalid={!!errorFor("timeline")}
+          >
+            <option value="">Choose one</option>
+            {SELLER_TIMELINES.map(option => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+          {errorText("timeline")}
+        </div>
+
+        <div className="border-t border-gray-100 pt-5 sm:col-span-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Optional, but it makes the first call more useful
+          </p>
+        </div>
+        <div>
+          <label htmlFor="seller-bedrooms" className={labelClass}>Bedrooms</label>
+          <input
+            id="seller-bedrooms"
+            inputMode="numeric"
+            className={fieldClass(false)}
+            value={values.bedrooms}
+            onChange={set("bedrooms")}
+          />
+        </div>
+        <div>
+          <label htmlFor="seller-listed" className={labelClass}>Currently rented short term</label>
+          <select id="seller-listed" className={fieldClass(false)} value={values.listed} onChange={set("listed")}>
+            <option value="">Choose one</option>
+            {SELLER_LISTED_OPTIONS.map(option => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="seller-revenue" className={labelClass}>Last 12 months revenue</label>
+          <input
+            id="seller-revenue"
+            className={fieldClass(false)}
+            value={values.revenue}
+            onChange={set("revenue")}
+            placeholder="Roughly is fine"
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="seller-message" className={labelClass}>Anything else we should know</label>
+          <textarea
+            id="seller-message"
+            rows={3}
+            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-xs outline-none focus-visible:border-[#10c0df] focus-visible:ring-[3px] focus-visible:ring-[#10c0df]/30"
+            value={values.message}
+            onChange={set("message")}
+          />
+        </div>
+        <input
+          aria-hidden="true"
+          tabIndex={-1}
+          autoComplete="off"
+          className="hidden"
+          value={honeypot}
+          onChange={event => setHoneypot(event.target.value)}
+        />
+      </div>
+
+      <button
+        type="submit"
+        disabled={submit.isPending}
+        className="mt-6 flex h-12 w-full items-center justify-center rounded-md bg-[#10c0df] text-base font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+      >
+        {submit.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : "Get my valuation"}
+      </button>
+      <p className="mt-3 text-center text-xs text-gray-500">
+        We will never list your property publicly without your say so.
+      </p>
+    </form>
+  );
+}
+
+const SELL_PROMISES = [
+  "Discover your STR's true market value",
+  "Unlock the hidden potential in your home's equity",
+  "Learn how to leverage your STR's value with investors",
+  "Connect with local market STR experts",
+];
+
+const SELL_DIFFERENCES: Array<[any, string, string]> = [
+  [BarChart3, "Your buyer is an investor", "They price on what the property earns, not on the kitchen. A listing written for a family buyer leaves that money on the table."],
+  [FileText, "Your numbers are the pitch", "Twelve months of revenue, occupancy and average nightly rate do more for the price than any photograph. We put them to work."],
+  [CalendarCheck, "Forward bookings are an asset", "A calendar with reservations on it is income the buyer inherits. Handled properly it is a reason to pay more, not a complication."],
+  [TrendingUp, "Timing is a decision, not a date", "Listing before or after your season changes both the price and how long it sits. That is worth ten minutes before you commit."],
+];
+
+const SELL_STEPS: Array<[string, string]> = [
+  ["Send the details", "The address, your timeline, and whatever you know about last year. Two minutes."],
+  ["We value it on the income", "An STR agent who works your market reads the revenue alongside the comparable sales, because investor buyers do."],
+  ["You get a straight answer", "Sometimes that answer is that holding another season is worth more than selling now. We will say so."],
+];
+
+const SELL_FAQS: Array<[string, string]> = [
+  ["Do I have to stop taking bookings?", "No. Keep renting exactly as you are. Forward reservations are usually an advantage in the sale, not something to clear out first."],
+  ["Will my property be listed publicly straight away?", "No. Nothing is listed anywhere until you say so. Plenty of these conversations end with an owner deciding to hold, and that is a fine outcome."],
+  ["What if I do not know last year's revenue?", "Send the address anyway. Most of what we need can be pulled from the market and your listing history, and the rest can wait for the first call."],
+  ["Who actually handles the sale?", "Savvy Realty, our brokerage. Savvy STR Agents is where the market data and the agent network live; the listing agreement itself sits with the licensed brokerage. Your details go to the same team either way."],
+];
+
+/**
+ * Sell, as the live savvy-agents.com /sell page: the promise beside the form,
+ * three figures, why an STR sale is different, what happens next, a booking
+ * calendar for anyone who would rather talk, the FAQ and a closing band.
+ */
+function SellPage() {
+  usePageTitle("Sell Your Short-Term Rental");
+  const { data: settings } = trpc.website.publicSettings.useQuery();
+  const [calendarLoaded, setCalendarLoaded] = useState(false);
+  const phone = settings?.contactPhone || "(828) 407-1705";
+  const tel = `tel:${phone.replace(/[^+\d]/g, "")}`;
+  const calendarSrc = `${MARKET_MATCH_CALENDLY}?embed_type=Inline&embed_domain=${encodeURIComponent(window.location.hostname)}&primary_color=10c0df`;
+  const stats: Array<[any, string, string]> = [
+    [DollarSign, "$250M+", "of STRs sold in 2024"],
+    [Users, "294", "investor transactions in 2024"],
+    [TrendingUp, "500%", "highest 2024 CoC return"],
+  ];
+  return (
+    <Shell>
+      <div className="min-h-screen bg-gray-50">
+        <section className="relative overflow-hidden bg-[#05314a]">
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              backgroundImage:
+                "radial-gradient(1100px 460px at 82% -10%, rgba(16,192,223,0.22), transparent 62%), radial-gradient(700px 420px at 4% 108%, rgba(16,192,223,0.10), transparent 60%)",
+            }}
+          />
+          <div className="relative mx-auto max-w-7xl px-4 pb-24 pt-16 sm:px-6 lg:px-8 lg:pb-32 lg:pt-20">
+            <div className="grid items-start gap-10 lg:grid-cols-12 lg:gap-14">
+              <div className="text-center lg:col-span-6 lg:text-left">
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white">
+                  For short-term rental owners
+                </div>
+                <h1 className="mt-6 text-4xl font-bold leading-[1.1] tracking-tight text-white md:text-5xl">
+                  Thinking about selling <span className="text-[#43e8ff]">your STR?</span>
+                </h1>
+                <p className="mt-5 text-lg font-semibold text-[#10c0df] md:text-xl">
+                  Let&rsquo;s talk strategy, not just sales.
+                </p>
+                <ul className="mx-auto mt-8 max-w-xl space-y-3 text-left lg:mx-0">
+                  {SELL_PROMISES.map(promise => (
+                    <li key={promise} className="flex items-start gap-3 text-white/85">
+                      <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-[#10c0df]" />
+                      <span className="leading-relaxed">{promise}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-9 flex flex-wrap items-center justify-center gap-x-7 gap-y-3 border-t border-white/15 pt-7 text-sm text-white/60 lg:justify-start">
+                  <span>Rather talk it through first?</span>
+                  <a href={tel} className="inline-flex items-center gap-2 font-semibold text-white transition-colors hover:text-[#43e8ff]">
+                    <Phone className="h-4 w-4 text-[#10c0df]" />
+                    {phone}
+                  </a>
+                  <a href="#book" className="font-semibold text-white underline-offset-4 transition-colors hover:text-[#43e8ff] hover:underline">
+                    Book a 15 minute call
+                  </a>
+                </div>
+              </div>
+              <div className="lg:col-span-6">
+                <SellerLeadForm phone={phone} tel={tel} />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="relative z-10 -mt-16 pb-4">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-3 md:gap-6">
+              {stats.map(([Icon, value, label]) => (
+                <div key={label} className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white px-7 py-7 shadow-lg">
+                  <div className="absolute inset-x-0 top-0 h-[3px]" style={{ backgroundImage: "linear-gradient(to right, #10c0df, rgba(16,192,223,0))" }} />
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl">
+                    <Icon className="h-5 w-5 text-[#10c0df]" />
+                  </div>
+                  <div className="mt-5 text-4xl font-bold leading-none tracking-tight text-[#05314a] tabular-nums md:text-[2.6rem]">
+                    {value}
+                  </div>
+                  <div className="mt-2 text-sm font-medium text-gray-600">{label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="py-16 lg:py-20">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+            <div className="max-w-2xl">
+              <h2 className="text-3xl font-bold tracking-tight text-[#05314a] md:text-4xl">Selling a rental is not selling a house</h2>
+              <p className="mt-3 text-lg leading-relaxed text-gray-600">
+                The buyer, the pitch and the timing are all different. Getting those four things right is most of the
+                difference in the final number.
+              </p>
+            </div>
+            <div className="mt-9 grid gap-5 md:grid-cols-2">
+              {SELL_DIFFERENCES.map(([Icon, title, body]) => (
+                <div key={title} className="flex items-start gap-5 rounded-2xl border border-gray-100 bg-white px-6 py-6 shadow-sm">
+                  <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl">
+                    <Icon className="h-5 w-5 text-[#10c0df]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-bold text-[#05314a]">{title}</div>
+                    <p className="mt-1 text-sm leading-relaxed text-gray-600">{body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="pb-16 lg:pb-20">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+            <h2 className="text-3xl font-bold tracking-tight text-[#05314a] md:text-4xl">What happens after you send it</h2>
+            <ol className="mt-9 grid gap-6 md:grid-cols-3">
+              {SELL_STEPS.map(([title, body], index) => (
+                <li key={title} className="border-t-2 border-[#10c0df] pt-5">
+                  <div className="font-mono text-sm font-bold text-[#10c0df] tabular-nums">{String(index + 1).padStart(2, "0")}</div>
+                  <div className="mt-2 text-lg font-bold text-[#05314a]">{title}</div>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-600">{body}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        <section id="book" className="scroll-mt-24 pb-16 lg:pb-20">
+          <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+            <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-lg">
+              <div className="px-6 py-5" style={{ backgroundImage: "linear-gradient(to right, #05314a, #10c0df)" }}>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-white/20">
+                    <CalendarCheck className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-lg font-bold text-white">Rather just book a call?</div>
+                    <div className="text-sm text-white/80">15 minutes with an STR agent. Pick a time that suits you.</div>
+                  </div>
+                </div>
+              </div>
+              <div className="relative" style={{ minWidth: "320px", height: "700px" }}>
+                {!calendarLoaded && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white">
+                    <div className="text-center">
+                      <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-b-2 border-[#05314a]" />
+                      <div className="font-medium text-gray-600">Loading calendar...</div>
+                    </div>
+                  </div>
+                )}
+                <iframe
+                  title="Book a call about selling"
+                  src={calendarSrc}
+                  loading="lazy"
+                  onLoad={() => setCalendarLoaded(true)}
+                  className="h-full w-full border-0"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="pb-16 lg:pb-20">
+          <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+            <h2 className="text-3xl font-bold tracking-tight text-[#05314a] md:text-4xl">Before you send it</h2>
+            <dl className="mt-8 divide-y divide-gray-200 border-y border-gray-200">
+              {SELL_FAQS.map(([question, answer]) => (
+                <div key={question} className="py-6">
+                  <dt className="font-bold text-[#05314a]">{question}</dt>
+                  <dd className="mt-2 leading-relaxed text-gray-600">{answer}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+
+        <section className="pb-20 lg:pb-24">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+            <div
+              className="relative overflow-hidden rounded-3xl px-6 py-14 text-center shadow-xl sm:px-10 lg:px-14"
+              style={{ backgroundImage: "linear-gradient(to bottom right, #05314a 0%, #0a4f6e 55%, #0d7f9c 100%)" }}
+            >
+              <div
+                className="pointer-events-none absolute inset-0"
+                style={{ backgroundImage: "radial-gradient(760px 320px at 88% 0%, rgba(67,232,255,0.25), transparent 60%)" }}
+              />
+              <div className="relative">
+                <h2 className="text-2xl font-bold tracking-tight text-white md:text-3xl">Find out what an investor would pay for it</h2>
+                <p className="mx-auto mt-4 max-w-xl text-white/80">No obligation, nothing listed, and a straight answer either way.</p>
+                <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
+                  <a
+                    href="#seller-form"
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-full px-8 py-4 font-bold text-[#05314a] shadow-lg transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl sm:w-auto"
+                    style={{ backgroundColor: "#43e8ff" }}
+                  >
+                    Send my property details
+                  </a>
+                  <a
+                    href={tel}
+                    className="inline-flex w-full items-center justify-center gap-3 rounded-full border border-white/20 bg-white/10 px-8 py-4 font-medium text-white transition-colors duration-200 hover:bg-white/20 sm:w-auto"
+                  >
+                    <Phone className="h-5 w-5" />
+                    {phone}
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </Shell>
+  );
+}
+
 /** An investor account page inside the public site's header and footer. */
 function AccountPage({
   title,
@@ -4639,6 +5349,8 @@ export default function PublicWebsite() {
   if (relative === "/contact")
     return <EditablePage slug="contact" designed={<ContactPage />} />;
   if (relative === "/markets") return <MarketsPage />;
+  if (relative === "/team") return <TeamPage />;
+  if (relative === "/sell") return <SellPage />;
   if (relative === "/join-our-team")
     return <EditablePage slug="join-our-team" designed={<JoinTeamPage />} />;
   // Investor accounts. These render inside the same header and footer as the

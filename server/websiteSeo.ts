@@ -89,7 +89,9 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
     case "about":
     case "contact":
     case "markets":
-    case "joinTeam": {
+    case "joinTeam":
+    case "team":
+    case "sell": {
       const page = STATIC_PAGES[route.kind];
       found = { title: page.title, description: page.description, image: defaults.image };
       // About, Contact and Join Our Team can be replaced by a CMS page at the
