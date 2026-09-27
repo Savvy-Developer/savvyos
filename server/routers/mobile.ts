@@ -252,7 +252,13 @@ export const mobileRouter = router({
       .where(
         and(
           eq(transactions.agentId, ctx.user.id),
-          eq(transactions.status, "under_contract")
+          eq(transactions.status, "under_contract"),
+          // Match transactions.list exactly. Referrals belong in the separate
+          // Referral report and must never inflate the mobile deal count.
+          sql`${transactions.referralId} IS NULL AND NOT EXISTS (
+            SELECT 1 FROM \`referral_transaction_links\` rtl
+            WHERE rtl.\`transactionId\` = ${transactions.id}
+          )`
         )
       )
       .orderBy(transactions.closingDate);
