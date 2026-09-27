@@ -30,6 +30,31 @@ function validateProformaCompLimit(formData: any): void {
   });
 }
 
+/**
+ * Who may change a property's facts (price, beds, baths, ZIP...): admins; an
+ * agent or ISA who added it or holds a transaction or listing on it (the same
+ * rule that lets an agent publish it); or whoever wrote a pro-forma on it, so
+ * "Import from Zillow" inside a pro-forma keeps filling blanks as before.
+ */
+export async function canEditPropertyFacts(user: { id: number; role: string } | null | undefined, propertyId: number) {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  const db = await getDb();
+  if (!db) return false;
+  const [added] = await db.select({ id: properties.id }).from(properties)
+    .where(and(eq(properties.id, propertyId), eq(properties.addedByUserId, user.id))).limit(1);
+  if (added) return true;
+  const [tx] = await db.select({ id: transactions.id }).from(transactions)
+    .where(and(eq(transactions.propertyId, propertyId), eq(transactions.agentId, user.id))).limit(1);
+  if (tx) return true;
+  const [listing] = await db.select({ id: listings.id }).from(listings)
+    .where(and(eq(listings.propertyId, propertyId), eq(listings.agentId, user.id))).limit(1);
+  if (listing) return true;
+  const [pf] = await db.select({ id: proformas.id }).from(proformas)
+    .where(and(eq(proformas.propertyId, propertyId), eq(proformas.createdByUserId, user.id))).limit(1);
+  return Boolean(pf);
+}
+
 export const propertiesRouter = router({
   list: protectedProcedure
     .input(
@@ -53,6 +78,11 @@ export const propertiesRouter = router({
       if (!prop) throw new TRPCError({ code: "NOT_FOUND" });
       return prop;
     }),
+
+  /** Whether the signed-in user may edit this property's facts (drives "Edit details"). */
+  canEditFacts: protectedProcedure
+    .input(z.object({ propertyId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => ({ canEdit: await canEditPropertyFacts(ctx.user, input.propertyId) })),
 
   getOwnership: protectedProcedure
     .input(z.object({ propertyId: z.number() }))
@@ -196,6 +226,11 @@ export const propertiesRouter = router({
     .mutation(async ({ input, ctx }) => {
       const existing = await getPropertyById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Property not found" });
+      // Anyone signed in could change any property's facts before this, and
+      // those facts are what the public website shows (price, beds, baths).
+      if (!(await canEditPropertyFacts(ctx.user, input.id))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only edit properties you added or work on." });
+      }
       // If address fields changed, recalculate normalizedAddress and apply capitalization
       const updateData: any = { ...input.data };
       if (updateData.listPrice) updateData.listPrice = updateData.listPrice.replace(/[^0-9.]/g, "");
@@ -811,6 +846,53 @@ export const propertiesRouter = router({
         },
       });
       return { id: (result as any).insertId };
+    }),
+
+  /**
+   * Draft or Final. Only a Final pro-forma puts its revenue range and comps on
+   * the public website listing (see publicPropertyEvidence), and until now
+   * nothing in the app could set Final, so no listing ever showed them. The
+   * same people who may edit the pro-forma may mark it: its creator (agents),
+   * or any admin.
+   */
+  proformaStatus: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [row] = await db
+        .select({ id: proformas.id, status: proformas.status, createdByUserId: proformas.createdByUserId })
+        .from(proformas)
+        .where(eq(proformas.id, input.id))
+        .limit(1);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      const canChange = ctx.user.role === "admin" || row.createdByUserId === ctx.user.id;
+      return { id: row.id, status: row.status, canChange };
+    }),
+
+  setProformaStatus: protectedProcedure
+    .input(z.object({ id: z.number().int().positive(), status: z.enum(["draft", "final"]) }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [row] = await db
+        .select({ id: proformas.id, propertyId: proformas.propertyId, createdByUserId: proformas.createdByUserId })
+        .from(proformas)
+        .where(eq(proformas.id, input.id))
+        .limit(1);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ctx.user.role !== "admin" && row.createdByUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the pro-forma's author or an admin can change its status." });
+      }
+      await db.update(proformas).set({ status: input.status } as any).where(eq(proformas.id, input.id));
+      await logActivity({
+        userId: ctx.user.id,
+        action: input.status === "final" ? "proforma_marked_final" : "proforma_marked_draft",
+        entityType: "property",
+        entityId: row.propertyId,
+        details: { proformaId: row.id, status: input.status },
+      });
+      return { id: row.id, status: input.status };
     }),
 
   updateProforma: protectedProcedure

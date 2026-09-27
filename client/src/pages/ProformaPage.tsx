@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -300,6 +301,23 @@ export default function ProformaPage() {
   const [form, setForm] = useState<ProformaForm>(defaultForm);
   const [editing, setEditing] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  // Draft or Final. Only a Final pro-forma puts its revenue range and comps on
+  // the website listing it is linked to.
+  const proformaStatus = trpc.properties.proformaStatus.useQuery(
+    { id: editingId ?? 0 },
+    { enabled: !!editingId }
+  );
+  const setProformaStatus = trpc.properties.setProformaStatus.useMutation({
+    onSuccess: async result => {
+      await proformaStatus.refetch();
+      toast.success(
+        result.status === "final"
+          ? "Marked final. A website listing linked to it now shows its revenue range and comps."
+          : "Back to draft. It no longer feeds a website listing."
+      );
+    },
+    onError: error => toast.error(error.message),
+  });
   const [title, setTitle] = useState("STR Investment Analysis");
   const [saving, setSaving] = useState(false);
   const [importingZillow, setImportingZillow] = useState(false);
@@ -1022,6 +1040,24 @@ export default function ProformaPage() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          {editingId && proformaStatus.data?.canChange && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={setProformaStatus.isPending}
+              className={proformaStatus.data.status === "final" ? "border-emerald-600 text-emerald-700 hover:bg-emerald-50" : ""}
+              title={proformaStatus.data.status === "final" ? "Final: its numbers can show on the website. Click to move it back to draft." : "Draft: nothing from it shows on the website. Click to mark it final."}
+              onClick={() =>
+                setProformaStatus.mutate({
+                  id: editingId,
+                  status: proformaStatus.data?.status === "final" ? "draft" : "final",
+                })
+              }
+            >
+              <Check className="h-4 w-4 mr-1" />
+              {proformaStatus.data.status === "final" ? "Final" : "Mark final"}
+            </Button>
+          )}
           <Button size="sm" onClick={handleSave} disabled={saving}>
             <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : hasDirtyChanges.current ? "Save" : "Saved"}
           </Button>

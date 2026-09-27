@@ -8,6 +8,7 @@ import { formatPhone, formatEmail, formatStreet, formatCityStateZip } from "@/li
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PropertyWebsiteTab from "@/components/website/PropertyWebsiteTab";
+import EditPropertyFactsDialog from "@/components/EditPropertyFactsDialog";
 import PageHeader from "@/components/PageHeader";
 import {
   Dialog,
@@ -192,6 +193,11 @@ export default function PropertyDetail() {
     { enabled: !!propId },
   );
   const canCreateWebsiteProperty = !!publishState?.canPublish;
+  const { data: factsAccess } = trpc.properties.canEditFacts.useQuery(
+    { propertyId: propId },
+    { enabled: !!propId },
+  );
+  const [factsOpen, setFactsOpen] = useState(false);
   const websiteListing = publishState?.website ?? null;
   // The website details are a tab on this page rather than a dialog, so there
   // is one place to edit them. The menu item just jumps to that tab.
@@ -328,6 +334,7 @@ export default function PropertyDetail() {
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
       </div>
+      <EditPropertyFactsDialog property={property} open={factsOpen} onOpenChange={setFactsOpen} />
       <PageHeader
         title={formatStreet(property.address)}
         subtitle={formatCityStateZip(property.city, property.state, property.zip)}
@@ -392,9 +399,16 @@ export default function PropertyDetail() {
             {/* Property Details */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                  <Building2 className="h-4 w-4" /> Property Details
-                </CardTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                    <Building2 className="h-4 w-4" /> Property Details
+                  </CardTitle>
+                  {factsAccess?.canEdit && (
+                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setFactsOpen(true)}>
+                      Edit details
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="space-y-1.5 text-sm">
                 <div className="flex justify-between">
