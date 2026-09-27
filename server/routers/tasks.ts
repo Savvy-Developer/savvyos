@@ -59,8 +59,14 @@ async function syncLinkedOnboardingTask(
 export const tasksRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return getTaskById(input.id);
+    .query(async ({ input, ctx }) => {
+      const row = await getTaskById(input.id);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      const currentTask = (row as any).task ?? row;
+      if (ctx.user.role === "agent" && currentTask.assignedToId !== ctx.user.id && currentTask.createdById !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only view tasks assigned to or created by you." });
+      }
+      return row;
     }),
 
   list: protectedProcedure
@@ -197,11 +203,17 @@ export const tasksRouter = router({
       if (db) {
         const [task] = await db
           .select({
+            assignedToId: tasksTable.assignedToId,
+            createdById: tasksTable.createdById,
             relatedAgentConnectionId: tasksTable.relatedAgentConnectionId,
             onboardingInstanceTaskId: tasksTable.onboardingInstanceTaskId,
           })
           .from(tasksTable)
           .where(eq(tasksTable.id, input.id));
+        if (!task) throw new TRPCError({ code: "NOT_FOUND" });
+        if (ctx.user.role === "agent" && task.assignedToId !== ctx.user.id && task.createdById !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only update tasks assigned to you." });
+        }
         relatedConnectionId = task?.relatedAgentConnectionId ?? null;
         onboardingInstanceTaskId = task?.onboardingInstanceTaskId ?? null;
       }

@@ -302,9 +302,13 @@ export const transactionsRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const tx = await getTransactionById(input.id);
       if (!tx) throw new TRPCError({ code: "NOT_FOUND" });
+      const currentTx = (tx as any).transaction ?? tx;
+      if (ctx.user.role === "agent" && currentTx.agentId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only view transactions in your own deals." });
+      }
       return tx;
     }),
 

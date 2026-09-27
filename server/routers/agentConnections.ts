@@ -148,9 +148,13 @@ export const agentConnectionsRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const conn = await getAgentConnectionById(input.id);
       if (!conn) throw new TRPCError({ code: "NOT_FOUND" });
+      const currentConnection = (conn as any).connection ?? conn;
+      if (ctx.user.role === "agent" && currentConnection.agentId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only view connections in your own pipeline." });
+      }
       return conn;
     }),
 

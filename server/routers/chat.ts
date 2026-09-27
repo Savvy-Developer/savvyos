@@ -802,12 +802,26 @@ export const chatRouter = router({
         .select({ userId: chatChannelMembers.userId })
         .from(chatChannelMembers)
         .where(eq(chatChannelMembers.channelId, input.channelId));
+      const isDirect = state.channel.type === "direct";
+      const notificationTitle = isDirect
+        ? (ctx.user.name ?? "Direct message")
+        : (state.channel.name || "Savvy Chat");
+      const notificationBody = isDirect
+        ? (input.body || "Shared an attachment")
+        : `${ctx.user.name ?? "Teammate"}: ${input.body || "Shared an attachment"}`;
+
       void notifyMobileUsers(
         recipients.map((recipient) => recipient.userId).filter((userId) => userId !== ctx.user.id),
         {
-          title: state.channel.name || "Savvy Chat",
-          body: `${ctx.user.name ?? "Teammate"}: ${input.body || "Shared an attachment"}`,
-          data: { path: "/chat", channelId: input.channelId },
+          title: notificationTitle,
+          body: notificationBody,
+          data: {
+            path: "/chat",
+            channelId: input.channelId,
+            channelType: state.channel.type,
+            senderId: ctx.user.id,
+            senderName: ctx.user.name ?? "Teammate",
+          },
         }
       );
       return { id: messageId };
