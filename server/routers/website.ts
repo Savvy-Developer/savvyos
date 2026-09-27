@@ -481,6 +481,32 @@ function assertAdmin(ctx: any) {
 }
 
 /**
+ * The publish date a Website Studio save should store.
+ *
+ * Before this, every save of a published post or case study stamped "now",
+ * so fixing a typo made a March article look new, and a draft had its date
+ * wiped. Now: a date the admin typed wins (used to carry the old site's dates
+ * over); otherwise the first publish stamps it and later saves keep it.
+ */
+function studioPublishedAt(
+  status: "draft" | "published" | "archived",
+  typed: string | null | undefined,
+  existing: Date | string | null | undefined
+): Date | null {
+  if (typed) {
+    const parsed = new Date(typed);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Publish date is not a valid date." });
+    }
+    if (parsed.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Publish date cannot be in the future." });
+    }
+    return parsed;
+  }
+  return nextPublishedAt(status, existing);
+}
+
+/**
  * Who may write case studies and blog posts from their own side of SavvyOS:
  * active agents, and admins (who can also use Website Studio). Anyone else,
  * such as an ISA or a partner login, cannot.
@@ -744,6 +770,8 @@ const caseStudyInput = z.object({
   secondaryMetricLabel: nullableText,
   secondaryMetricValue: nullableText,
   investmentAmount: z.number().nonnegative().max(1e11).nullable().optional(),
+  /** Admins only (Website Studio): the date shown as published. */
+  publishedAt: z.string().trim().max(40).nullable().optional(),
   status: statusSchema.default("draft"),
   isFeatured: z.boolean().default(false),
   sortOrder: z.number().int().default(0),
@@ -764,6 +792,8 @@ const postInput = z.object({
   sortOrder: z.number().int().default(0),
   metaTitle: nullableText,
   metaDescription: nullableText,
+  /** Admins only (Website Studio): the date shown as published. */
+  publishedAt: z.string().trim().max(40).nullable().optional(),
 });
 
 const settingsInput = z.object({
@@ -2524,6 +2554,13 @@ export const websiteRouter = router({
       await requireWebsitePermission(ctx, "canManageWebsiteCaseStudies");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = input.id
+        ? await db
+            .select({ publishedAt: websiteCaseStudies.publishedAt })
+            .from(websiteCaseStudies)
+            .where(eq(websiteCaseStudies.id, input.id))
+            .limit(1)
+        : [];
       const data = {
         ...input,
         id: undefined,
@@ -2536,7 +2573,7 @@ export const websiteRouter = router({
             : input.investmentAmount === null
               ? null
               : String(input.investmentAmount),
-        publishedAt: input.status === "published" ? new Date() : null,
+        publishedAt: studioPublishedAt(input.status, input.publishedAt, existing?.publishedAt),
         updatedById: ctx.user.id,
       };
       if (input.id)
@@ -2557,13 +2594,20 @@ export const websiteRouter = router({
       await requireWebsitePermission(ctx, "canManageWebsiteBlog");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = input.id
+        ? await db
+            .select({ publishedAt: websiteBlogPosts.publishedAt })
+            .from(websiteBlogPosts)
+            .where(eq(websiteBlogPosts.id, input.id))
+            .limit(1)
+        : [];
       const data = {
         ...input,
         id: undefined,
         slug: cleanSlug(input.slug),
         category: input.category || "STR Investing",
         tags: input.tags === undefined ? undefined : cleanTags(input.tags),
-        publishedAt: input.status === "published" ? new Date() : null,
+        publishedAt: studioPublishedAt(input.status, input.publishedAt, existing?.publishedAt),
         updatedById: ctx.user.id,
       };
       if (input.id)
