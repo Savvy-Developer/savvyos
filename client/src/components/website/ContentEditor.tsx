@@ -23,6 +23,13 @@ import { Switch } from "@/components/ui/switch";
 import { parseTagText } from "@shared/websiteContentFilters";
 import { Area, Field, MediaUpload, slugify } from "./websiteFormBits";
 
+/** "2026-08-04T01:08:30.319Z" to "2026-08-04" for a date input; "" if none. */
+function dateInputValue(value: unknown): string {
+  if (!value) return "";
+  const date = new Date(value as string);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+}
+
 /**
  * The case study and blog post editor. Used by admins in Website Studio and,
  * with mode="agent", by agents on My Website for their own content. Moved out
@@ -62,6 +69,7 @@ export function ContentEditor({
               ? ""
               : String(Number(initial.investmentAmount)),
           tagsText: Array.isArray(initial.tags) ? initial.tags.join(", ") : "",
+          publishedDate: dateInputValue(initial.publishedAt),
         }
       : {
       slug: "",
@@ -121,6 +129,11 @@ export function ContentEditor({
       status: draft.status,
       isFeatured: !!draft.isFeatured,
       sortOrder: Number(draft.sortOrder || 0),
+      // Only sent when an admin changed it; otherwise the server keeps the
+      // date the item first went live.
+      ...(!isAgent && draft.publishedDate && draft.publishedDate !== dateInputValue(initial?.publishedAt)
+        ? { publishedAt: `${draft.publishedDate}T12:00:00.000Z` }
+        : {}),
     };
     if (isCase)
       saveCase.mutate({
@@ -339,6 +352,21 @@ export function ContentEditor({
               />
             </div>
           </>
+        )}
+        {!isAgent && (
+          <div className="max-w-xs">
+            <Label>Publish date</Label>
+            <input
+              type="date"
+              className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={draft.publishedDate || ""}
+              max={new Date().toISOString().slice(0, 10)}
+              onChange={event => set("publishedDate", event.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Set automatically the first time it is published. Change it to keep an older date, for example from the old site.
+            </p>
+          </div>
         )}
         <EditorFooter
           draft={draft}
