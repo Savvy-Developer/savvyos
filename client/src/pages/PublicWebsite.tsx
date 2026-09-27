@@ -353,32 +353,45 @@ function Shell({ children }: { children: React.ReactNode }) {
  * links on the right. Legal and Privacy are CMS pages, not built-in ones, so
  * each link shows only once its page is published; a footer link to "Page not
  * found" on a legal page is worse than no link.
+ *
+ * Two small additions over the live site, both easy to live without and both
+ * useful on SavvyOS: the Website Studio footer statement as a quiet second
+ * line (only when one is set), and an Agent Login link, so agents who land on
+ * the public site can reach SavvyOS without knowing its address.
  */
+const AGENT_LOGIN_URL = "https://os.savvy-agents.com";
+
 function SiteFooter() {
   const legal = trpc.website.publicPage.useQuery({ slug: "legal" }, { staleTime: 10 * 60_000 });
   const privacy = trpc.website.publicPage.useQuery({ slug: "privacy" }, { staleTime: 10 * 60_000 });
+  const { data: siteSettings } = trpc.website.publicSettings.useQuery();
   const account = useWebsiteAccount();
-  const linkClass = "transition-colors";
+  const linkClass = "transition-colors hover:text-[#05314a]";
+  const statement = siteSettings?.footerText?.trim();
   return (
     <footer className="mt-auto border-t bg-white">
-      <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-8 text-sm sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-        <p>© {new Date().getFullYear()} Savvy STR Agents. All rights reserved.</p>
-        <nav className="flex flex-wrap gap-4">
-          <a className={linkClass} href={path("/properties")}>Properties</a>
-          <a className={linkClass} href={path("/markets")}>Markets</a>
-          <a className={linkClass} href={path("/case-studies")}>Case Studies</a>
-          <a className={linkClass} href={path("/resources")}>Resources</a>
-          <a className={linkClass} href={path("/sell")}>Sell Your STR</a>
-          {legal.data && <a className={linkClass} href={path("/legal")}>Legal</a>}
-          {privacy.data && <a className={linkClass} href={path("/privacy")}>Privacy Policy</a>}
-          <a
-            className={`flex items-center gap-1 ${linkClass}`}
-            href={account.data ? accountPath.saved : accountPath.signIn}
-          >
-            <UserRound className="h-3.5 w-3.5" />
-            My Account
-          </a>
-        </nav>
+      <div className="mx-auto max-w-7xl px-4 py-8 text-sm sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p>© {new Date().getFullYear()} Savvy STR Agents. All rights reserved.</p>
+          <nav className="flex flex-wrap gap-4">
+            <a className={linkClass} href={path("/properties")}>Properties</a>
+            <a className={linkClass} href={path("/markets")}>Markets</a>
+            <a className={linkClass} href={path("/case-studies")}>Case Studies</a>
+            <a className={linkClass} href={path("/resources")}>Resources</a>
+            <a className={linkClass} href={path("/sell")}>Sell Your STR</a>
+            {legal.data && <a className={linkClass} href={path("/legal")}>Legal</a>}
+            {privacy.data && <a className={linkClass} href={path("/privacy")}>Privacy Policy</a>}
+            <a
+              className={`flex items-center gap-1 ${linkClass}`}
+              href={account.data ? accountPath.saved : accountPath.signIn}
+            >
+              <UserRound className="h-3.5 w-3.5" />
+              My Account
+            </a>
+            <a className={linkClass} href={AGENT_LOGIN_URL}>Agent Login</a>
+          </nav>
+        </div>
+        {statement && <p className="mt-3 text-xs text-gray-500">{statement}</p>}
       </div>
     </footer>
   );
@@ -862,12 +875,12 @@ function HomePage() {
 }
 
 const PROPERTY_TYPE_LABELS: Record<string, string> = {
-  single_family: "Single family",
-  multi_family: "Multi family",
+  single_family: "Single Family",
+  multi_family: "Multi Family",
   condo: "Condo",
   townhouse: "Townhouse",
   cabin: "Cabin",
-  vacation_rental: "Vacation rental",
+  vacation_rental: "Vacation Rental",
   commercial: "Commercial",
   land: "Land",
   other: "Other",

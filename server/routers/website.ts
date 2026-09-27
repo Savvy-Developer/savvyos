@@ -64,6 +64,7 @@ import {
 import { publishedTestimonials } from "@shared/websiteTestimonials";
 import { normalizeTeamMember, publishedTeam } from "@shared/websiteTeam";
 import { SELLER_LEAD_TAG } from "@shared/websiteSellerLead";
+import { missingForPublish, publishBlockedMessage } from "@shared/websitePublishChecklist";
 import { cleanTags } from "@shared/websiteContentFilters";
 import { EDITABLE_PAGE_SLUGS } from "@shared/websiteEditablePages";
 import {
@@ -2376,6 +2377,15 @@ export const websiteRouter = router({
         propertyType: input.propertyType ?? null,
         listPrice: asDecimal(input.listPrice),
       };
+      if (input.status === "published") {
+        const missing = missingForPublish({
+          ...canonical,
+          heroImageUrl: input.heroImageUrl,
+          galleryImageUrls: input.galleryImageUrls,
+        });
+        if (missing.length)
+          throw new TRPCError({ code: "BAD_REQUEST", message: publishBlockedMessage(missing) });
+      }
       return db.transaction(async tx => {
         let savedPropertyId = propertyId;
         let ignoredFields: CanonicalPropertyField[] = [];
@@ -2578,6 +2588,10 @@ export const websiteRouter = router({
           address: properties.address,
           city: properties.city,
           state: properties.state,
+          zip: properties.zip,
+          listPrice: properties.listPrice,
+          beds: properties.beds,
+          baths: properties.baths,
         })
         .from(properties)
         .where(eq(properties.id, input.propertyId))
@@ -2585,10 +2599,26 @@ export const websiteRouter = router({
       if (!property) throw new TRPCError({ code: "NOT_FOUND", message: "Property not found" });
 
       const [existing] = await db
-        .select({ id: websiteProperties.id, slug: websiteProperties.slug, status: websiteProperties.status })
+        .select({
+          id: websiteProperties.id,
+          slug: websiteProperties.slug,
+          status: websiteProperties.status,
+          heroImageUrl: websiteProperties.heroImageUrl,
+          galleryImageUrls: websiteProperties.galleryImageUrls,
+        })
         .from(websiteProperties)
         .where(eq(websiteProperties.propertyId, input.propertyId))
         .limit(1);
+
+      if (input.status === "published") {
+        const missing = missingForPublish({
+          ...property,
+          heroImageUrl: existing?.heroImageUrl,
+          galleryImageUrls: existing?.galleryImageUrls,
+        });
+        if (missing.length)
+          throw new TRPCError({ code: "BAD_REQUEST", message: publishBlockedMessage(missing) });
+      }
 
       const publishedAt = input.status === "published" ? new Date() : null;
 
@@ -2681,7 +2711,7 @@ export const websiteRouter = router({
     .input(z.object({ propertyId: z.number().int().positive() }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) return { canEdit: false, website: null, proformas: [], agents: [] };
+      if (!db) return { canEdit: false, website: null, proformas: [], agents: [], facts: null };
       let canEdit = false;
       if (ctx.user?.role === "admin") {
         canEdit = await canAdminUsePermission(ctx.user, "canManageWebsiteProperties");
@@ -2693,7 +2723,21 @@ export const websiteRouter = router({
         .from(websiteProperties)
         .where(eq(websiteProperties.propertyId, input.propertyId))
         .limit(1);
-      if (!canEdit) return { canEdit, website: website ?? null, proformas: [], agents: [] };
+      if (!canEdit) return { canEdit, website: website ?? null, proformas: [], agents: [], facts: null };
+      // The property facts the publish checklist needs, so the form can say
+      // what is missing before the save is attempted.
+      const [facts] = await db
+        .select({
+          city: properties.city,
+          state: properties.state,
+          zip: properties.zip,
+          listPrice: properties.listPrice,
+          beds: properties.beds,
+          baths: properties.baths,
+        })
+        .from(properties)
+        .where(eq(properties.id, input.propertyId))
+        .limit(1);
       const proformaRows = await db
         .select({
           id: proformas.id,
@@ -2735,7 +2779,13 @@ export const websiteRouter = router({
           compCount: comps.length,
         };
       });
-      return { canEdit, website: website ?? null, proformas: proformaSummaries, agents: agentRows };
+      return {
+        canEdit,
+        website: website ?? null,
+        proformas: proformaSummaries,
+        agents: agentRows,
+        facts: facts ?? null,
+      };
     }),
 
   /**
@@ -2752,11 +2802,31 @@ export const websiteRouter = router({
       await requirePropertyPublishAccess(ctx, db, input.propertyId);
 
       const [property] = await db
-        .select({ id: properties.id, address: properties.address, city: properties.city })
+        .select({
+          id: properties.id,
+          address: properties.address,
+          city: properties.city,
+          state: properties.state,
+          zip: properties.zip,
+          listPrice: properties.listPrice,
+          beds: properties.beds,
+          baths: properties.baths,
+        })
         .from(properties)
         .where(eq(properties.id, input.propertyId))
         .limit(1);
       if (!property) throw new TRPCError({ code: "NOT_FOUND", message: "Property not found" });
+
+      // Publishing needs the facts every listing shows. Drafts save regardless.
+      if (input.status === "published") {
+        const missing = missingForPublish({
+          ...property,
+          heroImageUrl: input.heroImageUrl,
+          galleryImageUrls: input.galleryImageUrls,
+        });
+        if (missing.length)
+          throw new TRPCError({ code: "BAD_REQUEST", message: publishBlockedMessage(missing) });
+      }
 
       let metrics: Record<string, string | null> = proformaMetrics(input, null);
       if (input.sourceProformaId) {
