@@ -101,7 +101,7 @@ export default function MyWebsiteContentPage({ kind }: { kind: Kind }) {
             </p>
           ) : rows.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center text-sm text-slate-500">
-              You have no {noun}s yet. Click "New {noun}" to write your first one.
+              You have no {isCase ? "case studies" : "blog posts"} yet. Click "New {noun}" to write your first one.
             </div>
           ) : (
             <div className="divide-y rounded-xl border">
