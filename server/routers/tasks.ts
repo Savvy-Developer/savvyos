@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { createTask, getTasks, getAllTasks, getDb, logActivity, updateTask, getTaskNotes, createTaskNote, getTaskById, getMyOverdueTaskCount, resetLeadAgingByConnectionId } from "../db";
+import { createTask, getTasks, getAllTasks, getDb, logActivity, updateTask, getTaskNotes, createTaskNote, getTaskById, getAgentConnectionById, getTransactionById, getMyOverdueTaskCount, resetLeadAgingByConnectionId } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { notifyMobileUsers } from "../mobileNotifications";
@@ -137,6 +137,18 @@ export const tasksRouter = router({
       dueDate: z.string().optional().nullable(),
     }))
     .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role === "agent" && input.relatedAgentConnectionId) {
+        const connection = await getAgentConnectionById(input.relatedAgentConnectionId);
+        if (!connection || (connection as any).connection?.agentId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only add tasks to your own pipeline." });
+        }
+      }
+      if (ctx.user.role === "agent" && input.relatedTransactionId) {
+        const transaction = await getTransactionById(input.relatedTransactionId);
+        if (!transaction || (transaction as any).transaction?.agentId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only add tasks to your own transactions." });
+        }
+      }
       const id = await createTask({
         ...input,
         createdById: ctx.user.id,
@@ -277,7 +289,13 @@ export const tasksRouter = router({
   // ─── Task Notes ──────────────────────────────────────────────────────────
   getNotes: protectedProcedure
     .input(z.object({ taskId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const row = await getTaskById(input.taskId);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      const task = (row as any).task ?? row;
+      if (ctx.user.role === "agent" && task.assignedToId !== ctx.user.id && task.createdById !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only view notes for your own tasks." });
+      }
       return getTaskNotes(input.taskId);
     }),
 
@@ -287,6 +305,12 @@ export const tasksRouter = router({
       content: z.string().min(1),
     }))
     .mutation(async ({ input, ctx }) => {
+      const row = await getTaskById(input.taskId);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      const taskRow = (row as any).task ?? row;
+      if (ctx.user.role === "agent" && taskRow.assignedToId !== ctx.user.id && taskRow.createdById !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only add notes to your own tasks." });
+      }
       const id = await createTaskNote({
         taskId: input.taskId,
         authorId: ctx.user.id,

@@ -216,6 +216,14 @@ export const agentConnectionsRouter = router({
       appointmentSet: z.boolean().optional().default(false),
     }))
     .mutation(async ({ input, ctx }) => {
+      // Agents may only create connections in their own pipeline. This route is
+      // also used by the iPhone app after it creates a new contact.
+      if (ctx.user.role === "agent" && input.agentId !== ctx.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You can only add contacts to your own pipeline.",
+        });
+      }
       // Prevent duplicate agent connections for the same agent+contact pair
       const db = await getDb();
       if (db) {

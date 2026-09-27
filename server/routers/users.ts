@@ -1342,6 +1342,20 @@ export const usersRouter = router({
       return { success: true };
     }),
 
+  /** Safe self-service profile payload for native agent clients. */
+  getMyAgentProfile: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "agent") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Only agents can access this profile." });
+    }
+    const db = await getDb();
+    if (!db) return { core: null, agent: null };
+    const [core, agent] = await Promise.all([
+      db.select().from(userProfiles).where(eq(userProfiles.userId, ctx.user.id)).limit(1),
+      db.select().from(agentProfiles).where(eq(agentProfiles.userId, ctx.user.id)).limit(1),
+    ]);
+    return { core: core[0] ?? null, agent: agent[0] ?? null };
+  }),
+
   // Get the logged-in user's own core profile (for the Profile page)
   getMyCoreProfile: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();

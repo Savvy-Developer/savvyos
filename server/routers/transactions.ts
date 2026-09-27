@@ -505,6 +505,13 @@ export const transactionsRouter = router({
       // Fetch BEFORE state for diff logging
       const txBefore = await getTransactionById(input.id);
       const before = txBefore?.transaction;
+      if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ctx.user.role === "agent" && before.agentId !== ctx.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You can only update transactions in your own deals.",
+        });
+      }
 
       const { contractDate, closingDate, terminationReason, referralPayoutPct, ...rest } = input.data;
       const updateData: Record<string, any> = { ...rest };

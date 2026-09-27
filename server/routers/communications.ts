@@ -1,10 +1,42 @@
 import { z } from "zod";
-import { createCommunication, getCommunications, resetLeadAgingByConnectionId } from "../db";
+import { createCommunication, getAgentConnectionById, getCommunications, getTransactionById, resetLeadAgingByConnectionId } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
-import { communications } from "../../drizzle/schema";
-import { and, eq } from "drizzle-orm";
+import { agentConnections, communications } from "../../drizzle/schema";
+import { and, eq, isNull } from "drizzle-orm";
+
+async function requireAgentCommunicationScope(input: {
+  contactId?: number;
+  transactionId?: number;
+  agentConnectionId?: number;
+}, user: { id: number; role: string }) {
+  if (user.role !== "agent") return;
+
+  if (input.agentConnectionId) {
+    const connection = await getAgentConnectionById(input.agentConnectionId);
+    if (!connection || (connection as any).connection?.agentId !== user.id) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "You can only access communication for your own pipeline." });
+    }
+    return;
+  }
+  if (input.transactionId) {
+    const transaction = await getTransactionById(input.transactionId);
+    if (!transaction || (transaction as any).transaction?.agentId !== user.id) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "You can only access communication for your own transactions." });
+    }
+    return;
+  }
+  if (input.contactId) {
+    const db = await getDb();
+    const owned = db ? await db.select({ id: agentConnections.id }).from(agentConnections)
+      .where(and(eq(agentConnections.agentId, user.id), eq(agentConnections.contactId, input.contactId), isNull(agentConnections.archivedAt)))
+      .limit(1) : [];
+    if (!owned[0]) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "You can only access communication for your own pipeline." });
+    }
+  }
+}
 
 export const communicationsRouter = router({
   list: protectedProcedure
@@ -13,7 +45,8 @@ export const communicationsRouter = router({
       transactionId: z.number().optional(),
       agentConnectionId: z.number().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await requireAgentCommunicationScope(input, ctx.user);
       return getCommunications(input);
     }),
 
@@ -32,6 +65,11 @@ export const communicationsRouter = router({
       communicatedAt: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await requireAgentCommunicationScope({
+        contactId: input.relatedContactId ?? undefined,
+        transactionId: input.relatedTransactionId ?? undefined,
+        agentConnectionId: input.relatedAgentConnectionId ?? undefined,
+      }, ctx.user);
       const id = await createCommunication({
         ...input,
         authorId: ctx.user.id,

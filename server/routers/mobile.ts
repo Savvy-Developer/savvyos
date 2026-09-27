@@ -2,8 +2,10 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
-import { getDb, getMyOverdueTaskCount } from "../db";
+import { getAgentConnectionById, getDb, getMyOverdueTaskCount } from "../db";
 import {
+  appointments,
+  communications,
   mobileDevices,
   chatChannelMembers,
   chatMessages,
@@ -15,6 +17,8 @@ import {
   properties,
   contacts,
   agentGoals,
+  smartPlanEnrollments,
+  smartPlans,
 } from "../../drizzle/schema";
 import { canOpenChatWorkspace, type ChatRole } from "../chatAccess";
 import { canAdminUsePermission } from "./permissions";
@@ -481,4 +485,45 @@ export const mobileRouter = router({
       urgentFollowUps,
     };
   }),
+  /** A narrow, agent-scoped detail payload for the iPhone Connection screen. */
+  connectionWorkspace: protectedProcedure
+    .input(z.object({ connectionId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      const connectionRow = await getAgentConnectionById(input.connectionId);
+      if (!connectionRow) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ctx.user.role === "agent" && connectionRow.connection.agentId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only view your own pipeline connections." });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const [activity, relatedTasks, connectionAppointments, enrollments] = await Promise.all([
+        db.select().from(communications).where(eq(communications.relatedAgentConnectionId, input.connectionId)).orderBy(desc(communications.communicatedAt), desc(communications.id)).limit(100),
+        db.select().from(tasks).where(eq(tasks.relatedAgentConnectionId, input.connectionId)).orderBy(desc(tasks.dueDate), desc(tasks.id)).limit(100),
+        db.select().from(appointments).where(eq(appointments.agentConnectionId, input.connectionId)).orderBy(desc(appointments.startAt), desc(appointments.id)).limit(50),
+        db.select({ enrollment: smartPlanEnrollments, plan: { id: smartPlans.id, name: smartPlans.name } })
+          .from(smartPlanEnrollments).innerJoin(smartPlans, eq(smartPlans.id, smartPlanEnrollments.planId))
+          .where(eq(smartPlanEnrollments.contactId, connectionRow.connection.contactId)).orderBy(desc(smartPlanEnrollments.enrolledAt)).limit(50),
+      ]);
+      return { ...connectionRow, activity, tasks: relatedTasks, appointments: connectionAppointments, enrollments };
+    }),
+  /** Agents can pause or resume plans only for clients in their own pipeline. */
+  setConnectionEnrollmentStatus: protectedProcedure
+    .input(z.object({ enrollmentId: z.number().int().positive(), action: z.enum(["pause", "resume"]) }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const [enrollment] = await db.select({ id: smartPlanEnrollments.id, contactId: smartPlanEnrollments.contactId })
+        .from(smartPlanEnrollments).where(eq(smartPlanEnrollments.id, input.enrollmentId)).limit(1);
+      if (!enrollment) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ctx.user.role === "agent") {
+        const [owned] = await db.select({ id: agentConnections.id }).from(agentConnections)
+          .where(and(eq(agentConnections.agentId, ctx.user.id), eq(agentConnections.contactId, enrollment.contactId), isNull(agentConnections.archivedAt))).limit(1);
+        if (!owned) throw new TRPCError({ code: "FORBIDDEN", message: "You can only manage plans for your own pipeline." });
+      }
+      await db.update(smartPlanEnrollments).set(input.action === "pause"
+        ? { status: "paused", pauseReason: "Paused by agent", nextStepAt: null }
+        : { status: "active", pauseReason: null, nextStepAt: new Date() }
+      ).where(eq(smartPlanEnrollments.id, input.enrollmentId));
+      return { success: true };
+    }),
 });
