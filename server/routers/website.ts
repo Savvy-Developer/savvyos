@@ -65,6 +65,7 @@ import { publishedTestimonials } from "@shared/websiteTestimonials";
 import { normalizeTeamMember, publishedTeam } from "@shared/websiteTeam";
 import { SELLER_LEAD_TAG } from "@shared/websiteSellerLead";
 import { missingForPublish, publishBlockedMessage } from "@shared/websitePublishChecklist";
+import { nextPublishedAt, ownsCaseStudy, ownsPost } from "@shared/websiteContentOwnership";
 import { cleanTags } from "@shared/websiteContentFilters";
 import { EDITABLE_PAGE_SLUGS } from "@shared/websiteEditablePages";
 import {
@@ -475,6 +476,21 @@ function assertAdmin(ctx: any) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Administrator access required",
+    });
+  }
+}
+
+/**
+ * Who may write case studies and blog posts from their own side of SavvyOS:
+ * active agents, and admins (who can also use Website Studio). Anyone else,
+ * such as an ISA or a partner login, cannot.
+ */
+function requireContentAuthor(ctx: any) {
+  const role = ctx.user?.role;
+  if ((role !== "agent" && role !== "admin") || ctx.user?.isActive === false) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only agents can add case studies and blog posts.",
     });
   }
 }
@@ -2560,6 +2576,163 @@ export const websiteRouter = router({
           .insert(websiteBlogPosts)
           .values({ ...data, createdById: ctx.user.id } as any);
       return { success: true };
+    }),
+
+  // ─── Agents' own case studies and blog posts (My Website) ──────────────────
+  //
+  // Dhruv's decision, 27 Sep: agents add case studies and blog posts
+  // themselves and publish them directly, like their properties; they edit
+  // only their own (see shared/websiteContentOwnership.ts). Featured and
+  // ordering stay with admins in Website Studio.
+
+  myWebsiteContent: protectedProcedure.query(async ({ ctx }) => {
+    requireContentAuthor(ctx);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    const me = ctx.user.id;
+    const [caseRows, postRows, propertyRows] = await Promise.all([
+      db
+        .select()
+        .from(websiteCaseStudies)
+        .where(or(eq(websiteCaseStudies.createdById, me), eq(websiteCaseStudies.agentUserId, me)))
+        .orderBy(desc(websiteCaseStudies.updatedAt)),
+      db
+        .select()
+        .from(websiteBlogPosts)
+        .where(or(eq(websiteBlogPosts.createdById, me), eq(websiteBlogPosts.authorUserId, me)))
+        .orderBy(desc(websiteBlogPosts.updatedAt)),
+      // Properties a case study may be linked to: the ones this agent added,
+      // or holds a transaction or listing on (the same rule as publishing).
+      db
+        .selectDistinct({ propertyId: properties.id, address: properties.address, city: properties.city })
+        .from(properties)
+        .leftJoin(transactions, and(eq(transactions.propertyId, properties.id), eq(transactions.agentId, me)))
+        .leftJoin(listings, and(eq(listings.propertyId, properties.id), eq(listings.agentId, me)))
+        .where(or(eq(properties.addedByUserId, me), eq(transactions.agentId, me), eq(listings.agentId, me)))
+        .orderBy(properties.address)
+        .limit(500),
+    ]);
+    return { caseStudies: caseRows, posts: postRows, properties: propertyRows };
+  }),
+
+  saveMyCaseStudy: protectedProcedure
+    .input(caseStudyInput)
+    .mutation(async ({ input, ctx }) => {
+      requireContentAuthor(ctx);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const me = ctx.user.id;
+      let existing: any = null;
+      if (input.id) {
+        [existing] = await db.select().from(websiteCaseStudies).where(eq(websiteCaseStudies.id, input.id)).limit(1);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "That case study no longer exists." });
+        if (!ownsCaseStudy(existing, me))
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only edit your own case studies." });
+      }
+      if (input.propertyId && !(await agentOwnsProperty(db, me, input.propertyId)))
+        throw new TRPCError({ code: "FORBIDDEN", message: "Link the case study to one of your own properties." });
+      const wanted = cleanSlug(input.slug);
+      const slug =
+        existing && existing.slug === wanted
+          ? existing.slug
+          : await uniqueSlug(db, websiteCaseStudies, wanted);
+      const data = {
+        slug,
+        title: input.title,
+        eyebrow: input.eyebrow ?? null,
+        excerpt: input.excerpt ?? null,
+        body: input.body ?? null,
+        heroImageUrl: input.heroImageUrl ?? null,
+        propertyId: input.propertyId ?? null,
+        // Credited to whoever it already credits, or to the agent writing it.
+        agentUserId: existing?.agentUserId ?? me,
+        primaryMetricLabel: input.primaryMetricLabel ?? null,
+        primaryMetricValue: input.primaryMetricValue ?? null,
+        secondaryMetricLabel: input.secondaryMetricLabel ?? null,
+        secondaryMetricValue: input.secondaryMetricValue ?? null,
+        investmentAmount:
+          input.investmentAmount == null ? null : String(input.investmentAmount),
+        status: input.status,
+        publishedAt: nextPublishedAt(input.status, existing?.publishedAt),
+        updatedById: me,
+      };
+      let id = existing?.id as number | undefined;
+      if (existing) {
+        await db.update(websiteCaseStudies).set(data as any).where(eq(websiteCaseStudies.id, existing.id));
+      } else {
+        const result = await db.insert(websiteCaseStudies).values({
+          ...data,
+          isFeatured: false,
+          sortOrder: 0,
+          createdById: me,
+        } as any);
+        id = Number((result as any)[0]?.insertId);
+      }
+      await logActivity({
+        userId: me,
+        action: existing ? "website_case_study_updated" : "website_case_study_created",
+        entityType: "website_case_study",
+        entityId: id ?? null,
+        details: { slug, status: input.status, byAgent: true },
+      });
+      return { id, slug, status: input.status };
+    }),
+
+  saveMyPost: protectedProcedure
+    .input(postInput)
+    .mutation(async ({ input, ctx }) => {
+      requireContentAuthor(ctx);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const me = ctx.user.id;
+      let existing: any = null;
+      if (input.id) {
+        [existing] = await db.select().from(websiteBlogPosts).where(eq(websiteBlogPosts.id, input.id)).limit(1);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "That blog post no longer exists." });
+        if (!ownsPost(existing, me))
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only edit your own blog posts." });
+      }
+      const wanted = cleanSlug(input.slug);
+      const slug =
+        existing && existing.slug === wanted
+          ? existing.slug
+          : await uniqueSlug(db, websiteBlogPosts, wanted);
+      const data = {
+        slug,
+        title: input.title,
+        excerpt: input.excerpt ?? null,
+        body: input.body ?? null,
+        coverImageUrl: input.coverImageUrl ?? null,
+        category: input.category || "STR Investing",
+        tags: cleanTags(input.tags ?? []),
+        // The byline is whoever it already credits, or the agent writing it.
+        authorUserId: existing?.authorUserId ?? me,
+        metaTitle: input.metaTitle ?? null,
+        metaDescription: input.metaDescription ?? null,
+        status: input.status,
+        publishedAt: nextPublishedAt(input.status, existing?.publishedAt),
+        updatedById: me,
+      };
+      let id = existing?.id as number | undefined;
+      if (existing) {
+        await db.update(websiteBlogPosts).set(data as any).where(eq(websiteBlogPosts.id, existing.id));
+      } else {
+        const result = await db.insert(websiteBlogPosts).values({
+          ...data,
+          isFeatured: false,
+          sortOrder: 0,
+          createdById: me,
+        } as any);
+        id = Number((result as any)[0]?.insertId);
+      }
+      await logActivity({
+        userId: me,
+        action: existing ? "website_post_updated" : "website_post_created",
+        entityType: "website_post",
+        entityId: id ?? null,
+        details: { slug, status: input.status, byAgent: true },
+      });
+      return { id, slug, status: input.status };
     }),
 
   /**

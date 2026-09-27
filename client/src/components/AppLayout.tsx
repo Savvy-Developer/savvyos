@@ -204,7 +204,8 @@ function buildAgentNav(
     {
       // The public website is run from SavvyOS now. An agent's own profile
       // is edited on their agent page; their listings go live from each
-      // property's Website tab.
+      // property's Website tab; their case studies and blog posts are written
+      // and published from My Case Studies and My Blog Posts.
       label: "My Website",
       items: [
         ...(userId
@@ -216,6 +217,8 @@ function buildAgentNav(
               },
             ]
           : []),
+        { icon: FileText, label: "My Case Studies", path: "/my-website/case-studies" },
+        { icon: BookOpen, label: "My Blog Posts", path: "/my-website/blog" },
         {
           icon: Link2,
           label: "View the Website",
