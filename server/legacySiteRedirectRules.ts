@@ -41,11 +41,10 @@ export const LEGACY_PAGES: Record<string, { to: string; permanent: boolean }> = 
   "/legal": { to: `${BASE}/legal`, permanent: true },
   "/privacy": { to: `${BASE}/privacy`, permanent: true },
   "/join-our-team": { to: `${BASE}/join-our-team`, permanent: true },
-  // No direct equivalents yet.
-  "/team": { to: `${BASE}/agents`, permanent: false },
+  "/team": { to: `${BASE}/team`, permanent: true },
+  "/sell": { to: `${BASE}/sell`, permanent: true },
+  // No direct equivalent yet.
   "/recent-sales": { to: `${BASE}/case-studies`, permanent: false },
-  // The new site's Sell link already goes here.
-  "/sell": { to: "https://www.savvy.realty/sellers", permanent: false },
   // Old investor account screens. Old accounts are not carried over, so
   // everyone starts at sign in or sign up.
   "/login": { to: `${BASE}/sign-in`, permanent: true },

@@ -1462,6 +1462,34 @@ export const websiteSiteSettings = mysqlTable("website_site_settings", {
 });
 export type WebsiteSiteSettings = typeof websiteSiteSettings.$inferSelect;
 
+/**
+ * The people on the public Meet the Team page, edited in Website Studio >
+ * Team. Created at startup by server/websiteTeamSchema.ts (CREATE TABLE IF NOT
+ * EXISTS), so the release needs no hand-run SQL; the same statement is kept in
+ * drizzle/20260927_website_team_members.sql for the record.
+ */
+export const websiteTeamMembers = mysqlTable(
+  "website_team_members",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    name: varchar("name", { length: 160 }).notNull(),
+    title: varchar("title", { length: 160 }),
+    bio: text("bio"),
+    imageUrl: text("imageUrl"),
+    email: varchar("email", { length: 320 }),
+    linkedinUrl: varchar("linkedinUrl", { length: 512 }),
+    status: mysqlEnum("status", ["draft", "published", "archived"])
+      .default("draft")
+      .notNull(),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    updatedById: int("updatedById"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("website_team_members_status_idx").on(table.status, table.sortOrder)]
+);
+export type WebsiteTeamMember = typeof websiteTeamMembers.$inferSelect;
+
 export const websiteLeads = mysqlTable(
   "website_leads",
   {

@@ -21,6 +21,7 @@ import {
   websitePages,
   websiteProperties,
   websiteSiteSettings,
+  websiteTeamMembers,
   listings,
   transactions,
 } from "../../drizzle/schema";
@@ -61,6 +62,8 @@ import {
   zipInMarket,
 } from "../publicMarketDirectory";
 import { publishedTestimonials } from "@shared/websiteTestimonials";
+import { normalizeTeamMember, publishedTeam } from "@shared/websiteTeam";
+import { SELLER_LEAD_TAG } from "@shared/websiteSellerLead";
 import { cleanTags } from "@shared/websiteContentFilters";
 import { EDITABLE_PAGE_SLUGS } from "@shared/websiteEditablePages";
 import {
@@ -1061,6 +1064,7 @@ export const WEBSITE_PUBLIC_TRPC_PATHS = new Set([
   "website.publicPost",
   "website.recordArticleView",
   "website.submitLead",
+  "website.publicTeamMembers",
 ]);
 
 export const websiteRouter = router({
@@ -1081,6 +1085,27 @@ export const websiteRouter = router({
       ...settings,
       testimonials: publishedTestimonials(settings.testimonials),
     };
+  }),
+
+  /**
+   * The Meet the Team page's people. Published rows only, filtered on the
+   * server so a draft never leaves it. The table is created at startup; if it
+   * is somehow missing the page shows no people rather than an error.
+   */
+  publicTeamMembers: publicProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    try {
+      const rows = await db
+        .select()
+        .from(websiteTeamMembers)
+        .where(eq(websiteTeamMembers.status, "published"))
+        .orderBy(asc(websiteTeamMembers.sortOrder), asc(websiteTeamMembers.name));
+      return publishedTeam(rows).map(({ status: _status, ...row }) => row);
+    } catch (error) {
+      console.error("[website.publicTeamMembers]", error);
+      return [];
+    }
   }),
 
   publicProperties: publicProcedure
@@ -1933,10 +1958,13 @@ export const websiteRouter = router({
       )).limit(1);
       if (recentDuplicate[0]) return { success: true };
       const existing = await db
-        .select({ id: contacts.id })
+        .select({ id: contacts.id, tags: contacts.tags })
         .from(contacts)
         .where(eq(contacts.email, normalizedEmail))
         .limit(1);
+      // A seller from the Sell page is tagged so the ISA team can pull every
+      // website seller lead in one filter, new contact or returning.
+      const isSeller = input.intent === "sell";
       // Same last-touch rule as the Calendly intake, so a lead reads the same
       // whichever door they came through: blank never overwrites.
       const adAttribution = readAdAttribution(input.attribution || {});
@@ -1952,7 +1980,7 @@ export const websiteRouter = router({
           // ad is a paid lead; anything else on the site is organic.
           leadSourceType: isPaidAttribution(adAttribution) ? "paid_lead" : "organic",
           isaStatus: "new_lead",
-          tags: ["Savvy website"],
+          tags: isSeller ? ["Savvy website", SELLER_LEAD_TAG] : ["Savvy website"],
           notes: input.message || "Savvy website inquiry",
           ...adAttributionUpdates(adAttribution),
           ...(adCampaign ? { campaignSource: adCampaign } : {}),
@@ -1963,6 +1991,10 @@ export const websiteRouter = router({
           ...adAttributionUpdates(adAttribution),
         };
         if (adCampaign) updates.campaignSource = adCampaign;
+        const currentTags = Array.isArray(existing[0]?.tags) ? (existing[0]!.tags as string[]) : [];
+        if (isSeller && !currentTags.includes(SELLER_LEAD_TAG)) {
+          updates.tags = [...currentTags, SELLER_LEAD_TAG];
+        }
         if (Object.keys(updates).length) {
           await db.update(contacts).set(updates).where(eq(contacts.id, contactId));
         }
@@ -3106,6 +3138,91 @@ export const websiteRouter = router({
             siteName: "Savvy STR Agents",
             ...data,
           });
+      return { success: true };
+    }),
+
+  // ─── Meet the Team (Website Studio > Team) ─────────────────────────────────
+
+  adminTeamMembers: protectedProcedure.query(async ({ ctx }) => {
+    await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    return db
+      .select()
+      .from(websiteTeamMembers)
+      .orderBy(asc(websiteTeamMembers.sortOrder), asc(websiteTeamMembers.name));
+  }),
+
+  saveTeamMember: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive().optional(),
+        name: z.string().trim().min(1).max(160),
+        title: z.string().max(160).nullable().optional(),
+        bio: z.string().max(4000).nullable().optional(),
+        imageUrl: z.string().max(2048).nullable().optional(),
+        email: z.string().max(320).nullable().optional(),
+        linkedinUrl: z.string().max(512).nullable().optional(),
+        status: z.enum(["draft", "published", "archived"]).default("draft"),
+        sortOrder: z.number().int().min(-10000).max(10000).default(0),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const row = normalizeTeamMember(input);
+      if (!row) throw new TRPCError({ code: "BAD_REQUEST", message: "A name is required." });
+      // Say what was wrong rather than quietly dropping a link or photo the
+      // editor typed: the normalizer keeps only safe addresses.
+      if (input.linkedinUrl?.trim() && !row.linkedinUrl)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "LinkedIn must be a full https:// address." });
+      if (input.imageUrl?.trim() && !row.imageUrl)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Photo must be an uploaded image or a full https:// address." });
+      if (input.email?.trim() && !row.email)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Check the email address." });
+      const values = {
+        name: row.name,
+        title: row.title,
+        bio: row.bio,
+        imageUrl: row.imageUrl,
+        email: row.email,
+        linkedinUrl: row.linkedinUrl,
+        status: row.status,
+        sortOrder: row.sortOrder,
+        updatedById: ctx.user.id,
+      };
+      let id = input.id ?? null;
+      if (id) {
+        await db.update(websiteTeamMembers).set(values).where(eq(websiteTeamMembers.id, id));
+      } else {
+        const result = await db.insert(websiteTeamMembers).values(values);
+        id = Number((result as any)[0]?.insertId) || null;
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: "website_team_member_saved",
+        entityType: "website_team_member",
+        entityId: id ?? null,
+        details: { name: row.name, status: row.status },
+      });
+      return { id, status: row.status };
+    }),
+
+  deleteTeamMember: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.delete(websiteTeamMembers).where(eq(websiteTeamMembers.id, input.id));
+      await logActivity({
+        userId: ctx.user.id,
+        action: "website_team_member_deleted",
+        entityType: "website_team_member",
+        entityId: input.id,
+        details: {},
+      });
       return { success: true };
     }),
 

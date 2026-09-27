@@ -27,6 +27,8 @@ export type WebsiteRoute =
   | { kind: "contact" }
   | { kind: "markets" }
   | { kind: "joinTeam" }
+  | { kind: "team" }
+  | { kind: "sell" }
   | { kind: "account" }
   | { kind: "page"; slug: string };
 
@@ -69,6 +71,8 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
       case "contact": return { kind: "contact" };
       case "markets": return { kind: "markets" };
       case "join-our-team": return { kind: "joinTeam" };
+      case "team": return { kind: "team" };
+      case "sell": return { kind: "sell" };
     }
     return SLUG.test(first) ? { kind: "page", slug: first } : null;
   }
@@ -95,7 +99,9 @@ export const STATIC_PAGES: Record<
   | "about"
   | "contact"
   | "markets"
-  | "joinTeam",
+  | "joinTeam"
+  | "team"
+  | "sell",
   { path: string; title: string; description: string }
 > = {
   home: {
@@ -146,6 +152,18 @@ export const STATIC_PAGES: Record<
     title: "Join Our Team",
     description:
       "Join Savvy STR Agents, the #1 enterprise agent team at eXp Realty. For agents who know their short-term rental market inside and out.",
+  },
+  team: {
+    path: "/team",
+    title: "Meet the Team",
+    description:
+      "Meet the people behind Savvy STR Agents, dedicated to helping you succeed in short-term rental investing.",
+  },
+  sell: {
+    path: "/sell",
+    title: "Sell Your Short-Term Rental",
+    description:
+      "Find out what your short-term rental is worth to an investor buyer. Send the address and last year of performance, and an STR agent who knows your market comes back with a straight answer.",
   },
 };
 
