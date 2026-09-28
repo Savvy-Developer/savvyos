@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
 import { PulseInlineItemRow } from "@/components/pulse/PulseItemEditor";
+import { cn } from "@/lib/utils";
 
 type HistoryType = "all" | "todo" | "issue";
 
@@ -20,13 +21,14 @@ type Props = {
   canReopen?: boolean;
   onChanged?: () => void;
   compact?: boolean;
+  className?: string;
 };
 
 function dateTime(value?: string | Date | null) {
   return value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "Unknown date";
 }
 
-export function PulseCompletedHistory({ contextId, title = "Completed & Resolved", description, initialType = "all", onlyMine = false, sourceSessionId, canReopen = true, onChanged, compact = false }: Props) {
+export function PulseCompletedHistory({ contextId, title = "Completed & Resolved", description, initialType = "all", onlyMine = false, sourceSessionId, canReopen = true, onChanged, compact = false, className }: Props) {
   const utils = trpc.useUtils();
   const [isOpen, setIsOpen] = useState(false);
   const [type, setType] = useState<HistoryType>(initialType);
@@ -47,7 +49,7 @@ export function PulseCompletedHistory({ contextId, title = "Completed & Resolved
   const currentLabel = initialType === "todo" ? "completed To-Dos" : initialType === "issue" ? "resolved Issues" : "completed and resolved work";
   const resolvedCompact = initialType === "issue";
 
-  return <Card className="border-emerald-200/80 bg-emerald-50/20">
+  return <Card className={cn("border-emerald-200/80 bg-emerald-50/20", className)}>
     <CardHeader className={resolvedCompact ? "py-1.5" : compact ? "py-2" : "py-3"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
