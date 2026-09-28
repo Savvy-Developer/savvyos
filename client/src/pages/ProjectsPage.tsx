@@ -483,9 +483,9 @@ export default function ProjectsPage() {
         title="Projects"
         subtitle="Track the projects, todos, and updates you collaborate on"
         actions={
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => navigate("/projects/personal-todos")}>
-              <CheckCircle2 className="mr-1 h-4 w-4" /> My Personal Todos
+          <div className="flex w-full min-w-0 flex-wrap justify-start gap-2 sm:w-auto sm:justify-end">
+            <Button className="h-auto max-w-full whitespace-normal py-2 text-left" variant="outline" size="sm" onClick={() => navigate("/projects/personal-todos")}>
+              <CheckCircle2 className="mr-1 h-4 w-4 shrink-0" /> My Personal Todos
               <span className="ml-2 inline-flex items-center gap-1"><span className="font-semibold text-black">{personalTodoStats?.active ?? 0}</span><span className="font-semibold text-red-600">{personalTodoStats?.overdue ?? 0}</span></span>
             </Button>
             <ProjectNotificationsPanel />
@@ -504,14 +504,14 @@ export default function ProjectsPage() {
         }
       />
 
-      <div className="mb-6 flex w-full flex-wrap gap-1 rounded-lg border border-border bg-muted/30 p-1" role="tablist" aria-label="Projects workspace">
-        <Button type="button" size="sm" variant={workspace === "projects" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "projects"} onClick={() => { setWorkspace("projects"); setIsArranging(false); }}>
+      <div className="mb-6 grid w-full grid-cols-2 gap-1 rounded-lg border border-border bg-muted/30 p-1 sm:flex sm:flex-wrap" role="tablist" aria-label="Projects workspace">
+        <Button className="min-w-0 whitespace-normal" type="button" size="sm" variant={workspace === "projects" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "projects"} onClick={() => { setWorkspace("projects"); setIsArranging(false); }}>
           <Layers className="mr-1.5 h-4 w-4" /> Projects
         </Button>
-        <Button type="button" size="sm" variant={workspace === "my-todos" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "my-todos"} onClick={() => { setWorkspace("my-todos"); setIsArranging(false); }}>
+        <Button className="min-w-0 whitespace-normal" type="button" size="sm" variant={workspace === "my-todos" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "my-todos"} onClick={() => { setWorkspace("my-todos"); setIsArranging(false); }}>
           <ClipboardList className="mr-1.5 h-4 w-4" /> My To-Dos
         </Button>
-        {canViewWorkload ? <Button type="button" size="sm" variant={workspace === "workload" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "workload"} onClick={() => { setWorkspace("workload"); setIsArranging(false); }}>
+        {canViewWorkload ? <Button className="min-w-0 whitespace-normal" type="button" size="sm" variant={workspace === "workload" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "workload"} onClick={() => { setWorkspace("workload"); setIsArranging(false); }}>
           <User className="mr-1.5 h-4 w-4" /> Workload
         </Button> : null}
       </div>
@@ -540,8 +540,8 @@ export default function ProjectsPage() {
       {/* Toolbar */}
       <div className="flex flex-col gap-3 mb-5">
         {/* Row 1: Search + view toggle */}
-        <div className="flex gap-3">
-          <div className="relative flex-1">
+        <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+          <div className="relative min-w-0 flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search projects..."
@@ -553,7 +553,7 @@ export default function ProjectsPage() {
           <Button
             variant={isArranging ? "secondary" : "outline"}
             size="sm"
-            className="shrink-0"
+            className="w-full shrink-0 sm:w-auto"
             disabled={hasFilters}
             title={hasFilters ? "Clear filters to arrange the full project list" : "Arrange the project list"}
             onClick={() => {
@@ -566,9 +566,9 @@ export default function ProjectsPage() {
         </div>
 
         {/* Row 2: Filters */}
-        <div className="flex gap-2 flex-wrap items-center">
+        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-center">
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectTrigger className="h-8 w-full text-xs sm:w-36"><SelectValue placeholder="Status" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
               <SelectItem value="not_started">Not Started</SelectItem>
@@ -579,7 +579,7 @@ export default function ProjectsPage() {
           </Select>
 
           <Select value={filterPriority} onValueChange={setFilterPriority}>
-            <SelectTrigger className="w-32 h-8 text-xs"><SelectValue placeholder="Priority" /></SelectTrigger>
+            <SelectTrigger className="h-8 w-full text-xs sm:w-32"><SelectValue placeholder="Priority" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Priorities</SelectItem>
               <SelectItem value="high">High</SelectItem>
@@ -589,7 +589,7 @@ export default function ProjectsPage() {
           </Select>
 
           <Select value={filterSchedule} onValueChange={setFilterSchedule}>
-            <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="Schedule" /></SelectTrigger>
+            <SelectTrigger className="h-8 w-full text-xs sm:w-36"><SelectValue placeholder="Schedule" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Schedules</SelectItem>
               <SelectItem value="ongoing">Ongoing</SelectItem>
@@ -599,7 +599,7 @@ export default function ProjectsPage() {
 
           {/* Department filter */}
           <Select value={filterDept} onValueChange={setFilterDept}>
-            <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="Department" /></SelectTrigger>
+            <SelectTrigger className="h-8 w-full text-xs sm:w-36"><SelectValue placeholder="Department" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Departments</SelectItem>
               {(departments as { id: number; name: string }[]).map(d => (
@@ -611,7 +611,7 @@ export default function ProjectsPage() {
           {/* Owner filter */}
           {uniqueOwners.length > 1 && (
             <SearchableSelect
-              className="w-36 h-8 text-xs"
+              className="h-8 w-full text-xs sm:w-36"
               options={[{ value: "all", label: "All Owners" }, ...uniqueOwners.map((o: any) => ({ value: String(o.id), label: o.name ?? `User #${o.id}` }))]}
               value={filterOwner}
               onValueChange={setFilterOwner}
@@ -625,7 +625,7 @@ export default function ProjectsPage() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 text-xs text-muted-foreground"
+              className="h-8 w-full text-xs text-muted-foreground sm:w-auto"
               onClick={() => {
                 setSearch("");
                 setFilterStatus("all");
@@ -813,18 +813,18 @@ function ProjectListRow({ project, onArchive }: { project: Project; onArchive: (
 
   return (
     <div
-      className="bg-card border border-border rounded-lg px-4 py-3 hover:shadow-sm transition-all cursor-pointer group flex items-center gap-4"
+      className="group flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-card px-3 py-2.5 transition-all hover:shadow-sm sm:items-center sm:gap-4 sm:px-4 sm:py-3"
       onClick={() => navigate(`/projects/${project.id}`)}
     >
       {/* Priority dot */}
       <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${priorityCfg.dot}`} title={`${priorityCfg.label} priority`} />
 
       {/* Title + dept */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-sm text-foreground group-hover:text-primary transition-colors truncate">{project.title}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+          <span className="min-w-0 basis-full text-sm font-medium text-foreground transition-colors group-hover:text-primary sm:basis-auto sm:flex-1">{project.title}</span>
           {project.isRock ? <span className="inline-flex shrink-0 items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary"><Flag className="h-3 w-3" />Rock{project.rockQuarter ? ` · ${project.rockQuarter}` : ""}</span> : null}
-          <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">{project.department}</span>
+          <span className="max-w-full shrink-0 truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{project.department}</span>
           <span
             className="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
             title={`${project.taskOpen} open To-Do${project.taskOpen === 1 ? "" : "s"}`}
@@ -833,7 +833,7 @@ function ProjectListRow({ project, onArchive }: { project: Project; onArchive: (
             {project.taskOpen} open
           </span>
         </div>
-        <p className="text-xs text-muted-foreground truncate mt-0.5">{project.description}</p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{project.description}</p>
       </div>
 
       {/* Status */}
@@ -868,7 +868,7 @@ function ProjectListRow({ project, onArchive }: { project: Project; onArchive: (
       {/* Actions */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
-          <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 shrink-0">
+          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -886,7 +886,7 @@ function ProjectListRow({ project, onArchive }: { project: Project; onArchive: (
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0" />
+      <ChevronRight className="hidden h-4 w-4 shrink-0 text-muted-foreground opacity-0 sm:block sm:group-hover:opacity-100" />
     </div>
   );
 }

@@ -901,7 +901,7 @@ export default function ProjectDetailPage({
           </div>
         ) : (
           <div>
-            <div className="flex items-start justify-between gap-3 mb-3">
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <h1 className="text-xl font-bold text-foreground">{project.title}</h1>
@@ -925,7 +925,7 @@ export default function ProjectDetailPage({
                 </div>
                 <p className="text-sm text-muted-foreground">{project.description}</p>
               </div>
-              <div className="flex gap-2 shrink-0">
+              <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
                 <Button size="sm" variant="outline" onClick={handleAiSummary} disabled={aiLoading}>
                   <Sparkles className="h-3.5 w-3.5 mr-1" />
                   {aiLoading ? "Generating..." : "AI Summary"}
@@ -1063,20 +1063,20 @@ export default function ProjectDetailPage({
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={changeTab}>
-        <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-          <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">
+        <TabsList className="mb-4 grid h-auto w-full grid-cols-2 gap-1 p-1 sm:grid-cols-3 lg:flex lg:gap-0 lg:overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="tasks" className="h-auto min-h-9 min-w-0 whitespace-normal px-2 text-center text-xs leading-tight lg:h-[calc(100%-1px)] lg:shrink-0 lg:whitespace-nowrap lg:text-sm">
             <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
             List View ({tasks.length})
           </TabsTrigger>
-          <TabsTrigger value="board" className="shrink-0 whitespace-nowrap">
+          <TabsTrigger value="board" className="h-auto min-h-9 min-w-0 whitespace-normal px-2 text-center text-xs leading-tight lg:h-[calc(100%-1px)] lg:shrink-0 lg:whitespace-nowrap lg:text-sm">
             <Columns3 className="h-3.5 w-3.5 mr-1.5" />
             Board View
           </TabsTrigger>
-          <TabsTrigger value="gantt" className="shrink-0 whitespace-nowrap">
+          <TabsTrigger value="gantt" className="h-auto min-h-9 min-w-0 whitespace-normal px-2 text-center text-xs leading-tight lg:h-[calc(100%-1px)] lg:shrink-0 lg:whitespace-nowrap lg:text-sm">
             <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
             Gantt
           </TabsTrigger>
-          <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">
+          <TabsTrigger value="notes" className="h-auto min-h-9 min-w-0 whitespace-normal px-2 text-center text-xs leading-tight lg:h-[calc(100%-1px)] lg:shrink-0 lg:whitespace-nowrap lg:text-sm">
             <StickyNote className="h-3.5 w-3.5 mr-1.5" />
             Notes
             {unreadNoteCount > 0 && (
@@ -1085,11 +1085,11 @@ export default function ProjectDetailPage({
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="updates" className="shrink-0 whitespace-nowrap">
+          <TabsTrigger value="updates" className="h-auto min-h-9 min-w-0 whitespace-normal px-2 text-center text-xs leading-tight lg:h-[calc(100%-1px)] lg:shrink-0 lg:whitespace-nowrap lg:text-sm">
             <BarChart3 className="h-3.5 w-3.5 mr-1.5" />
             Weekly Updates ({(project.weeklyUpdates ?? []).length})
           </TabsTrigger>
-          <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">
+          <TabsTrigger value="activity" className="h-auto min-h-9 min-w-0 whitespace-normal px-2 text-center text-xs leading-tight lg:h-[calc(100%-1px)] lg:shrink-0 lg:whitespace-nowrap lg:text-sm">
             <Activity className="h-3.5 w-3.5 mr-1.5" />
             Activity
           </TabsTrigger>
