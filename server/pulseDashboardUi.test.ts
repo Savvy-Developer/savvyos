@@ -34,10 +34,13 @@ describe("Pulse dashboard consolidation", () => {
     expect(scorecardRouter).toContain("visible_meeting_ids");
   });
 
-  it("keeps My Measurables inside the My Work workspace", () => {
-    expect(myWorkPage).toContain('aria-label="My Work sections"');
-    expect(myWorkPage).toContain('>My Work</TabsTrigger>');
-    expect(myWorkPage).toContain('>My Measurables</TabsTrigger>');
-    expect(myWorkPage).toContain('window.location.hash === "#my-measurables"');
+  it("keeps My Measurables as a collapsible section within My Work", () => {
+    expect(myWorkPage).toContain("DashboardSection");
+    expect(myWorkPage).toContain('title="My Measurables"');
+    expect(myWorkPage).toContain("<PulseMyMeasurables embedded />");
+    expect(myWorkPage).toContain('title="Weekly Preparation"');
+    expect(myWorkPage).toContain("<CollapsibleTrigger");
+    expect(myWorkPage).not.toContain("activeWorkTab");
+    expect(myWorkPage).not.toContain('TabsContent value="measurables"');
   });
 });

@@ -51,7 +51,7 @@ function valueLabel(value: unknown) {
 type Draft = { value: string; note: string };
 
 /** A person-level weekly reporting surface; metric records remain authoritative in SavvyOS. */
-export function PulseMyMeasurables() {
+export function PulseMyMeasurables({ embedded = false }: { embedded?: boolean }) {
   const utils = trpc.useUtils();
   const measurableQuery = trpc.pulse.personal.myMeasurables.useQuery();
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
@@ -156,8 +156,8 @@ export function PulseMyMeasurables() {
 
   return (
     <section id="my-measurables" className="pulse-section scroll-mt-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
+      <div className={`flex flex-wrap items-end gap-3 ${embedded ? "justify-end" : "justify-between"}`}>
+        {!embedded ? <div>
           <p className="text-sm font-medium text-primary">
             Reporting week ·{" "}
             {weekLabel(data.reportingWeek?.start, data.reportingWeek?.end)}
@@ -169,7 +169,7 @@ export function PulseMyMeasurables() {
             Submit every active measurable you own for this Sunday–Saturday
             reporting week.
           </p>
-        </div>
+        </div> : null}
         {measurables.length ? (
           <Button
             type="button"
