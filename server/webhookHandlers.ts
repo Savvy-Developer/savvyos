@@ -13,6 +13,8 @@
 import { getDb as _getDb, logActivity, scheduleAircallPhoneRematch } from "./db";
 import { triggerGhlContactSync } from "./_core/ghlSync";
 import { triggerSmartPlansForContact } from "./smartPlanScheduler";
+import { organicSocialIds, resolveOrganicSocialLeadSourceId } from "./organicSocialLeadSources";
+import { isOrganicSocialName } from "@shared/organicSocial";
 
 async function getDb() {
   const db = await _getDb();
@@ -134,11 +136,21 @@ async function resolveLeadSourceId(
   if (typeof nameOrId === "string" && /^\d+$/.test(nameOrId)) return parseInt(nameOrId);
 
   if (nameOrId) {
-    const [row] = await db
-      .select({ id: leadSources.id })
+    const matches: Array<{ id: number; parentId: number | null }> = await db
+      .select({ id: leadSources.id, parentId: leadSources.parentId })
       .from(leadSources)
       .where(eq(leadSources.name, nameOrId))
-      .limit(1);
+      .limit(10);
+    let row: { id: number; parentId: number | null } | undefined = matches[0];
+    // The Organic Social rows are reached only through the UTM rule. A Zap
+    // that sends lead_source "Facebook" or "Instagram" means paid-era Meta,
+    // and must never be filed as organic just because the names match.
+    if (row && isOrganicSocialName(nameOrId)) {
+      const organic = await organicSocialIds(db);
+      row = matches.find(
+        match => !organic || (match.id !== organic.parentId && match.parentId !== organic.parentId)
+      );
+    }
     if (row) return row.id;
   }
   return defaultId ?? null;
@@ -274,16 +286,18 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
   const spousePhone = normalizeOptionalUsPhone(p.spousePhone == null ? undefined : String(p.spousePhone));
   const smsMarketingConsentProvided = hasExplicitSmsMarketingConsent(rawPayload, p);
 
-  // Resolve lead source
-  const leadSourceId = await resolveLeadSourceId(
-    (p._leadSourceName as string) || (p.leadSourceId as number),
-    endpoint.defaultLeadSourceId
-  );
-
   // Read from the raw payload, not the normalised one: see the note by
   // FIELD_MAP above.
   const adAttribution = readAdAttribution(rawPayload);
   const campaignSource = campaignSourceFrom(adAttribution);
+
+  // Resolve lead source: a source named in the payload wins, then an organic
+  // social visit (utm_medium=social), then the endpoint's default.
+  const leadSourceId =
+    (await resolveLeadSourceId((p._leadSourceName as string) || (p.leadSourceId as number), null)) ??
+    (await resolveOrganicSocialLeadSourceId(db, adAttribution)) ??
+    endpoint.defaultLeadSourceId ??
+    null;
 
   // Find or create contact
   const existingId = await findExistingContact(email, phone ?? undefined);

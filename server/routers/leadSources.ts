@@ -144,15 +144,20 @@ export const leadSourcesRouter = router({
     return all.filter(r => r.ls.isActive === false);
   }),
 
-  listFlat: protectedProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return [];
-    return db
-      .select({ ls: leadSources })
-      .from(leadSources)
-      .where(eq(leadSources.isActive, true))
-      .orderBy(leadSources.parentId, leadSources.name);
-  }),
+  // Active sources, for pickers and filters. includeInactive adds retired
+  // ones too, for showing the name on records that still carry them (a
+  // deactivated source keeps its contacts).
+  listFlat: protectedProcedure
+    .input(z.object({ includeInactive: z.boolean().optional() }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      return db
+        .select({ ls: leadSources })
+        .from(leadSources)
+        .where(input?.includeInactive ? undefined : eq(leadSources.isActive, true))
+        .orderBy(leadSources.parentId, leadSources.name);
+    }),
 
   // Return an SOP only when it is published to agents, unless the caller is an
   // administrator editing the source. This keeps drafts private by default.

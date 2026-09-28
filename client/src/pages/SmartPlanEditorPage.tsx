@@ -72,7 +72,7 @@ type StepForm = {
   timezone: string;
 };
 
-type LeadSource = { id: number; name: string; parentId: number | null };
+type LeadSource = { id: number; name: string; parentId: number | null; isActive?: boolean };
 
 const EMPTY_METRICS: Metrics = {
   executions: 0, sent: 0, skipped: 0, failed: 0, delivered: 0,
@@ -466,7 +466,7 @@ const SMART_PLAN_TRIGGERS: Array<{ value: TriggerType; label: string; futureLabe
   { value: "appointment_canceled", label: "Appointment Canceled", futureLabel: "clients when an appointment is canceled" },
 ];
 
-function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources: LeadSource[]; onSaved: () => void }) {
+function SettingsPanel({ plan, leadSources, allLeadSources = leadSources, onSaved }: { plan: any; leadSources: LeadSource[]; allLeadSources?: LeadSource[]; onSaved: () => void }) {
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -509,7 +509,10 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
     },
     onError: (error) => toast.error(error.message),
   });
-  const selectedSources = form.triggerLeadSourceIds.map((id) => leadSources.find((source) => source.id === id)).filter(Boolean) as LeadSource[];
+  // Looked up among retired sources too: a trigger keeps firing for a
+  // deactivated source (it matches by id), so it must stay visible here and
+  // removable, not silently hidden.
+  const selectedSources = form.triggerLeadSourceIds.map((id) => allLeadSources.find((source) => source.id === id)).filter(Boolean) as LeadSource[];
   const currentMatchCount = isLoadingMatchCount ? "…" : (matchingData?.count ?? 0).toLocaleString();
 
   const save = () => {
@@ -571,7 +574,7 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
               selectedIds={form.triggerLeadSourceIds}
               onAdd={(id) => setForm((current) => current.triggerLeadSourceIds.includes(id) ? current : ({ ...current, triggerLeadSourceIds: [...current.triggerLeadSourceIds, id] }))}
             />
-            <div className="flex flex-wrap gap-2">{selectedSources.map((source) => <Badge key={source.id} variant="secondary" className="gap-1.5 py-1"><Zap className="h-3 w-3" />{formatLeadSourcePath(source, leadSources)}<button type="button" aria-label={`Remove ${formatLeadSourcePath(source, leadSources)}`} className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => setForm((current) => ({ ...current, triggerLeadSourceIds: current.triggerLeadSourceIds.filter((id) => id !== source.id) }))}>×</button></Badge>)}</div>
+            <div className="flex flex-wrap gap-2">{selectedSources.map((source) => <Badge key={source.id} variant="secondary" className="gap-1.5 py-1"><Zap className="h-3 w-3" />{formatLeadSourcePath(source, allLeadSources)}{source.isActive === false ? " (inactive)" : ""}<button type="button" aria-label={`Remove ${formatLeadSourcePath(source, allLeadSources)}`} className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => setForm((current) => ({ ...current, triggerLeadSourceIds: current.triggerLeadSourceIds.filter((id) => id !== source.id) }))}>×</button></Badge>)}</div>
           </div>}
 
           {isAppointmentTrigger && <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
@@ -649,6 +652,7 @@ function PlanWorkspace({ planId }: { planId: number }) {
   const { data: planData, isLoading } = trpc.smartPlans.get.useQuery({ id: planId });
   const { data: analyticsData } = trpc.smartPlans.analytics.get.useQuery({ planId });
   const { data: sourceRows = [] } = trpc.leadSources.list.useQuery();
+  const { data: inactiveSourceRows = [] } = trpc.leadSources.listInactive.useQuery();
   const toggleStatus = trpc.smartPlans.update.useMutation({ onSuccess: () => { utils.smartPlans.get.invalidate({ id: planId }); utils.smartPlans.list.invalidate(); }, onError: (error) => toast.error(error.message) });
   const publish = trpc.smartPlans.publish.useMutation({ onSuccess: () => { toast.success("Plan published and active"); utils.smartPlans.get.invalidate({ id: planId }); utils.smartPlans.list.invalidate(); }, onError: (error) => toast.error(error.message) });
   const deleteStep = trpc.smartPlans.steps.delete.useMutation({ onSuccess: () => { toast.success("Step deleted"); setSelectedStepId("new"); refresh(); }, onError: (error) => toast.error(error.message) });
@@ -674,6 +678,10 @@ function PlanWorkspace({ planId }: { planId: number }) {
   const selectedStep = selectedStepId === "new" ? null : steps.find((step) => step.id === selectedStepId) || null;
   const totals = ((analyticsData as any)?.totals || EMPTY_METRICS) as Metrics;
   const leadSources = (sourceRows as any[]).map((row) => ({ id: row.ls?.id ?? row.id, name: row.ls?.name ?? row.name, parentId: row.ls?.parentId ?? row.parentId ?? null })) as LeadSource[];
+  const allLeadSources = [
+    ...leadSources,
+    ...(inactiveSourceRows as any[]).map((row) => ({ id: row.ls?.id ?? row.id, name: row.ls?.name ?? row.name, parentId: row.ls?.parentId ?? row.parentId ?? null, isActive: false })),
+  ] as LeadSource[];
   const defaultSchedule = {
     enabled: plan?.defaultSendWindowEnabled ?? true,
     days: plan?.defaultSendDays?.length ? plan.defaultSendDays : [0, 1, 2, 3, 4, 5, 6],
@@ -723,7 +731,7 @@ function PlanWorkspace({ planId }: { planId: number }) {
       </div>}
 
       {tab === "analytics" && <AnalyticsPanel steps={steps} totals={totals} />}
-      {tab === "settings" && <SettingsPanel plan={plan} leadSources={leadSources} onSaved={refresh} />}
+      {tab === "settings" && <SettingsPanel plan={plan} leadSources={leadSources} allLeadSources={allLeadSources} onSaved={refresh} />}
     </div>
   );
 }
