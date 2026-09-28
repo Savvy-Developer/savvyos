@@ -261,7 +261,8 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
     metaDescription: found.description,
     socialImageUrl: found.image,
     noindex: !!found.noindex,
-    // Tracking tags stay off the site until the Tag Manager decision is made.
+    // Analytics tags for the website come from server/websiteTracking.ts,
+    // which also covers pages without metadata (sign-in, account, not found).
     trackingSettings: {},
   };
 }

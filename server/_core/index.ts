@@ -77,6 +77,7 @@ import {
   getWebsitePageMetadata,
   registerWebsiteSeoRoutes,
 } from "../websiteSeo";
+import { websiteTagsForRequest } from "../websiteTracking";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
 import { registerLegacySiteRedirects } from "../legacySiteRedirects";
 import { registerReleaseNotificationRoute } from "../releaseNotificationRoute";
@@ -215,6 +216,8 @@ async function startServer() {
   // receive title, description, social image, and approved vendor tags in HTML.
   app.use(async (req, res, next) => {
     if (req.method !== "GET" && req.method !== "HEAD") return next();
+    // Analytics tags (Tag Manager, Clarity) for public website pages only.
+    res.locals.websiteTags = websiteTagsForRequest(req);
     try {
       // Landing pages first; /newsite addresses never match a landing slug
       // (they contain a slash), so the two never compete for a request.
