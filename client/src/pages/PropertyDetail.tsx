@@ -823,7 +823,7 @@ export default function PropertyDetail() {
             <Button
               onClick={handleTransfer}
               disabled={!transferTargetId || transferMutation.isPending}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-red-600 text-white hover:bg-red-700"
             >
               {transferMutation.isPending ? "Transferring..." : "Transfer & Delete"}
             </Button>
