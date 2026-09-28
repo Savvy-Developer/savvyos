@@ -1514,6 +1514,23 @@ export const websiteSoldSweeps = mysqlTable(
 );
 export type WebsiteSoldSweep = typeof websiteSoldSweeps.$inferSelect;
 
+/**
+ * How long each website listing has been live, for the 90-day expiry
+ * (server/websiteListingExpiry.ts). liveSince restarts whenever a listing goes
+ * from not live back to live, so a republished listing gets a fresh 90 days.
+ * One row per website listing. Created at startup by
+ * server/websiteListingExpirySchema.ts; the same statement is kept in
+ * drizzle/20260928_website_listing_clocks.sql for the record.
+ */
+export const websiteListingClocks = mysqlTable("website_listing_clocks", {
+  websitePropertyId: int("websitePropertyId").primaryKey(),
+  liveSince: timestamp("liveSince").notNull(),
+  wasLive: boolean("wasLive").default(true).notNull(),
+  expiredAt: timestamp("expiredAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type WebsiteListingClock = typeof websiteListingClocks.$inferSelect;
+
 export const websiteLeads = mysqlTable(
   "website_leads",
   {
