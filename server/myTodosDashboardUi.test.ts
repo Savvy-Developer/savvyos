@@ -56,12 +56,17 @@ describe("actionable My To-Dos dashboard", () => {
     expect(workloadView).toContain("refetchInterval: 1500");
   });
 
-  it("uses the Projects Super Permission for Workload visibility and enforcement", () => {
+  it("uses Projects access for Workload entry and roster filtering", () => {
     expect(projectsPage).toContain("adminPermissions");
     expect(projectsPage).toContain("canViewProjects");
     expect(workloadAccess).toContain(
       'canAdminUsePermission(user, "canViewProjects")'
     );
     expect(projectsRouter).toContain("await canViewPmWorkload(ctx.user)");
+    expect(projectsRouter).toContain("isPmWorkloadRosterMember");
+    expect(projectsRouter).toContain("projectAccessUserIds");
+    expect(projectsRouter).toContain("pmProjects.ownerId");
+    expect(projectsRouter).toContain("pmProjectCollaborators.userId");
+    expect(projectsRouter).toContain("pmTasks.ownerId");
   });
 });

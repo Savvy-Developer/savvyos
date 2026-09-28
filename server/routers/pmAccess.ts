@@ -12,3 +12,15 @@ export async function canViewPmWorkload(user: {
 }) {
   return canAdminUsePermission(user, "canViewProjects");
 }
+
+/**
+ * Workload is an organization-wide planning view, but its roster is limited to
+ * administrators and people with an active Project record-access relationship:
+ * project owner, collaborator, or assigned Project To-Do owner.
+ */
+export function isPmWorkloadRosterMember(
+  user: { role: string },
+  hasProjectAccess: boolean
+) {
+  return user.role === "admin" || hasProjectAccess;
+}

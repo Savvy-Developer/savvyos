@@ -37,7 +37,7 @@ import { completionUpdate, reopenUpdate, TODO_RECURRENCES, type TodoRecurrence }
 import { visible_meeting_ids } from "../pulse/access";
 import { hasPulseCapability } from "../pulse/authorization";
 import { hasDatedProjectRockMilestone } from "@shared/projectRockMilestones";
-import { canViewPmWorkload } from "./pmAccess";
+import { canViewPmWorkload, isPmWorkloadRosterMember } from "./pmAccess";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
 const ROCK_MILESTONE_LIMIT = 20;
@@ -1218,12 +1218,26 @@ export const pmRouter = router({
           label: `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
         };
       });
-      const [members, projects, projectTodos, l10Todos] = await Promise.all([
+      const [activeUsers, projectOwners, collaborators, assignedProjectTodos, projects, projectTodos, l10Todos] = await Promise.all([
         db
-          .select({ id: users.id, name: users.name, email: users.email })
+          .select({ id: users.id, name: users.name, email: users.email, role: users.role })
           .from(users)
           .where(eq(users.isActive, true))
           .orderBy(asc(users.name), asc(users.email)),
+        db
+          .select({ userId: pmProjects.ownerId })
+          .from(pmProjects)
+          .where(isNull(pmProjects.archivedAt)),
+        db
+          .select({ userId: pmProjectCollaborators.userId })
+          .from(pmProjectCollaborators)
+          .innerJoin(pmProjects, eq(pmProjectCollaborators.projectId, pmProjects.id))
+          .where(isNull(pmProjects.archivedAt)),
+        db
+          .select({ userId: pmTasks.ownerId })
+          .from(pmTasks)
+          .innerJoin(pmProjects, eq(pmTasks.projectId, pmProjects.id))
+          .where(isNull(pmProjects.archivedAt)),
         db
           .select({
             ownerId: pmProjects.ownerId,
@@ -1263,6 +1277,17 @@ export const pmRouter = router({
             )
           ),
       ]);
+      const projectAccessUserIds = new Set<number>([
+        ...projectOwners.map(project => project.userId),
+        ...collaborators.map(collaborator => collaborator.userId),
+        ...assignedProjectTodos.map(todo => todo.userId),
+      ].filter((userId): userId is number => userId !== null));
+      const members = activeUsers.filter(member =>
+        isPmWorkloadRosterMember(
+          member,
+          projectAccessUserIds.has(member.id)
+        )
+      );
       const byId = new Map(
         members.map(member => [
           member.id,

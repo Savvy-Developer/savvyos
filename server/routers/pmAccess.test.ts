@@ -5,7 +5,7 @@ vi.mock("./permissions", () => ({
 }));
 
 import { canAdminUsePermission } from "./permissions";
-import { canViewPmWorkload } from "./pmAccess";
+import { canViewPmWorkload, isPmWorkloadRosterMember } from "./pmAccess";
 import { pmRouter } from "./pm";
 
 describe("Projects Workload access", () => {
@@ -38,6 +38,27 @@ describe("Projects Workload access", () => {
         email: "restricted@savvy.realty",
       })
     ).resolves.toBe(false);
+  });
+
+  it("returns administrators and people with Projects record access in the Workload roster", () => {
+    expect(
+      isPmWorkloadRosterMember(
+        { role: "admin" },
+        false
+      )
+    ).toBe(true);
+    expect(
+      isPmWorkloadRosterMember(
+        { role: "agent" },
+        true
+      )
+    ).toBe(true);
+    expect(
+      isPmWorkloadRosterMember(
+        { role: "agent" },
+        false
+      )
+    ).toBe(false);
   });
 
   it("rejects a restricted Workload request at the server boundary", async () => {
