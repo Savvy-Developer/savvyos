@@ -77,6 +77,25 @@ function formatPeriod(cadence: ScorecardCadence, start: Date) {
   return String(start.getUTCFullYear());
 }
 
+export function selectedScorecardPeriod(cadence: ScorecardCadence, periodStart?: string) {
+  const now = new Date();
+  const requested = periodStart ? new Date(`${periodStart}T12:00:00.000Z`) : now;
+  if (Number.isNaN(requested.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid scorecard reporting period." });
+  const bounds = periodBounds(cadence, requested);
+  const currentBounds = periodBounds(cadence, now);
+  if (bounds.start > currentBounds.start) throw new TRPCError({ code: "BAD_REQUEST", message: "Future scorecard reporting periods are not available yet." });
+  const end = addDays(bounds.end, -1);
+  return {
+    cadence,
+    start: bounds.start,
+    end: bounds.end,
+    periodStart: dateOnly(bounds.start),
+    periodEnd: dateOnly(end),
+    label: cadence === "weekly" ? `Week of ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(bounds.start)}` : formatPeriod(cadence, bounds.start),
+    isCurrent: bounds.start.getTime() === currentBounds.start.getTime(),
+  };
+}
+
 function numeric(value: unknown): number | null {
   if (value == null || value === "") return null;
   const parsed = Number(value);
@@ -109,7 +128,7 @@ async function mappingRows(db: any, meetingId: string) {
     .orderBy(asc(pulseMeetingScorecardMetrics.sortOrder), asc(pulseMeetingScorecardMetrics.addedAt));
 }
 
-export async function getMeetingScorecard(db: any, viewerId: number, meetingId: string, skipVisibility = false) {
+export async function getMeetingScorecard(db: any, viewerId: number, meetingId: string, skipVisibility = false, reference = new Date()) {
   if (!skipVisibility) await require_visible_meeting(db, viewerId, meetingId);
   const rows = await mappingRows(db, meetingId);
   const active = rows.filter((row: any) => row.metric?.status === "active" && row.responsibility && row.owner);
@@ -132,7 +151,7 @@ export async function getMeetingScorecard(db: any, viewerId: number, meetingId: 
     const cadence = metric.frequency as ScorecardCadence;
     const sourceValues = valuesByMetric.get(metric.id) ?? [];
     const metricTargets = targetsByMetric.get(metric.id) ?? [];
-    const references = [new Date(), priorPeriod(cadence, new Date()), priorPeriod(cadence, priorPeriod(cadence, new Date()))];
+    const references = [reference, priorPeriod(cadence, reference), priorPeriod(cadence, priorPeriod(cadence, reference))];
     const periods: any[] = (isEventMetric(metric) || isSnapshotMetric(metric))
       ? sourceValues.slice(0, 3).map((value: any) => ({ periodStart: value.periodStart, periodEnd: value.periodEnd, label: value.eventLabel || (value.eventDate ? `Event · ${value.eventDate}` : "Latest result"), value: numeric(value.actualValue), note: value.note ?? null, resultState: value.resultState, eventLabel: value.eventLabel, eventDate: value.eventDate, supportingInputs: value.supportingInputs, calculationMetadata: value.calculationMetadata }))
       : references.map((reference) => {
@@ -174,7 +193,7 @@ export async function getMeetingScorecard(db: any, viewerId: number, meetingId: 
       statusLabel: grade.status,
       onTarget: grade.onTarget,
       trend: scorecardTrendPhrase(periodsWithPerformance.map((period) => period.value), cadence),
-      canEdit: metric.metricType !== "automatic" && (metric.ownerId ?? row.responsibility.ownerId) === viewerId,
+      canEdit: metric.metricType !== "automatic" && (metric.ownerId ?? row.responsibility.ownerId) === viewerId && dateOnly(metricPeriodBounds(metric, reference).start) === dateOnly(metricPeriodBounds(metric).start),
       detail: { responsibility: row.responsibility.title, definition: metric.definition || row.responsibility.description, ownerName: ownerById.get(metric.ownerId ?? row.owner.id)?.name ?? ownerById.get(metric.ownerId ?? row.owner.id)?.email ?? row.owner.name ?? row.owner.email ?? "Unassigned", target, targetConfig, cadence, measurementPeriod: currentMeasurementPeriod(metric), reviewFrequency: metric.reviewFrequency ?? "weekly", calculationMethod: metric.calculationMethod ?? metric.rollupMethod, formulaExpression: metric.formulaExpression, manualInputDefinitions: metric.manualInputDefinitions, dataSource: autoConfig?.dataSource ?? "Manual entry", dateField: autoConfig?.dateField ?? null, calculation: autoConfig?.calculation ?? metric.calculationMethod ?? metric.rollupMethod, lastUpdated: current?.updatedAt ?? autoConfig?.lastRefreshedAt ?? null, history: periodsWithPerformance, supportingInputs: current?.supportingInputs ?? null, calculationMetadata: current?.calculationMetadata ?? null },
     };
   });
@@ -225,21 +244,23 @@ async function requireManager(db: any, personId: number, meetingId: string) {
 }
 
 export const pulseScorecardRouter = router({
-  master: pulseProcedure.query(async ({ ctx }) => {
+  master: pulseProcedure.input(z.object({ cadence: cadenceSchema.default("weekly"), periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })).query(async ({ ctx, input }) => {
     const db = await database();
+    const selectedPeriod = selectedScorecardPeriod(input.cadence, input.periodStart);
     const visibleMeetingIds = await visible_meeting_ids(db, ctx.user.id);
-    if (!visibleMeetingIds.length) return { meetings: [], items: [] };
+    if (!visibleMeetingIds.length) return { selectedPeriod, meetings: [], items: [] };
     const meetings = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name })
       .from(pulseMeetings)
       .where(and(inArray(pulseMeetings.id, visibleMeetingIds), eq(pulseMeetings.isActive, true)))
       .orderBy(asc(pulseMeetings.name));
     const scorecards = await Promise.all(meetings.map(async (meeting: any) => ({
       meeting,
-      scorecard: await getMeetingScorecard(db, ctx.user.id, meeting.id),
+      scorecard: await getMeetingScorecard(db, ctx.user.id, meeting.id, false, selectedPeriod.start),
     })));
     return {
-      meetings: scorecards.map(({ meeting, scorecard }: any) => ({ id: meeting.id, name: meeting.name, metricCount: scorecard.items.length })),
-      items: scorecards.flatMap(({ meeting, scorecard }: any) => scorecard.items.map((item: any) => ({ ...item, meetingId: meeting.id, meetingName: meeting.name })))
+      selectedPeriod,
+      meetings: scorecards.map(({ meeting, scorecard }: any) => ({ id: meeting.id, name: meeting.name, metricCount: scorecard.items.filter((item: any) => item.cadence === input.cadence).length })),
+      items: scorecards.flatMap(({ meeting, scorecard }: any) => scorecard.items.filter((item: any) => item.cadence === input.cadence).map((item: any) => ({ ...item, meetingId: meeting.id, meetingName: meeting.name })))
         .sort((left: any, right: any) => left.meetingName.localeCompare(right.meetingName) || left.name.localeCompare(right.name)),
     };
   }),

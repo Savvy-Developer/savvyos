@@ -30,8 +30,18 @@ describe("Pulse dashboard consolidation", () => {
     expect(myWorkPage).toContain('value="scorecard"');
     expect(masterScorecard).toContain("trpc.pulse.scorecard.master.useQuery");
     expect(masterScorecard).toContain("All meetings");
-    expect(scorecardRouter).toContain("master: pulseProcedure.query");
+    expect(scorecardRouter).toContain("master: pulseProcedure.input");
     expect(scorecardRouter).toContain("visible_meeting_ids");
+  });
+
+  it("provides cadence tabs and historical reporting-period navigation on the Master Scorecard", () => {
+    expect(masterScorecard).toContain('CADENCES = ["weekly", "monthly", "quarterly", "annually"]');
+    expect(masterScorecard).toContain("selectedPeriod.label");
+    expect(masterScorecard).toContain("movePeriod(-1)");
+    expect(masterScorecard).toContain("movePeriod(1)");
+    expect(masterScorecard).toContain("editableCurrent={selectedPeriod.isCurrent}");
+    expect(scorecardRouter).toContain("selectedScorecardPeriod");
+    expect(scorecardRouter).toContain("periodStart: z.string().regex");
   });
 
   it("keeps My Measurables as a collapsible section within My Work", () => {
