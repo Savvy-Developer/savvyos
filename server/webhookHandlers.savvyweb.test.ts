@@ -79,6 +79,12 @@ vi.mock("./_core/ghlSync", () => ({
 const mockTriggerSmartPlansForContact = vi.hoisted(() =>
   vi.fn().mockResolvedValue(1)
 );
+// The Organic Social rows, as the live database has them after startup.
+vi.mock("./organicSocialLeadSources", () => ({
+  organicSocialIds: vi.fn(async () => ({ parentId: 360045, children: new Map() })),
+  resolveOrganicSocialLeadSourceId: vi.fn(async () => null),
+}));
+
 vi.mock("./smartPlanScheduler", () => ({
   triggerSmartPlansForContact: mockTriggerSmartPlansForContact,
   resumeSmartPlansAwaitingSmsConsent: vi.fn().mockResolvedValue(undefined),
@@ -280,6 +286,31 @@ describe("unmatched email", () => {
     expect(r.message).toContain("No contact found");
     expect(state.__mock.inserted).toHaveLength(0);
     expect(state.__mock.activities).toHaveLength(0);
+  });
+
+  it("files an old-site lead marked Social under Organic Social", async () => {
+    await savvyWebEventHandler(
+      envelope("lead.created", {
+        leadEmail: "social@example.com",
+        name: "Social Lead",
+        source: "social",
+      }),
+      endpoint
+    );
+    expect(state.__mock.inserted[0].leadSourceId).toBe(360045);
+    expect(mockTriggerSmartPlansForContact).toHaveBeenCalledWith(900, 360045);
+  });
+
+  it("keeps the endpoint default for any other old-site source", async () => {
+    await savvyWebEventHandler(
+      envelope("lead.created", {
+        leadEmail: "website@example.com",
+        name: "Website Lead",
+        source: "website",
+      }),
+      endpoint
+    );
+    expect(state.__mock.inserted[0].leadSourceId).toBe(42);
   });
 
   it("attributes a created contact to the endpoint's default lead source", async () => {

@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { isOrganicSocialName, organicSocialTarget } from "@shared/organicSocial";
+import { isOldSiteSocialSource, isOrganicSocialName, organicSocialTarget } from "@shared/organicSocial";
 import { resetOrganicSocialCache, resolveOrganicSocialLeadSourceId } from "./organicSocialLeadSources";
 
 /**
@@ -37,6 +37,14 @@ describe("which visits are organic social", () => {
   it("never files the Meta ad abbreviations fb and ig as organic, not even the parent", () => {
     expect(organicSocialTarget({ utmSource: "fb", utmMedium: "social" })).toBeNull();
     expect(organicSocialTarget({ utmSource: "IG", utmMedium: "social" })).toBeNull();
+  });
+
+  it("treats only the old site's exact \"social\" source as organic", () => {
+    expect(isOldSiteSocialSource("social")).toBe(true);
+    expect(isOldSiteSocialSource(" Social ")).toBe(true);
+    expect(isOldSiteSocialSource("facebook_ads")).toBe(false);
+    expect(isOldSiteSocialSource("social_ads")).toBe(false);
+    expect(isOldSiteSocialSource(undefined)).toBe(false);
   });
 
   it("knows the Organic Social names", () => {

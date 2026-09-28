@@ -58,3 +58,12 @@ export function isOrganicSocialName(name: string | null | undefined): boolean {
     ORGANIC_SOCIAL_CHILDREN.some(child => child.toLowerCase() === value)
   );
 }
+
+/**
+ * The old savvy-agents.com Leads table has its own source values; "social"
+ * (shown as "Social") is one of them. Cam's rule: those leads go to the
+ * Organic Social parent. Exact match only, like the UTM rule.
+ */
+export function isOldSiteSocialSource(value: string | null | undefined): boolean {
+  return (value ?? "").trim().toLowerCase() === "social";
+}
