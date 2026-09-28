@@ -30,13 +30,19 @@ describe("Event–Project integration safeguards", () => {
     expect(eventsRouter).toContain("await db.transaction");
   });
 
-  it("keeps the picker non-creating and the inaccessible Project state redacted", () => {
-    expect(eventsPage).toContain("No Events projects available. Create one in Projects first.");
+  it("limits existing links to Events Projects and creates new linked Projects through Projects", () => {
+    expect(eventsPage).toContain("Choose an existing, unlinked Project in the Events department.");
+    expect(eventsPage).toContain("Create an Events Project");
+    expect(eventsPage).toContain("Create and link Project");
+    expect(eventsPage).toContain('department: "Events"');
+    expect(eventsPage).toContain("trpc.pm.projects.create.useMutation()");
+    expect(eventsPage).toContain("await linkProject.mutateAsync({ eventId, projectId: project.id })");
+    expect(eventsPage).toContain("No tasks are created automatically.");
+    expect(eventsPage).toContain("ownerId: Number(newProject.ownerId)");
     expect(eventsPage).toContain(
       "A Project is linked to this Event. You do not have access to its planning workspace."
     );
     expect(eventsPage).toContain("<ProjectDetailPage embeddedProjectId={linked.project.id} />");
-    expect(eventsPage).not.toContain("Create Project from Event");
   });
 
   it("keeps the full linked Project workspace in its dedicated Event tab", () => {

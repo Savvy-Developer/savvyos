@@ -6,6 +6,7 @@ import {
   differenceInCalendarDays,
 } from "date-fns";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -1037,18 +1039,30 @@ function ProfileDatum({
 
 function EventProjectWorkspace({
   eventId,
+  eventName,
   onChanged,
 }: {
   eventId: number;
+  eventName: string;
   onChanged: () => void;
 }) {
+  const { user } = useAuth();
   const utils = trpc.useUtils();
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [projectId, setProjectId] = useState("");
+  const [newProject, setNewProject] = useState({
+    title: "",
+    description: "",
+    ownerId: "",
+    dueDate: "",
+    priority: "medium" as "high" | "medium" | "low",
+  });
   const { data: linked, isLoading } = trpc.events.projects.linked.useQuery(
     { eventId },
     { staleTime: 0 }
   );
+  const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
   const { data: candidates = [], isLoading: candidatesLoading } =
     trpc.events.projects.candidates.useQuery(undefined, {
       enabled: linkDialogOpen,
@@ -1059,15 +1073,61 @@ function EventProjectWorkspace({
     void utils.events.projects.candidates.invalidate();
     onChanged();
   };
-  const linkProject = trpc.events.projects.link.useMutation({
-    onSuccess: () => {
+  const linkProject = trpc.events.projects.link.useMutation();
+  const createProject = trpc.pm.projects.create.useMutation();
+  const resetNewProject = () => {
+    setNewProject({
+      title: `${eventName} planning`,
+      description: "",
+      ownerId: String((user as any)?.id ?? ""),
+      dueDate: "",
+      priority: "medium",
+    });
+  };
+  const linkExistingProject = async () => {
+    if (!projectId) return;
+    try {
+      await linkProject.mutateAsync({ eventId, projectId: Number(projectId) });
       toast.success("Project linked to this Event.");
       setLinkDialogOpen(false);
       setProjectId("");
       refresh();
-    },
-    onError: error => toast.error(error.message),
-  });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to link this Project.");
+    }
+  };
+  const createAndLinkProject = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!newProject.title.trim() || !newProject.description.trim() || !newProject.ownerId) {
+      toast.error("Please provide a title, description, and owner.");
+      return;
+    }
+    try {
+      const project = await createProject.mutateAsync({
+        title: newProject.title.trim(),
+        description: newProject.description.trim(),
+        department: "Events",
+        ownerId: Number(newProject.ownerId),
+        dueDate: newProject.dueDate ? new Date(newProject.dueDate) : null,
+        isOngoing: false,
+        priority: newProject.priority,
+      });
+      try {
+        await linkProject.mutateAsync({ eventId, projectId: project.id });
+      } catch (error) {
+        toast.error(
+          `Project created, but it could not be linked: ${error instanceof Error ? error.message : "please link it manually."}`
+        );
+        return;
+      }
+      toast.success("Events Project created and linked.");
+      setCreateDialogOpen(false);
+      resetNewProject();
+      refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to create this Project.");
+    }
+  };
   const unlinkProject = trpc.events.projects.unlink.useMutation({
     onSuccess: () => {
       toast.success("Project unlinked from this Event.");
@@ -1094,9 +1154,20 @@ function EventProjectWorkspace({
           </p>
         </div>
         {linked?.state === "unlinked" ? (
-          <Button size="sm" onClick={() => setLinkDialogOpen(true)}>
-            Link project
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => setLinkDialogOpen(true)}>
+              Link existing project
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                resetNewProject();
+                setCreateDialogOpen(true);
+              }}
+            >
+              <Plus className="mr-1.5 h-4 w-4" /> Create project
+            </Button>
+          </div>
         ) : null}
         {linked?.state === "accessible" ? (
           <Button
@@ -1150,7 +1221,7 @@ function EventProjectWorkspace({
           <DialogHeader>
             <DialogTitle>Link a Project</DialogTitle>
             <DialogDescription>
-              Choose an existing Events Project. Projects are created in Projects first.
+              Choose an existing, unlinked Project in the Events department.
             </DialogDescription>
           </DialogHeader>
           {candidatesLoading ? (
@@ -1159,7 +1230,7 @@ function EventProjectWorkspace({
             </div>
           ) : candidateOptions.length === 0 ? (
             <p className="rounded-md border border-dashed bg-muted/20 px-4 py-5 text-sm text-muted-foreground">
-              No Events projects available. Create one in Projects first.
+              No existing Events Projects are available to link. Create a new Project instead.
             </p>
           ) : (
             <SearchableSelect
@@ -1178,13 +1249,103 @@ function EventProjectWorkspace({
             </Button>
             <Button
               disabled={!projectId || linkProject.isPending}
-              onClick={() =>
-                linkProject.mutate({ eventId, projectId: Number(projectId) })
-              }
+              onClick={linkExistingProject}
             >
               {linkProject.isPending ? "Linking…" : "Link project"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={createDialogOpen}
+        onOpenChange={open => {
+          setCreateDialogOpen(open);
+          if (!open) resetNewProject();
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Create an Events Project</DialogTitle>
+            <DialogDescription>
+              This creates a standard Project in the Events department and links it to this Event. No tasks are created automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={createAndLinkProject} className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <Label htmlFor={`event-project-title-${eventId}`}>Project title *</Label>
+              <Input
+                id={`event-project-title-${eventId}`}
+                value={newProject.title}
+                onChange={event => setNewProject(value => ({ ...value, title: event.target.value }))}
+                maxLength={256}
+                required
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor={`event-project-description-${eventId}`}>Description *</Label>
+              <Textarea
+                id={`event-project-description-${eventId}`}
+                value={newProject.description}
+                onChange={event => setNewProject(value => ({ ...value, description: event.target.value }))}
+                placeholder="What does this Project cover?"
+                rows={3}
+                required
+              />
+            </div>
+            <div>
+              <Label>Department</Label>
+              <div className="mt-2 h-9 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                Events
+              </div>
+            </div>
+            <div>
+              <Label>Owner *</Label>
+              <SearchableSelect
+                className="mt-2 w-full"
+                options={(adminUsers as any[]).map(admin => ({
+                  value: String(admin.id),
+                  label: admin.name ?? admin.email ?? `User #${admin.id}`,
+                }))}
+                value={newProject.ownerId}
+                onValueChange={ownerId => setNewProject(value => ({ ...value, ownerId }))}
+                placeholder="Select owner"
+                searchPlaceholder="Search users…"
+              />
+            </div>
+            <div>
+              <Label htmlFor={`event-project-due-date-${eventId}`}>Due date (optional)</Label>
+              <Input
+                id={`event-project-due-date-${eventId}`}
+                className="mt-2"
+                type="date"
+                value={newProject.dueDate}
+                onChange={event => setNewProject(value => ({ ...value, dueDate: event.target.value }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor={`event-project-priority-${eventId}`}>Priority</Label>
+              <Select
+                value={newProject.priority}
+                onValueChange={priority => setNewProject(value => ({ ...value, priority: priority as "high" | "medium" | "low" }))}
+              >
+                <SelectTrigger id={`event-project-priority-${eventId}`} className="mt-2"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2 sm:col-span-2">
+              <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createProject.isPending || linkProject.isPending}>
+                {createProject.isPending || linkProject.isPending ? "Creating…" : "Create and link Project"}
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </section>
@@ -1530,6 +1691,7 @@ function EventProfileDialog({
             <TabsContent value="project" className="m-0 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
               <EventProjectWorkspace
                 eventId={event.id}
+                eventName={event.name}
                 onChanged={onProjectLinkChanged}
               />
             </TabsContent>
