@@ -98,7 +98,7 @@ export default function ProjectTodoDependencyDialog({
         Dependencies
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Blocked by</DialogTitle>
             <DialogDescription>
@@ -118,12 +118,14 @@ export default function ProjectTodoDependencyDialog({
                   <button
                     key={todo.id}
                     type="button"
-                    className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/20 bg-background px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5"
+                    className="inline-flex max-w-full items-start gap-1 rounded-full border border-primary/20 bg-background px-2 py-1 text-left text-xs font-medium text-primary hover:bg-primary/5"
                     onClick={() => toggleTodo(todo.id, false)}
                     title={`Remove ${todo.title}`}
                   >
-                    <span className="truncate">{todo.title}</span>
-                    <X className="h-3 w-3 shrink-0" />
+                    <span className="break-words leading-snug">
+                      {todo.title}
+                    </span>
+                    <X className="mt-0.5 h-3 w-3 shrink-0" />
                   </button>
                 ))}
               </div>
@@ -149,7 +151,7 @@ export default function ProjectTodoDependencyDialog({
                 className="pl-8"
               />
             </div>
-            <div className="max-h-64 divide-y overflow-y-auto rounded-md border bg-background">
+            <div className="max-h-[min(32rem,40dvh)] divide-y overflow-y-auto rounded-md border bg-background">
               {candidates.length ? (
                 candidates.map(todo => {
                   const selected = selectedIds.includes(todo.id);
@@ -157,17 +159,17 @@ export default function ProjectTodoDependencyDialog({
                   return (
                     <label
                       key={todo.id}
-                      className="flex cursor-pointer items-start gap-3 px-3 py-2.5 hover:bg-muted/40"
+                      className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-muted/40"
                     >
                       <Checkbox
                         checked={selected}
                         onCheckedChange={checked =>
                           toggleTodo(todo.id, checked === true)
                         }
-                        className="mt-0.5"
+                        className="mt-0.5 shrink-0"
                       />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">
+                      <span className="min-w-0 flex-1 break-words">
+                        <span className="block text-sm font-medium leading-snug">
                           {todo.title}
                         </span>
                         <span className="mt-0.5 block text-xs text-muted-foreground">

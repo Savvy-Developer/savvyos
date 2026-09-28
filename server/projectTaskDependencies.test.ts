@@ -93,6 +93,8 @@ describe("Project To-Do dependencies", () => {
     expect(projectDetail).toContain("<ProjectTodoDependencyDialog");
     expect(projectDetail).toContain("Blocked by");
     expect(dependencyDialog).toContain("Dependencies stay within this project");
+    expect(dependencyDialog).toContain("sm:max-w-3xl");
+    expect(dependencyDialog).toContain("break-words");
     expect(gantt).toContain("dependencyPaths");
     expect(gantt).toContain("gantt-dependency-arrow");
     expect(gantt).toContain("isDependencyAtRisk");
