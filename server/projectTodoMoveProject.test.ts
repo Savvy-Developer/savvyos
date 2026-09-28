@@ -72,6 +72,17 @@ describe("Project To-Do moves", () => {
     expect(moveProcedure).toContain("Moved To-Do");
   });
 
+  it("removes dependency links that would otherwise cross project boundaries", () => {
+    expect(moveProcedure).toContain("relatedDependencies");
+    expect(moveProcedure).toContain("dependencyIdsToRemove");
+    expect(moveProcedure).toContain(
+      ".delete(pmTaskDependencies)",
+    );
+    expect(moveProcedure).toContain(
+      "inArray(pmTaskDependencies.predecessorTaskId, familyIds)",
+    );
+  });
+
   it("exposes the access-filtered move control from Project and My To-Dos workspaces", () => {
     expect(projectDetail).toContain(
       "trpc.pm.projects.moveDestinations.useQuery()"

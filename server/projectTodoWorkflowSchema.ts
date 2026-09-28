@@ -32,6 +32,17 @@ async function schemaIndexExists(connection: mysql.Connection, indexName: string
   return Number(rows[0]?.count ?? 0) > 0;
 }
 
+async function schemaTableExists(connection: mysql.Connection, tableName: string) {
+  const [rows] = await connection.query<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) AS count
+       FROM INFORMATION_SCHEMA.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?`,
+    [tableName],
+  );
+  return Number(rows[0]?.count ?? 0) > 0;
+}
+
 async function applyProjectTodoWorkflowSchema() {
   if (process.env.NODE_ENV !== "production") return;
   const databaseUrl = process.env.DATABASE_URL;
@@ -42,6 +53,22 @@ async function applyProjectTodoWorkflowSchema() {
     if (!(await schemaColumnExists(connection, "startDate"))) {
       await connection.query(
         "ALTER TABLE `pm_tasks` ADD COLUMN `startDate` timestamp NULL AFTER `ownerId`",
+      );
+    }
+
+    if (!(await schemaTableExists(connection, "pm_task_dependencies"))) {
+      await connection.query(
+        `CREATE TABLE \`pm_task_dependencies\` (
+          \`id\` int NOT NULL AUTO_INCREMENT,
+          \`taskId\` int NOT NULL,
+          \`predecessorTaskId\` int NOT NULL,
+          \`createdAt\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`pm_task_dependencies_task_predecessor_unique\` (\`taskId\`, \`predecessorTaskId\`),
+          KEY \`pm_task_dependencies_predecessor_idx\` (\`predecessorTaskId\`, \`taskId\`),
+          CONSTRAINT \`pm_task_dependencies_task_fk\` FOREIGN KEY (\`taskId\`) REFERENCES \`pm_tasks\` (\`id\`) ON DELETE CASCADE,
+          CONSTRAINT \`pm_task_dependencies_predecessor_fk\` FOREIGN KEY (\`predecessorTaskId\`) REFERENCES \`pm_tasks\` (\`id\`) ON DELETE CASCADE
+        )`,
       );
     }
 

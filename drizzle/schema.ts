@@ -5212,6 +5212,34 @@ export const pmTasks = mysqlTable(
 export type PmTask = typeof pmTasks.$inferSelect;
 export type InsertPmTask = typeof pmTasks.$inferInsert;
 
+// A row means taskId is blocked by predecessorTaskId. Both sides are kept in
+// the same Project by the permission-checked router, so the Gantt can model
+// simple finish-to-start relationships without cross-project visibility.
+export const pmTaskDependencies = mysqlTable(
+  "pm_task_dependencies",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    taskId: int("taskId")
+      .notNull()
+      .references(() => pmTasks.id, { onDelete: "cascade" }),
+    predecessorTaskId: int("predecessorTaskId")
+      .notNull()
+      .references(() => pmTasks.id, { onDelete: "cascade" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("pm_task_dependencies_task_predecessor_unique").on(
+      table.taskId,
+      table.predecessorTaskId,
+    ),
+    index("pm_task_dependencies_predecessor_idx").on(
+      table.predecessorTaskId,
+      table.taskId,
+    ),
+  ],
+);
+export type PmTaskDependency = typeof pmTaskDependencies.$inferSelect;
+
 // Personal todos live outside of a project. Recurring items roll their due date
 // forward when completed so users keep one current, actionable record.
 export const pmPersonalTodos = mysqlTable(

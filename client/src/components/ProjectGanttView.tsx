@@ -1,4 +1,10 @@
-import { useMemo, useRef, useState, type PointerEvent } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
 import {
   addDays,
   addWeeks,
@@ -16,6 +22,7 @@ import {
   ChevronRight,
   CircleDot,
   Flag,
+  GitBranch,
   ListTodo,
   Milestone,
   Pencil,
@@ -59,6 +66,13 @@ type GanttTask = {
   status?: TodoStatus | null;
   completed: boolean;
   createdAt: Date | string;
+  predecessorTaskIds?: number[];
+  predecessors?: Array<{
+    id: number;
+    title: string;
+    completed: boolean;
+    dueDate?: Date | string | null;
+  }>;
 };
 
 type GanttSection = {
@@ -97,6 +111,13 @@ type ProjectRow = {
 };
 
 type GanttRow = TaskRow | SectionRow | ProjectRow;
+
+type DependencyPath = {
+  id: string;
+  path: string;
+  atRisk: boolean;
+  label: string;
+};
 
 type ScheduleForm = {
   startDate: string;
@@ -158,6 +179,13 @@ function isTaskOverdue(task: GanttTask, today: Date) {
   );
 }
 
+function isDependencyAtRisk(task: GanttTask, predecessor: NonNullable<GanttTask["predecessors"]>[number]) {
+  if (!predecessor.completed) return true;
+  if (!predecessor.dueDate) return false;
+  const dependentStartDate = asDate(task.startDate ?? task.createdAt);
+  return asDate(predecessor.dueDate) > dependentStartDate;
+}
+
 function scheduleDates(task: GanttTask) {
   const startDate = asDate(task.startDate ?? task.createdAt);
   const dueDate = asDate(task.dueDate!);
@@ -190,6 +218,9 @@ export default function ProjectGanttView({
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const ganttTableRef = useRef<HTMLDivElement | null>(null);
+  const taskTimelineRefs = useRef(new Map<number, HTMLDivElement>());
+  const [dependencyPaths, setDependencyPaths] = useState<DependencyPath[]>([]);
   const dragRef = useRef<{ task: GanttTask; startX: number } | null>(null);
   const suppressClickRef = useRef(false);
 
@@ -214,6 +245,17 @@ export default function ProjectGanttView({
   const unscheduledTasks = useMemo(
     () => allTasks.filter(task => !task.completed && !task.dueDate),
     [allTasks]
+  );
+  const dependencyRiskTasks = useMemo(
+    () =>
+      allTasks.filter(
+        task =>
+          !task.completed &&
+          (task.predecessors ?? []).some(predecessor =>
+            isDependencyAtRisk(task, predecessor),
+          ),
+      ),
+    [allTasks],
   );
 
   const { rows, scheduledTaskRows, rowsOutsideWindow } = useMemo(() => {
@@ -375,6 +417,63 @@ export default function ProjectGanttView({
     today,
   ]);
 
+  useLayoutEffect(() => {
+    const table = ganttTableRef.current;
+    if (!table) return;
+
+    const redraw = () => {
+      const tableBounds = table.getBoundingClientRect();
+      const nextPaths: DependencyPath[] = [];
+      for (const row of scheduledTaskRows) {
+        const dependentTimeline = taskTimelineRefs.current.get(row.task.id);
+        if (!dependentTimeline) continue;
+        const dependentBounds = dependentTimeline.getBoundingClientRect();
+        for (const predecessor of row.task.predecessors ?? []) {
+          const predecessorTimeline = taskTimelineRefs.current.get(predecessor.id);
+          if (!predecessorTimeline) continue;
+          const predecessorRow = scheduledTaskRows.find(
+            taskRow => taskRow.task.id === predecessor.id,
+          );
+          if (!predecessorRow) continue;
+          const predecessorBounds = predecessorTimeline.getBoundingClientRect();
+          const predecessorEnd = taskBarStyle(predecessorRow);
+          const dependentStart = taskBarStyle(row);
+          const predecessorX =
+            predecessorBounds.left - tableBounds.left +
+            (Number.parseFloat(predecessorEnd.left) + Number.parseFloat(predecessorEnd.width)) /
+              100 *
+              predecessorBounds.width;
+          const dependentX =
+            dependentBounds.left - tableBounds.left +
+            Number.parseFloat(dependentStart.left) / 100 * dependentBounds.width;
+          const predecessorY = predecessorBounds.top - tableBounds.top + predecessorBounds.height / 2;
+          const dependentY = dependentBounds.top - tableBounds.top + dependentBounds.height / 2;
+          const middleX = predecessorX + Math.max(14, (dependentX - predecessorX) / 2);
+          nextPaths.push({
+            id: `${predecessor.id}-${row.task.id}`,
+            path: `M ${predecessorX} ${predecessorY} H ${middleX} V ${dependentY} H ${dependentX}`,
+            atRisk: isDependencyAtRisk(row.task, predecessor),
+            label: `${row.task.title} is blocked by ${predecessor.title}`,
+          });
+        }
+      }
+      setDependencyPaths(current => {
+        const nextSignature = nextPaths
+          .map(path => `${path.id}:${path.path}:${path.atRisk}`)
+          .join("|");
+        const currentSignature = current
+          .map(path => `${path.id}:${path.path}:${path.atRisk}`)
+          .join("|");
+        return nextSignature === currentSignature ? current : nextPaths;
+      });
+    };
+
+    redraw();
+    const observer = new ResizeObserver(redraw);
+    observer.observe(table);
+    return () => observer.disconnect();
+  }, [scheduledTaskRows, rows, showCompleted, start]);
+
   function openSchedule(task: GanttTask) {
     const dates = scheduleDates(task);
     setScheduleForm({
@@ -510,7 +609,7 @@ export default function ProjectGanttView({
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Plan active Project To-Dos from start to due date. Drag a bar to
             move its schedule, or select it to update dates, status, and
-            assignee.
+            assignee. Dependency arrows show work that must finish first.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -585,6 +684,18 @@ export default function ProjectGanttView({
         </a>
       ) : null}
 
+      {dependencyRiskTasks.length > 0 ? (
+        <div className="flex items-start gap-2 rounded-lg border border-red-300/70 bg-red-50/70 px-3 py-2.5 text-sm text-red-950">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-700" />
+          <p>
+            <strong>{dependencyRiskTasks.length}</strong> To-Do
+            {dependencyRiskTasks.length === 1 ? " has" : "s have"} a
+            dependency that needs attention: the blocker is unfinished or its
+            due date falls after the dependent To-Do’s start date.
+          </p>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-amber-500" />
@@ -606,6 +717,10 @@ export default function ProjectGanttView({
           <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
           Overdue
         </span>
+        <span className="inline-flex items-center gap-1.5">
+          <GitBranch className="h-3.5 w-3.5 text-primary" />
+          Dependency
+        </span>
         <span className="ml-auto">
           {format(start, "MMM d, yyyy")} – {format(end, "MMM d, yyyy")}
         </span>
@@ -622,7 +737,7 @@ export default function ProjectGanttView({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
-          <div className="min-w-[1100px]">
+          <div ref={ganttTableRef} className="relative min-w-[1100px]">
             <div
               className="grid border-b bg-muted/35"
               style={{ gridTemplateColumns: TABLE_COLUMNS }}
@@ -768,6 +883,19 @@ export default function ProjectGanttView({
                         aria-label="Overdue"
                       />
                     ) : null}
+                    {row.task.predecessors?.length ? (
+                      <GitBranch
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0",
+                          row.task.predecessors.some(predecessor =>
+                            isDependencyAtRisk(row.task, predecessor),
+                          )
+                            ? "text-red-600"
+                            : "text-primary",
+                        )}
+                        aria-label="Has dependencies"
+                      />
+                    ) : null}
                     <span
                       className={cn(
                         "hidden shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium lg:inline",
@@ -799,7 +927,13 @@ export default function ProjectGanttView({
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
                   </div>
-                  <div className="relative min-h-10 overflow-hidden">
+                  <div
+                    ref={element => {
+                      if (element) taskTimelineRefs.current.set(row.task.id, element);
+                      else taskTimelineRefs.current.delete(row.task.id);
+                    }}
+                    className="relative min-h-10 overflow-hidden"
+                  >
                     {renderCalendarGrid()}
                     {todayVisible ? (
                       <span
@@ -837,6 +971,35 @@ export default function ProjectGanttView({
                 </div>
               );
             })}
+
+            {dependencyPaths.length ? (
+              <svg
+                className="pointer-events-none absolute inset-0 z-[2] h-full w-full overflow-visible"
+                aria-label="Project To-Do dependencies"
+              >
+                <defs>
+                  <marker id="gantt-dependency-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                    <path d="M 0 0 L 6 3 L 0 6 z" fill="#0f766e" />
+                  </marker>
+                  <marker id="gantt-dependency-risk-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                    <path d="M 0 0 L 6 3 L 0 6 z" fill="#dc2626" />
+                  </marker>
+                </defs>
+                {dependencyPaths.map(dependency => (
+                  <path
+                    key={dependency.id}
+                    d={dependency.path}
+                    fill="none"
+                    stroke={dependency.atRisk ? "#dc2626" : "#0f766e"}
+                    strokeWidth="1.5"
+                    strokeDasharray={dependency.atRisk ? "4 3" : undefined}
+                    markerEnd={`url(#${dependency.atRisk ? "gantt-dependency-risk-arrow" : "gantt-dependency-arrow"})`}
+                  >
+                    <title>{dependency.label}</title>
+                  </path>
+                ))}
+              </svg>
+            ) : null}
 
             {rows.length === 0 ? (
               <div className="p-10 text-center text-sm text-muted-foreground">

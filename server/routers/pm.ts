@@ -8,6 +8,7 @@ import {
   pmProjectCollaborators,
   pmTodoSections,
   pmTasks,
+  pmTaskDependencies,
   pmTaskComments,
   pmTaskCommentMentions,
   pmWeeklyUpdates,
@@ -29,11 +30,15 @@ import {
   users,
   userProfiles,
 } from "../../drizzle/schema";
-import { and, eq, desc, asc, isNull, sql, inArray } from "drizzle-orm";
+import { and, eq, desc, asc, isNull, sql, inArray, or } from "drizzle-orm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { invokeLLM } from "../_core/llm";
 import { collectTaskFamilyIds, normalizeProjectTodoLayout, type ProjectTodoLayoutItem } from "../pmTodoSections";
 import { completionUpdate, reopenUpdate, TODO_RECURRENCES, type TodoRecurrence } from "../projectTodoLifecycle";
+import {
+  normalizePredecessorTaskIds,
+  wouldCreateProjectTaskDependencyCycle,
+} from "../projectTaskDependencies";
 import { visible_meeting_ids } from "../pulse/access";
 import { hasPulseCapability } from "../pulse/authorization";
 import { hasDatedProjectRockMilestone } from "@shared/projectRockMilestones";
@@ -364,6 +369,44 @@ export const pmRouter = router({
           .where(eq(pmTasks.projectId, input.id))
           .orderBy(asc(pmTasks.sortOrder), asc(pmTasks.createdAt), asc(pmTasks.id));
 
+        const taskIds = tasks.map(task => task.id);
+        const dependencyLinks = taskIds.length
+          ? await db
+            .select({
+              taskId: pmTaskDependencies.taskId,
+              predecessorTaskId: pmTaskDependencies.predecessorTaskId,
+            })
+            .from(pmTaskDependencies)
+            .where(inArray(pmTaskDependencies.taskId, taskIds))
+          : [];
+        const tasksById = new Map(tasks.map(task => [task.id, task]));
+        const predecessorsByTaskId = new Map<number, typeof tasks>();
+        for (const dependency of dependencyLinks) {
+          const predecessor = tasksById.get(dependency.predecessorTaskId);
+          if (!predecessor) continue;
+          predecessorsByTaskId.set(dependency.taskId, [
+            ...(predecessorsByTaskId.get(dependency.taskId) ?? []),
+            predecessor,
+          ]);
+        }
+        const tasksWithDependencies = tasks.map(task => ({
+          ...task,
+          predecessorTaskIds: (predecessorsByTaskId.get(task.id) ?? []).map(
+            predecessor => predecessor.id,
+          ),
+          predecessors: (predecessorsByTaskId.get(task.id) ?? []).map(
+            predecessor => ({
+              id: predecessor.id,
+              title: predecessor.title,
+              status: predecessor.status,
+              completed: predecessor.completed,
+              startDate: predecessor.startDate,
+              dueDate: predecessor.dueDate,
+              completedAt: predecessor.completedAt,
+            }),
+          ),
+        }));
+
         const weeklyUpdates = await db
           .select({
             id: pmWeeklyUpdates.id,
@@ -406,7 +449,7 @@ export const pmRouter = router({
             .orderBy(asc(pmProjectRockMeetings.sortOrder), asc(pulseMeetings.name))
           : [];
 
-        return { ...project, collaborators, todoSections, tasks, weeklyUpdates, activity, routedMeetings };
+        return { ...project, collaborators, todoSections, tasks: tasksWithDependencies, weeklyUpdates, activity, routedMeetings };
       }),
 
     timeline: protectedProcedure
@@ -1690,6 +1733,96 @@ export const pmRouter = router({
         return { success: true, rolledForward: completion?.rolledForward ?? false };
       }),
 
+    setDependencies: protectedProcedure
+      .input(z.object({
+        taskId: z.number().int().positive(),
+        predecessorTaskIds: z.array(z.number().int().positive()).max(100),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [task] = await db
+          .select({ id: pmTasks.id, projectId: pmTasks.projectId, title: pmTasks.title })
+          .from(pmTasks)
+          .where(eq(pmTasks.id, input.taskId))
+          .limit(1);
+        if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "This To-Do no longer exists." });
+        await assertProjectAccess(db, task.projectId, ctx.user);
+
+        const predecessorTaskIds = normalizePredecessorTaskIds(input.predecessorTaskIds);
+        if (predecessorTaskIds.includes(task.id)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A To-Do cannot be blocked by itself." });
+        }
+        const predecessors = predecessorTaskIds.length
+          ? await db
+            .select({ id: pmTasks.id, projectId: pmTasks.projectId, title: pmTasks.title })
+            .from(pmTasks)
+            .where(inArray(pmTasks.id, predecessorTaskIds))
+          : [];
+        if (
+          predecessors.length !== predecessorTaskIds.length ||
+          predecessors.some(predecessor => predecessor.projectId !== task.projectId)
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Dependencies must be To-Dos in this same project.",
+          });
+        }
+
+        const projectTasks = await db
+          .select({ id: pmTasks.id })
+          .from(pmTasks)
+          .where(eq(pmTasks.projectId, task.projectId));
+        const projectTaskIds = projectTasks.map(projectTask => projectTask.id);
+        const existingLinks = projectTaskIds.length
+          ? await db
+            .select({
+              taskId: pmTaskDependencies.taskId,
+              predecessorTaskId: pmTaskDependencies.predecessorTaskId,
+            })
+            .from(pmTaskDependencies)
+            .where(inArray(pmTaskDependencies.taskId, projectTaskIds))
+          : [];
+        if (
+          wouldCreateProjectTaskDependencyCycle(
+            task.id,
+            predecessorTaskIds,
+            existingLinks,
+          )
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This dependency would create a circular chain of To-Dos.",
+          });
+        }
+
+        await db.transaction(async transaction => {
+          await transaction
+            .delete(pmTaskDependencies)
+            .where(eq(pmTaskDependencies.taskId, task.id));
+          if (predecessorTaskIds.length) {
+            await transaction.insert(pmTaskDependencies).values(
+              predecessorTaskIds.map(predecessorTaskId => ({
+                taskId: task.id,
+                predecessorTaskId,
+              })),
+            );
+          }
+        });
+        const predecessorNames = predecessors.map(predecessor => `“${predecessor.title}”`);
+        await logActivity(
+          task.projectId,
+          ctx.user.id,
+          "task_dependencies_updated",
+          predecessorNames.length
+            ? `Set “${task.title}” to be blocked by ${predecessorNames.join(", ")}`
+            : `Removed dependency blockers from “${task.title}”`,
+          task.id,
+        );
+        return { success: true, predecessorTaskIds };
+      }),
+
     moveToProject: protectedProcedure
       .input(z.object({ id: z.number().int().positive(), destinationProjectId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
@@ -1736,6 +1869,26 @@ export const pmRouter = router({
           .from(pmTasks)
           .where(eq(pmTasks.projectId, task.projectId));
         const familyIds = collectTaskFamilyIds(sourceTasks, task.id);
+        const familyIdSet = new Set(familyIds);
+        const relatedDependencies = familyIds.length
+          ? await db
+            .select({
+              id: pmTaskDependencies.id,
+              taskId: pmTaskDependencies.taskId,
+              predecessorTaskId: pmTaskDependencies.predecessorTaskId,
+            })
+            .from(pmTaskDependencies)
+            .where(or(
+              inArray(pmTaskDependencies.taskId, familyIds),
+              inArray(pmTaskDependencies.predecessorTaskId, familyIds),
+            ))
+          : [];
+        const dependencyIdsToRemove = relatedDependencies
+          .filter(dependency =>
+            !familyIdSet.has(dependency.taskId) ||
+            !familyIdSet.has(dependency.predecessorTaskId),
+          )
+          .map(dependency => dependency.id);
         const [[sectionOrder], [taskOrder]] = await Promise.all([
           db.select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
             .from(pmTodoSections)
@@ -1754,6 +1907,11 @@ export const pmRouter = router({
         ) + 1;
 
         await db.transaction(async transaction => {
+          if (dependencyIdsToRemove.length) {
+            await transaction
+              .delete(pmTaskDependencies)
+              .where(inArray(pmTaskDependencies.id, dependencyIdsToRemove));
+          }
           await transaction
             .update(pmTasks)
             .set({ projectId: input.destinationProjectId, sectionId: null })
