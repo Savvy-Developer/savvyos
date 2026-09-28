@@ -1,43 +1,55 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import confetti from "canvas-confetti";
-import { CheckCircle2, Sparkles } from "lucide-react";
+
+/** Exact Savvy STR Agents logo palette: cyan, black, and white. */
+const SAVVY_CONFETTI_COLORS = ["#0fc0df", "#000000", "#ffffff"];
 
 type Variant = "todo" | "issue" | "milestone";
-type Celebration = { id: number; variant: Variant; message: string; left: number; top: number; reducedMotion: boolean } | null;
+type Celebration = { id: number; message: string; reducedMotion: boolean } | null;
+
+function viewportOrigin(anchor: HTMLElement | null) {
+  const rect = anchor?.getBoundingClientRect();
+  const width = Math.max(window.innerWidth, 1);
+  const height = Math.max(window.innerHeight, 1);
+  return {
+    x: Math.min(0.9, Math.max(0.1, rect ? (rect.left + rect.width / 2) / width : 0.5)),
+    y: Math.min(0.86, Math.max(0.18, rect ? (rect.top + Math.min(rect.height / 2, 120)) / height : 0.55)),
+  };
+}
+
+function launchSavvyConfetti(anchor: HTMLElement | null, variant: Variant) {
+  const origin = viewportOrigin(anchor);
+  const options = variant === "issue"
+    ? { particleCount: 52, spread: 72, startVelocity: 31, scalar: 0.94 }
+    : variant === "milestone"
+      ? { particleCount: 58, spread: 78, startVelocity: 34, scalar: 1 }
+      : { particleCount: 40, spread: 62, startVelocity: 28, scalar: 0.88 };
+  confetti({ ...options, colors: SAVVY_CONFETTI_COLORS, origin, gravity: 1.06, ticks: 150, disableForReducedMotion: true, zIndex: 100 });
+  if (variant === "issue" || variant === "milestone") {
+    window.setTimeout(() => confetti({ ...options, particleCount: Math.ceil(options.particleCount * 0.45), spread: 46, startVelocity: 20, colors: SAVVY_CONFETTI_COLORS, origin: { x: origin.x, y: Math.min(0.88, origin.y + 0.05) }, gravity: 1.1, ticks: 120, disableForReducedMotion: true, zIndex: 100 }), 145);
+  }
+}
 
 export function usePulseCompletionCelebration() {
   const [celebration, setCelebration] = useState<Celebration>(null);
   const dismissTimer = useRef<number | null>(null);
   useEffect(() => () => { if (dismissTimer.current) window.clearTimeout(dismissTimer.current); }, []);
   const celebrate = useCallback((anchor: HTMLElement | null, variant: Variant, message: string) => {
-    const rect = anchor?.getBoundingClientRect();
     const reducedMotion = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (!reducedMotion) launchSavvyConfetti(anchor, variant);
     if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
-    setCelebration({ id: Date.now(), variant, message, left: rect ? rect.left + rect.width / 2 : window.innerWidth / 2, top: rect ? rect.top + rect.height / 2 : window.innerHeight / 2, reducedMotion });
-    dismissTimer.current = window.setTimeout(() => { setCelebration(null); dismissTimer.current = null; }, reducedMotion ? 1150 : 1450);
+    setCelebration({ id: Date.now(), message, reducedMotion });
+    dismissTimer.current = window.setTimeout(() => { setCelebration(null); dismissTimer.current = null; }, 1150);
   }, []);
   return { celebration, celebrate };
 }
 
+/**
+ * Confetti is launched synchronously from the success handler rather than from
+ * this component. That keeps the celebration visible if a completed item is
+ * removed from the current list during the same query refresh.
+ */
 export function PulseCompletionCelebration({ celebration }: { celebration: Celebration }) {
-  useEffect(() => {
-    if (!celebration || celebration.reducedMotion) return;
-    const host = document.getElementById(`pulse-celebration-${celebration.id}`);
-    const canvas = host?.querySelector("canvas") as HTMLCanvasElement | null;
-    if (!canvas) return;
-    const burst = confetti.create(canvas, { resize: true, useWorker: true });
-    const options = celebration.variant === "issue"
-      ? { particleCount: 22, spread: 42, startVelocity: 22, scalar: 0.8, colors: ["#0284c7", "#14b8a6", "#f59e0b", "#ffffff"] }
-      : celebration.variant === "milestone"
-        ? { particleCount: 26, spread: 48, startVelocity: 24, scalar: 0.9, colors: ["#ca8a04", "#fbbf24", "#14b8a6", "#ffffff"] }
-        : { particleCount: 16, spread: 32, startVelocity: 19, scalar: 0.72, colors: ["#0284c7", "#14b8a6", "#ffffff"] };
-    burst({ ...options, origin: { x: 0.5, y: 0.72 }, gravity: 1.2, ticks: 85 });
-    let secondBurst: number | undefined;
-    if (celebration.variant === "issue") secondBurst = window.setTimeout(() => burst({ ...options, particleCount: 12, spread: 28, startVelocity: 15, origin: { x: 0.5, y: 0.75 }, gravity: 1.25, ticks: 72 }), 160);
-    const cleanup = window.setTimeout(() => burst.reset(), 1450);
-    return () => { if (secondBurst) window.clearTimeout(secondBurst); window.clearTimeout(cleanup); burst.reset(); };
-  }, [celebration]);
   if (!celebration) return null;
-  const isMilestone = celebration.variant === "milestone";
-  return <><div aria-live="polite" className="sr-only">{celebration.message}</div><div id={`pulse-celebration-${celebration.id}`} aria-hidden="true" className="pointer-events-none fixed z-[80] -translate-x-1/2 -translate-y-1/2" style={{ left: celebration.left, top: celebration.top, width: 210, height: 145 }}><canvas className={celebration.reducedMotion ? "hidden" : "h-full w-full"} /><div className={`absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold shadow-sm ${isMilestone ? "border-amber-300 bg-amber-50 text-amber-800" : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}><span className={celebration.reducedMotion ? "" : "animate-in fade-in zoom-in duration-200"}>{isMilestone ? <Sparkles className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}</span>{celebration.message}</div></div></>;
+  return <div aria-live="polite" className="sr-only">{celebration.message}{celebration.reducedMotion ? " Completion acknowledged." : ""}</div>;
 }
