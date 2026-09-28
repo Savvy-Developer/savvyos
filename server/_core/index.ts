@@ -89,6 +89,7 @@ import { registerCalendarOAuthRoutes } from "../calendarOAuthRoutes";
 import { registerSwoogoEventsWebhook } from "../eventsSwoogoWebhook";
 import { startSwoogoTokenRefresh } from "../swoogoEvents";
 import { ensureProjectTodoWorkflowSchema } from "../projectTodoWorkflowSchema";
+import { ensureProjectWeeklyUpdateSchema } from "../projectWeeklyUpdateSchema";
 import { ensureWebinarRequestSchema } from "../webinarRequestSchema";
 import { ensureContactLeadSourceTrigger } from "../contactLeadSourceTrigger";
 import { ensureRrMeasurableSchema } from "../rrMeasurableSchema";
@@ -126,6 +127,7 @@ async function startServer() {
   // instance healthy, so this release never serves its new project To-Do fields
   // against a pre-migration database.
   await ensureProjectTodoWorkflowSchema();
+  await ensureProjectWeeklyUpdateSchema();
   await ensureWebinarRequestSchema();
   await ensureContactLeadSourceTrigger();
   await ensureRrMeasurableSchema();

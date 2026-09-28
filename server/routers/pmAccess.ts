@@ -13,6 +13,29 @@ export async function canViewPmWorkload(user: {
   return canAdminUsePermission(user, "canViewProjects");
 }
 
+const WEEKLY_UPDATE_HUB_EMAILS = new Set([
+  "dyl@savvy.realty",
+  "kryzll@savvy.realty",
+  "heart@savvy.realty",
+  "elana@savvy.realty",
+  "tyler@savvy.realty",
+]);
+
+/**
+ * The Hub exposes multiple Project owners' weekly reports. Keep its named
+ * leadership roster and the existing Projects Super Permission both enforced
+ * at the router boundary, instead of treating the hidden workspace tab as a
+ * security boundary.
+ */
+export async function canViewPmWeeklyUpdateHub(user: {
+  id: number;
+  role: string;
+  email?: string | null;
+}) {
+  return Boolean(user.email && WEEKLY_UPDATE_HUB_EMAILS.has(user.email.toLowerCase()))
+    && await canAdminUsePermission(user, "canViewProjects");
+}
+
 /**
  * Workload is an organization-wide planning view, but its roster is limited to
  * administrators and people with an active Project record-access relationship:

@@ -16,7 +16,7 @@ import { format, isPast, isToday, addDays } from "date-fns";
 import {
   Plus, Search,
   CheckCircle2, Clock, TrendingUp, AlertTriangle, ChevronRight,
-  User, Layers, MoreHorizontal, Archive, Trash2, Flag, X, GripVertical, ListOrdered, ClipboardList,
+  User, Layers, MoreHorizontal, Archive, Trash2, Flag, X, GripVertical, ListOrdered, ClipboardList, CalendarClock,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -29,6 +29,7 @@ import ProjectSortList from "@/components/ProjectSortList";
 import { hasDatedProjectRockMilestone, prepareProjectRockMilestones } from "@shared/projectRockMilestones";
 import MyTodosDashboard from "@/components/MyTodosDashboard";
 import ProjectsWorkloadView from "@/components/ProjectsWorkloadView";
+import ProjectsWeeklyUpdatesHub from "@/components/ProjectsWeeklyUpdatesHub";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,7 +51,6 @@ interface Project {
   taskTotal: number;
   taskCompleted: number;
   taskOpen: number;
-  latestUpdate: { updateStatus: UpdateStatus; progressPct: number; createdAt: Date } | null;
   isRock: boolean;
   rockQuarter: string | null;
   definitionOfDone: string | null;
@@ -223,6 +223,7 @@ function CreateProjectDialog({
     isOngoing: false,
     priority: "medium" as Priority,
     isRock: false,
+    weeklyUpdatesEnabled: false,
     rockQuarter: currentProjectRockQuarter(),
     definitionOfDone: "",
     rockMilestones: [{ title: "", dueDate: "" }],
@@ -257,6 +258,7 @@ function CreateProjectDialog({
       isOngoing: form.isOngoing,
       priority: form.priority,
       isRock: form.isRock,
+      weeklyUpdatesEnabled: form.weeklyUpdatesEnabled,
       rockQuarter: form.isRock ? form.rockQuarter : null,
       definitionOfDone: form.isRock ? form.definitionOfDone.trim() : null,
       rockMilestones: form.isRock ? rockMilestones.map((milestone) => ({ ...milestone, dueDate: new Date(milestone.dueDate) })) : [],
@@ -285,6 +287,10 @@ function CreateProjectDialog({
               <Label htmlFor="create-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">Rocks are quarterly priorities. They use this same project, its todos, updates, and activity.</p>
+            <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
+              <Checkbox id="create-project-weekly-updates" checked={form.isRock || form.weeklyUpdatesEnabled} disabled={form.isRock} onCheckedChange={checked => setForm(f => ({ ...f, weeklyUpdatesEnabled: checked === true }))} />
+              <div><Label htmlFor="create-project-weekly-updates" className="cursor-pointer text-sm font-medium">Weekly Project Updates {form.isRock ? "(required for Rocks)" : ""}</Label><p className="text-xs text-muted-foreground">One short weekly update from the Project owner.</p></div>
+            </div>
             {form.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="rock-quarter">Quarter *</Label><ProjectRockQuarterSelect id="rock-quarter" value={form.rockQuarter} onValueChange={rockQuarter => setForm(f => ({ ...f, rockQuarter }))} /></div><div><Label htmlFor="rock-done">Definition of Done *</Label><Input id="rock-done" value={form.definitionOfDone} onChange={event => setForm(f => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div><div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each dated milestone becomes a project section after creation, ready for its to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setForm(f => ({ ...f, rockMilestones: [...f.rockMilestones, { title: "", dueDate: "" }] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{form.rockMilestones.map((milestone, index) => <div key={`rock-milestone-${index}`} className="grid grid-cols-[minmax(0,1fr)_9.5rem_2rem] gap-2"><Input value={milestone.title} onChange={event => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.map((value, position) => position === index ? { ...value, title: event.target.value } : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Input type="date" value={milestone.dueDate} onChange={event => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.map((value, position) => position === index ? { ...value, dueDate: event.target.value } : value) }))} aria-label={`Due date for milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={form.rockMilestones.length === 1} onClick={() => setForm(f => ({ ...f, rockMilestones: f.rockMilestones.filter((_, position) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div><RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={form.routedMeetingIds} onChange={(routedMeetingIds) => setForm(f => ({ ...f, routedMeetingIds }))} /></div> : null}
           </div>
           <div className="grid grid-cols-2 gap-3 sm:col-span-2">
@@ -359,7 +365,7 @@ function CreateProjectDialog({
 export default function ProjectsPage() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
-  const [workspace, setWorkspace] = useState<"projects" | "my-todos" | "workload">("projects");
+  const [workspace, setWorkspace] = useState<"projects" | "my-todos" | "workload" | "weekly-updates">("projects");
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -387,6 +393,7 @@ export default function ProjectsPage() {
   const { data: departments = [], refetch: refetchDepts } = trpc.pm.departments.list.useQuery();
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
   const { data: personalTodoStats } = trpc.pm.personalTodos.stats.useQuery();
+  const { data: weeklyUpdateHubAccess } = trpc.pm.weeklyUpdates.hubAccess.useQuery();
   const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(undefined, {
     enabled: (user as any)?.role === "admin",
   });
@@ -399,6 +406,7 @@ export default function ProjectsPage() {
   const canViewWorkload = (user as any)?.role === "admin" && Boolean(
     (adminPermissions as Record<string, boolean> | null | undefined)?.canViewProjects
   );
+  const canViewWeeklyUpdateHub = weeklyUpdateHubAccess?.canView === true;
 
   const archive = trpc.pm.projects.archive.useMutation({
     onSuccess: () => { toast.success("Project archived"); refetch(); },
@@ -514,10 +522,14 @@ export default function ProjectsPage() {
         {canViewWorkload ? <Button className="min-w-0 whitespace-normal" type="button" size="sm" variant={workspace === "workload" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "workload"} onClick={() => { setWorkspace("workload"); setIsArranging(false); }}>
           <User className="mr-1.5 h-4 w-4" /> Workload
         </Button> : null}
+        {canViewWeeklyUpdateHub ? <Button className="min-w-0 whitespace-normal" type="button" size="sm" variant={workspace === "weekly-updates" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "weekly-updates"} onClick={() => { setWorkspace("weekly-updates"); setIsArranging(false); }}>
+          <CalendarClock className="mr-1.5 h-4 w-4" /> Weekly Updates
+        </Button> : null}
       </div>
 
       {workspace === "my-todos" ? <MyTodosDashboard /> : null}
       {workspace === "workload" && canViewWorkload ? <ProjectsWorkloadView /> : null}
+      {workspace === "weekly-updates" && canViewWeeklyUpdateHub ? <ProjectsWeeklyUpdatesHub /> : null}
 
       {workspace === "projects" ? <>
 
@@ -809,7 +821,7 @@ function ProjectListRow({ project, onArchive }: { project: Project; onArchive: (
   const dueDateInfo = getDueDateLabel(project.dueDate, project.isOngoing);
   const progress = project.taskTotal > 0
     ? Math.round((project.taskCompleted / project.taskTotal) * 100)
-    : (project.latestUpdate?.progressPct ?? 0);
+    : 0;
 
   return (
     <div

@@ -5143,6 +5143,9 @@ export const pmProjects = mysqlTable("pm_projects", {
   rockQuarter: varchar("rockQuarter", { length: 16 }),
   definitionOfDone: text("definitionOfDone"),
   rockStatus: mysqlEnum("rockStatus", ["on_track", "at_risk", "off_track", "done", "dropped"]).notNull().default("on_track"),
+  // Rocks report weekly by default. Other Projects can opt in without becoming Rocks.
+  weeklyUpdatesEnabled: boolean("weeklyUpdatesEnabled").notNull().default(false),
+  weeklyReportingOwnerId: int("weeklyReportingOwnerId").references(() => users.id, { onDelete: "set null" }),
   sortOrder: int("sortOrder").notNull().default(0),
   archivedAt: timestamp("archivedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -5355,16 +5358,44 @@ export const pmWeeklyUpdates = mysqlTable("pm_weekly_updates", {
   projectId: int("projectId")
     .notNull()
     .references(() => pmProjects.id, { onDelete: "cascade" }),
+  // Legacy updates intentionally remain null so they remain readable but do not
+  // collide with the one-update-per-reporting-week constraint.
+  weekOf: date("weekOf", { mode: "string" }),
   authorId: int("authorId")
     .notNull()
     .references(() => users.id, { onDelete: "restrict" }),
   updateStatus: varchar("updateStatus", { length: 32 }).notNull(), // on_track | at_risk | off_track
+  reportStatus: varchar("reportStatus", { length: 16 }).notNull().default("submitted"), // submitted | late
   progressPct: int("progressPct").notNull().default(0),
+  currentState: text("currentState"),
+  timelineOnTrack: boolean("timelineOnTrack"),
+  revisedTargetDate: timestamp("revisedTargetDate"),
   keyUpdates: text("keyUpdates").notNull(),
   blockers: text("blockers"),
   nextSteps: text("nextSteps"),
+  topObstacle: text("topObstacle"),
+  proposedFix: text("proposedFix"),
+  nextWeekPriority: text("nextWeekPriority"),
+  askNeededFromId: int("askNeededFromId").references(() => users.id, { onDelete: "set null" }),
+  askNeededBy: timestamp("askNeededBy"),
+  askSummary: text("askSummary"),
+  askProposedSolution: text("askProposedSolution"),
+  snapshotTaskTotal: int("snapshotTaskTotal").notNull().default(0),
+  snapshotTaskCompleted: int("snapshotTaskCompleted").notNull().default(0),
+  snapshotMilestoneTotal: int("snapshotMilestoneTotal").notNull().default(0),
+  snapshotMilestoneCompleted: int("snapshotMilestoneCompleted").notNull().default(0),
+  snapshotOverdueTaskCount: int("snapshotOverdueTaskCount").notNull().default(0),
+  snapshotTargetDate: timestamp("snapshotTargetDate"),
+  snapshotNextMilestoneTitle: varchar("snapshotNextMilestoneTitle", { length: 128 }),
+  snapshotNextMilestoneDueDate: timestamp("snapshotNextMilestoneDueDate"),
+  reviewedAt: timestamp("reviewedAt"),
+  reviewedById: int("reviewedById").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("pm_weekly_updates_project_week_unique").on(table.projectId, table.weekOf),
+  index("pm_weekly_updates_week_status_idx").on(table.weekOf, table.reportStatus),
+]);
 export type PmWeeklyUpdate = typeof pmWeeklyUpdates.$inferSelect;
 export type InsertPmWeeklyUpdate = typeof pmWeeklyUpdates.$inferInsert;
 

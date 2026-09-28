@@ -14,7 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -34,6 +33,7 @@ import ProjectGanttView from "@/components/ProjectGanttView";
 import ProjectTodoCompletionDialog from "@/components/ProjectTodoCompletionDialog";
 import ProjectTodoMoveProjectDialog from "@/components/ProjectTodoMoveProjectDialog";
 import ProjectTodoDependencyDialog from "@/components/ProjectTodoDependencyDialog";
+import ProjectWeeklyUpdateForm from "@/components/ProjectWeeklyUpdateForm";
 import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelector";
 import { currentProjectRockQuarter, ProjectRockQuarterSelect } from "@/components/ProjectRockQuarterSelect";
 import { hasDatedProjectRockMilestone, prepareProjectRockMilestones } from "@shared/projectRockMilestones";
@@ -452,73 +452,6 @@ function TaskItem({
   </div>;
 }
 
-// ─── Weekly Update Form ───────────────────────────────────────────────────────
-
-function WeeklyUpdateForm({ projectId, onSubmitted }: { projectId: number; onSubmitted: () => void }) {
-  const [form, setForm] = useState({
-    updateStatus: "on_track" as UpdateStatus,
-    progressPct: 0,
-    keyUpdates: "",
-    blockers: "",
-    nextSteps: "",
-  });
-
-  const submit = trpc.pm.weeklyUpdates.submit.useMutation({
-    onSuccess: () => { toast.success("Weekly update submitted"); onSubmitted(); setForm({ updateStatus: "on_track", progressPct: 0, keyUpdates: "", blockers: "", nextSteps: "" }); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  return (
-    <div className="bg-card border border-border rounded-lg p-4 space-y-4">
-      <h3 className="font-semibold text-sm">Submit Weekly Update</h3>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label className="text-xs">Status</Label>
-          <Select value={form.updateStatus} onValueChange={v => setForm(f => ({ ...f, updateStatus: v as UpdateStatus }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="on_track">On Track</SelectItem>
-              <SelectItem value="at_risk">At Risk</SelectItem>
-              <SelectItem value="off_track">Off Track</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label className="text-xs">Progress: {form.progressPct}%</Label>
-          <div className="pt-2">
-            <Slider
-              value={[form.progressPct]}
-              onValueChange={([v]) => setForm(f => ({ ...f, progressPct: v }))}
-              min={0} max={100} step={5}
-            />
-          </div>
-        </div>
-      </div>
-      <div>
-        <Label className="text-xs">Key Updates *</Label>
-        <Textarea value={form.keyUpdates} onChange={e => setForm(f => ({ ...f, keyUpdates: e.target.value }))} placeholder="What was accomplished this week?" rows={3} />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label className="text-xs">Blockers</Label>
-          <Textarea value={form.blockers} onChange={e => setForm(f => ({ ...f, blockers: e.target.value }))} placeholder="Any blockers or issues?" rows={2} />
-        </div>
-        <div>
-          <Label className="text-xs">Next Steps</Label>
-          <Textarea value={form.nextSteps} onChange={e => setForm(f => ({ ...f, nextSteps: e.target.value }))} placeholder="What's planned for next week?" rows={2} />
-        </div>
-      </div>
-      <Button
-        onClick={() => submit.mutate({ projectId, ...form })}
-        disabled={!form.keyUpdates.trim() || submit.isPending}
-        size="sm"
-      >
-        {submit.isPending ? "Submitting..." : "Submit Update"}
-      </Button>
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 type ProjectDetailPageProps = {
@@ -739,6 +672,8 @@ export default function ProjectDetailPage({
       isRock: Boolean(project.isRock),
       rockQuarter: project.rockQuarter ?? currentProjectRockQuarter(),
       definitionOfDone: project.definitionOfDone ?? "",
+      weeklyUpdatesEnabled: Boolean(project.weeklyUpdatesEnabled),
+      weeklyReportingOwnerId: String(project.weeklyReportingOwnerId ?? ""),
       rockMilestones: [{ title: "", dueDate: "" }],
       routedMeetingIds: (project.routedMeetings ?? []).map((meeting: any) => meeting.id),
       routesTouched: false,
@@ -778,6 +713,8 @@ export default function ProjectDetailPage({
       isRock: editForm.isRock,
       rockQuarter: editForm.isRock ? editForm.rockQuarter : null,
       definitionOfDone: editForm.isRock ? editForm.definitionOfDone : null,
+      weeklyUpdatesEnabled: editForm.weeklyUpdatesEnabled,
+      weeklyReportingOwnerId: (editForm.isRock || editForm.weeklyUpdatesEnabled) && editForm.weeklyReportingOwnerId ? Number(editForm.weeklyReportingOwnerId) : null,
       rockMilestones: becomingRock ? rockMilestones.map((milestone) => ({ ...milestone, dueDate: new Date(milestone.dueDate) })) : undefined,
       routedMeetingIds: editForm.isRock && (becomingRock || editForm.routesTouched) ? editForm.routedMeetingIds ?? [] : undefined,
     });
@@ -860,7 +797,7 @@ export default function ProjectDetailPage({
     subTodosByParent.set(task.parentTaskId, siblings);
   });
   const completedTasks = tasks.filter((t: any) => t.completed).length;
-  const progress = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : (project.weeklyUpdates?.[0]?.progressPct ?? 0);
+  const progress = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
 
   function openAddTodo(sectionId: number | null, parent: any | null = null) {
     setParentTodo(parent);
@@ -913,6 +850,14 @@ export default function ProjectDetailPage({
               <div className="sm:col-span-2 xl:col-span-4 rounded-lg border border-primary/20 bg-primary/[0.025] p-2.5">
                 <div className="flex items-center gap-2"><Checkbox id="edit-project-rock" checked={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isRock: checked === true, rockMilestones: checked === true && !f.rockMilestones?.length ? [{ title: "", dueDate: "" }] : f.rockMilestones }))} /><Label htmlFor="edit-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label></div>
                 {editForm.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label>Quarter *</Label><ProjectRockQuarterSelect value={editForm.rockQuarter} onValueChange={rockQuarter => setEditForm((f: any) => ({ ...f, rockQuarter }))} /></div><div><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div>{!project.isRock ? <div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each dated milestone becomes a project section after you save, ready for to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: [...(f.rockMilestones ?? []), { title: "", dueDate: "" }] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{(editForm.rockMilestones ?? []).map((milestone: { title: string; dueDate: string }, index: number) => <div key={`rock-milestone-${index}`} className="grid grid-cols-[minmax(0,1fr)_9.5rem_2rem] gap-2"><Input value={milestone.title} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string }, position: number) => position === index ? { ...value, title: event.target.value } : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Input type="date" value={milestone.dueDate} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string }, position: number) => position === index ? { ...value, dueDate: event.target.value } : value) }))} aria-label={`Due date for milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={(editForm.rockMilestones ?? []).length === 1} onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).filter((_: { title: string; dueDate: string }, position: number) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div> : <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">Rock milestones are managed as project sections below, where their to-dos live.</p>}<RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={editForm.routedMeetingIds ?? []} onChange={(routedMeetingIds) => setEditForm((f: any) => ({ ...f, routedMeetingIds, routesTouched: true }))} /></div> : null}
+              </div>
+              <div className="sm:col-span-2 xl:col-span-4 rounded-lg border bg-muted/20 p-2.5">
+                <div className="flex items-center gap-2">
+                  <Checkbox id="edit-project-weekly-updates" checked={editForm.isRock || editForm.weeklyUpdatesEnabled} disabled={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, weeklyUpdatesEnabled: checked === true }))} />
+                  <Label htmlFor="edit-project-weekly-updates" className="cursor-pointer font-medium">Weekly Project Updates {editForm.isRock ? "(required for Rocks)" : ""}</Label>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{editForm.isRock ? "This Rock will have one weekly owner update, using its dated sections as milestones." : "Turn this on only when this Project needs a weekly owner update."}</p>
+                {(editForm.isRock || editForm.weeklyUpdatesEnabled) ? <div className="mt-3 max-w-sm"><Label>Reporting Owner</Label><SearchableSelect className="mt-1 w-full" options={(adminUsers as any[]).filter((user: any) => user.id === Number(editForm.ownerId) || (collaborators as any[]).some((collaborator: any) => collaborator.userId === user.id)).map((user: any) => ({ value: String(user.id), label: user.name ?? user.email ?? `User #${user.id}` }))} value={editForm.weeklyReportingOwnerId} onValueChange={value => setEditForm((f: any) => ({ ...f, weeklyReportingOwnerId: value }))} placeholder="Defaults to Project owner" searchPlaceholder="Search users…" /></div> : null}
               </div>
               <div>
                 <Label>Owner</Label>
@@ -1493,7 +1438,14 @@ export default function ProjectDetailPage({
 
         {/* Weekly Updates Tab */}
         <TabsContent value="updates" className="space-y-4">
-          <WeeklyUpdateForm projectId={projectId} onSubmitted={refetch} />
+          <ProjectWeeklyUpdateForm
+            projectId={projectId}
+            isRock={Boolean(project.isRock)}
+            updateContext={project.weeklyUpdateContext}
+            people={adminUsers as any[]}
+            currentUserId={(user as any)?.id}
+            onSubmitted={refetch}
+          />
 
           {/* Past updates */}
           {(project.weeklyUpdates ?? []).length > 0 && (
@@ -1503,36 +1455,41 @@ export default function ProjectDetailPage({
                 const cfg = UPDATE_STATUS_CONFIG[u.updateStatus as UpdateStatus];
                 return (
                   <div key={u.id} className={`border rounded-lg p-4 ${cfg.bg}`}>
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2">
                         <span className={`text-sm font-semibold ${cfg.color}`}>{cfg.label}</span>
                         <span className="text-xs text-muted-foreground">·</span>
-                        <span className="text-xs text-muted-foreground">{u.progressPct}% complete</span>
+                        <span className="text-xs text-muted-foreground">{u.weekOf ? `Week of ${format(new Date(`${u.weekOf}T12:00:00`), "MMM d, yyyy")}` : "Earlier update"}</span>
+                        {u.reportStatus === "late" ? <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">Late</span> : null}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {u.authorName} · {format(new Date(u.createdAt), "MMM d, yyyy")}
+                        {u.authorName} · {format(new Date(u.updatedAt ?? u.createdAt), "MMM d, yyyy")}
                       </div>
-                    </div>
-                    <div className="h-1.5 bg-white/50 rounded-full mb-3 overflow-hidden">
-                      <div className="h-full bg-current opacity-40 rounded-full" style={{ width: `${u.progressPct}%` }} />
                     </div>
                     <div className="space-y-2 text-sm">
                       <div>
-                        <span className="font-medium text-xs uppercase tracking-wide opacity-70">Key Updates</span>
-                        <p className="mt-0.5">{u.keyUpdates}</p>
+                        <span className="font-medium text-xs uppercase tracking-wide opacity-70">Current State</span>
+                        <p className="mt-0.5">{u.currentState ?? u.keyUpdates}</p>
                       </div>
-                      {u.blockers && (
+                      <div className="grid gap-2 text-xs sm:grid-cols-3">
+                        <p><span className="font-medium opacity-70">To-Dos:</span> {u.snapshotTaskCompleted ?? 0} / {u.snapshotTaskTotal ?? 0}</p>
+                        <p><span className="font-medium opacity-70">Milestones:</span> {u.snapshotMilestoneCompleted ?? 0} / {u.snapshotMilestoneTotal ?? 0}</p>
+                        <p><span className="font-medium opacity-70">Overdue:</span> {u.snapshotOverdueTaskCount ?? 0}</p>
+                      </div>
+                      {(u.topObstacle ?? u.blockers) && (
                         <div>
-                          <span className="font-medium text-xs uppercase tracking-wide opacity-70">Blockers</span>
-                          <p className="mt-0.5">{u.blockers}</p>
+                          <span className="font-medium text-xs uppercase tracking-wide opacity-70">Top Obstacle</span>
+                          <p className="mt-0.5">{u.topObstacle ?? u.blockers}</p>
+                          {u.proposedFix ? <p className="mt-1 text-xs"><span className="font-medium">Proposed fix:</span> {u.proposedFix}</p> : null}
                         </div>
                       )}
-                      {u.nextSteps && (
+                      {(u.nextWeekPriority ?? u.nextSteps) && (
                         <div>
-                          <span className="font-medium text-xs uppercase tracking-wide opacity-70">Next Steps</span>
-                          <p className="mt-0.5">{u.nextSteps}</p>
+                          <span className="font-medium text-xs uppercase tracking-wide opacity-70">Next Week’s Priority</span>
+                          <p className="mt-0.5">{u.nextWeekPriority ?? u.nextSteps}</p>
                         </div>
                       )}
+                      {u.askSummary ? <div className="rounded border border-primary/20 bg-background/70 p-2 text-xs"><span className="font-semibold">Ask:</span> {u.askSummary}<br /><span className="font-semibold">Proposed solution:</span> {u.askProposedSolution}</div> : null}
                     </div>
                   </div>
                 );

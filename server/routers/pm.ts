@@ -42,7 +42,13 @@ import {
 import { visible_meeting_ids } from "../pulse/access";
 import { hasPulseCapability } from "../pulse/authorization";
 import { hasDatedProjectRockMilestone } from "@shared/projectRockMilestones";
-import { canViewPmWorkload, isPmWorkloadRosterMember } from "./pmAccess";
+import { getProjectWeeklyUpdatePeriod } from "../projectWeeklyUpdateCadence";
+import { buildProjectWeeklyUpdateSnapshot } from "../projectWeeklyUpdateSnapshot";
+import {
+  canViewPmWeeklyUpdateHub,
+  canViewPmWorkload,
+  isPmWorkloadRosterMember,
+} from "./pmAccess";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
 const ROCK_MILESTONE_LIMIT = 20;
@@ -64,6 +70,32 @@ function projectStatusForRockStatus(status: "on_track" | "at_risk" | "off_track"
 
 function rockStatusForProjectStatus(status: "not_started" | "in_progress" | "at_risk" | "completed") {
   return status === "completed" ? "done" : status === "at_risk" ? "at_risk" : status === "not_started" ? "dropped" : "on_track";
+}
+
+const WEEKLY_UPDATE_STATUS_VALUES = ["on_track", "at_risk", "off_track"] as const;
+
+function isWeeklyUpdateProject(project: { isRock: boolean; weeklyUpdatesEnabled: boolean }) {
+  return project.isRock || project.weeklyUpdatesEnabled;
+}
+
+function projectWeeklyReportingOwnerId(project: {
+  ownerId: number;
+  weeklyReportingOwnerId: number | null;
+}) {
+  return project.weeklyReportingOwnerId ?? project.ownerId;
+}
+
+async function assertPmWeeklyUpdateHubAccess(user: {
+  id: number;
+  role: string;
+  email?: string | null;
+}) {
+  if (!await canViewPmWeeklyUpdateHub(user)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Weekly Update Hub is restricted to its authorized Projects leadership group.",
+    });
+  }
 }
 
 function uniqueMeetingIds(meetingIds: string[]) {
@@ -220,6 +252,8 @@ export const pmRouter = router({
             rockQuarter: pmProjects.rockQuarter,
             definitionOfDone: pmProjects.definitionOfDone,
             rockStatus: pmProjects.rockStatus,
+            weeklyUpdatesEnabled: pmProjects.weeklyUpdatesEnabled,
+            weeklyReportingOwnerId: pmProjects.weeklyReportingOwnerId,
             sortOrder: pmProjects.sortOrder,
             archivedAt: pmProjects.archivedAt,
             createdAt: pmProjects.createdAt,
@@ -256,17 +290,6 @@ export const pmRouter = router({
           .where(inArray(pmTasks.projectId, projectIds))
           .groupBy(pmTasks.projectId);
 
-        const latestUpdates = await db
-          .select()
-          .from(pmWeeklyUpdates)
-          .where(inArray(pmWeeklyUpdates.projectId, projectIds))
-          .orderBy(desc(pmWeeklyUpdates.createdAt));
-
-        const latestUpdateMap = new Map<number, (typeof latestUpdates)[0]>();
-        for (const u of latestUpdates) {
-          if (!latestUpdateMap.has(u.projectId)) latestUpdateMap.set(u.projectId, u);
-        }
-
         const taskCountMap = new Map(taskCounts.map(t => [t.projectId, t]));
 
         return filtered.map(p => ({
@@ -274,7 +297,6 @@ export const pmRouter = router({
           taskTotal: Number(taskCountMap.get(p.id)?.total ?? 0),
           taskCompleted: Number(taskCountMap.get(p.id)?.completed ?? 0),
           taskOpen: Number(taskCountMap.get(p.id)?.open ?? 0),
-          latestUpdate: latestUpdateMap.get(p.id) ?? null,
         }));
       }),
 
@@ -319,6 +341,8 @@ export const pmRouter = router({
             rockQuarter: pmProjects.rockQuarter,
             definitionOfDone: pmProjects.definitionOfDone,
             rockStatus: pmProjects.rockStatus,
+            weeklyUpdatesEnabled: pmProjects.weeklyUpdatesEnabled,
+            weeklyReportingOwnerId: pmProjects.weeklyReportingOwnerId,
             sortOrder: pmProjects.sortOrder,
             archivedAt: pmProjects.archivedAt,
             createdAt: pmProjects.createdAt,
@@ -410,14 +434,37 @@ export const pmRouter = router({
         const weeklyUpdates = await db
           .select({
             id: pmWeeklyUpdates.id,
+            weekOf: pmWeeklyUpdates.weekOf,
             updateStatus: pmWeeklyUpdates.updateStatus,
+            reportStatus: pmWeeklyUpdates.reportStatus,
             progressPct: pmWeeklyUpdates.progressPct,
+            currentState: pmWeeklyUpdates.currentState,
+            timelineOnTrack: pmWeeklyUpdates.timelineOnTrack,
+            revisedTargetDate: pmWeeklyUpdates.revisedTargetDate,
             keyUpdates: pmWeeklyUpdates.keyUpdates,
             blockers: pmWeeklyUpdates.blockers,
             nextSteps: pmWeeklyUpdates.nextSteps,
+            topObstacle: pmWeeklyUpdates.topObstacle,
+            proposedFix: pmWeeklyUpdates.proposedFix,
+            nextWeekPriority: pmWeeklyUpdates.nextWeekPriority,
+            askNeededFromId: pmWeeklyUpdates.askNeededFromId,
+            askNeededBy: pmWeeklyUpdates.askNeededBy,
+            askSummary: pmWeeklyUpdates.askSummary,
+            askProposedSolution: pmWeeklyUpdates.askProposedSolution,
+            snapshotTaskTotal: pmWeeklyUpdates.snapshotTaskTotal,
+            snapshotTaskCompleted: pmWeeklyUpdates.snapshotTaskCompleted,
+            snapshotMilestoneTotal: pmWeeklyUpdates.snapshotMilestoneTotal,
+            snapshotMilestoneCompleted: pmWeeklyUpdates.snapshotMilestoneCompleted,
+            snapshotOverdueTaskCount: pmWeeklyUpdates.snapshotOverdueTaskCount,
+            snapshotTargetDate: pmWeeklyUpdates.snapshotTargetDate,
+            snapshotNextMilestoneTitle: pmWeeklyUpdates.snapshotNextMilestoneTitle,
+            snapshotNextMilestoneDueDate: pmWeeklyUpdates.snapshotNextMilestoneDueDate,
+            reviewedAt: pmWeeklyUpdates.reviewedAt,
+            reviewedById: pmWeeklyUpdates.reviewedById,
             authorId: pmWeeklyUpdates.authorId,
             authorName: users.name,
             createdAt: pmWeeklyUpdates.createdAt,
+            updatedAt: pmWeeklyUpdates.updatedAt,
           })
           .from(pmWeeklyUpdates)
           .leftJoin(users, eq(pmWeeklyUpdates.authorId, users.id))
@@ -449,7 +496,19 @@ export const pmRouter = router({
             .orderBy(asc(pmProjectRockMeetings.sortOrder), asc(pulseMeetings.name))
           : [];
 
-        return { ...project, collaborators, todoSections, tasks: tasksWithDependencies, weeklyUpdates, activity, routedMeetings };
+        const weeklyUpdatePeriod = getProjectWeeklyUpdatePeriod();
+        const weeklyUpdateContext = {
+          isReportable: isWeeklyUpdateProject(project)
+            && project.status !== "completed"
+            && project.rockStatus !== "done"
+            && project.rockStatus !== "dropped",
+          reportingOwnerId: projectWeeklyReportingOwnerId(project),
+          ...weeklyUpdatePeriod,
+          currentUpdate: weeklyUpdates.find(update => update.weekOf === weeklyUpdatePeriod.weekOf) ?? null,
+          snapshot: buildProjectWeeklyUpdateSnapshot(tasks, todoSections, project.dueDate),
+        };
+
+        return { ...project, collaborators, todoSections, tasks: tasksWithDependencies, weeklyUpdates, weeklyUpdateContext, activity, routedMeetings };
       }),
 
     timeline: protectedProcedure
@@ -580,6 +639,8 @@ export const pmRouter = router({
         rockQuarter: z.string().trim().regex(/^Q[1-4]\s\d{4}$/, "Use a quarter such as Q3 2026.").optional().nullable(),
         definitionOfDone: z.string().trim().max(8_000).optional().nullable(),
         rockStatus: z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]).default("on_track"),
+        weeklyUpdatesEnabled: z.boolean().default(false),
+        weeklyReportingOwnerId: z.number().optional().nullable(),
         rockMilestones: z.array(rockMilestoneSchema).max(ROCK_MILESTONE_LIMIT).optional().default([]),
         routedMeetingIds: z.array(z.string().uuid()).max(50).optional().default([]),
         collaboratorIds: z.array(z.number()).optional().default([]),
@@ -614,6 +675,21 @@ export const pmRouter = router({
           ? await assertAuthorisedRockRouting(db, ctx.user, input.routedMeetingIds)
           : [];
 
+        const reportingOwnerId = input.weeklyReportingOwnerId ?? input.ownerId;
+        if ((input.isRock || input.weeklyUpdatesEnabled) && reportingOwnerId) {
+          const [reportingOwner] = await db.select({ id: users.id, isActive: users.isActive })
+            .from(users)
+            .where(eq(users.id, reportingOwnerId))
+            .limit(1);
+          if (!reportingOwner?.isActive) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active reporting owner." });
+          }
+          const accessibleOwners = new Set([...input.collaboratorIds, input.ownerId, ctx.user.id]);
+          if (!accessibleOwners.has(reportingOwnerId)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "The reporting owner must have access to this project." });
+          }
+        }
+
         const projectId = await db.transaction(async (transaction) => {
           const [result] = await transaction.insert(pmProjects).values({
             title: input.title,
@@ -628,6 +704,8 @@ export const pmRouter = router({
             rockQuarter: input.isRock ? input.rockQuarter ?? null : null,
             definitionOfDone: input.isRock ? input.definitionOfDone?.trim() ?? null : null,
             rockStatus: input.isRock ? input.rockStatus : "on_track",
+            weeklyUpdatesEnabled: input.weeklyUpdatesEnabled,
+            weeklyReportingOwnerId: input.weeklyReportingOwnerId ?? null,
           });
           const newProjectId = result.insertId;
           const collaboratorIds = Array.from(new Set([...input.collaboratorIds, input.ownerId, ctx.user.id]));
@@ -672,6 +750,8 @@ export const pmRouter = router({
         rockQuarter: z.string().trim().regex(/^Q[1-4]\s\d{4}$/, "Use a quarter such as Q3 2026.").nullable().optional(),
         definitionOfDone: z.string().trim().max(8_000).nullable().optional(),
         rockStatus: z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]).optional(),
+        weeklyUpdatesEnabled: z.boolean().optional(),
+        weeklyReportingOwnerId: z.number().nullable().optional(),
         rockMilestones: z.array(rockMilestoneSchema).max(ROCK_MILESTONE_LIMIT).optional(),
         routedMeetingIds: z.array(z.string().uuid()).max(50).optional(),
         collaboratorIds: z.array(z.number()).optional(),
@@ -684,7 +764,7 @@ export const pmRouter = router({
         await assertProjectAccess(db, input.id, ctx.user);
 
         const [existingProject] = await db
-          .select({ ownerId: pmProjects.ownerId, dueDate: pmProjects.dueDate, isOngoing: pmProjects.isOngoing, isRock: pmProjects.isRock, rockQuarter: pmProjects.rockQuarter, definitionOfDone: pmProjects.definitionOfDone })
+          .select({ ownerId: pmProjects.ownerId, dueDate: pmProjects.dueDate, isOngoing: pmProjects.isOngoing, isRock: pmProjects.isRock, rockQuarter: pmProjects.rockQuarter, definitionOfDone: pmProjects.definitionOfDone, weeklyUpdatesEnabled: pmProjects.weeklyUpdatesEnabled, weeklyReportingOwnerId: pmProjects.weeklyReportingOwnerId })
           .from(pmProjects)
           .where(eq(pmProjects.id, input.id))
           .limit(1);
@@ -702,6 +782,11 @@ export const pmRouter = router({
         }
         const finalRockQuarter = input.rockQuarter === undefined ? existingProject.rockQuarter : input.rockQuarter;
         const finalDefinitionOfDone = input.definitionOfDone === undefined ? existingProject.definitionOfDone : input.definitionOfDone;
+        const finalWeeklyUpdatesEnabled = input.weeklyUpdatesEnabled ?? existingProject.weeklyUpdatesEnabled;
+        const finalWeeklyReportingOwnerId = input.weeklyReportingOwnerId === undefined
+          ? existingProject.weeklyReportingOwnerId
+          : input.weeklyReportingOwnerId;
+        const finalReportingOwnerId = finalWeeklyReportingOwnerId ?? (input.ownerId ?? existingProject.ownerId);
         if (finalIsRock && !finalRockQuarter) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock needs a quarter." });
         }
@@ -726,6 +811,23 @@ export const pmRouter = router({
         }
         if (!finalIsRock && input.routedMeetingIds?.length) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Only Rocks can be routed to Pulse meetings." });
+        }
+        if ((finalIsRock || finalWeeklyUpdatesEnabled) && finalReportingOwnerId) {
+          const [reportingOwner] = await db.select({ id: users.id, isActive: users.isActive })
+            .from(users)
+            .where(eq(users.id, finalReportingOwnerId))
+            .limit(1);
+          if (!reportingOwner?.isActive) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active reporting owner." });
+          }
+          const reportingOwnerHasProjectAccess = finalReportingOwnerId === (input.ownerId ?? existingProject.ownerId)
+            || (await db.select({ id: pmProjectCollaborators.id })
+              .from(pmProjectCollaborators)
+              .where(and(eq(pmProjectCollaborators.projectId, input.id), eq(pmProjectCollaborators.userId, finalReportingOwnerId)))
+              .limit(1)).length > 0;
+          if (!reportingOwnerHasProjectAccess) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "The reporting owner must have access to this project." });
+          }
         }
         const routedMeetingIds = input.routedMeetingIds === undefined
           ? undefined
@@ -2322,34 +2424,283 @@ export const pmRouter = router({
   // ── Weekly Updates ────────────────────────────────────────────────────────
 
   weeklyUpdates: router({
+    hubAccess: protectedProcedure.query(async ({ ctx }) => ({
+      canView: await canViewPmWeeklyUpdateHub(ctx.user),
+    })),
+
     submit: protectedProcedure
       .input(z.object({
         projectId: z.number(),
-        updateStatus: z.enum(["on_track", "at_risk", "off_track"]),
-        progressPct: z.number().min(0).max(100),
-        keyUpdates: z.string().min(1),
-        blockers: z.string().optional(),
-        nextSteps: z.string().optional(),
+        updateStatus: z.enum(WEEKLY_UPDATE_STATUS_VALUES),
+        currentState: z.string().trim().min(1, "Share a short current-state update.").max(8_000),
+        timelineOnTrack: z.boolean(),
+        revisedTargetDate: z.date().nullable().optional(),
+        topObstacle: z.string().trim().max(8_000).optional(),
+        proposedFix: z.string().trim().max(8_000).optional(),
+        nextWeekPriority: z.string().trim().min(1, "Set one next-week priority.").max(8_000),
+        askNeededFromId: z.number().nullable().optional(),
+        askNeededBy: z.date().nullable().optional(),
+        askSummary: z.string().trim().max(8_000).optional(),
+        askProposedSolution: z.string().trim().max(8_000).optional(),
+      }).superRefine((input, refinement) => {
+        if (!input.timelineOnTrack && !input.revisedTargetDate) {
+          refinement.addIssue({ code: "custom", path: ["revisedTargetDate"], message: "Add a revised target date when the timeline is off track." });
+        }
+        if (input.topObstacle?.trim() && !input.proposedFix?.trim()) {
+          refinement.addIssue({ code: "custom", path: ["proposedFix"], message: "Pair an obstacle with a proposed fix." });
+        }
+        const askValues = [input.askNeededFromId, input.askNeededBy, input.askSummary?.trim(), input.askProposedSolution?.trim()];
+        const hasAnyAsk = askValues.some(Boolean);
+        const hasCompleteAsk = askValues.every(Boolean);
+        if (hasAnyAsk && !hasCompleteAsk) {
+          refinement.addIssue({ code: "custom", path: ["askSummary"], message: "Complete every Ask field or leave the optional Ask empty." });
+        }
       }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         await assertProjectAccess(db, input.projectId, ctx.user);
-        const [result] = await db.insert(pmWeeklyUpdates).values({
-          projectId: input.projectId,
+
+        const [project] = await db.select({
+          id: pmProjects.id,
+          ownerId: pmProjects.ownerId,
+          dueDate: pmProjects.dueDate,
+          isRock: pmProjects.isRock,
+          status: pmProjects.status,
+          rockStatus: pmProjects.rockStatus,
+          weeklyUpdatesEnabled: pmProjects.weeklyUpdatesEnabled,
+          weeklyReportingOwnerId: pmProjects.weeklyReportingOwnerId,
+        }).from(pmProjects).where(eq(pmProjects.id, input.projectId)).limit(1);
+        if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!isWeeklyUpdateProject(project)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Enable weekly updates for this Project before submitting a report." });
+        }
+        if (project.status === "completed" || project.rockStatus === "done" || project.rockStatus === "dropped") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Completed or dropped Projects do not need weekly updates." });
+        }
+        if (ctx.user.id !== projectWeeklyReportingOwnerId(project)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Only this Project's reporting owner can submit the weekly update." });
+        }
+        if (input.askNeededFromId) {
+          const [askRecipient] = await db.select({ id: users.id, isActive: users.isActive })
+            .from(users).where(eq(users.id, input.askNeededFromId)).limit(1);
+          if (!askRecipient?.isActive) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active person for the Ask." });
+          }
+        }
+
+        const [tasks, milestones] = await Promise.all([
+          db.select({ completed: pmTasks.completed, dueDate: pmTasks.dueDate, sectionId: pmTasks.sectionId })
+            .from(pmTasks).where(eq(pmTasks.projectId, input.projectId)),
+          db.select({ id: pmTodoSections.id, title: pmTodoSections.title, dueDate: pmTodoSections.dueDate })
+            .from(pmTodoSections).where(eq(pmTodoSections.projectId, input.projectId)),
+        ]);
+        const now = new Date();
+        const period = getProjectWeeklyUpdatePeriod(now);
+        const snapshot = buildProjectWeeklyUpdateSnapshot(tasks, milestones, project.dueDate, now);
+        const reportStatus = period.isLate ? "late" : "submitted";
+        const updateFields = {
           authorId: ctx.user.id,
           updateStatus: input.updateStatus,
-          progressPct: input.progressPct,
-          keyUpdates: input.keyUpdates,
-          blockers: input.blockers ?? null,
-          nextSteps: input.nextSteps ?? null,
-        });
-        if (input.updateStatus === "at_risk") {
-          await db.update(pmProjects).set({ status: "at_risk" }).where(eq(pmProjects.id, input.projectId));
+          reportStatus,
+          progressPct: snapshot.taskTotal ? Math.round((snapshot.taskCompleted / snapshot.taskTotal) * 100) : 0,
+          currentState: input.currentState,
+          timelineOnTrack: input.timelineOnTrack,
+          revisedTargetDate: input.timelineOnTrack ? null : input.revisedTargetDate ?? null,
+          keyUpdates: input.currentState,
+          blockers: input.topObstacle?.trim() || null,
+          nextSteps: input.nextWeekPriority,
+          topObstacle: input.topObstacle?.trim() || null,
+          proposedFix: input.proposedFix?.trim() || null,
+          nextWeekPriority: input.nextWeekPriority,
+          askNeededFromId: input.askNeededFromId ?? null,
+          askNeededBy: input.askNeededBy ?? null,
+          askSummary: input.askSummary?.trim() || null,
+          askProposedSolution: input.askProposedSolution?.trim() || null,
+          snapshotTaskTotal: snapshot.taskTotal,
+          snapshotTaskCompleted: snapshot.taskCompleted,
+          snapshotMilestoneTotal: snapshot.milestoneTotal,
+          snapshotMilestoneCompleted: snapshot.milestoneCompleted,
+          snapshotOverdueTaskCount: snapshot.overdueTaskCount,
+          snapshotTargetDate: snapshot.targetDate,
+          snapshotNextMilestoneTitle: snapshot.nextMilestoneTitle,
+          snapshotNextMilestoneDueDate: snapshot.nextMilestoneDueDate,
+          reviewedAt: null,
+          reviewedById: null,
+        };
+        const [existing] = await db.select({ id: pmWeeklyUpdates.id })
+          .from(pmWeeklyUpdates)
+          .where(and(eq(pmWeeklyUpdates.projectId, input.projectId), eq(pmWeeklyUpdates.weekOf, period.weekOf)))
+          .limit(1);
+        let updateId: number;
+        if (existing) {
+          await db.update(pmWeeklyUpdates).set(updateFields).where(eq(pmWeeklyUpdates.id, existing.id));
+          updateId = existing.id;
+        } else {
+          const [result] = await db.insert(pmWeeklyUpdates).values({
+            projectId: input.projectId,
+            weekOf: period.weekOf,
+            ...updateFields,
+          });
+          updateId = result.insertId;
         }
-        await logActivity(input.projectId, ctx.user.id, "weekly_update_submitted", `${input.progressPct}% — ${input.updateStatus}`);
-        return { id: result.insertId };
+        if (project.isRock) {
+          await db.update(pmProjects).set({
+            rockStatus: input.updateStatus,
+            status: projectStatusForRockStatus(input.updateStatus),
+          }).where(eq(pmProjects.id, input.projectId));
+        }
+        await logActivity(
+          input.projectId,
+          ctx.user.id,
+          "weekly_update_submitted",
+          `${reportStatus === "late" ? "Late " : ""}${input.updateStatus.replace("_", " ")} weekly update`,
+        );
+        return { id: updateId, weekOf: period.weekOf, reportStatus };
+      }),
+
+    review: protectedProcedure
+      .input(z.object({ updateId: z.number(), reviewed: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        await assertPmWeeklyUpdateHubAccess(ctx.user);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [update] = await db.select({ id: pmWeeklyUpdates.id, projectId: pmWeeklyUpdates.projectId })
+          .from(pmWeeklyUpdates).where(eq(pmWeeklyUpdates.id, input.updateId)).limit(1);
+        if (!update) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.update(pmWeeklyUpdates).set({
+          reviewedAt: input.reviewed ? new Date() : null,
+          reviewedById: input.reviewed ? ctx.user.id : null,
+        }).where(eq(pmWeeklyUpdates.id, input.updateId));
+        await logActivity(update.projectId, ctx.user.id, "weekly_update_reviewed", input.reviewed ? "Reviewed weekly update" : "Reopened weekly update review");
+        return { success: true };
+      }),
+
+    hub: protectedProcedure
+      .input(z.object({ weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        await assertPmWeeklyUpdateHubAccess(ctx.user);
+        const db = await getDb();
+        const currentPeriod = getProjectWeeklyUpdatePeriod();
+        const weekOf = input?.weekOf ?? currentPeriod.weekOf;
+        if (!db) return { weekOf, weekLabel: currentPeriod.weekLabel, deadline: currentPeriod.deadline, isLate: currentPeriod.isLate, projects: [], weekOptions: [currentPeriod.weekOf] };
+
+        const [projects, updates, allWeekRows] = await Promise.all([
+          db.select({
+            id: pmProjects.id,
+            title: pmProjects.title,
+            ownerId: pmProjects.ownerId,
+            ownerName: users.name,
+            dueDate: pmProjects.dueDate,
+            isOngoing: pmProjects.isOngoing,
+            status: pmProjects.status,
+            isRock: pmProjects.isRock,
+            rockStatus: pmProjects.rockStatus,
+            weeklyUpdatesEnabled: pmProjects.weeklyUpdatesEnabled,
+            weeklyReportingOwnerId: pmProjects.weeklyReportingOwnerId,
+          }).from(pmProjects).leftJoin(users, eq(pmProjects.ownerId, users.id)).where(isNull(pmProjects.archivedAt)).orderBy(asc(pmProjects.title)),
+          db.select({
+            id: pmWeeklyUpdates.id,
+            projectId: pmWeeklyUpdates.projectId,
+            authorId: pmWeeklyUpdates.authorId,
+            updateStatus: pmWeeklyUpdates.updateStatus,
+            reportStatus: pmWeeklyUpdates.reportStatus,
+            currentState: pmWeeklyUpdates.currentState,
+            timelineOnTrack: pmWeeklyUpdates.timelineOnTrack,
+            revisedTargetDate: pmWeeklyUpdates.revisedTargetDate,
+            topObstacle: pmWeeklyUpdates.topObstacle,
+            proposedFix: pmWeeklyUpdates.proposedFix,
+            nextWeekPriority: pmWeeklyUpdates.nextWeekPriority,
+            askNeededFromId: pmWeeklyUpdates.askNeededFromId,
+            askNeededBy: pmWeeklyUpdates.askNeededBy,
+            askSummary: pmWeeklyUpdates.askSummary,
+            askProposedSolution: pmWeeklyUpdates.askProposedSolution,
+            snapshotTaskTotal: pmWeeklyUpdates.snapshotTaskTotal,
+            snapshotTaskCompleted: pmWeeklyUpdates.snapshotTaskCompleted,
+            snapshotMilestoneTotal: pmWeeklyUpdates.snapshotMilestoneTotal,
+            snapshotMilestoneCompleted: pmWeeklyUpdates.snapshotMilestoneCompleted,
+            snapshotOverdueTaskCount: pmWeeklyUpdates.snapshotOverdueTaskCount,
+            snapshotTargetDate: pmWeeklyUpdates.snapshotTargetDate,
+            snapshotNextMilestoneTitle: pmWeeklyUpdates.snapshotNextMilestoneTitle,
+            snapshotNextMilestoneDueDate: pmWeeklyUpdates.snapshotNextMilestoneDueDate,
+            reviewedAt: pmWeeklyUpdates.reviewedAt,
+            reviewedById: pmWeeklyUpdates.reviewedById,
+            createdAt: pmWeeklyUpdates.createdAt,
+            updatedAt: pmWeeklyUpdates.updatedAt,
+          }).from(pmWeeklyUpdates).where(eq(pmWeeklyUpdates.weekOf, weekOf)),
+          db.select({ weekOf: pmWeeklyUpdates.weekOf }).from(pmWeeklyUpdates).where(sql`${pmWeeklyUpdates.weekOf} is not null`).orderBy(desc(pmWeeklyUpdates.weekOf)).limit(24),
+        ]);
+        const activeProjects = projects.filter(project => isWeeklyUpdateProject(project)
+          && (
+            (project.status !== "completed" && project.rockStatus !== "done" && project.rockStatus !== "dropped")
+            || updates.some(update => update.projectId === project.id)
+          ));
+        const projectIds = activeProjects.map(project => project.id);
+        const [tasks, milestones] = projectIds.length ? await Promise.all([
+          db.select({ projectId: pmTasks.projectId, completed: pmTasks.completed, dueDate: pmTasks.dueDate, sectionId: pmTasks.sectionId })
+            .from(pmTasks).where(inArray(pmTasks.projectId, projectIds)),
+          db.select({ id: pmTodoSections.id, projectId: pmTodoSections.projectId, title: pmTodoSections.title, dueDate: pmTodoSections.dueDate })
+            .from(pmTodoSections).where(inArray(pmTodoSections.projectId, projectIds)),
+        ]) : [[], []];
+        const peopleIds = Array.from(new Set([
+          ...activeProjects.map(project => projectWeeklyReportingOwnerId(project)),
+          ...updates.flatMap(update => [update.authorId, update.askNeededFromId, update.reviewedById]).filter((id): id is number => Boolean(id)),
+        ]));
+        const people = peopleIds.length
+          ? await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, peopleIds))
+          : [];
+        const peopleById = new Map(people.map(person => [person.id, person]));
+        const updateByProjectId = new Map(updates.map(update => [update.projectId, update]));
+        const taskByProject = new Map<number, typeof tasks>();
+        const milestoneByProject = new Map<number, typeof milestones>();
+        for (const task of tasks) taskByProject.set(task.projectId, [...(taskByProject.get(task.projectId) ?? []), task]);
+        for (const milestone of milestones) milestoneByProject.set(milestone.projectId, [...(milestoneByProject.get(milestone.projectId) ?? []), milestone]);
+        const period = weekOf === currentPeriod.weekOf
+          ? currentPeriod
+          : { ...currentPeriod, weekOf, isLate: true };
+
+        return {
+          weekOf,
+          weekLabel: weekOf === currentPeriod.weekOf ? currentPeriod.weekLabel : `Week of ${weekOf}`,
+          deadline: period.deadline,
+          isLate: period.isLate,
+          weekOptions: Array.from(new Set([currentPeriod.weekOf, ...allWeekRows.flatMap(row => row.weekOf ? [row.weekOf] : [])])),
+          projects: activeProjects.map(project => {
+            const update = updateByProjectId.get(project.id) ?? null;
+            const currentSnapshot = buildProjectWeeklyUpdateSnapshot(
+              taskByProject.get(project.id) ?? [],
+              milestoneByProject.get(project.id) ?? [],
+              project.dueDate,
+            );
+            const metrics = update ? {
+              taskTotal: update.snapshotTaskTotal,
+              taskCompleted: update.snapshotTaskCompleted,
+              milestoneTotal: update.snapshotMilestoneTotal,
+              milestoneCompleted: update.snapshotMilestoneCompleted,
+              overdueTaskCount: update.snapshotOverdueTaskCount,
+              targetDate: update.snapshotTargetDate,
+              nextMilestoneTitle: update.snapshotNextMilestoneTitle,
+              nextMilestoneDueDate: update.snapshotNextMilestoneDueDate,
+            } : currentSnapshot;
+            const reportingOwner = peopleById.get(projectWeeklyReportingOwnerId(project));
+            return {
+              ...project,
+              reportingOwnerName: reportingOwner?.name ?? reportingOwner?.email ?? "Unassigned",
+              submissionStatus: update ? update.reportStatus : (period.isLate ? "missing" : "due"),
+              health: update?.updateStatus ?? null,
+              metrics,
+              update: update ? {
+                ...update,
+                authorName: peopleById.get(update.authorId)?.name ?? peopleById.get(update.authorId)?.email ?? "Teammate",
+                askNeededFromName: update.askNeededFromId ? peopleById.get(update.askNeededFromId)?.name ?? peopleById.get(update.askNeededFromId)?.email ?? null : null,
+                reviewedByName: update.reviewedById ? peopleById.get(update.reviewedById)?.name ?? peopleById.get(update.reviewedById)?.email ?? null : null,
+              } : null,
+            };
+          }),
+        };
       }),
   }),
 
