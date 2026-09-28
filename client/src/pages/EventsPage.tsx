@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import {
   format,
   startOfMonth,
@@ -2445,7 +2446,7 @@ function DeliverableChangeRecord({
           </Badge>
         )}
       </div>
-      <div className="mt-3 grid gap-3 md:grid-cols-[minmax(150px,0.45fr)_minmax(0,1fr)_150px_auto] md:items-end">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(175px,0.45fr)_minmax(320px,1fr)_175px_auto] xl:items-end">
         <label className="space-y-1">
           <span className="text-xs font-medium">Change</span>
           <Select
@@ -2478,7 +2479,7 @@ function DeliverableChangeRecord({
                 : "No notice needed while unchanged"
             }
             disabled={!changed}
-            className="min-h-8 resize-y bg-white py-1.5 text-sm"
+            className="min-h-24 resize-y bg-white py-2 text-sm"
           />
         </label>
         <label className="space-y-1">
@@ -2573,7 +2574,7 @@ function DeliverableTracker({
         <div className="divide-y">
           {deliverables.map((deliverable: any) => (
             <div key={deliverable.id} className="min-w-0 p-3">
-              <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(140px,0.68fr)_minmax(145px,0.68fr)_minmax(110px,0.55fr)_minmax(0,0.65fr)_auto] lg:items-center">
+              <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(150px,0.68fr)_minmax(155px,0.68fr)_minmax(125px,0.55fr)_minmax(0,0.65fr)_auto] xl:items-center">
                 <div className="min-w-0">
                   <InlineText
                     value={deliverable.title}
@@ -3142,6 +3143,7 @@ type SponsorCartItem = {
 function SponsorProfileWorkspace({
   sponsor,
   events,
+  onBack,
   updateSponsor,
   deleteSponsor,
   upsertAsk,
@@ -3156,6 +3158,7 @@ function SponsorProfileWorkspace({
 }: {
   sponsor: SponsorRecord | null;
   events: EventRecord[];
+  onBack?: () => void;
   updateSponsor: (sponsor: SponsorRecord, patch: any) => void;
   deleteSponsor: (sponsor: SponsorRecord) => void;
   upsertAsk: (
@@ -3173,10 +3176,12 @@ function SponsorProfileWorkspace({
   updateObligation: (obligation: any, patch: any) => void;
   deleteObligation: (obligation: any) => void;
 }) {
+  const [accountTab, setAccountTab] = useState("overview");
   const [statusTab, setStatusTab] = useState("all");
   const [cart, setCart] = useState<SponsorCartItem[]>([]);
 
   useEffect(() => {
+    setAccountTab("overview");
     setStatusTab("all");
     setCart([]);
   }, [sponsor?.id]);
@@ -3310,25 +3315,6 @@ function SponsorProfileWorkspace({
             />
           </label>
         </div>
-        <DeliverableTracker
-          ask={ask}
-          createDeliverable={createDeliverable}
-          updateDeliverable={updateDeliverable}
-          deleteDeliverable={deleteDeliverable}
-          recordDeliverableChange={recordDeliverableChange}
-        />
-        <SponsorPaymentObligations
-          ask={ask}
-          sponsor={sponsor}
-          event={event}
-          obligations={(event.obligations ?? []).filter(
-            (obligation: any) =>
-              Number(obligation.sponsorAskId) === Number(ask.id)
-          )}
-          createObligation={createObligation}
-          updateObligation={updateObligation}
-          deleteObligation={deleteObligation}
-        />
       </div>
     );
   };
@@ -3360,282 +3346,103 @@ function SponsorProfileWorkspace({
       0
     );
 
+  const deliverables: { ask: any; deliverable: any }[] = asks.flatMap((ask: any) =>
+    (ask.deliverables ?? []).map((deliverable: any) => ({ ask, deliverable }))
+  );
+  const changedDeliverables = deliverables.filter(({ deliverable }) => Boolean(deliverable.changeType));
+  const paymentRows: { ask: any; event: EventRecord; obligation: any }[] = asks.flatMap((ask: any) => {
+    const event = eventFor(Number(ask.eventId));
+    return (event?.obligations ?? [])
+      .filter((obligation: any) => Number(obligation.sponsorAskId) === Number(ask.id))
+      .map((obligation: any) => ({ ask, event, obligation }));
+  });
+  const upcomingDeliverables = deliverables
+    .filter(({ deliverable }) => deliverable.status !== "delivered" && dateValue(deliverable.dueDate))
+    .sort((left, right) => (dateValue(left.deliverable.dueDate)?.getTime() ?? 0) - (dateValue(right.deliverable.dueDate)?.getTime() ?? 0))
+    .slice(0, 3);
+
   return (
     <section className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm">
-      <header className="border-b bg-slate-50/70 px-5 py-5 sm:px-6">
+      <header className="border-b bg-slate-50/70 px-5 py-5 sm:px-7">
+        {onBack ? <Button type="button" variant="ghost" size="sm" className="-ml-2 mb-3" onClick={onBack}>
+          <ChevronLeft className="mr-1 h-4 w-4" /> Sponsors
+        </Button> : null}
         <div className="grid min-w-0 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
           <div className="min-w-0">
-            <h2 className="break-words text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
-              {sponsor.companyName}
-            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="border-cyan-200 bg-cyan-50 text-cyan-800">Sponsor account</Badge>
+              {sponsor.category ? <Badge variant="outline">{sponsor.category}</Badge> : null}
+            </div>
+            <h1 className="mt-3 break-words text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">{sponsor.companyName}</h1>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              One company record, with simultaneous commitments across any
-              number of events and sponsorship tiers.
+              A single account record for the relationship, commitments, delivery, and payment follow-through across every Event.
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="shrink-0 text-rose-700 hover:bg-rose-50 hover:text-rose-700"
-            onClick={() => deleteSponsor(sponsor)}
-          >
-            <Trash2 className="mr-1.5 h-4 w-4" />
-            Delete company
+          <Button size="sm" variant="outline" className="shrink-0 text-rose-700 hover:bg-rose-50 hover:text-rose-700" onClick={() => deleteSponsor(sponsor)}>
+            <Trash2 className="mr-1.5 h-4 w-4" /> Delete account
           </Button>
         </div>
       </header>
 
-      <div className="space-y-6 p-5 sm:p-6">
+      <div className="p-5 sm:p-7">
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <ProfileDatum
-            label="Booked sponsor value"
-            value={money(bookedSponsorValue)}
-            detail="Signed or invoiced"
-          />
-          <ProfileDatum
-            label="Open pipeline"
-            value={String(tabAsks("proposed").length)}
-            detail="Proposed, verbal, or target"
-          />
-          <ProfileDatum
-            label="Active commitments"
-            value={String(asks.length)}
-            detail="Across all events"
-          />
-          <ProfileDatum
-            label="Open payment obligations"
-            value={String(openPaymentObligations)}
-            detail={`${outstandingDeliverables} deliverable${outstandingDeliverables === 1 ? "" : "s"} still open`}
-          />
-        </section>
-        <section className="grid gap-3 sm:grid-cols-2">
-          <ProfileDatum
-            label="Primary contact"
-            value={sponsor.contactName || "Not assigned"}
-          />
-          <ProfileDatum
-            label="Category"
-            value={sponsor.category || "Not set"}
-          />
-        </section>
-        <section className="grid gap-3 sm:grid-cols-3">
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Company name</span>
-            <InlineText
-              value={sponsor.companyName}
-              onSave={companyName => {
-                if (companyName) updateSponsor(sponsor, { companyName });
-              }}
-              ariaLabel={`${sponsor.companyName} company name`}
-              className="block w-full border bg-white px-2 py-2 not-italic"
-            />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Primary contact</span>
-            <InlineText
-              value={sponsor.contactName}
-              onSave={contactName => updateSponsor(sponsor, { contactName })}
-              placeholder="Add primary contact"
-              ariaLabel={`${sponsor.companyName} primary contact`}
-              className="block w-full border bg-white px-2 py-2 not-italic"
-            />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Company category</span>
-            <InlineText
-              value={sponsor.category}
-              onSave={category => updateSponsor(sponsor, { category })}
-              placeholder="Add company category"
-              ariaLabel={`${sponsor.companyName} category`}
-              className="block w-full border bg-white px-2 py-2 not-italic"
-            />
-          </label>
+          <ProfileDatum label="Booked value" value={money(bookedSponsorValue)} detail="Signed or invoiced" />
+          <ProfileDatum label="Open pipeline" value={String(tabAsks("proposed").length)} detail="Proposed, verbal, or target" />
+          <ProfileDatum label="Deliverables due" value={String(outstandingDeliverables)} detail={`${changedDeliverables.length} change record${changedDeliverables.length === 1 ? "" : "s"}`} />
+          <ProfileDatum label="Open payments" value={String(openPaymentObligations)} detail="Deposit or balance follow-up" />
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
-          <Card className="min-w-0">
-            <CardHeader className="border-b pb-4">
-              <CardTitle className="text-base">Commitments by status</CardTitle>
-              <CardDescription>
-                Each commitment belongs to one event and has its own sponsorship
-                tier, amount, and commercial status.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-4">
-              <Tabs value={statusTab} onValueChange={setStatusTab}>
-                <TabsList className="h-auto w-full justify-start overflow-x-auto">
-                  {[
-                    ["all", "All"],
-                    ["proposed", "Proposed"],
-                    ["invoiced", "Invoiced"],
-                    ["signed", "Signed"],
-                    ["other", "Other"],
-                  ].map(([value, label]) => (
-                    <TabsTrigger key={value} value={value}>
-                      {label}{" "}
-                      <span className="ml-1 rounded-full bg-muted px-1.5 text-xs">
-                        {tabAsks(value).length}
-                      </span>
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-                {["all", "proposed", "invoiced", "signed", "other"].map(tab => (
-                  <TabsContent key={tab} value={tab} className="mt-4 space-y-3">
-                    {tabAsks(tab).length ? (
-                      tabAsks(tab).map((ask: any) => (
-                        <CommitmentCard key={ask.id} ask={ask} />
-                      ))
-                    ) : (
-                      <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                        {tab === "all"
-                          ? "No commitments yet."
-                          : `No ${tab === "other" ? "other" : tab} commitments yet.`}
-                      </p>
-                    )}
-                  </TabsContent>
-                ))}
-              </Tabs>
-            </CardContent>
-          </Card>
+        <Tabs value={accountTab} onValueChange={setAccountTab} className="mt-6">
+          <TabsList className="h-auto w-full justify-start overflow-x-auto">
+            <TabsTrigger value="overview" className="shrink-0">Account overview</TabsTrigger>
+            <TabsTrigger value="commitments" className="shrink-0">Commitments ({asks.length})</TabsTrigger>
+            <TabsTrigger value="deliverables" className="shrink-0">Deliverables ({outstandingDeliverables})</TabsTrigger>
+            <TabsTrigger value="payments" className="shrink-0">Payments ({openPaymentObligations})</TabsTrigger>
+            <TabsTrigger value="notes" className="shrink-0">Account notes</TabsTrigger>
+          </TabsList>
 
-          <Card className="min-w-0">
-            <CardHeader className="border-b pb-4">
-              <CardTitle className="text-base">Add to event</CardTitle>
-              <CardDescription>
-                Build commitments here, then add them to the sponsor record.
-                Signed and invoiced entries immediately update the event P/L.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 p-4">
-              {cart.length ? (
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Commitment cart ({cart.length})
-                  </p>
-                  {cart.map(item => {
-                    const event = eventFor(item.eventId);
-                    if (!event) return null;
-                    return (
-                      <div key={item.eventId} className="rounded-lg border p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="min-w-0 break-words text-sm font-semibold">
-                            {event.name}
-                          </p>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0 text-rose-600"
-                            onClick={() =>
-                              setCart(items =>
-                                items.filter(
-                                  entry => entry.eventId !== item.eventId
-                                )
-                              )
-                            }
-                            aria-label={`Remove ${event.name} from commitment cart`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <div className="mt-3 grid gap-2">
-                          <Input
-                            value={item.sponsorshipTier}
-                            onChange={event =>
-                              updateCart(item.eventId, {
-                                sponsorshipTier: event.target.value,
-                              })
-                            }
-                            placeholder="Sponsorship tier, e.g. Gold"
-                            aria-label={`${event.name} sponsorship tier`}
-                            className="h-9 text-sm"
-                          />
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.amount}
-                            onChange={event =>
-                              updateCart(item.eventId, {
-                                amount: event.target.value,
-                              })
-                            }
-                            placeholder="Commitment amount"
-                            aria-label={`${event.name} commitment amount`}
-                            className="h-9 text-sm"
-                          />
-                          <Select
-                            value={item.stage}
-                            onValueChange={stage =>
-                              updateCart(item.eventId, { stage })
-                            }
-                          >
-                            <SelectTrigger
-                              className="h-9 w-full text-sm"
-                              aria-label={`${event.name} commitment status`}
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {ASK_STAGE_OPTIONS.map(([value, label]) => (
-                                <SelectItem key={value} value={value}>
-                                  {label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <Button className="w-full" onClick={saveCart}>
-                    Add {cart.length} to sponsor record
-                  </Button>
-                </div>
-              ) : null}
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Available events
-                </p>
-                {availableEvents.length ? (
-                  availableEvents.map(event => {
-                    const tier =
-                      TIER_DETAILS[Number(event.tier)] ?? TIER_DETAILS[4];
-                    return (
-                      <div
-                        key={event.id}
-                        className="flex min-w-0 items-center justify-between gap-3 rounded-lg border p-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="break-words text-sm font-medium">
-                            {event.name}
-                          </p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {tier.label}
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="shrink-0"
-                          onClick={() => addToCart(event)}
-                        >
-                          <Plus className="mr-1 h-3.5 w-3.5" />
-                          Add
-                        </Button>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                    This sponsor is already tied to every current event.
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </section>
+          <TabsContent value="overview" className="mt-5 space-y-5">
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)]">
+              <Card>
+                <CardHeader className="border-b pb-4"><CardTitle className="text-base">Account information</CardTitle><CardDescription>Keep the company and primary contact current here.</CardDescription></CardHeader>
+                <CardContent className="grid gap-4 p-4 sm:grid-cols-2">
+                  <label className="space-y-1.5"><span className="text-sm font-medium">Company name</span><InlineText value={sponsor.companyName} onSave={companyName => { if (companyName) updateSponsor(sponsor, { companyName }); }} ariaLabel={`${sponsor.companyName} company name`} className="block w-full border bg-white px-2 py-2 not-italic" /></label>
+                  <label className="space-y-1.5"><span className="text-sm font-medium">Primary contact</span><InlineText value={sponsor.contactName} onSave={contactName => updateSponsor(sponsor, { contactName })} placeholder="Add primary contact" ariaLabel={`${sponsor.companyName} primary contact`} className="block w-full border bg-white px-2 py-2 not-italic" /></label>
+                  <label className="space-y-1.5 sm:col-span-2"><span className="text-sm font-medium">Company category</span><InlineText value={sponsor.category} onSave={category => updateSponsor(sponsor, { category })} placeholder="Add company category" ariaLabel={`${sponsor.companyName} category`} className="block w-full border bg-white px-2 py-2 not-italic" /></label>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="border-b pb-4"><CardTitle className="text-base">Next delivery dates</CardTitle><CardDescription>Open deliverables with a due date, across all Events.</CardDescription></CardHeader>
+                <CardContent className="space-y-3 p-4">
+                  {upcomingDeliverables.length ? upcomingDeliverables.map(({ ask, deliverable }) => <div key={deliverable.id} className="rounded-lg border p-3"><p className="font-medium text-sm">{deliverable.title}</p><p className="mt-1 text-xs text-muted-foreground">{eventFor(ask.eventId)?.name ?? "Event"} · Due {dateLabel(deliverable.dueDate)}</p></div>) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No open deliverables have a due date yet.</p>}
+                </CardContent>
+              </Card>
+            </div>
+            <Card>
+              <CardHeader className="border-b pb-4"><CardTitle className="text-base">Relationship snapshot</CardTitle><CardDescription>Open the focused tabs to work the commercial commitment, delivery, or payment records.</CardDescription></CardHeader>
+              <CardContent className="grid gap-3 p-4 sm:grid-cols-3"><ProfileDatum label="Active commitments" value={String(asks.length)} detail="Across all Events" /><ProfileDatum label="Deliverables completed" value={`${deliverables.filter(({ deliverable }) => deliverable.status === "delivered").length}/${deliverables.length}`} detail="All Event commitments" /><ProfileDatum label="Payment obligations" value={String(paymentRows.length)} detail={`${openPaymentObligations} still open`} /></CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="commitments" className="mt-5 space-y-5">
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+              <Card className="min-w-0"><CardHeader className="border-b pb-4"><CardTitle className="text-base">Event commitments</CardTitle><CardDescription>Each commitment owns its tier, value, commercial stage, and related operations.</CardDescription></CardHeader><CardContent className="p-4"><Tabs value={statusTab} onValueChange={setStatusTab}><TabsList className="h-auto w-full justify-start overflow-x-auto">{[["all", "All"], ["proposed", "Pipeline"], ["invoiced", "Invoiced"], ["signed", "Signed"], ["other", "Other"]].map(([value, label]) => <TabsTrigger key={value} value={value} className="shrink-0">{label}<span className="ml-1 rounded-full bg-muted px-1.5 text-xs">{tabAsks(value).length}</span></TabsTrigger>)}</TabsList>{["all", "proposed", "invoiced", "signed", "other"].map(tab => <TabsContent key={tab} value={tab} className="mt-4 space-y-3">{tabAsks(tab).length ? tabAsks(tab).map((ask: any) => <CommitmentCard key={ask.id} ask={ask} />) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No {tab === "all" ? "commitments" : `${tab === "other" ? "other" : tab} commitments`} yet.</p>}</TabsContent>)}</Tabs></CardContent></Card>
+              <Card className="min-w-0"><CardHeader className="border-b pb-4"><CardTitle className="text-base">Add commitment</CardTitle><CardDescription>Add this account to an Event. Signed and invoiced entries update the Event P/L.</CardDescription></CardHeader><CardContent className="space-y-4 p-4">{cart.length ? <div className="space-y-3"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Commitment cart ({cart.length})</p>{cart.map(item => { const event = eventFor(item.eventId); if (!event) return null; return <div key={item.eventId} className="rounded-lg border p-3"><div className="flex items-start justify-between gap-2"><p className="min-w-0 break-words text-sm font-semibold">{event.name}</p><Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-rose-600" onClick={() => setCart(items => items.filter(entry => entry.eventId !== item.eventId))} aria-label={`Remove ${event.name} from commitment cart`}><Trash2 className="h-4 w-4" /></Button></div><div className="mt-3 grid gap-2"><Input value={item.sponsorshipTier} onChange={event => updateCart(item.eventId, { sponsorshipTier: event.target.value })} placeholder="Sponsorship tier, e.g. Gold" aria-label={`${event.name} sponsorship tier`} className="h-9 text-sm" /><Input type="number" min="0" step="0.01" value={item.amount} onChange={event => updateCart(item.eventId, { amount: event.target.value })} placeholder="Commitment amount" aria-label={`${event.name} commitment amount`} className="h-9 text-sm" /><Select value={item.stage} onValueChange={stage => updateCart(item.eventId, { stage })}><SelectTrigger className="h-9 w-full text-sm" aria-label={`${event.name} commitment status`}><SelectValue /></SelectTrigger><SelectContent>{ASK_STAGE_OPTIONS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div></div>; })}<Button className="w-full" onClick={saveCart}>Add {cart.length} to sponsor account</Button></div> : null}<div className="space-y-2"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Available Events</p>{availableEvents.length ? availableEvents.map(event => { const tier = TIER_DETAILS[Number(event.tier)] ?? TIER_DETAILS[4]; return <div key={event.id} className="flex min-w-0 items-center justify-between gap-3 rounded-lg border p-3"><div className="min-w-0"><p className="break-words text-sm font-medium">{event.name}</p><p className="mt-0.5 text-xs text-muted-foreground">{tier.label}</p></div><Button type="button" size="sm" variant="outline" className="shrink-0" onClick={() => addToCart(event)}><Plus className="mr-1 h-3.5 w-3.5" />Add</Button></div>; }) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">This sponsor is already tied to every current Event.</p>}</div></CardContent></Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="deliverables" className="mt-5 space-y-4">
+            <Card><CardHeader className="border-b pb-4"><CardTitle className="text-base">Deliverable tracking</CardTitle><CardDescription>Track what was promised for each Event commitment. Contractual changes require a written notice and sent date.</CardDescription></CardHeader><CardContent className="space-y-5 p-4">{asks.length ? asks.map((ask: any) => { const event = eventFor(ask.eventId); return <section key={ask.id} className="overflow-hidden rounded-xl border"><div className="flex flex-wrap items-start justify-between gap-3 border-b bg-slate-50/70 px-4 py-3"><div><p className="font-semibold">{event?.name ?? "Event"}</p><p className="mt-1 text-xs text-muted-foreground">{ask.sponsorshipTier || "Sponsorship tier not set"} · {ask.stage}</p></div><Badge variant="outline" className={stageClass(ask.stage)}>{money(ask.amount)}</Badge></div><div className="p-4"><DeliverableTracker ask={ask} createDeliverable={createDeliverable} updateDeliverable={updateDeliverable} deleteDeliverable={deleteDeliverable} recordDeliverableChange={recordDeliverableChange} /></div></section>; }) : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Create an Event commitment before tracking deliverables.</p>}</CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="payments" className="mt-5 space-y-4">
+            <Card><CardHeader className="border-b pb-4"><CardTitle className="text-base">Payment follow-through</CardTitle><CardDescription>Deposit and balance obligations appear in the Event Radar alongside other financial commitments.</CardDescription></CardHeader><CardContent className="space-y-5 p-4">{asks.length ? asks.map((ask: any) => { const event = eventFor(ask.eventId); if (!event) return null; return <section key={ask.id} className="overflow-hidden rounded-xl border"><div className="border-b bg-slate-50/70 px-4 py-3"><p className="font-semibold">{event.name}</p><p className="mt-1 text-xs text-muted-foreground">{ask.sponsorshipTier || "Sponsorship tier not set"} · {money(ask.amount)}</p></div><div className="p-4"><SponsorPaymentObligations ask={ask} sponsor={sponsor} event={event} obligations={paymentRows.filter(row => Number(row.ask.id) === Number(ask.id)).map(row => row.obligation)} createObligation={createObligation} updateObligation={updateObligation} deleteObligation={deleteObligation} /></div></section>; }) : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Create an Event commitment before adding payment obligations.</p>}</CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="notes" className="mt-5">
+            <Card><CardHeader className="border-b pb-4"><CardTitle className="text-base">Account notes</CardTitle><CardDescription>Keep relationship context, agreed terms, and handoff notes with the sponsor account.</CardDescription></CardHeader><CardContent className="p-4"><InlineText value={sponsor.notes} onSave={notes => updateSponsor(sponsor, { notes })} placeholder="Add account notes, relationship context, or important follow-up details" multiline ariaLabel={`${sponsor.companyName} account notes`} className="block min-h-44 w-full border bg-white px-3 py-3 text-sm not-italic" /></CardContent></Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </section>
   );
@@ -3646,18 +3453,8 @@ function SponsorGrid({
   sponsors,
   claims,
   unaffiliated,
-  updateSponsor,
-  deleteSponsor,
-  upsertAsk,
-  deleteAsk,
-  createDeliverable,
-  updateDeliverable,
-  deleteDeliverable,
-  recordDeliverableChange,
-  createObligation,
-  updateObligation,
-  deleteObligation,
   createSponsor,
+  openSponsor,
   updateClaim,
   deleteClaim,
   createClaim,
@@ -3669,18 +3466,8 @@ function SponsorGrid({
   sponsors: SponsorRecord[];
   claims: any[];
   unaffiliated: any[];
-  updateSponsor: (sponsor: any, patch: any) => void;
-  deleteSponsor: (sponsor: any) => void;
-  upsertAsk: (sponsor: any, event: any, ask: any, patch: any) => void;
-  deleteAsk: (ask: any) => void;
-  createDeliverable: (input: any) => void;
-  updateDeliverable: (deliverable: any, patch: any) => void;
-  deleteDeliverable: (deliverable: any) => void;
-  recordDeliverableChange: (deliverable: any, input: any) => void;
-  createObligation: (input: any) => void;
-  updateObligation: (obligation: any, patch: any) => void;
-  deleteObligation: (obligation: any) => void;
   createSponsor: () => void;
+  openSponsor: (sponsorId: number) => void;
   updateClaim: (claim: any, patch: any) => void;
   deleteClaim: (claim: any) => void;
   createClaim: () => void;
@@ -3688,18 +3475,7 @@ function SponsorGrid({
   deleteUnaffiliated: (contact: any) => void;
   createUnaffiliated: () => void;
 }) {
-  const [profileSponsorId, setProfileSponsorId] = useState<number | null>(
-    () => sponsors[0]?.id ?? null
-  );
   const [sponsorSearch, setSponsorSearch] = useState("");
-  useEffect(() => {
-    if (!sponsors.length) {
-      if (profileSponsorId !== null) setProfileSponsorId(null);
-      return;
-    }
-    if (!sponsors.some(sponsor => sponsor.id === profileSponsorId))
-      setProfileSponsorId(sponsors[0].id);
-  }, [sponsors, profileSponsorId]);
   const visibleSponsors = sponsors.filter(sponsor =>
     `${sponsor.companyName} ${sponsor.contactName ?? ""}`
       .toLowerCase()
@@ -3708,8 +3484,6 @@ function SponsorGrid({
   const eventOptions = events.map(
     event => [String(event.id), event.name] as const
   );
-  const profileSponsor =
-    sponsors.find(sponsor => sponsor.id === profileSponsorId) ?? null;
   return (
     <div className="space-y-8">
       <section>
@@ -3717,8 +3491,8 @@ function SponsorGrid({
           <div>
             <h2 className="text-xl font-semibold">Sponsors</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Select a company at left. Its commitments, money, and delivery
-              work stay visible in the main workspace.
+              Each company is an account. Open the record to manage its
+              commitments, delivery work, payments, and relationship notes.
             </p>
           </div>
           <Button size="sm" onClick={createSponsor}>
@@ -3726,75 +3500,21 @@ function SponsorGrid({
             Add sponsor
           </Button>
         </div>
-        <div className="grid items-start gap-5 xl:grid-cols-[minmax(260px,0.27fr)_minmax(0,0.73fr)]">
-          <aside className="min-w-0 xl:sticky xl:top-4">
-            <Card className="overflow-hidden">
-              <CardHeader className="border-b p-4">
-                <CardTitle className="text-base">Company roster</CardTitle>
-                <CardDescription>
-                  Company and primary contact only.
-                </CardDescription>
-                <Input
-                  value={sponsorSearch}
-                  onChange={event => setSponsorSearch(event.target.value)}
-                  placeholder="Find a company"
-                  aria-label="Find sponsor company"
-                  className="mt-2 h-9"
-                />
-              </CardHeader>
-              <CardContent className="max-h-[68vh] space-y-1 overflow-y-auto p-2">
-                {visibleSponsors.length ? (
-                  visibleSponsors.map(sponsor => {
-                    const selected = sponsor.id === profileSponsorId;
-                    return (
-                      <button
-                        key={sponsor.id}
-                        type="button"
-                        onClick={() => setProfileSponsorId(sponsor.id)}
-                        className={`w-full rounded-lg px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${selected ? "bg-cyan-50 ring-1 ring-cyan-200" : "hover:bg-slate-50"}`}
-                      >
-                        <p className="break-words text-sm font-semibold text-slate-950">
-                          {sponsor.companyName}
-                        </p>
-                        <p className="mt-1 break-words text-xs text-muted-foreground">
-                          {sponsor.contactName ||
-                            "Primary contact not assigned"}
-                        </p>
-                      </button>
-                    );
-                  })
-                ) : (
-                  <p className="p-3 text-sm text-muted-foreground">
-                    No sponsor matches that search.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </aside>
-          <div className="min-w-0">
-            {profileSponsor ? (
-              <SponsorProfileWorkspace
-                sponsor={profileSponsor}
-                events={events}
-                updateSponsor={updateSponsor}
-                deleteSponsor={deleteSponsor}
-                upsertAsk={upsertAsk}
-                deleteAsk={deleteAsk}
-                createDeliverable={createDeliverable}
-                updateDeliverable={updateDeliverable}
-                deleteDeliverable={deleteDeliverable}
-                recordDeliverableChange={recordDeliverableChange}
-                createObligation={createObligation}
-                updateObligation={updateObligation}
-                deleteObligation={deleteObligation}
-              />
-            ) : (
-              <Card className="p-10 text-center text-sm text-muted-foreground">
-                Select a company to open its sponsor workspace.
-              </Card>
-            )}
-          </div>
-        </div>
+        <Card>
+          <CardHeader className="border-b p-4">
+            <CardTitle className="text-base">Account directory</CardTitle>
+            <CardDescription>Find an account, then open its dedicated sponsor workspace.</CardDescription>
+            <Input value={sponsorSearch} onChange={event => setSponsorSearch(event.target.value)} placeholder="Find a company or contact" aria-label="Find sponsor company" className="mt-2 h-9 max-w-md" />
+          </CardHeader>
+          <CardContent className="p-4">
+            {visibleSponsors.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleSponsors.map(sponsor => {
+              const asks = sponsor.asks ?? [];
+              const booked = asks.filter((ask: any) => ["signed", "invoiced"].includes(ask.stage)).reduce((total: number, ask: any) => total + (asNumber(ask.amount) ?? 0), 0);
+              const openDeliverables = asks.flatMap((ask: any) => ask.deliverables ?? []).filter((deliverable: any) => deliverable.status !== "delivered").length;
+              return <button key={sponsor.id} type="button" onClick={() => openSponsor(sponsor.id)} className="group min-w-0 rounded-xl border bg-white p-4 text-left transition-all hover:border-cyan-300 hover:bg-cyan-50/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-slate-950 group-hover:text-cyan-950">{sponsor.companyName}</p><p className="mt-1 break-words text-sm text-muted-foreground">{sponsor.contactName || "Primary contact not assigned"}</p></div><ChevronRight className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground group-hover:text-cyan-700" /></div><div className="mt-4 grid grid-cols-3 gap-2 border-t pt-3 text-xs"><div><p className="text-muted-foreground">Booked</p><p className="mt-1 font-semibold text-slate-950">{money(booked)}</p></div><div><p className="text-muted-foreground">Events</p><p className="mt-1 font-semibold text-slate-950">{asks.length}</p></div><div><p className="text-muted-foreground">Open delivery</p><p className="mt-1 font-semibold text-slate-950">{openDeliverables}</p></div></div></button>;
+            })}</div> : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No sponsor matches that search.</p>}
+          </CardContent>
+        </Card>
       </section>
       <section>
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
@@ -4820,7 +4540,8 @@ function StatusItem({
   );
 }
 
-export default function EventsPage() {
+export default function EventsPage({ sponsorId }: { sponsorId?: string | number }) {
+  const [, navigate] = useLocation();
   const utils = trpc.useUtils();
   const { data, isLoading, error, isFetching } = trpc.events.overview.useQuery(
     undefined,
@@ -4915,6 +4636,7 @@ export default function EventsPage() {
     );
   const overview = data as Overview;
   const events = overview?.events ?? [];
+  const sponsorAccountId = Number(sponsorId);
   const nextObligation = events
     .flatMap((event: any) =>
       (event.obligations ?? []).map((obligation: any) => ({
@@ -5077,6 +4799,42 @@ export default function EventsPage() {
       id: contact.id,
       version: contact.version,
     });
+
+  if (sponsorId !== undefined) {
+    const sponsor = (overview?.sponsors ?? []).find(
+      (row: SponsorRecord) => Number(row.id) === sponsorAccountId
+    );
+    if (!Number.isInteger(sponsorAccountId) || !sponsor) {
+      return (
+        <div className="mx-auto max-w-2xl py-16 text-center">
+          <ShieldAlert className="mx-auto h-10 w-10 text-muted-foreground" />
+          <h1 className="mt-3 text-lg font-semibold">Sponsor account not found</h1>
+          <p className="mt-1 text-sm text-muted-foreground">This account may have been deleted or the link is invalid.</p>
+          <Button className="mt-5" variant="outline" onClick={() => navigate("/events")}>Return to Events</Button>
+        </div>
+      );
+    }
+    return (
+      <div className="mx-auto w-full max-w-[1600px] pb-10">
+        <SponsorProfileWorkspace
+          sponsor={sponsor}
+          events={events}
+          onBack={() => navigate("/events")}
+          updateSponsor={updateSponsor}
+          deleteSponsor={deleteSponsor}
+          upsertAsk={upsertAsk}
+          deleteAsk={deleteAsk}
+          createDeliverable={input => createDeliverableMutation.mutate(input)}
+          updateDeliverable={updateDeliverable}
+          deleteDeliverable={deleteDeliverable}
+          recordDeliverableChange={recordDeliverableChange}
+          createObligation={input => createObligation.mutate(input)}
+          updateObligation={updateObligation}
+          deleteObligation={deleteObligation}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1800px] space-y-6 pb-10">
@@ -5256,20 +5014,18 @@ export default function EventsPage() {
             sponsors={overview?.sponsors ?? []}
             claims={overview?.claims ?? []}
             unaffiliated={overview?.unaffiliated ?? []}
-            updateSponsor={updateSponsor}
-            deleteSponsor={deleteSponsor}
-            upsertAsk={upsertAsk}
-            deleteAsk={deleteAsk}
-            createDeliverable={input => createDeliverableMutation.mutate(input)}
-            updateDeliverable={updateDeliverable}
-            deleteDeliverable={deleteDeliverable}
-            recordDeliverableChange={recordDeliverableChange}
-            createObligation={input => createObligation.mutate(input)}
-            updateObligation={updateObligation}
-            deleteObligation={deleteObligation}
             createSponsor={() =>
-              createSponsorMutation.mutate({ companyName: "New sponsor" })
+              createSponsorMutation.mutate(
+                { companyName: "New sponsor" },
+                {
+                  onSuccess: result => {
+                    refresh();
+                    navigate(`/events/sponsors/${result.id}`);
+                  },
+                }
+              )
             }
+            openSponsor={id => navigate(`/events/sponsors/${id}`)}
             updateClaim={updateClaim}
             deleteClaim={deleteClaim}
             createClaim={() => {

@@ -624,6 +624,7 @@ function Router() {
           <Route path="/marketing-requests" component={MarketingRequestsPage} />
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
           <Route path="/webinars">{() => <WebinarRoute><WebinarsAdminPage /></WebinarRoute>}</Route>
+          <Route path="/events/sponsors/:id">{({ id }: any) => <EventsRoute><EventsPage sponsorId={id} /></EventsRoute>}</Route>
           <Route path="/events">{() => <EventsRoute><EventsPage /></EventsRoute>}</Route>
           <Route path="/website">{() => <WebsiteRoute><WebsitePage /></WebsiteRoute>}</Route>
           <Route path="/landing-pages">{() => <LandingPagesRoute><LandingPagesPage /></LandingPagesRoute>}</Route>
