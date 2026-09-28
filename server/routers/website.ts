@@ -562,17 +562,38 @@ export async function agentOwnsProperty(db: any, userId: number, propertyId: num
 }
 
 /**
- * Publishing gate for a single property. Admins keep the permission-based
- * route into the full studio; agents may publish the properties they own.
+ * How a user may act on one property's website listing:
+ *   "manager"  an admin with the Website properties permission (any property)
+ *   "owner"    an agent, or an admin without that permission, on a property
+ *              they added or hold a listing or transaction on
+ *   null       no access
+ * Admins used to have only the permission route, so an admin who also lists
+ * homes could not publish their own listing without being given the whole
+ * book. They now fall back to the same ownership rule as agents.
+ */
+export async function propertyWebsiteAccess(
+  ctx: any,
+  db: any,
+  propertyId: number
+): Promise<"manager" | "owner" | null> {
+  const user = ctx.user;
+  if (!user || user.isActive === false) return null;
+  if (user.role === "admin" && (await canAdminUsePermission(user, "canManageWebsiteProperties"))) {
+    return "manager";
+  }
+  if ((user.role === "agent" || user.role === "admin") && (await agentOwnsProperty(db, user.id, propertyId))) {
+    return "owner";
+  }
+  return null;
+}
+
+/**
+ * Publishing gate for a single property. Admins with the permission reach
+ * every property; agents, and admins without it, only the ones they own.
  */
 async function requirePropertyPublishAccess(ctx: any, db: any, propertyId: number) {
-  if (ctx.user?.role === "admin") {
-    await requireWebsitePermission(ctx, "canManageWebsiteProperties");
-    return;
-  }
-  if (ctx.user?.role === "agent" && (await agentOwnsProperty(db, ctx.user.id, propertyId))) {
-    return;
-  }
+  const access = await propertyWebsiteAccess(ctx, db, propertyId);
+  if (access) return access;
   throw new TRPCError({
     code: "FORBIDDEN",
     message: "You can only publish properties you added or are working on.",
@@ -585,11 +606,12 @@ async function requirePropertyPublishAccess(ctx: any, db: any, propertyId: numbe
  * profile onto the agent page.
  */
 async function requireAgentProfileAccess(ctx: any, userId: number) {
+  // Everyone may edit their own profile, admins included.
+  if (ctx.user?.id === userId) return;
   if (ctx.user?.role === "admin") {
     await requireWebsitePermission(ctx, "canManageWebsiteAgents");
     return;
   }
-  if (ctx.user?.id === userId) return;
   throw new TRPCError({
     code: "FORBIDDEN",
     message: "You can only edit your own website profile.",
@@ -597,6 +619,7 @@ async function requireAgentProfileAccess(ctx: any, userId: number) {
 }
 
 async function canEditAgentProfile(ctx: any, userId: number) {
+  if (ctx.user?.id === userId) return true;
   if (ctx.user?.role === "admin") {
     return canAdminUsePermission(ctx.user, "canManageWebsiteAgents");
   }
@@ -2797,7 +2820,7 @@ export const websiteRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await requirePropertyPublishAccess(ctx, db, input.propertyId);
+      const access = await requirePropertyPublishAccess(ctx, db, input.propertyId);
 
       const [property] = await db
         .select({
@@ -2865,7 +2888,8 @@ export const websiteRouter = router({
       );
       const slug = await uniqueSlug(db, websiteProperties, base);
 
-      const assignedAgentId = ctx.user.role === "agent" ? ctx.user.id : null;
+      // Whoever publishes their own property is credited on it.
+      const assignedAgentId = access === "owner" ? ctx.user.id : null;
       const result = await db.insert(websiteProperties).values({
         propertyId: input.propertyId,
         slug,
@@ -2929,12 +2953,7 @@ export const websiteRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { canEdit: false, website: null, proformas: [], agents: [], facts: null };
-      let canEdit = false;
-      if (ctx.user?.role === "admin") {
-        canEdit = await canAdminUsePermission(ctx.user, "canManageWebsiteProperties");
-      } else if (ctx.user?.role === "agent") {
-        canEdit = await agentOwnsProperty(db, ctx.user.id, input.propertyId);
-      }
+      const canEdit = Boolean(await propertyWebsiteAccess(ctx, db, input.propertyId));
       const [website] = await db
         .select()
         .from(websiteProperties)
@@ -3016,7 +3035,7 @@ export const websiteRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await requirePropertyPublishAccess(ctx, db, input.propertyId);
+      const access = await requirePropertyPublishAccess(ctx, db, input.propertyId);
 
       const [property] = await db
         .select({
@@ -3145,7 +3164,7 @@ export const websiteRouter = router({
         propertyId: input.propertyId,
         slug,
         assignedAgentId:
-          input.assignedAgentId ?? (ctx.user.role === "agent" ? ctx.user.id : null),
+          input.assignedAgentId ?? (access === "owner" ? ctx.user.id : null),
         createdById: ctx.user.id,
       });
       await logActivity({
@@ -3263,12 +3282,7 @@ export const websiteRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { canPublish: false, website: null };
-      let canPublish = false;
-      if (ctx.user?.role === "admin") {
-        canPublish = await canAdminUsePermission(ctx.user, "canManageWebsiteProperties");
-      } else if (ctx.user?.role === "agent") {
-        canPublish = await agentOwnsProperty(db, ctx.user.id, input.propertyId);
-      }
+      const canPublish = Boolean(await propertyWebsiteAccess(ctx, db, input.propertyId));
       const [website] = await db
         .select({
           id: websiteProperties.id,

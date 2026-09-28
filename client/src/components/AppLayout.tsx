@@ -586,6 +586,11 @@ function buildAdminNav(
       label: "Tech",
       items: [
         { icon: Globe2, label: "Website Studio", path: "/website" },
+        // An admin's own case studies and blog posts, the same pages agents
+        // use. Shown to every admin: they need no Website Studio permission,
+        // because each person only sees and edits their own.
+        { icon: FileText, label: "My Case Studies", path: "/my-website/case-studies" },
+        { icon: BookOpen, label: "My Blog Posts", path: "/my-website/blog" },
         { icon: Wrench, label: "Tech Requests", path: "/tech-requests" },
         {
           icon: Mail,
