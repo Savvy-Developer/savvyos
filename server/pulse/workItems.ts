@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import sanitizeHtml from "sanitize-html";
 import { pulseMemberProcedure, requirePulseCapability } from "./authorization";
-import { and, asc, desc, eq, gte, inArray, isNull, like, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, like, lt, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   pulseActivityLog,
@@ -28,6 +28,7 @@ import { sendTransactionalEmail } from "../_core/resendEmail";
 import { require_visible_meeting, visible_meeting_ids } from "./access";
 import { getPulseNotificationPreference } from "./notifications";
 import { isLegacyPulseImportSourceKey, withLegacyPulseImportProvenance } from "./legacyWorkImport";
+import { nextRocketSortOrder } from "./issueRocket";
 
 const workItemTypeSchema = z.enum(["todo", "issue", "rock"]);
 const workflowStatusSchema = z.enum(["not_started", "in_progress", "blocked", "completed"]);
@@ -582,6 +583,35 @@ export const pulseWorkItemsRouter = router({
         for (const change of changes) await writeActivity(tx, ctx.user.id, "work_item", item.id, change.field === "assignee" ? "assignee_changed" : "quick_field_updated", change.field, change.oldValue, change.newValue);
       });
       return { success: true, unchanged: false };
+    }),
+
+  rocketIssue: pulseMemberProcedure
+    .input(z.object({ workItemId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
+      if (item.type !== "issue" || !meeting || item.status === "completed") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only open meeting Issues can be rocketed." });
+      }
+      const [firstIssue] = await db.select({ id: pulseWorkItems.id, sortOrder: pulseWorkItems.sortOrder })
+        .from(pulseWorkItems)
+        .where(and(
+          eq(pulseWorkItems.meetingId, meeting.id),
+          eq(pulseWorkItems.type, "issue"),
+          ne(pulseWorkItems.status, "completed"),
+          isNull(pulseWorkItems.deletedAt),
+        ))
+        .orderBy(asc(pulseWorkItems.sortOrder), asc(pulseWorkItems.createdAt))
+        .limit(1);
+      if (firstIssue?.id === item.id) return { success: true, unchanged: true, sortOrder: item.sortOrder };
+
+      const sortOrder = nextRocketSortOrder(firstIssue?.sortOrder ?? null);
+      await db.transaction(async (tx: any) => {
+        await tx.update(pulseWorkItems).set({ sortOrder }).where(eq(pulseWorkItems.id, item.id));
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, "issue_rocketed", "sortOrder", item.sortOrder, { sortOrder, meetingId: meeting.id });
+      });
+      return { success: true, unchanged: false, sortOrder };
     }),
 
   setWorkflowStatus: pulseMemberProcedure

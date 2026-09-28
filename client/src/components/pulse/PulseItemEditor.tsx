@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
-import { Bold, CalendarDays, Check, ChevronDown, Circle, CornerDownRight, FileText, Italic, Link as LinkIcon, List, ListChecks, ListOrdered, Loader2, MessageCircle, Paperclip, Plus, Trash2 } from "lucide-react";
+import { Bold, CalendarDays, Check, ChevronDown, Circle, CornerDownRight, FileText, Italic, Link as LinkIcon, List, ListChecks, ListOrdered, Loader2, MessageCircle, Paperclip, Plus, Rocket, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -153,6 +153,10 @@ function PulseQuickWorkControls({ item, onChanged }: { item: any; onChanged: () 
     onSuccess: () => { toast.success(`${noun} updated.`); void utils.pulse.workItems.invalidate(); void utils.pulse.personal.invalidate(); void utils.pulse.l10.invalidate(); onChanged(); },
     onError: (error) => toast.error(error.message),
   });
+  const rocketIssue = trpc.pulse.workItems.rocketIssue.useMutation({
+    onSuccess: (result) => { toast.success(result.unchanged ? "Issue is already at the top." : "Issue moved to the top for this L10."); void utils.pulse.workItems.invalidate(); void utils.pulse.personal.invalidate(); void utils.pulse.l10.invalidate(); onChanged(); },
+    onError: (error) => toast.error(error.message),
+  });
   const setStatus = trpc.pulse.workItems.setWorkflowStatus.useMutation({
     onSuccess: (_result, variables) => { if (variables.status === "completed") celebrate(statusAnchor.current, item.type === "issue" ? "issue" : "todo", item.type === "issue" ? "Issue resolved" : "To-Do completed"); toast.success(variables.status === "completed" ? (item.type === "issue" ? "Issue resolved" : "To-Do completed") : "Status update saved."); setNextStatus(null); setStatusNote(""); setBlockerPersonId(""); void utils.pulse.workItems.invalidate(); void utils.pulse.personal.invalidate(); void utils.pulse.l10.invalidate(); onChanged(); },
     onError: (error) => toast.error(error.message),
@@ -160,6 +164,7 @@ function PulseQuickWorkControls({ item, onChanged }: { item: any; onChanged: () 
   const isIssue = item.type === "issue";
   return <div ref={statusAnchor} className="order-last flex shrink-0 basis-full flex-wrap items-center gap-1 pt-1 pl-6 xl:order-none xl:basis-auto xl:pt-0 xl:pl-0" onClick={event => event.stopPropagation()}>
     {!isIssue ? <Input aria-label={`${noun} due date`} type="date" value={item.dueDate ?? ""} onChange={event => quickUpdate.mutate({ workItemId: item.id, dueDate: event.target.value })} disabled={quickUpdate.isPending} className="h-7 w-[8.35rem] bg-background px-1.5 text-xs" /> : null}
+    {isIssue && item.meetingId ? <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-700" onClick={() => rocketIssue.mutate({ workItemId: item.id })} disabled={rocketIssue.isPending} title="Rocket Issue to top" aria-label="Rocket Issue to top"><Rocket className="h-4 w-4" fill="currentColor" /></Button> : null}
     <Select value={item.priorityLevel ?? "medium"} onValueChange={value => quickUpdate.mutate({ workItemId: item.id, priorityLevel: value as any })} disabled={quickUpdate.isPending}><SelectTrigger aria-label={`${noun} priority`} className={`h-7 w-[6.6rem] px-2 text-xs ${priorityBadgeClass(item.priorityLevel)}`}><SelectValue /></SelectTrigger><SelectContent>{priorityOptions.map(([value, name]) => <SelectItem key={value} value={value}>{name}</SelectItem>)}</SelectContent></Select>
     <Select value={item.assigneeId ? String(item.assigneeId) : undefined} onValueChange={value => quickUpdate.mutate({ workItemId: item.id, assigneeId: Number(value) })} disabled={quickUpdate.isPending || options.isLoading}><SelectTrigger aria-label={`${noun} assignee`} className="h-7 w-[8.5rem] bg-background px-2 text-xs"><SelectValue placeholder="Assignee" /></SelectTrigger><SelectContent>{people.map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{formatName(person)}</SelectItem>)}</SelectContent></Select>
     <PulseCompletionCelebration celebration={celebration} />{!isIssue ? <Select value={item.status ?? "not_started"} onValueChange={value => { if (value !== item.status) setNextStatus(value); }}><SelectTrigger aria-label={`${noun} status`} className={`h-7 w-[8rem] px-2 text-xs ${statusBadgeClass(item.status)}`}><SelectValue /></SelectTrigger><SelectContent>{todoStatuses.map(([value, name]) => <SelectItem key={value} value={value}>{name}</SelectItem>)}</SelectContent></Select> : null}
