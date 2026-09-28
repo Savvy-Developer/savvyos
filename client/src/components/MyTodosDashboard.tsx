@@ -28,6 +28,7 @@ import { PulseInlineItemRow } from "@/components/pulse/PulseItemEditor";
 import ProjectTodoMoveProjectDialog, {
   type ProjectMoveOption,
 } from "@/components/ProjectTodoMoveProjectDialog";
+import ProjectTodoCompletionDialog from "@/components/ProjectTodoCompletionDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -189,6 +190,8 @@ function ProjectTodoWorkspace({
   const [commentText, setCommentText] = useState("");
   const [dueDate, setDueDate] = useState(dateValue(todo.dueDate));
   const [form, setForm] = useState<ProjectTodoForm>(() => projectForm(todo));
+  const [completionOpen, setCompletionOpen] = useState(false);
+  const [pendingCompletionUpdate, setPendingCompletionUpdate] = useState<Record<string, unknown> | null>(null);
   const taskId = Number(todo.sourceId);
   const status = todo.status ?? "not_started";
   const due = duePresentation(todo.dueDate);
@@ -255,6 +258,11 @@ function ProjectTodoWorkspace({
   );
 
   function quickUpdate(data: Record<string, unknown>) {
+    if (data.status === "completed" && status !== "completed") {
+      setPendingCompletionUpdate(data);
+      setCompletionOpen(true);
+      return;
+    }
     update.mutate({ id: taskId, ...data });
   }
 
@@ -267,7 +275,7 @@ function ProjectTodoWorkspace({
       toast.error("Recurring Project To-Dos need a due date.");
       return;
     }
-    update.mutate({
+    const updateInput = {
       id: taskId,
       title: form.title.trim(),
       ownerId: Number(form.ownerId),
@@ -276,7 +284,33 @@ function ProjectTodoWorkspace({
       status: form.status,
       recurrence: form.recurrence,
       notes: form.notes,
-    });
+    };
+    if (updateInput.status === "completed" && status !== "completed") {
+      setPendingCompletionUpdate(updateInput);
+      setCompletionOpen(true);
+      return;
+    }
+    update.mutate(updateInput);
+  }
+
+  function requestToggle() {
+    if (status === "completed") {
+      toggle.mutate({ id: taskId, completed: false });
+      return;
+    }
+    setPendingCompletionUpdate(null);
+    setCompletionOpen(true);
+  }
+
+  function completeWithOutcome(completionNote: string) {
+    if (pendingCompletionUpdate) {
+      update.mutate({ id: taskId, ...pendingCompletionUpdate, completionNote });
+      setEditing(false);
+    } else {
+      toggle.mutate({ id: taskId, completed: true, completionNote });
+    }
+    setCompletionOpen(false);
+    setPendingCompletionUpdate(null);
   }
 
   function openComments() {
@@ -289,9 +323,7 @@ function ProjectTodoWorkspace({
       <div className="flex flex-wrap items-center gap-1.5 px-2 py-1.5 transition-colors hover:bg-muted/40">
         <button
           type="button"
-          onClick={() =>
-            toggle.mutate({ id: taskId, completed: status !== "completed" })
-          }
+          onClick={requestToggle}
           aria-label={
             status === "completed"
               ? "Completed. Reopen To-Do."
@@ -755,6 +787,16 @@ function ProjectTodoWorkspace({
           </section>
         </div>
       ) : null}
+      <ProjectTodoCompletionDialog
+        open={completionOpen}
+        taskTitle={todo.title}
+        isPending={toggle.isPending || update.isPending}
+        onOpenChange={open => {
+          setCompletionOpen(open);
+          if (!open) setPendingCompletionUpdate(null);
+        }}
+        onComplete={completeWithOutcome}
+      />
     </article>
   );
 }

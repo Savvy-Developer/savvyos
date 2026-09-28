@@ -31,6 +31,7 @@ import { useAppBack } from "@/lib/navigationHistory";
 import { ProjectTodoBoard, type ProjectTodoLayoutItem } from "@/components/ProjectTodoBoard";
 import ProjectTodoKanbanBoard from "@/components/ProjectTodoKanbanBoard";
 import ProjectGanttView from "@/components/ProjectGanttView";
+import ProjectTodoCompletionDialog from "@/components/ProjectTodoCompletionDialog";
 import ProjectTodoMoveProjectDialog from "@/components/ProjectTodoMoveProjectDialog";
 import ProjectTodoDependencyDialog from "@/components/ProjectTodoDependencyDialog";
 import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelector";
@@ -166,11 +167,12 @@ function TaskItem({
   projectTasks = [],
   onSetDependencies,
   dependenciesPending,
+  completionPending = false,
   children,
 }: {
   task: any;
   adminUsers: any[];
-  onToggle: (id: number, completed: boolean) => void;
+  onToggle: (id: number, completed: boolean, completionNote?: string) => void;
   onDelete: (id: number) => void;
   onUpdate: (id: number, data: any) => void;
   onAddSubtask?: (task: any) => void;
@@ -190,6 +192,7 @@ function TaskItem({
   projectTasks?: any[];
   onSetDependencies?: (id: number, predecessorTaskIds: number[]) => void;
   dependenciesPending?: boolean;
+  completionPending?: boolean;
   children?: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -201,6 +204,8 @@ function TaskItem({
   const [commentText, setCommentText] = useState("");
   const [commentMentionQuery, setCommentMentionQuery] = useState<string | null>(null);
   const [selectedCommentMentions, setSelectedCommentMentions] = useState<{ id: number; name: string }[]>([]);
+  const [completionOpen, setCompletionOpen] = useState(false);
+  const [pendingCompletionUpdate, setPendingCompletionUpdate] = useState<Record<string, unknown> | null>(null);
   const subTodoCount = Children.count(children);
   const hasSubtodos = subTodoCount > 0;
   function taskEditForm() {
@@ -268,7 +273,7 @@ function TaskItem({
       toast.error("The start date cannot be after the due date");
       return;
     }
-    onUpdate(task.id, {
+    const update = {
       title: editForm.title,
       status: editForm.status,
       ownerId: Number(editForm.ownerId),
@@ -277,8 +282,48 @@ function TaskItem({
       recurrence: editForm.recurrence,
       priority: editForm.priority,
       notes: editForm.notes || undefined,
-    });
+    };
+    if (
+      update.status === "completed" &&
+      (task.status ?? (task.completed ? "completed" : "not_started")) !==
+        "completed"
+    ) {
+      setPendingCompletionUpdate(update);
+      setCompletionOpen(true);
+      return;
+    }
+    onUpdate(task.id, update);
     setEditing(false);
+  }
+  function requestStatusUpdate(data: Record<string, unknown>) {
+    if (
+      data.status === "completed" &&
+      (task.status ?? (task.completed ? "completed" : "not_started")) !==
+        "completed"
+    ) {
+      setPendingCompletionUpdate(data);
+      setCompletionOpen(true);
+      return;
+    }
+    onUpdate(task.id, data);
+  }
+  function requestToggle(completed: boolean) {
+    if (completed && !task.completed) {
+      setPendingCompletionUpdate(null);
+      setCompletionOpen(true);
+      return;
+    }
+    onToggle(task.id, completed);
+  }
+  function completeWithOutcome(completionNote: string) {
+    if (pendingCompletionUpdate) {
+      onUpdate(task.id, { ...pendingCompletionUpdate, completionNote });
+      setEditing(false);
+    } else {
+      onToggle(task.id, true, completionNote);
+    }
+    setCompletionOpen(false);
+    setPendingCompletionUpdate(null);
   }
   function startEditing() {
     setEditForm(taskEditForm());
@@ -324,7 +369,7 @@ function TaskItem({
   return <div id={`todo-${task.id}`} className={cn("overflow-hidden rounded-md border border-border bg-card", task.completed && !highlightedCommentId && "opacity-70")}>
     <div className="flex w-full flex-wrap items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-muted/45">
       {dragHandle ? <button type="button" ref={dragHandle.setActivatorNodeRef} {...dragHandle.attributes} {...dragHandle.listeners} className="flex h-6 w-5 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 active:cursor-grabbing" aria-label={`Drag ${task.title}`} title="Drag todo"><GripVertical className="h-4 w-4" /></button> : null}
-      <button type="button" onClick={() => onToggle(task.id, !task.completed)} aria-label={task.completed ? "Completed. Reopen To-Do." : "Complete To-Do"} title={task.completed ? "Completed" : "Complete To-Do"} className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50", task.completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-700")}>
+      <button type="button" onClick={() => requestToggle(!task.completed)} aria-label={task.completed ? "Completed. Reopen To-Do." : "Complete To-Do"} title={task.completed ? "Completed" : "Complete To-Do"} className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50", task.completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-700")}>
         {task.completed ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
       </button>
       {editing ? <Input aria-label="To-Do title" value={editForm.title} onChange={event => setEditForm((form) => ({ ...form, title: event.target.value }))} onClick={event => event.stopPropagation()} className="h-8 min-w-0 flex-1 bg-background text-sm" autoFocus /> : <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
@@ -332,7 +377,7 @@ function TaskItem({
         <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
       </button>}
       {hasSubtodos ? <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs text-primary" onClick={toggleSubtodos} title={`${subtasksExpanded && expanded ? "Hide" : "Show"} ${subTodoCount} sub-To-Do${subTodoCount === 1 ? "" : "s"}`} aria-label={`${subtasksExpanded && expanded ? "Hide" : "Show"} ${subTodoCount} sub-To-Do${subTodoCount === 1 ? "" : "s"}`}><CornerDownRight className="h-4 w-4" strokeWidth={2.75} /><span>{subTodoCount}</span></Button> : null}
-      <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button>{editing ? null : <ProjectQuickWorkControls task={task} adminUsers={adminUsers} onUpdate={onUpdate} />}
+      <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button>{editing ? null : <ProjectQuickWorkControls task={task} adminUsers={adminUsers} onUpdate={(_id, data) => requestStatusUpdate(data)} />}
     </div>
     {expanded ? <div className="border-t border-primary/20 bg-primary/[0.025] p-2">
       {editing ? (
@@ -394,6 +439,16 @@ function TaskItem({
       </section>
       <section className="mt-2 rounded-md border bg-background"><div className="flex flex-wrap items-center justify-between gap-1.5 px-2 py-1.5"><button type="button" className="inline-flex items-center gap-1.5 rounded px-0.5 py-0.5 text-left hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => setShowActivity((current) => !current)} aria-expanded={showActivity}><History className="h-4 w-4 text-primary" /><span className="text-sm font-semibold">Activity</span><span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{taskActivity.length}</span><ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", showActivity && "rotate-180")} /><span className="sr-only">{showActivity ? "Hide activity" : "Show activity"}</span></button><div className="flex flex-wrap items-center justify-end gap-1.5"><Button type="button" size="sm" variant="outline" className="h-8" onClick={startEditing}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit To-Do</Button>{onSetDependencies ? <ProjectTodoDependencyDialog task={task} tasks={projectTasks} isPending={dependenciesPending} onSave={predecessorTaskIds => onSetDependencies(task.id, predecessorTaskIds)} /> : null}{onMoveSection && !task.parentTaskId && todoSections.length ? <ProjectTodoMoveSectionDialog task={task} sections={todoSections} childCount={subTodoCount} isPending={moveSectionPending} onMove={sectionId => onMoveSection(task.id, sectionId)} /> : null}{onMoveProject && !task.parentTaskId && projectId && projectTitle ? <ProjectTodoMoveProjectDialog todoTitle={task.title} currentProjectId={projectId} currentProjectTitle={projectTitle} projects={moveProjects} childCount={subTodoCount} isPending={moveProjectPending} onMove={destinationProjectId => onMoveProject(task.id, destinationProjectId)} /> : null}{onAddSubtask ? <Button type="button" size="sm" className="h-8" onClick={() => onAddSubtask(task)}>Add sub-To-Do</Button> : null}{hasSubtodos ? <Button type="button" size="icon" variant="outline" className="relative h-8 w-8" onClick={toggleSubtodos} aria-label={`${subtasksExpanded ? "Hide" : "View"} ${subTodoCount} sub-To-Dos`} title={`${subtasksExpanded ? "Hide" : "View"} ${subTodoCount} sub-To-Dos`}><CornerDownRight className="h-4 w-4" strokeWidth={2.75} /><span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">{subTodoCount}</span></Button> : null}<Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => { if (window.confirm(`Delete “${task.title}”?`)) onDelete(task.id); }} aria-label="Delete To-Do" title="Delete To-Do"><Trash2 className="h-4 w-4" /></Button></div></div>{showActivity ? <div className="border-t px-2 py-2"><div className="space-y-1.5 border-l border-border pl-2.5">{taskActivity.map((entry: any) => <article key={entry.id} className="relative text-sm"><span className="absolute -left-[1.22rem] top-0.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground"><History className="h-3.5 w-3.5" /></span><p>{activityLabel(entry)}</p>{entry.detail && entry.action !== "task_created" ? <p className="mt-0.5 whitespace-pre-wrap text-xs text-muted-foreground">{entry.detail}</p> : null}<p className="mt-0.5 text-[11px] text-muted-foreground">{format(new Date(entry.createdAt), "MMM d, h:mm a")}</p></article>)}</div></div> : null}</section>
     </div> : null}
+    <ProjectTodoCompletionDialog
+      open={completionOpen}
+      taskTitle={task.title}
+      isPending={completionPending}
+      onOpenChange={open => {
+        setCompletionOpen(open);
+        if (!open) setPendingCompletionUpdate(null);
+      }}
+      onComplete={completeWithOutcome}
+    />
   </div>;
 }
 
@@ -823,8 +878,8 @@ export default function ProjectDetailPage({
   }
 
   function renderTodo(task: any, dragHandle?: any) {
-    return <TaskItem key={task.id} task={task} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} dragHandle={dragHandle} highlightedCommentId={highlightedTodoId === task.id ? highlightedCommentId : null} onAddSubtask={parent => openAddTodo(parent.sectionId ?? null, parent)} onMoveSection={(id, sectionId) => updateTask.mutate({ id, sectionId })} moveSectionPending={updateTask.isPending} projectId={projectId} projectTitle={project?.title} moveProjects={moveProjects as any[]} onMoveProject={(id, destinationProjectId) => moveTaskToProject.mutate({ id, destinationProjectId })} moveProjectPending={moveTaskToProject.isPending} projectTasks={tasks as any[]} onSetDependencies={(id, predecessorTaskIds) => setTaskDependencies.mutate({ taskId: id, predecessorTaskIds })} dependenciesPending={setTaskDependencies.isPending}>
-      {(subTodosByParent.get(task.id) ?? []).map(subTodo => <TaskItem key={subTodo.id} task={subTodo} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} projectTasks={tasks as any[]} onSetDependencies={(id, predecessorTaskIds) => setTaskDependencies.mutate({ taskId: id, predecessorTaskIds })} dependenciesPending={setTaskDependencies.isPending} />)}
+    return <TaskItem key={task.id} task={task} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} onToggle={(id, completed, completionNote) => toggleTask.mutate({ id, completed, completionNote })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} dragHandle={dragHandle} highlightedCommentId={highlightedTodoId === task.id ? highlightedCommentId : null} onAddSubtask={parent => openAddTodo(parent.sectionId ?? null, parent)} onMoveSection={(id, sectionId) => updateTask.mutate({ id, sectionId })} moveSectionPending={updateTask.isPending} completionPending={toggleTask.isPending || updateTask.isPending} projectId={projectId} projectTitle={project?.title} moveProjects={moveProjects as any[]} onMoveProject={(id, destinationProjectId) => moveTaskToProject.mutate({ id, destinationProjectId })} moveProjectPending={moveTaskToProject.isPending} projectTasks={tasks as any[]} onSetDependencies={(id, predecessorTaskIds) => setTaskDependencies.mutate({ taskId: id, predecessorTaskIds })} dependenciesPending={setTaskDependencies.isPending}>
+      {(subTodosByParent.get(task.id) ?? []).map(subTodo => <TaskItem key={subTodo.id} task={subTodo} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed, completionNote) => toggleTask.mutate({ id, completed, completionNote })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} completionPending={toggleTask.isPending || updateTask.isPending} projectTasks={tasks as any[]} onSetDependencies={(id, predecessorTaskIds) => setTaskDependencies.mutate({ taskId: id, predecessorTaskIds })} dependenciesPending={setTaskDependencies.isPending} />)}
     </TaskItem>;
   }
 

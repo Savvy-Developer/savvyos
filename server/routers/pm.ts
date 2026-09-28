@@ -1090,6 +1090,7 @@ export const pmRouter = router({
         z.object({
           source: z.enum(["l10", "project"]),
           sourceId: z.union([z.string().uuid(), z.number().int().positive()]),
+          completionNote: z.string().trim().min(1).max(2000).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1127,6 +1128,13 @@ export const pmRouter = router({
             });
           await assertProjectAccess(db, task.projectId, ctx.user);
           if (!task.completed) {
+            if (!input.completionNote?.trim()) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "Describe what was completed before closing this Project To-Do.",
+              });
+            }
             const update = completionUpdate({
               dueDate: task.dueDate,
               recurrence: task.recurrence as TodoRecurrence,
@@ -1141,8 +1149,8 @@ export const pmRouter = router({
               ctx.user.id,
               "task_completed",
               rolledForward
-                ? `Completed recurring To-Do "${task.title}" and moved it to its next due date`
-                : `Completed To-Do "${task.title}"`,
+                ? `Completed recurring To-Do "${task.title}" and moved it to its next due date\nOutcome: ${input.completionNote.trim()}`
+                : `Completed To-Do "${task.title}"\nOutcome: ${input.completionNote.trim()}`,
               task.id
             );
             return { success: true, rolledForward };
@@ -1638,6 +1646,7 @@ export const pmRouter = router({
         recurrence: z.enum(TODO_RECURRENCES).optional(),
         priority: z.enum(["high", "medium", "low"]).optional(),
         status: z.enum(["not_started", "in_progress", "blocked", "completed"]).optional(),
+        completionNote: z.string().trim().min(1).max(2000).optional(),
         notes: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1648,7 +1657,7 @@ export const pmRouter = router({
           .from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
-        const { id, sectionId, ...fields } = input;
+        const { id, sectionId, completionNote, ...fields } = input;
         const finalRecurrence = input.recurrence ?? task.recurrence;
         const finalStartDate = input.startDate === undefined ? task.startDate : input.startDate;
         const finalDueDate = input.dueDate === undefined ? task.dueDate : input.dueDate;
@@ -1657,6 +1666,12 @@ export const pmRouter = router({
         }
         if (finalStartDate && finalDueDate && finalStartDate > finalDueDate) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "The start date cannot be after the due date." });
+        }
+        if (input.status === "completed" && task.status !== "completed" && !completionNote?.trim()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Describe what was completed before closing this Project To-Do.",
+          });
         }
         const completion = input.status === "completed" && task.status !== "completed"
           ? completionUpdate({ dueDate: finalDueDate, recurrence: finalRecurrence as TodoRecurrence })
@@ -1727,7 +1742,9 @@ export const pmRouter = router({
         const detail = sectionChanged
           ? `Moved todo "${task.title}" to ${destinationSectionTitle ? `section "${destinationSectionTitle}"` : "the main To-Do list"}`
           : statusChanged
-            ? `${input.status === "completed" ? "Completed" : "Set status to"} ${statusLabel} for "${task.title}"`
+            ? input.status === "completed"
+              ? `Completed To-Do "${task.title}"\nOutcome: ${completionNote!.trim()}`
+              : `Set status to ${statusLabel} for "${task.title}"`
             : "Updated todo";
         await logActivity(task.projectId, ctx.user.id, action, detail, id);
         return { success: true, rolledForward: completion?.rolledForward ?? false };
@@ -1942,18 +1959,24 @@ export const pmRouter = router({
       }),
 
     toggleComplete: protectedProcedure
-      .input(z.object({ id: z.number(), completed: z.boolean() }))
+      .input(z.object({ id: z.number(), completed: z.boolean(), completionNote: z.string().trim().min(1).max(2000).optional() }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const [task] = await db.select({ projectId: pmTasks.projectId, title: pmTasks.title, recurrence: pmTasks.recurrence, dueDate: pmTasks.dueDate }).from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
+        const [task] = await db.select({ projectId: pmTasks.projectId, title: pmTasks.title, recurrence: pmTasks.recurrence, dueDate: pmTasks.dueDate, completed: pmTasks.completed }).from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
+        if (input.completed && !task.completed && !input.completionNote?.trim()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Describe what was completed before closing this Project To-Do.",
+          });
+        }
         const update = input.completed ? completionUpdate({ ...task, recurrence: task.recurrence as TodoRecurrence }) : reopenUpdate();
         const { rolledForward, ...updateFields } = update;
         await db.update(pmTasks).set(updateFields).where(eq(pmTasks.id, input.id));
-        await logActivity(task.projectId, ctx.user.id, input.completed ? "task_completed" : "task_reopened", rolledForward ? `Completed recurring To-Do "${task.title}" and moved it to its next due date` : `"${task.title}"`, input.id);
+        await logActivity(task.projectId, ctx.user.id, input.completed ? "task_completed" : "task_reopened", input.completed ? (rolledForward ? `Completed recurring To-Do "${task.title}" and moved it to its next due date\nOutcome: ${input.completionNote!.trim()}` : `Completed To-Do "${task.title}"\nOutcome: ${input.completionNote!.trim()}`) : `Reopened To-Do "${task.title}"`, input.id);
         return { success: true, rolledForward };
       }),
 
