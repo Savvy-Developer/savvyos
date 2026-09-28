@@ -39,12 +39,11 @@ describe("Event–Project integration safeguards", () => {
     expect(eventsPage).not.toContain("Create Project from Event");
   });
 
-  it("keeps Event context separate from the full linked Project workspace", () => {
+  it("keeps the full linked Project workspace in its dedicated Event tab", () => {
     expect(eventsPage).toContain('TabsTrigger value="overview"');
     expect(eventsPage).toContain('TabsTrigger value="project"');
-    expect(eventsPage).toContain("Open planning project");
-    expect(eventsPage).toContain("<EventProjectOverview");
     expect(eventsPage).toContain("<EventProjectWorkspace");
+    expect(eventsPage).not.toContain("EventProjectOverview");
     expect(projectDetailPage).toContain(
       'const allowedTabs = ["tasks", "board", "gantt", "notes", "updates", "activity"];'
     );

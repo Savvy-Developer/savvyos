@@ -1191,66 +1191,6 @@ function EventProjectWorkspace({
   );
 }
 
-function EventProjectOverview({
-  eventId,
-  onOpenProject,
-}: {
-  eventId: number;
-  onOpenProject: () => void;
-}) {
-  const { data: linked, isLoading } = trpc.events.projects.linked.useQuery(
-    { eventId },
-    { staleTime: 0 }
-  );
-
-  return (
-    <section className="rounded-xl border bg-slate-50/50 p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold">Planning project</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Event planning work stays in Projects and uses the same Project tasks.
-          </p>
-        </div>
-        {linked?.state === "accessible" ? (
-          <Button size="sm" onClick={onOpenProject}>
-            Open planning project
-          </Button>
-        ) : null}
-      </div>
-
-      {isLoading ? (
-        <div className="flex items-center gap-2 py-5 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading Project planning…
-        </div>
-      ) : null}
-      {linked?.state === "unlinked" ? (
-        <div className="mt-4 rounded-lg border border-dashed bg-background px-4 py-4 text-sm text-muted-foreground">
-          <p>No Project is linked to this Event yet.</p>
-          <Button className="mt-3" size="sm" variant="outline" onClick={onOpenProject}>
-            Link project
-          </Button>
-        </div>
-      ) : null}
-      {linked?.state === "restricted" ? (
-        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">
-          A Project is linked to this Event. You do not have access to its planning workspace.
-        </p>
-      ) : null}
-      {linked?.state === "accessible" ? (
-        <div className="mt-4 rounded-lg border bg-background px-4 py-4">
-          <p className="font-medium">{linked.project.title}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {[linked.project.status?.replaceAll("_", " "), linked.project.dueDate ? `Due ${dateLabel(linked.project.dueDate)}` : null]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 function EventProfileDialog({
   event,
   sponsors,
@@ -1386,11 +1326,6 @@ function EventProfileDialog({
                 detail={event.venue || undefined}
               />
             </section>
-
-            <EventProjectOverview
-              eventId={event.id}
-              onOpenProject={() => setActiveTab("project")}
-            />
 
             <section className="grid gap-4 lg:grid-cols-2">
               <Card className="min-w-0">
