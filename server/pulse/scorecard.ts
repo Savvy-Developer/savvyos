@@ -15,7 +15,7 @@ import {
 } from "../../drizzle/schema";
 import { router } from "../_core/trpc";
 import { getDb } from "../db";
-import { is_visible_meeting_manager, require_visible_meeting } from "./access";
+import { is_visible_meeting_manager, require_visible_meeting, visible_meeting_ids } from "./access";
 import { currentMeasurementPeriod, formatPeriod as formatScorecardPeriod, isEventMetric, isSnapshotMetric, metricPeriodBounds, periodToDatePerformance, scoreResult, targetLabel, trendPhrase as scorecardTrendPhrase } from "../rrScorecard";
 
 export const SCORECARD_CADENCES = ["weekly", "monthly", "quarterly", "annually"] as const;
@@ -225,6 +225,25 @@ async function requireManager(db: any, personId: number, meetingId: string) {
 }
 
 export const pulseScorecardRouter = router({
+  master: pulseProcedure.query(async ({ ctx }) => {
+    const db = await database();
+    const visibleMeetingIds = await visible_meeting_ids(db, ctx.user.id);
+    if (!visibleMeetingIds.length) return { meetings: [], items: [] };
+    const meetings = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name })
+      .from(pulseMeetings)
+      .where(and(inArray(pulseMeetings.id, visibleMeetingIds), eq(pulseMeetings.isActive, true)))
+      .orderBy(asc(pulseMeetings.name));
+    const scorecards = await Promise.all(meetings.map(async (meeting: any) => ({
+      meeting,
+      scorecard: await getMeetingScorecard(db, ctx.user.id, meeting.id),
+    })));
+    return {
+      meetings: scorecards.map(({ meeting, scorecard }: any) => ({ id: meeting.id, name: meeting.name, metricCount: scorecard.items.length })),
+      items: scorecards.flatMap(({ meeting, scorecard }: any) => scorecard.items.map((item: any) => ({ ...item, meetingId: meeting.id, meetingName: meeting.name })))
+        .sort((left: any, right: any) => left.meetingName.localeCompare(right.meetingName) || left.name.localeCompare(right.name)),
+    };
+  }),
+
   configuration: pulseProcedure.input(z.object({ meetingId: z.string().uuid() })).query(async ({ ctx, input }) => {
     const db = await database();
     await requireManager(db, ctx.user.id, input.meetingId);
