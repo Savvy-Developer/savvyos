@@ -478,7 +478,7 @@ export default function ProjectDetailPage({
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const initialTab = embedded ? "tasks" : new URLSearchParams(window.location.search).get("tab");
-  const allowedTabs = embedded ? ["tasks", "board"] : ["tasks", "board", "gantt", "notes", "updates", "activity"];
+  const allowedTabs = ["tasks", "board", "gantt", "notes", "updates", "activity"];
   const [activeTab, setActiveTab] = useState(allowedTabs.includes(initialTab ?? "") ? initialTab! : "tasks");
   const [showCompletedTodos, setShowCompletedTodos] = useState(false);
   const highlightedNoteId = Number(window.location.hash.match(/^#note-(\d+)$/)?.[1] ?? 0) || null;
@@ -1042,11 +1042,11 @@ export default function ProjectDetailPage({
             <Columns3 className="h-3.5 w-3.5 mr-1.5" />
             Board View
           </TabsTrigger>
-          {!embedded ? <TabsTrigger value="gantt" className="shrink-0 whitespace-nowrap">
+          <TabsTrigger value="gantt" className="shrink-0 whitespace-nowrap">
             <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
             Gantt
-          </TabsTrigger> : null}
-          {!embedded ? <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">
+          </TabsTrigger>
+          <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">
             <StickyNote className="h-3.5 w-3.5 mr-1.5" />
             Notes
             {unreadNoteCount > 0 && (
@@ -1054,15 +1054,15 @@ export default function ProjectDetailPage({
                 {unreadNoteCount}
               </span>
             )}
-          </TabsTrigger> : null}
-          {!embedded ? <TabsTrigger value="updates" className="shrink-0 whitespace-nowrap">
+          </TabsTrigger>
+          <TabsTrigger value="updates" className="shrink-0 whitespace-nowrap">
             <BarChart3 className="h-3.5 w-3.5 mr-1.5" />
             Weekly Updates ({(project.weeklyUpdates ?? []).length})
-          </TabsTrigger> : null}
-          {!embedded ? <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">
+          </TabsTrigger>
+          <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">
             <Activity className="h-3.5 w-3.5 mr-1.5" />
             Activity
-          </TabsTrigger> : null}
+          </TabsTrigger>
         </TabsList>
 
         {/* List View Tab */}

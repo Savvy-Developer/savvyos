@@ -10,6 +10,7 @@ describe("Event–Project integration safeguards", () => {
   const migration = read("drizzle/20260925_event_project_links.sql");
   const eventsRouter = read("server/routers/events.ts");
   const eventsPage = read("client/src/pages/EventsPage.tsx");
+  const projectDetailPage = read("client/src/pages/ProjectDetailPage.tsx");
   const schemaGuard = read("server/eventProjectLinkSchema.ts");
   const serverEntry = read("server/_core/index.ts");
 
@@ -36,6 +37,20 @@ describe("Event–Project integration safeguards", () => {
     );
     expect(eventsPage).toContain("<ProjectDetailPage embeddedProjectId={linked.project.id} />");
     expect(eventsPage).not.toContain("Create Project from Event");
+  });
+
+  it("keeps Event context separate from the full linked Project workspace", () => {
+    expect(eventsPage).toContain('TabsTrigger value="overview"');
+    expect(eventsPage).toContain('TabsTrigger value="project"');
+    expect(eventsPage).toContain("Open planning project");
+    expect(eventsPage).toContain("<EventProjectOverview");
+    expect(eventsPage).toContain("<EventProjectWorkspace");
+    expect(projectDetailPage).toContain(
+      'const allowedTabs = ["tasks", "board", "gantt", "notes", "updates", "activity"];'
+    );
+    for (const tab of ["gantt", "notes", "updates", "activity"]) {
+      expect(projectDetailPage).toContain(`TabsTrigger value="${tab}"`);
+    }
   });
 
   it("creates the additive link table before Railway accepts traffic", () => {
