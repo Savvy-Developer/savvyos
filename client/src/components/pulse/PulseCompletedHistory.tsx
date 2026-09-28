@@ -56,7 +56,7 @@ export function PulseCompletedHistory({ contextId, title = "Completed & Resolved
         </div>
         <div className="flex items-center gap-2">
           <span className="hidden items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 sm:inline-flex"><ShieldCheck className="h-3.5 w-3.5" />Canonical history</span>
-          <Button type="button" size="sm" variant={isOpen ? "secondary" : "outline"} className={resolvedCompact ? "h-7 text-xs" : "h-8"} aria-expanded={isOpen} onClick={() => setIsOpen(value => !value)}>{isOpen ? "Collapse history" : `View ${initialType === "todo" ? "completed" : initialType === "issue" ? "resolved" : "history"}`}<ChevronDown className={`ml-1.5 h-3.5 w-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} /></Button>
+          <Button type="button" size="icon" variant={isOpen ? "secondary" : "outline"} className={resolvedCompact ? "h-7 w-7" : "h-8 w-8"} aria-expanded={isOpen} aria-label={isOpen ? `Collapse ${title}` : `Expand ${title}`} title={isOpen ? `Collapse ${title}` : `Expand ${title}`} onClick={() => setIsOpen(value => !value)}><ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} /><span className="sr-only">{isOpen ? `Collapse ${title}` : `Expand ${title}`}</span></Button>
         </div>
       </div>
     </CardHeader>
