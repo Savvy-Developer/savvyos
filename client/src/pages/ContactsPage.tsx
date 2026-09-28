@@ -400,6 +400,9 @@ export default function ContactsPage() {
   const { data: agents = [] } = trpc.users.list.useQuery({ role: "agent" }, { enabled: canListUsers });
   const { data: isas = [] } = trpc.users.list.useQuery({ role: "isa" }, { enabled: canListUsers });
   const { data: leadSourcesData = [] } = trpc.leadSources.listFlat.useQuery();
+  // Names for the table include retired sources, so a contact filed under a
+  // deactivated source still shows where it came from.
+  const { data: allLeadSourcesData = [] } = trpc.leadSources.listFlat.useQuery({ includeInactive: true });
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const create = trpc.contacts.create.useMutation({
@@ -955,10 +958,10 @@ export default function ContactsPage() {
                         <td className="py-3 px-4">
                           {(() => {
                             if (contact.leadSourceId) {
-                              const ls = (leadSourcesData as any[]).find((s: any) => s.ls.id === contact.leadSourceId);
+                              const ls = (allLeadSourcesData as any[]).find((s: any) => s.ls.id === contact.leadSourceId);
                               if (ls) {
-                                const parent = ls.ls.parentId ? (leadSourcesData as any[]).find((p: any) => p.ls.id === ls.ls.parentId) : null;
-                                const grandparent = parent?.ls.parentId ? (leadSourcesData as any[]).find((p: any) => p.ls.id === parent.ls.parentId) : null;
+                                const parent = ls.ls.parentId ? (allLeadSourcesData as any[]).find((p: any) => p.ls.id === ls.ls.parentId) : null;
+                                const grandparent = parent?.ls.parentId ? (allLeadSourcesData as any[]).find((p: any) => p.ls.id === parent.ls.parentId) : null;
                                 return (
                                   <div className="flex items-center gap-1 flex-wrap">
                                     {grandparent && (

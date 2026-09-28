@@ -100,6 +100,7 @@ import { ensureWebsiteTeamSchema } from "../websiteTeamSchema";
 import { ensureWebsitePriceDropSchema } from "../websitePriceDropSchema";
 import { ensureWebsiteSoldSweepSchema } from "../websiteSoldSweepSchema";
 import { ensureWebsiteListingExpirySchema } from "../websiteListingExpirySchema";
+import { ensureOrganicSocialLeadSources } from "../organicSocialLeadSources";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -136,6 +137,10 @@ async function startServer() {
   await ensureWebsitePriceDropSchema();
   await ensureWebsiteSoldSweepSchema();
   await ensureWebsiteListingExpirySchema();
+  // Organic Social lead sources exist before the first organic lead arrives
+  // (a lead source locks at creation), and the legacy Facebook/Instagram
+  // import buckets are renamed and retired once.
+  await ensureOrganicSocialLeadSources();
 
   const app = express();
   const server = createServer(app);

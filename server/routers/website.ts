@@ -94,6 +94,8 @@ import {
   readAdAttribution,
   isPaidAttribution,
 } from "@shared/adAttribution";
+import { resolveOrganicSocialLeadSourceId } from "../organicSocialLeadSources";
+import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 
 /**
  * Whether the visitor making this request has an investor account session.
@@ -2041,14 +2043,19 @@ export const websiteRouter = router({
       const adCampaign = campaignSourceFrom(adAttribution);
       let contactId = existing[0]?.id;
       if (!contactId) {
+        // A visit from an organic social post (utm_medium=social) is filed
+        // under Organic Social now, because the lead source locks at creation.
+        const organicSourceId = await resolveOrganicSocialLeadSourceId(db, adAttribution);
         const result = await db.insert(contacts).values({
           firstName: input.firstName,
           lastName: input.lastName,
           email: normalizedEmail,
           phone: input.phone || null,
+          ...(organicSourceId ? { leadSourceId: organicSourceId } : {}),
           // First touch, locked after this. A lead that arrived through an
-          // ad is a paid lead; anything else on the site is organic.
-          leadSourceType: isPaidAttribution(adAttribution) ? "paid_lead" : "organic",
+          // ad is a paid lead; anything else on the site is organic, including
+          // an organic social post that carries a campaign name.
+          leadSourceType: !organicSourceId && isPaidAttribution(adAttribution) ? "paid_lead" : "organic",
           isaStatus: "new_lead",
           tags: isSeller ? ["Savvy website", SELLER_LEAD_TAG] : ["Savvy website"],
           notes: input.message || "Savvy website inquiry",
@@ -2056,6 +2063,15 @@ export const websiteRouter = router({
           ...(adCampaign ? { campaignSource: adCampaign } : {}),
         });
         contactId = Number((result as any)[0]?.insertId);
+        // Website contacts had no lead source, so they never started a Smart
+        // Plan. Organic social ones now do, like every other intake with a
+        // source. Never blocks or fails the visitor's form.
+        if (organicSourceId) {
+          const newContactId = contactId;
+          await triggerSmartPlansForContact(newContactId, organicSourceId).catch(error =>
+            console.error("[SmartPlan] Website enrollment failed for contact", newContactId, error)
+          );
+        }
       } else {
         const updates: Record<string, unknown> = {
           ...adAttributionUpdates(adAttribution),
