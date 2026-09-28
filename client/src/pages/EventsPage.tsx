@@ -2605,15 +2605,6 @@ function DeliverableTracker({
                     ariaLabel="deliverable title"
                     className="block max-w-full font-medium not-italic"
                   />
-                  <InlineText
-                    value={deliverable.description}
-                    onSave={description =>
-                      updateDeliverable(deliverable, { description })
-                    }
-                    placeholder="Add details"
-                    ariaLabel={`${deliverable.title} details`}
-                    className="mt-1 block max-w-full text-xs not-italic"
-                  />
                 </div>
                 <div className="min-w-0">
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -2673,6 +2664,21 @@ function DeliverableTracker({
                 <DeleteButton
                   label={deliverable.title}
                   onDelete={() => deleteDeliverable(deliverable)}
+                />
+              </div>
+              <div className="mt-3 min-w-0 border-t pt-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Details
+                </p>
+                <InlineText
+                  value={deliverable.description}
+                  onSave={description =>
+                    updateDeliverable(deliverable, { description })
+                  }
+                  placeholder="Add details"
+                  multiline
+                  ariaLabel={`${deliverable.title} details`}
+                  className="mt-1 block min-h-16 w-full border bg-slate-50/70 px-3 py-2 text-sm not-italic"
                 />
               </div>
               <DeliverableChangeRecord
@@ -3367,11 +3373,15 @@ function SponsorProfileWorkspace({
   const [accountTab, setAccountTab] = useState("overview");
   const [statusTab, setStatusTab] = useState("all");
   const [cart, setCart] = useState<SponsorCartItem[]>([]);
+  const [expandedDeliverableEvents, setExpandedDeliverableEvents] = useState<
+    Record<number, boolean>
+  >({});
 
   useEffect(() => {
     setAccountTab("overview");
     setStatusTab("all");
     setCart([]);
+    setExpandedDeliverableEvents({});
   }, [sponsor?.id]);
 
   if (!sponsor) return null;
@@ -3409,6 +3419,11 @@ function SponsorProfileWorkspace({
         item.eventId === eventId ? { ...item, ...patch } : item
       )
     );
+  const toggleDeliverableEvent = (askId: number) =>
+    setExpandedDeliverableEvents(current => ({
+      ...current,
+      [askId]: !(current[askId] ?? true),
+    }));
   const saveCart = () => {
     if (!cart.length) return;
     for (const item of cart) {
@@ -3625,7 +3640,58 @@ function SponsorProfileWorkspace({
           </TabsContent>
 
           <TabsContent value="deliverables" className="mt-5 space-y-4">
-            <Card><CardHeader className="border-b pb-4"><CardTitle className="text-base">Deliverable tracking</CardTitle><CardDescription>Track what was promised for each Event commitment. Contractual changes require a written notice and sent date.</CardDescription></CardHeader><CardContent className="space-y-5 p-4">{asks.length ? asks.map((ask: any) => { const event = eventFor(ask.eventId); return <section key={ask.id} className="overflow-hidden rounded-xl border"><div className="flex flex-wrap items-start justify-between gap-3 border-b bg-slate-50/70 px-4 py-3"><div><p className="font-semibold">{event?.name ?? "Event"}</p><p className="mt-1 text-xs text-muted-foreground">{ask.sponsorshipTier || "Sponsorship tier not set"} · {ask.stage}</p></div><Badge variant="outline" className={stageClass(ask.stage)}>{money(ask.amount)}</Badge></div><div className="p-4"><DeliverableTracker ask={ask} createDeliverable={createDeliverable} updateDeliverable={updateDeliverable} deleteDeliverable={deleteDeliverable} recordDeliverableChange={recordDeliverableChange} /></div></section>; }) : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Create an Event commitment before tracking deliverables.</p>}</CardContent></Card>
+            <Card>
+              <CardHeader className="border-b pb-4">
+                <CardTitle className="text-base">Deliverable tracking</CardTitle>
+                <CardDescription>
+                  Track what was promised for each Event commitment. Contractual changes require a written notice and sent date.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 p-4">
+                {asks.length ? asks.map((ask: any) => {
+                  const event = eventFor(ask.eventId);
+                  const eventDeliverables = ask.deliverables ?? [];
+                  const expanded = expandedDeliverableEvents[ask.id] ?? true;
+                  return (
+                    <section key={ask.id} className="overflow-hidden rounded-xl border">
+                      <button
+                        type="button"
+                        className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 bg-slate-50/70 px-4 py-3 text-left transition-colors hover:bg-slate-100"
+                        onClick={() => toggleDeliverableEvent(ask.id)}
+                        aria-expanded={expanded}
+                        aria-controls={`sponsor-deliverables-${ask.id}`}
+                      >
+                        <div className="min-w-0">
+                          <p className="break-words font-semibold">{event?.name ?? "Event"}</p>
+                          <p className="mt-1 break-words text-xs text-muted-foreground">
+                            {ask.sponsorshipTier || "Sponsorship tier not set"} · {ask.stage} · {eventDeliverables.length} deliverable{eventDeliverables.length === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Badge variant="outline" className={stageClass(ask.stage)}>{money(ask.amount)}</Badge>
+                          <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
+                        </div>
+                      </button>
+                      {expanded ? (
+                        <div id={`sponsor-deliverables-${ask.id}`} className="border-t p-4">
+                          <DeliverableTracker
+                            ask={ask}
+                            createDeliverable={createDeliverable}
+                            updateDeliverable={updateDeliverable}
+                            deleteDeliverable={deleteDeliverable}
+                            recordDeliverableChange={recordDeliverableChange}
+                          />
+                        </div>
+                      ) : null}
+                    </section>
+                  );
+                }) : (
+                  <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                    Create an Event commitment before tracking deliverables.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="payments" className="mt-5 space-y-4">

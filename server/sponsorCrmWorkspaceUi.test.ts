@@ -44,4 +44,12 @@ describe("Sponsor CRM workspace safeguards", () => {
     expect(eventsPage).toContain("grid-cols-1 gap-3 border-t pt-3 text-xs sm:grid-cols-3");
     expect(eventsPage).toContain("xl:grid-cols-[minmax(0,1.2fr)_140px_140px");
   });
+
+  it("keeps deliverable details below the working row and makes each Event expandable", () => {
+    expect(eventsPage).toContain('className="mt-3 min-w-0 border-t pt-3"');
+    expect(eventsPage).toContain('placeholder="Add details"');
+    expect(eventsPage).toContain("expandedDeliverableEvents[ask.id] ?? true");
+    expect(eventsPage).toContain("toggleDeliverableEvent(ask.id)");
+    expect(eventsPage).toContain("sponsor-deliverables-${ask.id}");
+  });
 });
