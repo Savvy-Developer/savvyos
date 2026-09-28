@@ -1490,6 +1490,30 @@ export const websiteTeamMembers = mysqlTable(
 );
 export type WebsiteTeamMember = typeof websiteTeamMembers.$inferSelect;
 
+/**
+ * Sales that took a website listing down. The hourly sold sweep
+ * (server/websiteSoldSweep.ts) hides a published listing once its property has
+ * a closed transaction or a closed listing, then records that sale here so a
+ * relisted property the agent republishes is not taken down again for the
+ * same sale. saleKey is "tx:<transactionId>", "listing:<listingId>", or
+ * "baseline" for the one row written on the first run. Created at startup by
+ * server/websiteSoldSweepSchema.ts; the same statement is kept in
+ * drizzle/20260928_website_sold_sweeps.sql for the record.
+ */
+export const websiteSoldSweeps = mysqlTable(
+  "website_sold_sweeps",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    saleKey: varchar("saleKey", { length: 64 }).notNull(),
+    propertyId: int("propertyId"),
+    websitePropertyId: int("websitePropertyId"),
+    action: mysqlEnum("action", ["baseline", "unpublished"]).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [uniqueIndex("website_sold_sweeps_saleKey_uq").on(table.saleKey)]
+);
+export type WebsiteSoldSweep = typeof websiteSoldSweeps.$inferSelect;
+
 export const websiteLeads = mysqlTable(
   "website_leads",
   {

@@ -25,6 +25,7 @@ import { scheduleWeeklyOperationsReports } from "../weeklyOperationsReportsSched
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
 import { scheduleWebsiteDailyEmail } from "../websiteDailyEmail";
 import { schedulePriceDropAlerts } from "../websitePriceDropAlerts";
+import { scheduleSoldSweep } from "../websiteSoldSweep";
 import { scheduleDailyIsaActivitiesReport } from "../dailyIsaActivitiesReportScheduler";
 import { scheduleMonthlyAgentRenewalsReport } from "../monthlyAgentRenewalsReport";
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
@@ -96,6 +97,7 @@ import { ensureSponsorContactLogSchema } from "../sponsorContactLogSchema";
 import { ensureChatUserAccessSchema } from "../chatUserAccessSchema";
 import { ensureWebsiteTeamSchema } from "../websiteTeamSchema";
 import { ensureWebsitePriceDropSchema } from "../websitePriceDropSchema";
+import { ensureWebsiteSoldSweepSchema } from "../websiteSoldSweepSchema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -130,6 +132,7 @@ async function startServer() {
   await ensureChatUserAccessSchema();
   await ensureWebsiteTeamSchema();
   await ensureWebsitePriceDropSchema();
+  await ensureWebsiteSoldSweepSchema();
 
   const app = express();
   const server = createServer(app);
@@ -492,6 +495,9 @@ async function startServer() {
   // Price drop alerts: checks live listings every 30 minutes. Sends nothing
   // until switched on in Website Studio > Daily Email.
   schedulePriceDropAlerts();
+  // Sold sweep: every hour, takes a live listing off the website once its
+  // property has a closed deal. WEBSITE_SOLD_SWEEP=off stops it.
+  scheduleSoldSweep();
 
   // Listing expiration reminder: daily at 8am
   scheduleListingExpirationCheck();
