@@ -33,4 +33,11 @@ describe("Pulse dashboard consolidation", () => {
     expect(scorecardRouter).toContain("master: pulseProcedure.query");
     expect(scorecardRouter).toContain("visible_meeting_ids");
   });
+
+  it("keeps My Measurables inside the My Work workspace", () => {
+    expect(myWorkPage).toContain('aria-label="My Work sections"');
+    expect(myWorkPage).toContain('>My Work</TabsTrigger>');
+    expect(myWorkPage).toContain('>My Measurables</TabsTrigger>');
+    expect(myWorkPage).toContain('window.location.hash === "#my-measurables"');
+  });
 });
