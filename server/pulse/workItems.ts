@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import sanitizeHtml from "sanitize-html";
-import { pulseMemberProcedure } from "./authorization";
+import { pulseMemberProcedure, requirePulseCapability } from "./authorization";
 import { and, asc, desc, eq, gte, inArray, isNull, like, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -27,6 +27,7 @@ import { router } from "../_core/trpc";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { require_visible_meeting, visible_meeting_ids } from "./access";
 import { getPulseNotificationPreference } from "./notifications";
+import { isLegacyPulseImportSourceKey, withLegacyPulseImportProvenance } from "./legacyWorkImport";
 
 const workItemTypeSchema = z.enum(["todo", "issue", "rock"]);
 const workflowStatusSchema = z.enum(["not_started", "in_progress", "blocked", "completed"]);
@@ -39,6 +40,21 @@ const raciRoleSchema = z.enum(["responsible", "accountable", "consulted", "infor
 const priorityLevelSchema = z.enum(["low", "medium", "high", "urgent"]);
 const issueTimeframeSchema = z.enum(["short_term", "long_term"]);
 const editorStatusSchema = z.enum(["not_started", "in_progress", "blocked", "completed", "on_track", "at_risk", "off_track", "done", "dropped"]);
+const legacyImportItemSchema = z.object({
+  sourceKey: z.string().trim().min(1).max(255),
+  legacyId: z.string().trim().min(1).max(32),
+  sourceMeetingName: z.string().trim().min(1).max(255),
+  sourceOwnerName: z.string().trim().min(1).max(255).nullable(),
+  type: z.enum(["todo", "issue"]),
+  title: z.string().trim().min(1).max(500),
+  description: z.string().max(50_000).nullable(),
+  meetingId: z.string().uuid(),
+  assigneeId: z.number().int().positive().nullable(),
+  dueDate: dateSchema.nullable(),
+  priorityLevel: priorityLevelSchema,
+  status: workflowStatusSchema,
+  issueTimeframe: issueTimeframeSchema.nullable(),
+});
 
 function escapeHtml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;");
@@ -351,6 +367,102 @@ export const pulseWorkItemsRouter = router({
       people: people.map((person: any) => ({ ...person, destinationIds: [...(person.id === ctx.user.id ? ["personal"] : []), ...(accessByPerson.get(person.id) ?? [])] })),
     };
   }),
+
+  importLegacyOpenL10Work: pulseMemberProcedure
+    .input(z.object({
+      items: z.array(legacyImportItemSchema).min(1).max(250),
+    }).superRefine((input, refinement) => {
+      const keys = new Set<string>();
+      input.items.forEach((item, index) => {
+        if (!isLegacyPulseImportSourceKey(item.sourceKey)) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "sourceKey"], message: "This import only accepts the approved September 2026 Pulse export keys." });
+        if (keys.has(item.sourceKey)) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "sourceKey"], message: "Each legacy source key can be imported once." });
+        keys.add(item.sourceKey);
+        if (item.type === "todo" && item.issueTimeframe) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "issueTimeframe"], message: "Only Issues use a timeframe." });
+        if (item.type === "issue" && !item.issueTimeframe) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "issueTimeframe"], message: "Every imported Issue needs a short- or long-term timeframe." });
+        if (item.type === "issue" && item.dueDate) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "dueDate"], message: "Issues do not use due dates." });
+      });
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      // This is intentionally limited to Pulse L10 managers. It preserves legacy
+      // ownership without adding the owner as a meeting member, so importing data
+      // never expands anyone's Pulse visibility or sends assignment notifications.
+      await requirePulseCapability(db, ctx.user, "manage_l10s");
+
+      const meetingIds = Array.from(new Set(input.items.map((item) => item.meetingId)));
+      const assigneeIds = Array.from(new Set(input.items.map((item) => item.assigneeId).filter((id): id is number => id != null)));
+      const sourceOwnerNames = Array.from(new Set(input.items.map((item) => item.assigneeId == null ? item.sourceOwnerName?.trim() ?? null : null).filter((name): name is string => Boolean(name))));
+      const [meetings, people, sourceOwnerPeople, priorImports] = await Promise.all([
+        db.select({ id: pulseMeetings.id }).from(pulseMeetings).where(and(inArray(pulseMeetings.id, meetingIds), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))),
+        assigneeIds.length ? db.select({ id: users.id }).from(users).where(and(inArray(users.id, assigneeIds), sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`)) : Promise.resolve([]),
+        sourceOwnerNames.length ? db.select({ id: users.id, name: users.name }).from(users).where(and(inArray(users.name, sourceOwnerNames), sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`)) : Promise.resolve([]),
+        db.select({ id: pulseWorkItems.id, description: pulseWorkItems.description }).from(pulseWorkItems).where(and(isNull(pulseWorkItems.deletedAt), like(pulseWorkItems.description, "%Legacy Pulse Export Key: pulse-open-l10-work-export-2026-09-28:%"))),
+      ]);
+      const activeMeetingIds = new Set(meetings.map((meeting: any) => meeting.id));
+      const activePersonIds = new Set(people.map((person: any) => person.id));
+      const invalidMeetingIds = meetingIds.filter((id) => !activeMeetingIds.has(id));
+      const invalidAssigneeIds = assigneeIds.filter((id) => !activePersonIds.has(id));
+      if (invalidMeetingIds.length || invalidAssigneeIds.length) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Legacy import references unavailable destinations or owners. Meetings: ${invalidMeetingIds.length}; owners: ${invalidAssigneeIds.length}.`,
+        });
+      }
+      const ownerIdsByName = new Map<string, number>();
+      const duplicateOwnerNames = new Set<string>();
+      for (const person of sourceOwnerPeople as Array<{ id: number; name: string | null }>) {
+        const key = person.name?.trim().toLocaleLowerCase();
+        if (!key) continue;
+        if (ownerIdsByName.has(key)) duplicateOwnerNames.add(key);
+        else ownerIdsByName.set(key, person.id);
+      }
+      duplicateOwnerNames.forEach((key) => ownerIdsByName.delete(key));
+      const priorSourceKeys = new Set<string>();
+      for (const imported of priorImports as Array<{ description: string | null }>) {
+        const match = imported.description?.match(/Legacy Pulse Export Key:\s*([^;<]+)/);
+        if (match) priorSourceKeys.add(match[1].trim());
+      }
+      const pendingItems = input.items.filter((item) => !priorSourceKeys.has(item.sourceKey));
+      if (pendingItems.length) await db.transaction(async (tx: any) => {
+        for (const item of pendingItems) {
+          const id = uuid();
+          const resolvedAssigneeId = item.assigneeId ?? (item.sourceOwnerName ? ownerIdsByName.get(item.sourceOwnerName.trim().toLocaleLowerCase()) ?? null : null);
+          const description = sanitizeDetails(withLegacyPulseImportProvenance(item.description, {
+            sourceKey: item.sourceKey,
+            legacyId: item.legacyId,
+            sourceMeetingName: item.sourceMeetingName,
+            sourceOwnerName: item.sourceOwnerName,
+          }));
+          await tx.insert(pulseWorkItems).values({
+            id,
+            type: item.type,
+            title: item.title,
+            description,
+            meetingId: item.meetingId,
+            ownerPersonId: null,
+            assigneeId: resolvedAssigneeId,
+            createdById: ctx.user.id,
+            status: item.status,
+            dueDate: item.type === "todo" ? item.dueDate : null,
+            priorityLevel: item.priorityLevel,
+            issueTimeframe: item.type === "issue" ? item.issueTimeframe : null,
+            percentComplete: 0,
+            percentSource: "manual",
+          });
+          await writeActivity(tx, ctx.user.id, "work_item", id, "legacy_open_l10_imported", undefined, undefined, {
+            sourceKey: item.sourceKey,
+            legacyId: item.legacyId,
+            sourceMeetingName: item.sourceMeetingName,
+            sourceOwnerName: item.sourceOwnerName,
+            assigneeId: resolvedAssigneeId,
+            membershipGranted: false,
+            notificationsSent: false,
+          });
+        }
+      });
+      return { created: pendingItems.length, skipped: input.items.length - pendingItems.length, skippedSourceKeys: input.items.filter((item) => priorSourceKeys.has(item.sourceKey)).map((item) => item.sourceKey) };
+    }),
 
   saveEditor: pulseMemberProcedure
     .input(z.object({
