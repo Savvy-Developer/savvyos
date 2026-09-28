@@ -22,6 +22,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -150,6 +151,13 @@ const DELIVERABLE_CHANGE_OPTIONS = [
   ["dropped", "Dropped"],
   ["substituted", "Substituted"],
 ] as const;
+const SPONSOR_CONTACT_TYPE_OPTIONS = [
+  ["call", "Call"],
+  ["email", "Email"],
+  ["text", "Text"],
+  ["meeting", "Meeting"],
+  ["note", "Note"],
+] as const;
 
 function asNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -263,6 +271,19 @@ function dateValue(value: unknown) {
 function dateLabel(value: unknown, includeYear = true) {
   const parsed = dateValue(value);
   return parsed ? format(parsed, includeYear ? "MMM d, yyyy" : "MMM d") : "—";
+}
+
+function dateTimeLabel(value: unknown) {
+  if (!value) return "—";
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(parsed.getTime())
+    ? "—"
+    : format(parsed, "MMM d, yyyy · h:mm a");
+}
+
+function localDateTimeInput(value = new Date()) {
+  const offset = value.getTimezoneOffset();
+  return new Date(value.getTime() - offset * 60_000).toISOString().slice(0, 16);
 }
 
 function daysUntil(value: unknown) {
@@ -3042,7 +3063,7 @@ function SponsorPaymentObligations({
           {obligations.map((obligation: any) => (
             <div
               key={obligation.id}
-              className="grid min-w-0 gap-3 p-3 lg:grid-cols-[minmax(0,1.2fr)_130px_130px_minmax(0,0.8fr)_120px_auto] lg:items-center"
+              className="grid min-w-0 gap-4 p-3 xl:grid-cols-[minmax(0,1.2fr)_140px_140px_minmax(0,0.8fr)_130px_auto] xl:items-center"
             >
               <div className="min-w-0">
                 <InlineText
@@ -3133,6 +3154,169 @@ function SponsorPaymentObligations({
   );
 }
 
+function sponsorContactTypeLabel(type: string | null | undefined) {
+  return (
+    SPONSOR_CONTACT_TYPE_OPTIONS.find(([value]) => value === type)?.[1] ??
+    "Contact"
+  );
+}
+
+function SponsorContactLog({
+  sponsor,
+  createContactLog,
+  isSaving,
+}: {
+  sponsor: SponsorRecord;
+  createContactLog: (input: any) => Promise<unknown>;
+  isSaving: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    contactType: "call",
+    body: "",
+    occurredAt: localDateTimeInput(),
+  });
+  const contactLogs = sponsor.contactLogs ?? [];
+  const reset = () =>
+    setForm({
+      contactType: "call",
+      body: "",
+      occurredAt: localDateTimeInput(),
+    });
+
+  useEffect(() => {
+    setOpen(false);
+    reset();
+  }, [sponsor.id]);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      await createContactLog({
+        sponsorId: sponsor.id,
+        contactType: form.contactType,
+        body: form.body,
+        occurredAt: new Date(form.occurredAt),
+      });
+      toast.success("Contact logged.");
+      setOpen(false);
+      reset();
+    } catch (error: any) {
+      toast.error(error.message ?? "Unable to log contact.");
+    }
+  };
+
+  return (
+    <>
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 border-b pb-4">
+          <div className="min-w-0">
+            <CardTitle className="text-base">Contact log</CardTitle>
+            <CardDescription>
+              Capture every sponsor call, email, text, meeting, and important note.
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            className="shrink-0"
+            onClick={() => {
+              reset();
+              setOpen(true);
+            }}
+          >
+            <Plus className="mr-1.5 h-4 w-4" /> Log contact
+          </Button>
+        </CardHeader>
+        <CardContent className="p-4">
+          {contactLogs.length ? (
+            <div className="space-y-3">
+              {contactLogs.map((entry: any) => (
+                <article key={entry.id} className="min-w-0 rounded-lg border p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <Badge variant="outline" className="shrink-0">
+                        {sponsorContactTypeLabel(entry.contactType)}
+                      </Badge>
+                      <span className="break-words text-xs text-muted-foreground">
+                        {dateTimeLabel(entry.occurredAt)}
+                        {entry.createdByName ? ` · Logged by ${entry.createdByName}` : ""}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">
+                    {entry.body}
+                  </p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+              No sponsor contact has been logged yet.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Log sponsor contact</DialogTitle>
+            <DialogDescription>
+              Add the actual contact time so Last contact stays accurate.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={submit}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-1.5">
+                <span className="text-sm font-medium">Contact type</span>
+                <Select
+                  value={form.contactType}
+                  onValueChange={contactType => setForm(current => ({ ...current, contactType }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {SPONSOR_CONTACT_TYPE_OPTIONS.map(([value, label]) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-medium">Occurred at</span>
+                <Input
+                  required
+                  type="datetime-local"
+                  value={form.occurredAt}
+                  onChange={event => setForm(current => ({ ...current, occurredAt: event.target.value }))}
+                />
+              </label>
+            </div>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Details</span>
+              <Textarea
+                required
+                minLength={1}
+                maxLength={20_000}
+                value={form.body}
+                onChange={event => setForm(current => ({ ...current, body: event.target.value }))}
+                placeholder="What was discussed, agreed, requested, or promised?"
+                className="min-h-36 resize-y"
+              />
+            </label>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSaving}>Cancel</Button>
+              <Button type="submit" disabled={isSaving || !form.body.trim() || !form.occurredAt}>
+                {isSaving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                Save contact
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 type SponsorCartItem = {
   eventId: number;
   sponsorshipTier: string;
@@ -3155,6 +3339,8 @@ function SponsorProfileWorkspace({
   createObligation,
   updateObligation,
   deleteObligation,
+  createContactLog,
+  isContactLogSaving,
 }: {
   sponsor: SponsorRecord | null;
   events: EventRecord[];
@@ -3175,6 +3361,8 @@ function SponsorProfileWorkspace({
   createObligation: (input: any) => void;
   updateObligation: (obligation: any, patch: any) => void;
   deleteObligation: (obligation: any) => void;
+  createContactLog: (input: any) => Promise<unknown>;
+  isContactLogSaving: boolean;
 }) {
   const [accountTab, setAccountTab] = useState("overview");
   const [statusTab, setStatusTab] = useState("all");
@@ -3360,10 +3548,13 @@ function SponsorProfileWorkspace({
     .filter(({ deliverable }) => deliverable.status !== "delivered" && dateValue(deliverable.dueDate))
     .sort((left, right) => (dateValue(left.deliverable.dueDate)?.getTime() ?? 0) - (dateValue(right.deliverable.dueDate)?.getTime() ?? 0))
     .slice(0, 3);
+  const lastContact = (sponsor.contactLogs ?? []).find(
+    (entry: any) => entry.contactType !== "note"
+  );
 
   return (
     <section className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm">
-      <header className="border-b bg-slate-50/70 px-5 py-5 sm:px-7">
+      <header className="border-b bg-slate-50/70 px-4 py-4 sm:px-5">
         {onBack ? <Button type="button" variant="ghost" size="sm" className="-ml-2 mb-3" onClick={onBack}>
           <ChevronLeft className="mr-1 h-4 w-4" /> Sponsors
         </Button> : null}
@@ -3384,7 +3575,7 @@ function SponsorProfileWorkspace({
         </div>
       </header>
 
-      <div className="p-5 sm:p-7">
+      <div className="p-4 sm:p-5">
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <ProfileDatum label="Booked value" value={money(bookedSponsorValue)} detail="Signed or invoiced" />
           <ProfileDatum label="Open pipeline" value={String(tabAsks("proposed").length)} detail="Proposed, verbal, or target" />
@@ -3392,7 +3583,7 @@ function SponsorProfileWorkspace({
           <ProfileDatum label="Open payments" value={String(openPaymentObligations)} detail="Deposit or balance follow-up" />
         </section>
 
-        <Tabs value={accountTab} onValueChange={setAccountTab} className="mt-6">
+        <Tabs value={accountTab} onValueChange={setAccountTab} className="mt-5">
           <TabsList className="h-auto w-full justify-start overflow-x-auto">
             <TabsTrigger value="overview" className="shrink-0">Account overview</TabsTrigger>
             <TabsTrigger value="commitments" className="shrink-0">Commitments ({asks.length})</TabsTrigger>
@@ -3401,14 +3592,15 @@ function SponsorProfileWorkspace({
             <TabsTrigger value="notes" className="shrink-0">Account notes</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="overview" className="mt-5 space-y-5">
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)]">
+          <TabsContent value="overview" className="mt-4 space-y-4">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)]">
               <Card>
                 <CardHeader className="border-b pb-4"><CardTitle className="text-base">Account information</CardTitle><CardDescription>Keep the company and primary contact current here.</CardDescription></CardHeader>
-                <CardContent className="grid gap-4 p-4 sm:grid-cols-2">
+                <CardContent className="grid gap-4 p-4 md:grid-cols-2">
                   <label className="space-y-1.5"><span className="text-sm font-medium">Company name</span><InlineText value={sponsor.companyName} onSave={companyName => { if (companyName) updateSponsor(sponsor, { companyName }); }} ariaLabel={`${sponsor.companyName} company name`} className="block w-full border bg-white px-2 py-2 not-italic" /></label>
                   <label className="space-y-1.5"><span className="text-sm font-medium">Primary contact</span><InlineText value={sponsor.contactName} onSave={contactName => updateSponsor(sponsor, { contactName })} placeholder="Add primary contact" ariaLabel={`${sponsor.companyName} primary contact`} className="block w-full border bg-white px-2 py-2 not-italic" /></label>
                   <label className="space-y-1.5 sm:col-span-2"><span className="text-sm font-medium">Company category</span><InlineText value={sponsor.category} onSave={category => updateSponsor(sponsor, { category })} placeholder="Add company category" ariaLabel={`${sponsor.companyName} category`} className="block w-full border bg-white px-2 py-2 not-italic" /></label>
+                  <div className="md:col-span-2"><ProfileDatum label="Last contact" value={lastContact ? dateTimeLabel(lastContact.occurredAt) : "Not yet logged"} detail={lastContact ? sponsorContactTypeLabel(lastContact.contactType) : "Log a call, email, text, or meeting"} /></div>
                 </CardContent>
               </Card>
               <Card>
@@ -3422,6 +3614,7 @@ function SponsorProfileWorkspace({
               <CardHeader className="border-b pb-4"><CardTitle className="text-base">Relationship snapshot</CardTitle><CardDescription>Open the focused tabs to work the commercial commitment, delivery, or payment records.</CardDescription></CardHeader>
               <CardContent className="grid gap-3 p-4 sm:grid-cols-3"><ProfileDatum label="Active commitments" value={String(asks.length)} detail="Across all Events" /><ProfileDatum label="Deliverables completed" value={`${deliverables.filter(({ deliverable }) => deliverable.status === "delivered").length}/${deliverables.length}`} detail="All Event commitments" /><ProfileDatum label="Payment obligations" value={String(paymentRows.length)} detail={`${openPaymentObligations} still open`} /></CardContent>
             </Card>
+            <SponsorContactLog sponsor={sponsor} createContactLog={createContactLog} isSaving={isContactLogSaving} />
           </TabsContent>
 
           <TabsContent value="commitments" className="mt-5 space-y-5">
@@ -3507,11 +3700,11 @@ function SponsorGrid({
             <Input value={sponsorSearch} onChange={event => setSponsorSearch(event.target.value)} placeholder="Find a company or contact" aria-label="Find sponsor company" className="mt-2 h-9 max-w-md" />
           </CardHeader>
           <CardContent className="p-4">
-            {visibleSponsors.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleSponsors.map(sponsor => {
+            {visibleSponsors.length ? <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">{visibleSponsors.map(sponsor => {
               const asks = sponsor.asks ?? [];
               const booked = asks.filter((ask: any) => ["signed", "invoiced"].includes(ask.stage)).reduce((total: number, ask: any) => total + (asNumber(ask.amount) ?? 0), 0);
               const openDeliverables = asks.flatMap((ask: any) => ask.deliverables ?? []).filter((deliverable: any) => deliverable.status !== "delivered").length;
-              return <button key={sponsor.id} type="button" onClick={() => openSponsor(sponsor.id)} className="group min-w-0 rounded-xl border bg-white p-4 text-left transition-all hover:border-cyan-300 hover:bg-cyan-50/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-slate-950 group-hover:text-cyan-950">{sponsor.companyName}</p><p className="mt-1 break-words text-sm text-muted-foreground">{sponsor.contactName || "Primary contact not assigned"}</p></div><ChevronRight className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground group-hover:text-cyan-700" /></div><div className="mt-4 grid grid-cols-3 gap-2 border-t pt-3 text-xs"><div><p className="text-muted-foreground">Booked</p><p className="mt-1 font-semibold text-slate-950">{money(booked)}</p></div><div><p className="text-muted-foreground">Events</p><p className="mt-1 font-semibold text-slate-950">{asks.length}</p></div><div><p className="text-muted-foreground">Open delivery</p><p className="mt-1 font-semibold text-slate-950">{openDeliverables}</p></div></div></button>;
+              return <button key={sponsor.id} type="button" onClick={() => openSponsor(sponsor.id)} className="group min-w-0 rounded-xl border bg-white p-4 text-left transition-all hover:border-cyan-300 hover:bg-cyan-50/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-slate-950 group-hover:text-cyan-950">{sponsor.companyName}</p><p className="mt-1 break-words text-sm text-muted-foreground">{sponsor.contactName || "Primary contact not assigned"}</p></div><ChevronRight className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground group-hover:text-cyan-700" /></div><div className="mt-4 grid grid-cols-1 gap-3 border-t pt-3 text-xs sm:grid-cols-3"><div className="min-w-0"><p className="break-words leading-tight text-muted-foreground">Booked</p><p className="mt-1 break-words font-semibold text-slate-950">{money(booked)}</p></div><div className="min-w-0"><p className="break-words leading-tight text-muted-foreground">Events</p><p className="mt-1 break-words font-semibold text-slate-950">{asks.length}</p></div><div className="min-w-0"><p className="break-words leading-tight text-muted-foreground">Open delivery</p><p className="mt-1 break-words font-semibold text-slate-950">{openDeliverables}</p></div></div></button>;
             })}</div> : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No sponsor matches that search.</p>}
           </CardContent>
         </Card>
@@ -4541,7 +4734,7 @@ function StatusItem({
 }
 
 export default function EventsPage({ sponsorId }: { sponsorId?: string | number }) {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const utils = trpc.useUtils();
   const { data, isLoading, error, isFetching } = trpc.events.overview.useQuery(
     undefined,
@@ -4551,6 +4744,17 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
   const [profileEventId, setProfileEventId] = useState<number | null>(null);
   const [editingEventId, setEditingEventId] = useState<number | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState(() => {
+    const requested = new URLSearchParams(location.split("?")[1] ?? "").get("tab");
+    return ["overview", "records", "portfolio", "timeline", "expenses", "sponsors", "radar", "model"].includes(requested ?? "")
+      ? requested!
+      : "overview";
+  });
+  useEffect(() => {
+    if (sponsorId !== undefined) return;
+    const requested = new URLSearchParams(location.split("?")[1] ?? "").get("tab");
+    if (requested === "sponsors") setActiveTab("sponsors");
+  }, [location, sponsorId]);
   const refresh = () => void utils.events.overview.invalidate();
   const mutationOptions = {
     onSuccess: refresh,
@@ -4585,6 +4789,8 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
     trpc.events.createSponsor.useMutation(mutationOptions);
   const updateSponsorMutation =
     trpc.events.updateSponsor.useMutation(mutationOptions);
+  const createSponsorContactLogMutation =
+    trpc.events.createSponsorContactLog.useMutation(mutationOptions);
   const deleteSponsorMutation =
     trpc.events.deleteSponsor.useMutation(mutationOptions);
   const upsertAskMutation =
@@ -4819,7 +5025,7 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
         <SponsorProfileWorkspace
           sponsor={sponsor}
           events={events}
-          onBack={() => navigate("/events")}
+          onBack={() => navigate("/events?tab=sponsors")}
           updateSponsor={updateSponsor}
           deleteSponsor={deleteSponsor}
           upsertAsk={upsertAsk}
@@ -4831,6 +5037,8 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
           createObligation={input => createObligation.mutate(input)}
           updateObligation={updateObligation}
           deleteObligation={deleteObligation}
+          createContactLog={input => createSponsorContactLogMutation.mutateAsync(input)}
+          isContactLogSaving={createSponsorContactLogMutation.isPending}
         />
       </div>
     );
@@ -4907,7 +5115,7 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
           </Button>
         </div>
       </div>
-      <Tabs defaultValue="overview" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="h-auto w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">
             <CircleDollarSign className="mr-1.5 h-4 w-4" />

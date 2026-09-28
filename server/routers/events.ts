@@ -9,6 +9,7 @@ import {
   eventObligations,
   eventPortfolio,
   eventProjectLinks,
+  eventSponsorContactLogs,
   eventSponsorAsks,
   eventSponsorDeliverables,
   eventSponsors,
@@ -16,6 +17,7 @@ import {
   eventUnaffiliatedContacts,
   pmProjectActivity,
   pmProjects,
+  users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -65,6 +67,7 @@ const sponsorStages = [
 const deliverableStatuses = ["not_started", "booked", "delivered"] as const;
 const deliverableTypes = ["contractual", "courtesy"] as const;
 const deliverableChangeTypes = ["dropped", "substituted"] as const;
+const sponsorContactTypes = ["call", "email", "text", "meeting", "note"] as const;
 const shareStatuses = ["written", "verbal", "not_agreed"] as const;
 const sourceType = z.string().trim().min(1).max(255);
 const bookedSponsorStages = new Set(["signed", "invoiced"]);
@@ -856,6 +859,7 @@ async function overviewData(db: any) {
     asks,
     expenses,
     deliverables,
+    contactLogs,
     claims,
     unaffiliated,
     alerts,
@@ -885,6 +889,17 @@ async function overviewData(db: any) {
       .orderBy(
         asc(eventSponsorDeliverables.dueDate),
         asc(eventSponsorDeliverables.id)
+      ),
+    db
+      .select({
+        log: eventSponsorContactLogs,
+        author: { id: users.id, name: users.name, email: users.email },
+      })
+      .from(eventSponsorContactLogs)
+      .leftJoin(users, eq(eventSponsorContactLogs.createdById, users.id))
+      .orderBy(
+        desc(eventSponsorContactLogs.occurredAt),
+        desc(eventSponsorContactLogs.id)
       ),
     db
       .select()
@@ -935,6 +950,17 @@ async function overviewData(db: any) {
       ...(deliverablesByAsk.get(deliverable.sponsorAskId) ?? []),
       deliverable,
     ]);
+  const contactLogsBySponsor = new Map<number, any[]>();
+  for (const row of contactLogs) {
+    const log = {
+      ...row.log,
+      createdByName: row.author?.name ?? row.author?.email ?? null,
+    };
+    contactLogsBySponsor.set(log.sponsorId, [
+      ...(contactLogsBySponsor.get(log.sponsorId) ?? []),
+      log,
+    ]);
+  }
   const sponsorById = new Map(
     sponsors.map((sponsor: any) => [sponsor.id, sponsor])
   );
@@ -952,6 +978,7 @@ async function overviewData(db: any) {
         ...ask,
         deliverables: deliverablesByAsk.get(ask.id) ?? [],
       })),
+      contactLogs: contactLogsBySponsor.get(sponsor.id) ?? [],
     })),
     claims: claims.map((claim: any) => ({
       ...claim,
@@ -1845,6 +1872,38 @@ export const eventsRouter = router({
         );
       versionedUpdate(result);
       return { version: input.version + 1 };
+    }),
+
+  createSponsorContactLog: protectedProcedure
+    .input(
+      z.object({
+        sponsorId: z.number().int().positive(),
+        contactType: z.enum(sponsorContactTypes),
+        body: z.string().trim().min(1).max(20_000),
+        occurredAt: z.coerce.date(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const [sponsor] = await db
+        .select({ id: eventSponsors.id })
+        .from(eventSponsors)
+        .where(eq(eventSponsors.id, input.sponsorId))
+        .limit(1);
+      if (!sponsor)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Sponsor account not found.",
+        });
+      const [result] = await db.insert(eventSponsorContactLogs).values({
+        sponsorId: input.sponsorId,
+        contactType: input.contactType,
+        body: input.body,
+        occurredAt: input.occurredAt,
+        createdById: ctx.user.id,
+      });
+      return { id: Number(result.insertId) };
     }),
 
   deleteSponsor: protectedProcedure

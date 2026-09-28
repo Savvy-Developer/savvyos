@@ -92,6 +92,7 @@ import { ensureContactLeadSourceTrigger } from "../contactLeadSourceTrigger";
 import { ensureRrMeasurableSchema } from "../rrMeasurableSchema";
 import { ensureCoachingWorkflowSchema } from "../coachingWorkflowSchema";
 import { ensureEventProjectLinkSchema } from "../eventProjectLinkSchema";
+import { ensureSponsorContactLogSchema } from "../sponsorContactLogSchema";
 import { ensureChatUserAccessSchema } from "../chatUserAccessSchema";
 import { ensureWebsiteTeamSchema } from "../websiteTeamSchema";
 import { ensureWebsitePriceDropSchema } from "../websitePriceDropSchema";
@@ -125,6 +126,7 @@ async function startServer() {
   await ensureRrMeasurableSchema();
   await ensureCoachingWorkflowSchema();
   await ensureEventProjectLinkSchema();
+  await ensureSponsorContactLogSchema();
   await ensureChatUserAccessSchema();
   await ensureWebsiteTeamSchema();
   await ensureWebsitePriceDropSchema();

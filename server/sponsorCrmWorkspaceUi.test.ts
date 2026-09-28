@@ -16,6 +16,7 @@ describe("Sponsor CRM workspace safeguards", () => {
     expect(eventsPage).toContain("Account directory");
     expect(eventsPage).toContain("openSponsor={id => navigate(`/events/sponsors/${id}`)}");
     expect(eventsPage).toContain("Sponsor account not found");
+    expect(eventsPage).toContain('navigate("/events?tab=sponsors")');
   });
 
   it("separates account relationship, commitments, delivery, payments, and notes", () => {
@@ -31,11 +32,16 @@ describe("Sponsor CRM workspace safeguards", () => {
     expect(eventsPage).toContain("Deliverable tracking");
     expect(eventsPage).toContain("Payment follow-through");
     expect(eventsPage).toContain("Add account notes, relationship context");
+    expect(eventsPage).toContain("Last contact");
+    expect(eventsPage).toContain("Contact log");
+    expect(eventsPage).toContain("Log contact");
   });
 
   it("gives change notices and delivery fields enough room to operate", () => {
     expect(eventsPage).toContain("min-h-24 resize-y bg-white py-2 text-sm");
     expect(eventsPage).toContain("xl:grid-cols-[minmax(175px,0.45fr)_minmax(320px,1fr)_175px_auto]");
     expect(eventsPage).toContain("xl:grid-cols-[minmax(0,1.35fr)_minmax(150px,0.68fr)");
+    expect(eventsPage).toContain("grid-cols-1 gap-3 border-t pt-3 text-xs sm:grid-cols-3");
+    expect(eventsPage).toContain("xl:grid-cols-[minmax(0,1.2fr)_140px_140px");
   });
 });

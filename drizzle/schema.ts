@@ -7045,6 +7045,40 @@ export const eventSponsors = mysqlTable(
 export type EventSponsor = typeof eventSponsors.$inferSelect;
 export type InsertEventSponsor = typeof eventSponsors.$inferInsert;
 
+// Immutable relationship history for a sponsor account. Notes are retained too,
+// while last-contact reporting uses only a real communication entry.
+export const eventSponsorContactLogs = mysqlTable(
+  "event_sponsor_contact_logs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sponsorId: int("sponsorId")
+      .notNull()
+      .references(() => eventSponsors.id, { onDelete: "cascade" }),
+    contactType: mysqlEnum("contactType", [
+      "call",
+      "email",
+      "text",
+      "meeting",
+      "note",
+    ]).notNull(),
+    body: text("body").notNull(),
+    occurredAt: timestamp("occurredAt").notNull(),
+    createdById: int("createdById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("event_sponsor_contact_logs_sponsor_occurred_idx").on(
+      table.sponsorId,
+      table.occurredAt
+    ),
+  ]
+);
+export type EventSponsorContactLog = typeof eventSponsorContactLogs.$inferSelect;
+export type InsertEventSponsorContactLog =
+  typeof eventSponsorContactLogs.$inferInsert;
+
 export const eventSponsorAsks = mysqlTable(
   "event_sponsor_asks",
   {
