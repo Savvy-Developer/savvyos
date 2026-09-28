@@ -133,6 +133,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "website_deeper_analysis_request",
   "website_financing_request",
   "website_showing_request",
+  "website_listing_expired",
   "pto_request_submitted",
   "pto_request_decision",
   "vendor_featured_payment_invitation",
@@ -294,6 +295,10 @@ interface EmailContext {
   transactionId?: string;
   taskId?: string;
   listingId?: string;
+  /** SavvyOS property id, for links to /properties/:id. */
+  propertyId?: string;
+  /** Days a website listing stays live before it goes back to Draft. */
+  expiryDays?: string;
   connectionId?: string;
   contactId?: string;
   // Webinar marketing handoff-specific fields
@@ -567,6 +572,25 @@ const TEMPLATES: Record<
     websiteLeadHandoffTemplate(ctx, "financing"),
 
   website_showing_request: ctx => websiteLeadHandoffTemplate(ctx, "showing"),
+
+  // Same notice the old savvy-agents.com sent when a listing hit 90 days.
+  website_listing_expired: ctx => {
+    const address = escapeHtml(ctx.propertyAddress ?? "Your listing");
+    const days = escapeHtml(ctx.expiryDays ?? "90");
+    return {
+      subject: `Listing moved to Draft: ${ctx.propertyAddress ?? "your website listing"}`,
+      html: emailLayout(
+        `${heading("Listing Moved to Draft")}
+        ${subheading("Savvy STR Agents · Website Listing")}
+        ${greeting(ctx.recipientName ? escapeHtml(ctx.recipientName) : undefined)}
+        ${bodyText(`Your listing <strong>${address}</strong> was taken off the website and set back to <strong>Draft</strong>, because it has been live for ${days} days${ctx.listingDate ? ` (since ${escapeHtml(ctx.listingDate)})` : ""}.`)}
+        ${infoCard([`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${address}`])}
+        ${bodyText("If it is still available, open it in SavvyOS, check the price and photos, and publish it again from its Website tab. That starts a new " + days + " days.")}
+        ${ctaButton("Open in SavvyOS", APP_URL + (ctx.propertyId ? `/properties/${encodeURIComponent(ctx.propertyId)}` : "/properties"))}`,
+        `Listing moved to Draft: ${ctx.propertyAddress ?? "your website listing"}`
+      ),
+    };
+  },
 
   lead_assigned: ctx => ({
     subject: `New Lead Assigned: ${ctx.contactName ?? "New Contact"}`,

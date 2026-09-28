@@ -33,6 +33,14 @@ describe("canUploadWebsiteImage", () => {
     expect(helper).toContain("agentOwnsProperty(db, user.id, propertyId)");
   });
 
+  it("lets an admin without Website Studio upload for their own work only", () => {
+    const helper = extractHelper(readSource());
+    expect(helper).toContain('user.role !== "agent" && user.role !== "admin"');
+    // The permission route must return early only when it grants access, so
+    // an admin without it still reaches the ownership check below.
+    expect(helper).toContain('if (user.role === "admin" && (await canAdminUsePermission(user, "canViewWebsite"))) return true;');
+  });
+
   it("refuses signed-out and deactivated users", () => {
     const helper = extractHelper(readSource());
     expect(helper).toContain("!user || user.isActive === false");

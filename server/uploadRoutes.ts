@@ -87,9 +87,11 @@ const chatAttachmentUpload = multer({
  */
 async function canUploadWebsiteImage(user: any, rawPropertyId: unknown): Promise<boolean> {
   if (!user || user.isActive === false) return false;
-  if (user.role === "admin") return canAdminUsePermission(user, "canViewWebsite");
-  if (user.role !== "agent") return false;
-  // No property on the form means the agent's own profile photo.
+  if (user.role === "admin" && (await canAdminUsePermission(user, "canViewWebsite"))) return true;
+  // Agents, and admins without Website Studio, upload for their own work only.
+  if (user.role !== "agent" && user.role !== "admin") return false;
+  // No property on the form means their own profile photo or a cover for
+  // their own case study or blog post.
   if (rawPropertyId === undefined || rawPropertyId === null || rawPropertyId === "") return true;
   const propertyId = Number(rawPropertyId);
   if (!Number.isInteger(propertyId) || propertyId <= 0) return false;
