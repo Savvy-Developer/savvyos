@@ -6,9 +6,12 @@ import {
   pulseMeetings,
 } from "../../drizzle/schema";
 import { getCascadeRoutingPresentation } from "../../shared/pulseCascadePresentation";
+import { decodeCascadeContent } from "../../shared/pulseCascadeContent";
+import { visible_meeting_ids } from "./access";
 
 export type CascadePayload = {
   id: string;
+  subject: string;
   body: string;
   fromMeetingId: string;
   fromMeetingName: string;
@@ -19,6 +22,7 @@ export type CascadePayload = {
   myAcknowledgedAt: Date | null;
   canAcknowledge: boolean;
   recipientMeetingIds: string[];
+  destinationMeetingIds: string[];
   routing: ReturnType<typeof getCascadeRoutingPresentation>;
 };
 
@@ -34,13 +38,14 @@ async function hydrateCascadeMessages(db: any, viewerId: number, messageIds: str
   })
     .from(pulseCascadingMessages)
     .innerJoin(fromMeeting, eq(fromMeeting.id, pulseCascadingMessages.fromMeetingId))
-    .where(and(inArray(pulseCascadingMessages.id, messageIds), isNull(pulseCascadingMessages.deletedAt)))
+    .where(and(inArray(pulseCascadingMessages.id, messageIds), eq(pulseCascadingMessages.deliveryStatus, "published"), isNull(pulseCascadingMessages.deletedAt)))
     .orderBy(desc(pulseCascadingMessages.createdAt));
 
   if (!messages.length) return [];
   const ids = messages.map((message: any) => message.id);
   const destinations = await db.select({
     cascadingMessageId: pulseCascadeDestinations.cascadingMessageId,
+    meetingId: pulseCascadeDestinations.meetingId,
     meetingName: pulseMeetings.name,
   })
     .from(pulseCascadeDestinations)
@@ -57,10 +62,14 @@ async function hydrateCascadeMessages(db: any, viewerId: number, messageIds: str
     .where(inArray(pulseCascadeRecipients.cascadingMessageId, ids));
 
   const destinationNames = new Map<string, string[]>();
+  const destinationMeetingIds = new Map<string, string[]>();
   destinations.forEach((destination: any) => {
     const names = destinationNames.get(destination.cascadingMessageId) ?? [];
     names.push(destination.meetingName);
     destinationNames.set(destination.cascadingMessageId, names);
+    const ids = destinationMeetingIds.get(destination.cascadingMessageId) ?? [];
+    ids.push(destination.meetingId);
+    destinationMeetingIds.set(destination.cascadingMessageId, ids);
   });
 
   const recipientStates = new Map<string, Map<number, { acknowledgedAt: Date | null; viaMeetingId: string }[]>>();
@@ -73,6 +82,7 @@ async function hydrateCascadeMessages(db: any, viewerId: number, messageIds: str
   });
 
   return messages.map((message: any) => {
+    const content = decodeCascadeContent(message.body);
     const byPerson = recipientStates.get(message.id) ?? new Map();
     const myRows = byPerson.get(viewerId) ?? [];
     const recipientCount = byPerson.size;
@@ -91,16 +101,19 @@ async function hydrateCascadeMessages(db: any, viewerId: number, messageIds: str
 
     return {
       ...message,
+      subject: content.subject,
+      body: content.body,
       ...details,
       myAcknowledgedAt,
       canAcknowledge: myRows.length > 0 && !myAcknowledgedAt,
       recipientMeetingIds: Array.from(new Set(myRows.map((row: any) => row.viaMeetingId))),
+      destinationMeetingIds: destinationMeetingIds.get(message.id) ?? [],
       routing: getCascadeRoutingPresentation(details),
     };
   });
 }
 
-/** Messages are visible in either their source meeting or any frozen destination meeting. */
+/** Messages render only while the viewer can still see their source and local recipient context. */
 export async function getMeetingCascadePayloads(db: any, viewerId: number, meetingId: string) {
   const rows = await db.select({ id: pulseCascadingMessages.id })
     .from(pulseCascadingMessages)
@@ -112,10 +125,15 @@ export async function getMeetingCascadePayloads(db: any, viewerId: number, meeti
         eq(pulseCascadeDestinations.meetingId, meetingId),
       ),
     ));
-  return hydrateCascadeMessages(db, viewerId, Array.from(new Set(rows.map((row: any) => row.id))) as string[]);
+  const visibleIds = await visible_meeting_ids(db, viewerId);
+  const messages = await hydrateCascadeMessages(db, viewerId, Array.from(new Set(rows.map((row: any) => row.id))) as string[]);
+  return messages.filter((message) => (
+    visibleIds.includes(message.fromMeetingId)
+    && (message.fromMeetingId === meetingId || message.recipientMeetingIds.includes(meetingId))
+  ));
 }
 
-/** Mission Control is based on the frozen recipient record, never current membership. */
+/** My Work keeps the frozen delivery record but honors current meeting access. */
 export async function getPendingCascadePayloads(db: any, viewerId: number) {
   const rows = await db.select({ id: pulseCascadeRecipients.cascadingMessageId })
     .from(pulseCascadeRecipients)
@@ -125,5 +143,10 @@ export async function getPendingCascadePayloads(db: any, viewerId: number) {
       isNull(pulseCascadeRecipients.acknowledgedAt),
       isNull(pulseCascadingMessages.deletedAt),
     ));
-  return hydrateCascadeMessages(db, viewerId, Array.from(new Set(rows.map((row: any) => row.id))) as string[]);
+  const visibleIds = await visible_meeting_ids(db, viewerId);
+  const messages = await hydrateCascadeMessages(db, viewerId, Array.from(new Set(rows.map((row: any) => row.id))) as string[]);
+  return messages.filter((message) => (
+    visibleIds.includes(message.fromMeetingId)
+    && message.recipientMeetingIds.some((meetingId) => visibleIds.includes(meetingId))
+  ));
 }

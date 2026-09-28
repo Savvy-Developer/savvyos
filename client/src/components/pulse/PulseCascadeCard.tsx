@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 
 export type PulseCascadeCardMessage = {
   id: string;
+  subject: string;
   body: string;
   recipientCount: number;
   acknowledgedCount: number;
@@ -29,7 +30,8 @@ export function PulseCascadeCard({
 
   return (
     <article className="rounded-lg border border-border bg-muted/40 p-3 sm:p-4">
-      <p className="text-sm font-medium text-foreground">{message.routing.source}</p>
+      <p className="text-base font-semibold text-foreground">{message.subject}</p>
+      <p className="mt-1 text-sm font-medium text-foreground">{message.routing.source}</p>
       <p className="mt-1 text-sm text-muted-foreground">{message.routing.destinations}</p>
       <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground">{message.body}</p>
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">

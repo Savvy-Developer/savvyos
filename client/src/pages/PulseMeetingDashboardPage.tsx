@@ -16,6 +16,8 @@ import { PulseRockMilestonePanel } from "@/components/pulse/PulseRockMilestonePa
 import { PulseCompletedHistory } from "@/components/pulse/PulseCompletedHistory";
 import { PulseMeetingRatingSummary } from "@/components/pulse/PulseMeetingRatingSummary";
 import { PulseIssueTimeframeFilter, statusLabel, type IssueTimeframeFilterValue } from "@/components/pulse/PulseWorkItemBadges";
+import { PulseCascadeCard } from "@/components/pulse/PulseCascadeCard";
+import { PulseCascadeComposerDialog } from "@/components/pulse/PulseCascadeComposer";
 import { RecordMarker } from "@/components/roles-responsibilities/RecordMarker";
 
 const sectionMeta = {
@@ -26,6 +28,7 @@ const sectionMeta = {
   rocks: { label: "Rocks", icon: Target },
   todos: { label: "To-Dos", icon: ListChecks },
   issues: { label: "Issues", icon: AlertTriangle },
+  cascades: { label: "Cascades", icon: MessageSquarePlus },
   archive: { label: "Archive", icon: Archive },
 } as const;
 
@@ -113,6 +116,25 @@ function IssuesTab({ data, onCreate, onChanged }: { data: any; onCreate: (type: 
   return <div className="space-y-2"><Card className="pulse-card-compact border-primary/20 bg-primary/[0.03]"><CardHeader className="pb-2"><div className="flex flex-wrap items-start justify-between gap-2"><div><CardTitle>Issues list</CardTitle><CardDescription>Surface the real problem now, then manage its assignee and priority directly from the row. Resolve it explicitly with the documented solve. Resolved items remain recallable below.</CardDescription></div><PulseIssueTimeframeFilter value={timeframe} onValueChange={setTimeframe} /></div></CardHeader><CardContent><Button type="button" className="min-h-11" onClick={() => onCreate("issue")}><Plus className="mr-2 h-4 w-4" />Add Issue</Button></CardContent></Card><div className="space-y-2">{issues.length ? issues.map((issue: any) => <PulseInlineItemRow key={issue.id} item={issue} defaultDestinationId={data.meeting.id} sourceSessionId={data.activeSession?.id ?? null} onChanged={onChanged} />) : <Card><CardContent className="p-5 text-center text-sm text-muted-foreground">No {timeframe === "all" ? "active Issues" : timeframe === "short_term" ? "Short Term Issues" : "Long Term Issues"} in this meeting.</CardContent></Card>}</div><PulseCompletedHistory contextId={data.meeting.id} initialType="issue" title="Resolved Issues" description="Recall solved Issues from this exact meeting, including the solve note and full activity history. Reopening preserves the same meeting routing." sourceSessionId={data.activeSession?.id ?? null} onChanged={onChanged} /></div>;
 }
 
+function CascadesTab({ data, onChanged }: { data: any; onChanged: () => void }) {
+  const utils = trpc.useUtils();
+  const [composerOpen, setComposerOpen] = useState(false);
+  const acknowledge = trpc.pulse.cascades.acknowledge.useMutation({
+    onSuccess: () => {
+      onChanged();
+      void utils.pulse.personal.dashboard.invalidate();
+      void utils.pulse.cascades.pending.invalidate();
+      void utils.pulse.notifications.pending.invalidate();
+      toast.success("Cascade acknowledged.");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const cascades = data.sections.cascades ?? [];
+  const incoming = cascades.filter((cascade: any) => cascade.destinationMeetingIds?.includes(data.meeting.id));
+  const sent = cascades.filter((cascade: any) => cascade.fromMeetingId === data.meeting.id);
+  return <div className="space-y-4"><Card className="pulse-card-compact border-primary/20 bg-primary/[0.03]"><CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 pb-3"><div className="min-w-0"><CardTitle>Cascading messages</CardTitle><CardDescription>Hand off a clear message to another authorized meeting. Recipients keep it visible until they acknowledge it.</CardDescription></div>{data.permissions.canSendCascade ? <Button type="button" className="min-h-10 shrink-0" onClick={() => setComposerOpen(true)}><MessageSquarePlus className="mr-2 h-4 w-4" />Send cascade</Button> : null}</CardHeader></Card><section className="space-y-2"><div><h2 className="text-base font-semibold">Incoming cascades</h2><p className="mt-0.5 text-sm text-muted-foreground">Messages sent here from another Pulse meeting.</p></div>{incoming.length ? <div className="space-y-2">{incoming.map((cascade: any) => <PulseCascadeCard key={cascade.id} message={cascade} isAcknowledging={acknowledge.isPending} onAcknowledge={(messageId) => acknowledge.mutate({ messageId, from: "meeting_dashboard" })} />)}</div> : <Card><CardContent className="p-5 text-sm text-muted-foreground">No cascades have been sent to this meeting.</CardContent></Card>}</section><section className="space-y-2"><div><h2 className="text-base font-semibold">Sent cascades</h2><p className="mt-0.5 text-sm text-muted-foreground">Recipient acknowledgments remain visible here.</p></div>{sent.length ? <div className="space-y-2">{sent.map((cascade: any) => <PulseCascadeCard key={cascade.id} message={cascade} onAcknowledge={() => undefined} />)}</div> : <Card><CardContent className="p-5 text-sm text-muted-foreground">No cascades have been sent from this meeting.</CardContent></Card>}</section><PulseCascadeComposerDialog open={composerOpen} onOpenChange={setComposerOpen} sourceMeetingId={data.meeting.id} sourceMeetingName={data.meeting.name} onSaved={onChanged} /></div>;
+}
+
 function ArchiveTab({ data, onChanged }: { data: any; onChanged: () => void }) {
   const [selected, setSelected] = useState<string | null>(null);
   const report = trpc.pulse.l10.report.useQuery({ meetingId: data.meeting.id, reportId: selected ?? "00000000-0000-0000-0000-000000000000" }, { enabled: Boolean(selected) });
@@ -126,12 +148,12 @@ export default function PulseMeetingDashboardPage({ meetingId }: { meetingId: st
   const [active, setActive] = useState<SectionKey>("overview");
   const [editorRequest, setEditorRequest] = useState<{ type: "todo" | "issue"; workItemId?: string } | null>(null);
   const openEditor = (type: "todo" | "issue", workItemId?: string) => setEditorRequest({ type, workItemId });
-  const visibleSections = useMemo(() => data ? (Object.keys(sectionMeta) as SectionKey[]).filter((section) => data.meeting.sectionsEnabled[section]) : [], [data]);
+  const visibleSections = useMemo(() => data ? (Object.keys(sectionMeta) as SectionKey[]).filter((section) => section === "cascades" || data.meeting.sectionsEnabled[section]) : [], [data]);
   const onChanged = () => void utils.pulse.l10.dashboard.invalidate({ meetingId });
   useEffect(() => { if (visibleSections.length && !visibleSections.includes(active)) setActive(visibleSections[0]); }, [active, visibleSections]);
   if (isLoading) return <main className="pulse-page pulse-page-stack"><Skeleton className="h-28 w-full"/><Skeleton className="h-96 w-full"/></main>;
   if (error || !data) return <Card className="pulse-page max-w-3xl"><CardContent className="p-5">This L10 workspace is not available. <Link className="underline" href="/pulse/dashboard">Return to My EOS Dashboard</Link>.</CardContent></Card>;
   const selected = visibleSections.includes(active) ? active : visibleSections[0] ?? "overview";
-  const content = selected === "overview" ? <Overview data={data} onOpenTab={setActive} onCreate={(type) => openEditor(type)}/> : selected === "segue" || selected === "headlines" ? <UpdatesTab meetingId={meetingId} sessionId={data.activeSession?.id} kind={selected === "segue" ? "segue" : "headline"} items={data.sections[selected]} onChanged={onChanged}/> : selected === "scorecard" ? <ScorecardTab data={data} onChanged={onChanged}/> : selected === "rocks" ? <RocksTab data={data} onChanged={onChanged}/> : selected === "todos" ? <TodosTab data={data} onCreate={(type) => openEditor(type)} onChanged={onChanged}/> : selected === "issues" ? <IssuesTab data={data} onCreate={(type) => openEditor(type)} onChanged={onChanged}/> : <ArchiveTab data={data} onChanged={onChanged}/>;
+  const content = selected === "overview" ? <Overview data={data} onOpenTab={setActive} onCreate={(type) => openEditor(type)}/> : selected === "segue" || selected === "headlines" ? <UpdatesTab meetingId={meetingId} sessionId={data.activeSession?.id} kind={selected === "segue" ? "segue" : "headline"} items={data.sections[selected]} onChanged={onChanged}/> : selected === "scorecard" ? <ScorecardTab data={data} onChanged={onChanged}/> : selected === "rocks" ? <RocksTab data={data} onChanged={onChanged}/> : selected === "todos" ? <TodosTab data={data} onCreate={(type) => openEditor(type)} onChanged={onChanged}/> : selected === "issues" ? <IssuesTab data={data} onCreate={(type) => openEditor(type)} onChanged={onChanged}/> : selected === "cascades" ? <CascadesTab data={data} onChanged={onChanged}/> : <ArchiveTab data={data} onChanged={onChanged}/>;
   return <main className="pulse-page pulse-page-stack"><Link href="/pulse/dashboard" className="inline-flex min-h-11 items-center text-sm font-medium text-muted-foreground"><ChevronLeft className="mr-1 h-4 w-4"/>My EOS Dashboard</Link><header className="rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-medium text-primary">Pulse · {data.meeting.label === "level_10" ? "Level 10" : data.meeting.label === "one_on_one" ? "One-on-One" : "Meeting"}</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">{data.meeting.name}</h1>{data.meeting.purpose ? <p className="mt-2 max-w-3xl text-base text-muted-foreground">{data.meeting.purpose}</p> : null}</div><div className="flex flex-wrap gap-2">{data.permissions.canConfigure ? <Button asChild variant="outline" className="min-h-11"><Link href={`/pulse/settings/meetings/${meetingId}`}>Configure</Link></Button> : null}{data.permissions.canRun ? <Button asChild className="min-h-11"><Link href={`/pulse/meetings/${meetingId}/run`}><Play className="mr-2 h-4 w-4"/>{data.activeSession ? "Resume session" : "Run meeting"}</Link></Button> : null}</div></div></header><nav aria-label="L10 sections" className="pulse-scroll-x border-b border-border"><div className="flex min-w-max gap-1">{visibleSections.map((section) => { const Icon = sectionMeta[section].icon; return <button key={section} type="button" onClick={() => setActive(section)} className={`flex min-h-11 items-center gap-2 border-b-2 px-3 text-sm font-medium transition-colors ${selected === section ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}><Icon className="h-4 w-4"/>{sectionMeta[section].label}</button>; })}</div></nav>{content}<PulseItemEditor open={Boolean(editorRequest)} onOpenChange={(open) => { if (!open) setEditorRequest(null); }} workItemId={editorRequest?.workItemId} defaultType={editorRequest?.type ?? "todo"} defaultDestinationId={meetingId} sourceSessionId={data.activeSession?.id ?? null} onSaved={() => onChanged()} /></main>;
 }

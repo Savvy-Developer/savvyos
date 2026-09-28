@@ -7,184 +7,499 @@ import {
   pulseCascadeRecipients,
   pulseCascadingMessages,
   pulseMeetingMembers,
-  pulseNotifications,
   pulseMeetings,
+  pulseNotifications,
   users,
 } from "../../drizzle/schema";
 import { getCascadeRoutingPresentation } from "../../shared/pulseCascadePresentation";
+import {
+  decodeCascadeContent,
+  encodeCascadeContent,
+} from "../../shared/pulseCascadeContent";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { router } from "../_core/trpc";
 import { getDb } from "../db";
 import { getPendingCascadePayloads } from "./cascadePayload";
-import { is_visible_meeting_manager, require_visible_meeting, visible_meeting_ids } from "./access";
+import {
+  is_visible_meeting_manager,
+  require_visible_meeting,
+  visible_meeting_ids,
+} from "./access";
 import { getPulseNotificationPreference } from "./notifications";
 
 const id = () => crypto.randomUUID();
+const cascadeInput = z.object({
+  toMeetingIds: z.array(z.string().uuid()).min(1).max(20),
+  subject: z.string().trim().min(1).max(255),
+  body: z.string().trim().min(1).max(4000),
+});
+
+type CascadeInput = z.infer<typeof cascadeInput>;
+type SourceMeeting = { id: string; name: string };
 
 async function database() {
   const db = await getDb();
-  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pulse is not available right now. Please try again." });
+  if (!db)
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Pulse is not available right now. Please try again.",
+    });
   return db;
+}
+
+/** Resolves the frozen delivery audience and rejects cross-meeting context leaks before any data is written. */
+async function prepareCascadeDelivery(
+  db: any,
+  actorId: number,
+  sourceMeeting: SourceMeeting,
+  toMeetingIds: string[]
+) {
+  const destinationIds = Array.from(new Set(toMeetingIds));
+  if (destinationIds.includes(sourceMeeting.id)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Choose another meeting to receive this message.",
+    });
+  }
+  for (const targetId of destinationIds)
+    await require_visible_meeting(db, actorId, targetId);
+
+  const destinations = await db
+    .select({ id: pulseMeetings.id, name: pulseMeetings.name })
+    .from(pulseMeetings)
+    .where(inArray(pulseMeetings.id, destinationIds));
+  const destinationNameById = new Map(
+    destinations.map((destination: any) => [destination.id, destination.name])
+  );
+  const toMeetingNames = destinationIds
+    .map(destinationId => destinationNameById.get(destinationId))
+    .filter(Boolean) as string[];
+
+  const frozenRecipients: Array<{ personId: number; viaMeetingId: string }> =
+    [];
+  for (const targetId of destinationIds) {
+    const members = await db
+      .select({ personId: pulseMeetingMembers.personId })
+      .from(pulseMeetingMembers)
+      .where(
+        and(
+          eq(pulseMeetingMembers.meetingId, targetId),
+          isNull(pulseMeetingMembers.removedAt),
+          isNull(pulseMeetingMembers.deletedAt)
+        )
+      );
+    members.forEach((member: any) =>
+      frozenRecipients.push({
+        personId: member.personId,
+        viaMeetingId: targetId,
+      })
+    );
+  }
+
+  const recipientIds = Array.from(
+    new Set(frozenRecipients.map(recipient => recipient.personId))
+  );
+  for (const recipientId of recipientIds) {
+    const sourceAccess = await visible_meeting_ids(db, recipientId);
+    if (!sourceAccess.includes(sourceMeeting.id)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message:
+          "This cascade cannot be sent because one or more recipients cannot see the source meeting. Add them to the source meeting first.",
+      });
+    }
+  }
+  const recipientUsers: Array<{
+    id: number;
+    name: string | null;
+    email: string | null;
+  }> = recipientIds.length
+    ? await db
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(inArray(users.id, recipientIds))
+    : [];
+
+  return {
+    destinationIds,
+    toMeetingNames,
+    frozenRecipients,
+    recipientIds,
+    recipientUserById: new Map<
+      number,
+      { id: number; name: string | null; email: string | null }
+    >(recipientUsers.map(recipient => [recipient.id, recipient])),
+  };
+}
+
+/** Validates draft routes before they are saved so a closeout cannot fail on an avoidable access mismatch. */
+export async function validateCascadeDelivery(
+  db: any,
+  actorId: number,
+  sourceMeeting: SourceMeeting,
+  toMeetingIds: string[]
+) {
+  await prepareCascadeDelivery(db, actorId, sourceMeeting, toMeetingIds);
+}
+
+async function deliveryPreferences(db: any, recipientIds: number[]) {
+  const entries = await Promise.all(
+    recipientIds.map(
+      async recipientId =>
+        [
+          recipientId,
+          await getPulseNotificationPreference(db, recipientId, "cascade_sent"),
+        ] as const
+    )
+  );
+  return new Map(entries);
+}
+
+async function sendCascadeEmails({
+  messageId,
+  sourceMeeting,
+  subject,
+  body,
+  createdAt,
+  toMeetingNames,
+  recipientIds,
+  recipientUserById,
+  preferences,
+}: {
+  messageId: string;
+  sourceMeeting: SourceMeeting;
+  subject: string;
+  body: string;
+  createdAt: Date;
+  toMeetingNames: string[];
+  recipientIds: number[];
+  recipientUserById: Map<
+    number,
+    { id: number; name: string | null; email: string | null }
+  >;
+  preferences: Map<number, { inApp: boolean; email: boolean }>;
+}) {
+  const routing = getCascadeRoutingPresentation({
+    fromMeetingName: sourceMeeting.name,
+    toMeetingNames,
+    createdAt,
+    recipientCount: recipientIds.length,
+    acknowledgedCount: 0,
+  });
+  const emailRecipients = recipientIds.filter(
+    recipientId =>
+      preferences.get(recipientId)?.email &&
+      recipientUserById.get(recipientId)?.email
+  );
+  const results = await Promise.all(
+    emailRecipients.map(async recipientId => {
+      const recipient = recipientUserById.get(recipientId)!;
+      return sendTransactionalEmail(
+        "cascade_sent",
+        {
+          recipientEmail: recipient.email!,
+          recipientName: recipient.name ?? undefined,
+          pulseMeetingName: sourceMeeting.name,
+          pulseCascadeSubject: subject,
+          pulseCascadeSource: routing.source,
+          pulseCascadeDestinations: routing.destinations,
+          pulseCascadeAcknowledgment: routing.acknowledgment,
+          pulseCascadeBody: body,
+          pulseActionUrl: "https://os.savvy-agents.com/pulse/dashboard",
+        },
+        { idempotencyKey: `pulse-cascade-${messageId}-${recipientId}` }
+      );
+    })
+  );
+  return results.filter(result => result.sent || result.skipped).length;
+}
+
+/** Creates and immediately delivers a source-meeting cascade. */
+export async function sendPublishedCascade(
+  db: any,
+  actorId: number,
+  sourceMeeting: SourceMeeting,
+  input: CascadeInput
+) {
+  const delivery = await prepareCascadeDelivery(
+    db,
+    actorId,
+    sourceMeeting,
+    input.toMeetingIds
+  );
+  const preferences = await deliveryPreferences(db, delivery.recipientIds);
+  const messageId = id();
+  const publishedAt = new Date();
+  const routing = getCascadeRoutingPresentation({
+    fromMeetingName: sourceMeeting.name,
+    toMeetingNames: delivery.toMeetingNames,
+    createdAt: publishedAt,
+    recipientCount: delivery.recipientIds.length,
+    acknowledgedCount: 0,
+  });
+  const notificationRecipientIds = delivery.recipientIds.filter(
+    recipientId => preferences.get(recipientId)?.inApp
+  );
+
+  await db.transaction(async (tx: any) => {
+    await tx.insert(pulseCascadingMessages).values({
+      id: messageId,
+      fromMeetingId: sourceMeeting.id,
+      toMeetingId: delivery.destinationIds[0],
+      deliveryStatus: "published",
+      publishedAt,
+      body: encodeCascadeContent(input.subject, input.body),
+      createdById: actorId,
+      createdAt: publishedAt,
+    });
+    await tx.insert(pulseCascadeDestinations).values(
+      delivery.destinationIds.map(meetingId => ({
+        id: id(),
+        cascadingMessageId: messageId,
+        meetingId,
+      }))
+    );
+    if (delivery.frozenRecipients.length) {
+      await tx.insert(pulseCascadeRecipients).values(
+        delivery.frozenRecipients.map(recipient => ({
+          id: id(),
+          cascadingMessageId: messageId,
+          personId: recipient.personId,
+          viaMeetingId: recipient.viaMeetingId,
+        }))
+      );
+    }
+    if (notificationRecipientIds.length) {
+      await tx.insert(pulseNotifications).values(
+        notificationRecipientIds.map(personId => ({
+          id: id(),
+          personId,
+          notificationType: "cascade" as const,
+          requiresAction: true,
+          sourceType: "cascade",
+          sourceId: messageId,
+          meetingId: sourceMeeting.id,
+          body: `${input.subject}\n${routing.text}`,
+        }))
+      );
+    }
+  });
+
+  const emailCount = await sendCascadeEmails({
+    messageId,
+    sourceMeeting,
+    subject: input.subject,
+    body: input.body,
+    createdAt: publishedAt,
+    toMeetingNames: delivery.toMeetingNames,
+    recipientIds: delivery.recipientIds,
+    recipientUserById: delivery.recipientUserById,
+    preferences,
+  });
+  return {
+    messageId,
+    recipientCount: delivery.recipientIds.length,
+    notificationCount: notificationRecipientIds.length,
+    emailCount,
+  };
+}
+
+/** Publishes an existing L10 draft after re-checking its current recipient access boundary. */
+export async function publishDraftCascade(
+  db: any,
+  actorId: number,
+  message: {
+    id: string;
+    fromMeetingId: string;
+    body: string;
+    createdById: number;
+  }
+) {
+  const content = decodeCascadeContent(message.body);
+  const [source] = await db
+    .select({ id: pulseMeetings.id, name: pulseMeetings.name })
+    .from(pulseMeetings)
+    .where(eq(pulseMeetings.id, message.fromMeetingId))
+    .limit(1);
+  if (!source)
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "This source meeting is no longer available.",
+    });
+  const destinations = await db
+    .select({ meetingId: pulseCascadeDestinations.meetingId })
+    .from(pulseCascadeDestinations)
+    .where(eq(pulseCascadeDestinations.cascadingMessageId, message.id));
+  const delivery = await prepareCascadeDelivery(
+    db,
+    actorId,
+    source,
+    destinations.map((destination: any) => destination.meetingId)
+  );
+  const preferences = await deliveryPreferences(db, delivery.recipientIds);
+  const publishedAt = new Date();
+  const routing = getCascadeRoutingPresentation({
+    fromMeetingName: source.name,
+    toMeetingNames: delivery.toMeetingNames,
+    createdAt: publishedAt,
+    recipientCount: delivery.recipientIds.length,
+    acknowledgedCount: 0,
+  });
+  const notificationRecipientIds = delivery.recipientIds.filter(
+    recipientId => preferences.get(recipientId)?.inApp
+  );
+
+  await db.transaction(async (tx: any) => {
+    if (delivery.frozenRecipients.length) {
+      await tx.insert(pulseCascadeRecipients).values(
+        delivery.frozenRecipients.map(recipient => ({
+          id: id(),
+          cascadingMessageId: message.id,
+          personId: recipient.personId,
+          viaMeetingId: recipient.viaMeetingId,
+        }))
+      );
+    }
+    if (notificationRecipientIds.length) {
+      await tx.insert(pulseNotifications).values(
+        notificationRecipientIds.map(personId => ({
+          id: id(),
+          personId,
+          notificationType: "cascade" as const,
+          requiresAction: true,
+          sourceType: "cascade",
+          sourceId: message.id,
+          meetingId: source.id,
+          body: `${content.subject}\n${routing.text}`,
+        }))
+      );
+    }
+    await tx
+      .update(pulseCascadingMessages)
+      .set({ deliveryStatus: "published", publishedAt })
+      .where(eq(pulseCascadingMessages.id, message.id));
+  });
+
+  const emailCount = await sendCascadeEmails({
+    messageId: message.id,
+    sourceMeeting: source,
+    subject: content.subject,
+    body: content.body,
+    createdAt: publishedAt,
+    toMeetingNames: delivery.toMeetingNames,
+    recipientIds: delivery.recipientIds,
+    recipientUserById: delivery.recipientUserById,
+    preferences,
+  });
+  return {
+    id: message.id,
+    subject: content.subject,
+    body: content.body,
+    destinations: delivery.toMeetingNames,
+    recipientCount: delivery.recipientIds.length,
+    emailCount,
+  };
 }
 
 export const pulseCascadesRouter = router({
   send: pulseProcedure
-    .input(z.object({
-      fromMeetingId: z.string().uuid(),
-      toMeetingIds: z.array(z.string().uuid()).min(1).max(20),
-      body: z.string().trim().min(1).max(4000),
-    }).refine((input) => !input.toMeetingIds.includes(input.fromMeetingId), {
-      message: "Choose another meeting to receive this message.",
-    }))
+    .input(z.object({ fromMeetingId: z.string().uuid() }).merge(cascadeInput))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      if (!await is_visible_meeting_manager(db, ctx.user.id, input.fromMeetingId)) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "This meeting is not available." });
-      }
-
-      const destinationIds = Array.from(new Set(input.toMeetingIds));
-      for (const targetId of destinationIds) await require_visible_meeting(db, ctx.user.id, targetId);
-      const [sourceMeeting] = await db.select({ name: pulseMeetings.name }).from(pulseMeetings).where(eq(pulseMeetings.id, input.fromMeetingId)).limit(1);
-      const destinationRows = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name }).from(pulseMeetings)
-        .where(inArray(pulseMeetings.id, destinationIds));
-      const destinationNameById = new Map(destinationRows.map((row: any) => [row.id, row.name]));
-      const toMeetingNames = destinationIds.map((destinationId) => destinationNameById.get(destinationId)).filter(Boolean) as string[];
-      const messageId = id();
-      const createdAt = new Date();
-      const frozenRecipients: Array<{ personId: number; viaMeetingId: string }> = [];
-
-      for (const targetId of destinationIds) {
-        const members = await db.select({ personId: pulseMeetingMembers.personId })
-          .from(pulseMeetingMembers)
-          .where(and(
-            eq(pulseMeetingMembers.meetingId, targetId),
-            isNull(pulseMeetingMembers.removedAt),
-            isNull(pulseMeetingMembers.deletedAt),
-          ));
-        members.forEach((member: any) => frozenRecipients.push({ personId: member.personId, viaMeetingId: targetId }));
-      }
-
-      const recipientIds = Array.from(new Set(frozenRecipients.map((recipient) => recipient.personId)));
-      const recipientUsers = recipientIds.length
-        ? await db.select({ id: users.id, name: users.name, email: users.email }).from(users)
-          .where(inArray(users.id, recipientIds))
-        : [];
-      const recipientUserById = new Map(recipientUsers.map((user: any) => [user.id, user]));
-      const recipientsWithSourceAccess = new Set<number>();
-      for (const recipientId of recipientIds) {
-        const visibleIds = await visible_meeting_ids(db, recipientId);
-        if (visibleIds.includes(input.fromMeetingId)) recipientsWithSourceAccess.add(recipientId);
-      }
-      const invisibleRecipientCount = recipientIds.length - recipientsWithSourceAccess.size;
-      if (invisibleRecipientCount > 0) {
+      if (
+        !(await is_visible_meeting_manager(
+          db,
+          ctx.user.id,
+          input.fromMeetingId
+        ))
+      ) {
         throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "This message cannot be sent because one or more recipients cannot see the source meeting. Add them to the source meeting first.",
+          code: "NOT_FOUND",
+          message: "This meeting is not available.",
         });
       }
-
-      const preferences = new Map<number, { inApp: boolean; email: boolean }>();
-      for (const recipientId of recipientIds) {
-        preferences.set(recipientId, await getPulseNotificationPreference(db, recipientId, "cascade_sent"));
-      }
-      const routing = getCascadeRoutingPresentation({
-        fromMeetingName: sourceMeeting?.name ?? "A Pulse meeting",
-        toMeetingNames,
-        createdAt,
-        recipientCount: recipientIds.length,
-        acknowledgedCount: 0,
-      });
-      const notificationRecipients = recipientIds.filter((recipientId) => preferences.get(recipientId)?.inApp);
-
-      await db.transaction(async (tx: any) => {
-        await tx.insert(pulseCascadingMessages).values({
-          id: messageId,
-          fromMeetingId: input.fromMeetingId,
-          // Kept for backward compatibility. Frozen destination rows are authoritative.
-          toMeetingId: destinationIds[0],
-          body: input.body,
-          createdById: ctx.user.id,
-          createdAt,
-        });
-        await tx.insert(pulseCascadeDestinations).values(destinationIds.map((meetingId) => ({
-          id: id(),
-          cascadingMessageId: messageId,
-          meetingId,
-        })));
-        if (frozenRecipients.length) {
-          await tx.insert(pulseCascadeRecipients).values(frozenRecipients.map((recipient) => ({
-            id: id(),
-            cascadingMessageId: messageId,
-            personId: recipient.personId,
-            viaMeetingId: recipient.viaMeetingId,
-          })));
-        }
-        if (notificationRecipients.length) {
-          await tx.insert(pulseNotifications).values(notificationRecipients.map((personId) => ({
-            id: id(),
-            personId,
-            notificationType: "cascade" as const,
-            requiresAction: true,
-            sourceType: "cascade",
-            sourceId: messageId,
-            meetingId: input.fromMeetingId,
-            body: routing.text,
-          })));
-        }
-      });
-
-      const emailRecipients = recipientIds.filter((recipientId) => (
-        preferences.get(recipientId)?.email && !!recipientUserById.get(recipientId)?.email
-      ));
-      const emailResults = await Promise.all(emailRecipients.map(async (recipientId) => {
-        const recipient = recipientUserById.get(recipientId);
-        return sendTransactionalEmail("cascade_sent", {
-          recipientEmail: recipient.email,
-          recipientName: recipient.name ?? undefined,
-          pulseMeetingName: sourceMeeting?.name ?? "A Pulse meeting",
-          pulseCascadeSource: routing.source,
-          pulseCascadeDestinations: routing.destinations,
-          pulseCascadeAcknowledgment: routing.acknowledgment,
-          pulseCascadeBody: input.body,
-          pulseActionUrl: "https://os.savvy-agents.com/pulse/mission",
-        }, { idempotencyKey: `pulse-cascade-${messageId}-${recipientId}` });
-      }));
-
-      return {
-        messageId,
-        recipientCount: recipientIds.length,
-        notificationCount: notificationRecipients.length,
-        emailCount: emailResults.filter((result) => result.sent).length,
-      };
+      const source = await require_visible_meeting(
+        db,
+        ctx.user.id,
+        input.fromMeetingId
+      );
+      return sendPublishedCascade(
+        db,
+        ctx.user.id,
+        { id: source.id, name: source.name },
+        input
+      );
     }),
 
   acknowledge: pulseMemberProcedure
-    .input(z.object({ messageId: z.string().uuid(), from: z.string().max(64).default("pulse") }))
+    .input(
+      z.object({
+        messageId: z.string().uuid(),
+        from: z.string().max(64).default("pulse"),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      const rows = await db.select({ id: pulseCascadeRecipients.id })
+      const rows = await db
+        .select({
+          id: pulseCascadeRecipients.id,
+          viaMeetingId: pulseCascadeRecipients.viaMeetingId,
+          fromMeetingId: pulseCascadingMessages.fromMeetingId,
+        })
         .from(pulseCascadeRecipients)
-        .where(and(
-          eq(pulseCascadeRecipients.cascadingMessageId, input.messageId),
-          eq(pulseCascadeRecipients.personId, ctx.user.id),
-        ));
-      // A frozen recipient row remains the authority after meeting membership changes.
-      if (!rows.length) throw new TRPCError({ code: "NOT_FOUND", message: "This message is not available." });
+        .innerJoin(
+          pulseCascadingMessages,
+          eq(
+            pulseCascadingMessages.id,
+            pulseCascadeRecipients.cascadingMessageId
+          )
+        )
+        .where(
+          and(
+            eq(pulseCascadeRecipients.cascadingMessageId, input.messageId),
+            eq(pulseCascadeRecipients.personId, ctx.user.id),
+            eq(pulseCascadingMessages.deliveryStatus, "published"),
+            isNull(pulseCascadingMessages.deletedAt)
+          )
+        );
+      if (!rows.length)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "This message is not available.",
+        });
+      const visibleIds = await visible_meeting_ids(db, ctx.user.id);
+      if (
+        !visibleIds.includes(rows[0].fromMeetingId) ||
+        !rows.some((row: any) => visibleIds.includes(row.viaMeetingId))
+      ) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "This message is not available.",
+        });
+      }
 
       const now = new Date();
       await db.transaction(async (tx: any) => {
-        await tx.update(pulseCascadeRecipients).set({ acknowledgedAt: now, acknowledgedFrom: input.from })
-          .where(and(
-            eq(pulseCascadeRecipients.cascadingMessageId, input.messageId),
-            eq(pulseCascadeRecipients.personId, ctx.user.id),
-          ));
-        await tx.update(pulseNotifications).set({ clearedAt: now })
-          .where(and(
-            eq(pulseNotifications.personId, ctx.user.id),
-            eq(pulseNotifications.sourceType, "cascade"),
-            eq(pulseNotifications.sourceId, input.messageId),
-            isNull(pulseNotifications.clearedAt),
-          ));
+        await tx
+          .update(pulseCascadeRecipients)
+          .set({ acknowledgedAt: now, acknowledgedFrom: input.from })
+          .where(
+            and(
+              eq(pulseCascadeRecipients.cascadingMessageId, input.messageId),
+              eq(pulseCascadeRecipients.personId, ctx.user.id)
+            )
+          );
+        await tx
+          .update(pulseNotifications)
+          .set({ clearedAt: now })
+          .where(
+            and(
+              eq(pulseNotifications.personId, ctx.user.id),
+              eq(pulseNotifications.sourceType, "cascade"),
+              eq(pulseNotifications.sourceId, input.messageId),
+              isNull(pulseNotifications.clearedAt)
+            )
+          );
       });
       return { success: true };
     }),

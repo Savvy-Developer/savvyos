@@ -33,9 +33,12 @@ import {
 } from "../../drizzle/schema";
 import { router } from "../_core/trpc";
 import { getDb } from "../db";
-import { require_visible_meeting, visible_meeting_ids } from "./access";
+import { is_visible_meeting_manager, require_visible_meeting, visible_meeting_ids } from "./access";
 import { hasPulseCapability, PULSE_CAPABILITIES, pulseMemberProcedure, requirePulseCapability } from "./authorization";
 import { periodToDatePerformance } from "../rrScorecard";
+import { getMeetingCascadePayloads } from "./cascadePayload";
+import { publishDraftCascade, validateCascadeDelivery } from "./cascades";
+import { encodeCascadeContent } from "../../shared/pulseCascadeContent";
 
 const id = () => crypto.randomUUID();
 const day = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
@@ -380,7 +383,7 @@ function healthFromReports(reports: any[], scheduledMinutes: number) {
 
 async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: string) {
   const meeting = await require_visible_meeting(db, user.id, targetMeetingId);
-  const [members, scorecard, rocks, todos, issues, segue, headlines, briefs, reports, activeSession] = await Promise.all([
+  const [members, scorecard, rocks, todos, issues, segue, headlines, briefs, reports, activeSession, cascades] = await Promise.all([
     listMembers(db, targetMeetingId),
     getScorecard(db, targetMeetingId, Math.max(1, Math.min(16, meeting.scorecardHistoryWeeks ?? 8))),
     getRocks(db, targetMeetingId),
@@ -391,6 +394,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     getUpdates(db, targetMeetingId, "brief"),
     getReports(db, targetMeetingId),
     getActiveSession(db, targetMeetingId),
+    getMeetingCascadePayloads(db, user.id, targetMeetingId),
   ]);
   const [participantRatings, sessionRatings] = activeSession
     ? await Promise.all([
@@ -403,10 +407,11 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     ])
     : [[], []];
   const sectionsEnabled = normaliseSections(meeting.sectionsEnabled);
-  const [canConfigure, hasMatrixRunAuthority, canViewAllHealth] = await Promise.all([
+  const [canConfigure, hasMatrixRunAuthority, canViewAllHealth, canSendCascade] = await Promise.all([
     hasPulseCapability(db, user, "manage_l10s"),
     hasPulseCapability(db, user, "run_l10s"),
     hasPulseCapability(db, user, "view_all_l10_health"),
+    is_visible_meeting_manager(db, user.id, targetMeetingId),
   ]);
   const canRun = hasMatrixRunAuthority || meeting.administratorId === user.id;
   const attention = [
@@ -442,6 +447,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
       canRecallCompletedInRun: meeting.label === "level_10" && meeting.administratorId === user.id,
       canRateParticipants: meeting.label === "level_10" && (meeting.facilitatorId === user.id || meeting.administratorId === user.id),
       canViewAllHealth,
+      canSendCascade,
     },
     participantRatings,
     sessionRatingSummary: ratingSummary(sessionRatings),
@@ -455,32 +461,17 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
       rocks,
       todos: todos.map((todo: any) => ({ ...todo, dueDate: dateValue(todo.dueDate) })),
       issues,
+      cascades,
       archive: reports.map((row: any) => ({ id: row.report.id, sessionId: row.session.id, scheduledFor: row.session.scheduledFor, closedAt: row.session.closedAt, ratingAverage: row.report.ratingAverage, ratingCount: row.report.ratingCount, commitments: row.report.commitmentsSnapshot, resolvedIssues: row.report.resolvedIssuesSnapshot })),
     },
   };
 }
 
-async function publishSessionCascades(db: any, actorId: number, targetMeetingId: string, targetSessionId: string) {
-  const drafts = await db.select().from(pulseCascadingMessages).where(and(eq(pulseCascadingMessages.sessionId, targetSessionId), eq(pulseCascadingMessages.deliveryStatus, "draft"), isNull(pulseCascadingMessages.deletedAt)));
+async function publishSessionCascades(db: any, actorId: number, targetSessionId: string) {
+  const drafts = await db.select({ id: pulseCascadingMessages.id, fromMeetingId: pulseCascadingMessages.fromMeetingId, body: pulseCascadingMessages.body, createdById: pulseCascadingMessages.createdById }).from(pulseCascadingMessages).where(and(eq(pulseCascadingMessages.sessionId, targetSessionId), eq(pulseCascadingMessages.deliveryStatus, "draft"), isNull(pulseCascadingMessages.deletedAt)));
   const published: any[] = [];
   for (const message of drafts) {
-    const destinations = await db.select({ meetingId: pulseCascadeDestinations.meetingId, name: pulseMeetings.name })
-      .from(pulseCascadeDestinations)
-      .innerJoin(pulseMeetings, eq(pulseMeetings.id, pulseCascadeDestinations.meetingId))
-      .where(eq(pulseCascadeDestinations.cascadingMessageId, message.id));
-    const recipientRows: Array<{ messageId: string; personId: number; viaMeetingId: string }> = [];
-    for (const destination of destinations) {
-      const recipients = await listMembers(db, destination.meetingId);
-      recipients.forEach((person: any) => recipientRows.push({ messageId: message.id, personId: person.id, viaMeetingId: destination.meetingId }));
-    }
-    await db.transaction(async (tx: any) => {
-      if (recipientRows.length) {
-        await tx.insert(pulseCascadeRecipients).values(recipientRows.map((recipient) => ({ id: id(), cascadingMessageId: recipient.messageId, personId: recipient.personId, viaMeetingId: recipient.viaMeetingId })));
-        await tx.insert(pulseNotifications).values(recipientRows.map((recipient) => ({ id: id(), personId: recipient.personId, notificationType: "cascade" as const, requiresAction: true, sourceType: "cascade", sourceId: recipient.messageId, meetingId: targetMeetingId, body: `New cascading message from this L10: ${message.body}` })));
-      }
-      await tx.update(pulseCascadingMessages).set({ deliveryStatus: "published", publishedAt: new Date() }).where(eq(pulseCascadingMessages.id, message.id));
-    });
-    published.push({ id: message.id, body: message.body, destinations: destinations.map((destination: any) => destination.name), recipientCount: new Set(recipientRows.map((recipient) => recipient.personId)).size });
+    published.push(await publishDraftCascade(db, actorId, message));
   }
   return published;
 }
@@ -689,17 +680,18 @@ export const pulseL10Router = router({
     return { success: true, commitmentId };
   }),
 
-  draftCascade: pulseMemberProcedure.input(z.object({ meetingId, sessionId, toMeetingIds: z.array(meetingId).min(1).max(20), body: z.string().trim().min(1).max(4000) })).mutation(async ({ ctx, input }) => {
+  draftCascade: pulseMemberProcedure.input(z.object({ meetingId, sessionId, toMeetingIds: z.array(meetingId).min(1).max(20), subject: z.string().trim().min(1).max(255), body: z.string().trim().min(1).max(4000) })).mutation(async ({ ctx, input }) => {
     const db = await database();
-    await requireL10Capability(db, ctx.user, input.meetingId, "run_l10s");
+    const meeting = await requireL10Capability(db, ctx.user, input.meetingId, "run_l10s");
     await requireSession(db, input.meetingId, input.sessionId, true);
     const targets = Array.from(new Set(input.toMeetingIds));
-    if (targets.includes(input.meetingId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose another L10 to receive this message." });
+    if (targets.includes(input.meetingId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose another meeting to receive this message." });
     const visible = await visible_meeting_ids(db, ctx.user.id);
-    if (targets.some((target) => !visible.includes(target))) throw new TRPCError({ code: "FORBIDDEN", message: "You can only cascade to another L10 you belong to." });
+    if (targets.some((target) => !visible.includes(target))) throw new TRPCError({ code: "FORBIDDEN", message: "You can only cascade to another meeting you belong to." });
+    await validateCascadeDelivery(db, ctx.user.id, { id: meeting.id, name: meeting.name }, targets);
     const messageId = id();
     await db.transaction(async (tx: any) => {
-      await tx.insert(pulseCascadingMessages).values({ id: messageId, fromMeetingId: input.meetingId, toMeetingId: targets[0], sessionId: input.sessionId, deliveryStatus: "draft", body: input.body, createdById: ctx.user.id });
+      await tx.insert(pulseCascadingMessages).values({ id: messageId, fromMeetingId: input.meetingId, toMeetingId: targets[0], sessionId: input.sessionId, deliveryStatus: "draft", body: encodeCascadeContent(input.subject, input.body), createdById: ctx.user.id });
       await tx.insert(pulseCascadeDestinations).values(targets.map((targetMeetingId) => ({ id: id(), cascadingMessageId: messageId, meetingId: targetMeetingId })));
       await writeActivity(tx, ctx.user.id, "session", input.sessionId, "cascade_drafted", null, { messageId, targets });
     });
@@ -718,7 +710,7 @@ export const pulseL10Router = router({
       db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, solvedNote: pulseWorkItems.solvedNote, assigneeId: pulseWorkItems.assigneeId }).from(pulseWorkItems).where(and(eq(pulseWorkItems.resolvedInSessionId, input.sessionId), eq(pulseWorkItems.type, "issue"), isNull(pulseWorkItems.deletedAt))),
       db.select({ rating: pulseSessionRatings.rating }).from(pulseSessionRatings).where(eq(pulseSessionRatings.sessionId, input.sessionId)),
     ]);
-    const cascades = await publishSessionCascades(db, ctx.user.id, input.meetingId, input.sessionId);
+    const cascades = await publishSessionCascades(db, ctx.user.id, input.sessionId);
     const ratingsSummary = ratingSummary(ratings);
     const ratingAverage = ratingsSummary.average == null ? null : ratingsSummary.average.toFixed(1);
     const reportId = id();

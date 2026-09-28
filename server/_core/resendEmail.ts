@@ -165,6 +165,7 @@ interface EmailContext {
   pulseCascadeSource?: string;
   pulseCascadeDestinations?: string;
   pulseCascadeAcknowledgment?: string;
+  pulseCascadeSubject?: string;
   pulseCascadeBody?: string;
   pulseActionUrl?: string;
   pulseSubmissionSummary?: string;
@@ -1274,13 +1275,14 @@ const TEMPLATES: Record<
   }),
 
   cascade_sent: ctx => ({
-    subject: `Pulse message needs you — ${ctx.pulseMeetingName ?? "A meeting"}`,
+    subject: `Pulse handoff — ${ctx.pulseCascadeSubject ?? ctx.pulseMeetingName ?? "A meeting"}`,
     html: emailLayout(
       `${heading("A Pulse message needs your acknowledgment")}
       ${subheading(ctx.pulseMeetingName ?? "Pulse meeting")}
       ${greeting(ctx.recipientName)}
       ${bodyText("Read the message, then acknowledge it in Pulse.")}
       ${infoCard([
+        `<strong style="color:${BLACK};">${escapeHtml(ctx.pulseCascadeSubject ?? "Cascading message")}</strong>`,
         `<strong style="color:${BLACK};">${escapeHtml(ctx.pulseCascadeSource ?? "From a Pulse meeting")}</strong>`,
         `<strong style="color:${BLACK};">${escapeHtml(ctx.pulseCascadeDestinations ?? "To your meeting")}</strong>`,
         `<strong style="color:${BLACK};">${escapeHtml(ctx.pulseCascadeAcknowledgment ?? "0 of 0 acknowledged")}</strong>`,
