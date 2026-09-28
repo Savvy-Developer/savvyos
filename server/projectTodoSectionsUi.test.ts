@@ -69,7 +69,8 @@ describe("project todo section UI", () => {
     expect(projectDetailPage).toContain('value="board"');
     expect(projectDetailPage).toContain('value="gantt"');
     expect(projectDetailPage).toContain("<ProjectTodoKanbanBoard");
-    expect(projectDetailPage).toContain("<ProjectGanttView project={project} />");
+    expect(projectDetailPage).toContain("<ProjectGanttView");
+    expect(projectDetailPage).toContain("onUpdateTask={(id, data) => updateTask.mutateAsync({ id, ...data })}");
     expect(projectBoard).toContain("moveProjectTodo(layout");
     expect(projectBoard).toContain("moveProjectTodoSection(layout");
     expect(projectBoard).toContain("onLayoutChange(next)");

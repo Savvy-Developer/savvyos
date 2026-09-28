@@ -200,6 +200,7 @@ function TaskItem({
       title: task.title,
       status: (task.status ?? (task.completed ? "completed" : "not_started")) as TodoStatus,
       ownerId: String(task.ownerId ?? ""),
+      startDate: task.startDate ? format(new Date(task.startDate), "yyyy-MM-dd") : "",
       dueDate: task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "",
       recurrence: (task.recurrence ?? "none") as Recurrence,
       priority: task.priority as Priority,
@@ -255,10 +256,15 @@ function TaskItem({
       toast.error("Recurring To-Dos need a first due date");
       return;
     }
+    if (editForm.startDate && editForm.dueDate && editForm.startDate > editForm.dueDate) {
+      toast.error("The start date cannot be after the due date");
+      return;
+    }
     onUpdate(task.id, {
       title: editForm.title,
       status: editForm.status,
       ownerId: Number(editForm.ownerId),
+      startDate: editForm.startDate ? new Date(`${editForm.startDate}T12:00:00`) : null,
       dueDate: editForm.dueDate ? new Date(`${editForm.dueDate}T12:00:00`) : null,
       recurrence: editForm.recurrence,
       priority: editForm.priority,
@@ -322,7 +328,7 @@ function TaskItem({
     {expanded ? <div className="border-t border-primary/20 bg-primary/[0.025] p-2">
       {editing ? (
         <div className="mt-2 rounded-md border bg-muted/20 p-2">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <div>
               <Label className="text-xs">Status</Label>
               <Select value={editForm.status} onValueChange={value => setEditForm((form) => ({ ...form, status: value as TodoStatus }))}>
@@ -340,6 +346,10 @@ function TaskItem({
                 <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Start date</Label>
+              <Input type="date" value={editForm.startDate} onChange={event => setEditForm((form) => ({ ...form, startDate: event.target.value }))} className="mt-1 h-8 text-xs" />
             </div>
             <div>
               <Label className="text-xs">Due date</Label>
@@ -472,7 +482,7 @@ export default function ProjectDetailPage({
   const [sectionTitle, setSectionTitle] = useState("");
   const [sectionDueDate, setSectionDueDate] = useState("");
   const [parentTodo, setParentTodo] = useState<any>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", dueDate: "", recurrence: "none" as Recurrence, priority: "medium" as Priority, notes: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", startDate: "", dueDate: "", recurrence: "none" as Recurrence, priority: "medium" as Priority, notes: "" });
   const [editingProject, setEditingProject] = useState(false);
   const [editForm, setEditForm] = useState<any>(null);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -493,7 +503,7 @@ export default function ProjectDetailPage({
   const [selectedMentions, setSelectedMentions] = useState<{ id: number; name: string }[]>([]);
 
   const createTask = trpc.pm.tasks.create.useMutation({
-    onSuccess: () => { toast.success(parentTodo ? "Sub-todo added" : "Todo added"); refetch(); setShowAddTask(false); setParentTodo(null); setTaskForm({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", dueDate: "", recurrence: "none", priority: "medium", notes: "" }); },
+    onSuccess: () => { toast.success(parentTodo ? "Sub-todo added" : "Todo added"); refetch(); setShowAddTask(false); setParentTodo(null); setTaskForm({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", startDate: "", dueDate: "", recurrence: "none", priority: "medium", notes: "" }); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -714,13 +724,18 @@ export default function ProjectDetailPage({
       toast.error("Recurring To-Dos need a first due date");
       return;
     }
+    if (taskForm.startDate && taskForm.dueDate && taskForm.startDate > taskForm.dueDate) {
+      toast.error("The start date cannot be after the due date");
+      return;
+    }
     createTask.mutate({
       projectId,
       parentTaskId: parentTodo?.id ?? null,
       sectionId: parentTodo ? undefined : (taskForm.sectionId === NO_SECTION_VALUE ? null : Number(taskForm.sectionId)),
       title: taskForm.title,
       ownerId: Number(taskForm.ownerId),
-      dueDate: taskForm.dueDate ? new Date(taskForm.dueDate) : null,
+      startDate: taskForm.startDate ? new Date(`${taskForm.startDate}T12:00:00`) : null,
+      dueDate: taskForm.dueDate ? new Date(`${taskForm.dueDate}T12:00:00`) : null,
       recurrence: taskForm.recurrence,
       priority: taskForm.priority,
       notes: taskForm.notes || undefined,
@@ -784,6 +799,7 @@ export default function ProjectDetailPage({
       title: "",
       sectionId: String(parent?.sectionId ?? sectionId ?? NO_SECTION_VALUE),
       ownerId: parent?.ownerId ? String(parent.ownerId) : "",
+      startDate: parent?.startDate ? format(new Date(parent.startDate), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
       dueDate: parent?.dueDate ? format(new Date(parent.dueDate), "yyyy-MM-dd") : "",
       recurrence: (parent?.recurrence ?? "none") as Recurrence,
       priority: (parent?.priority as Priority) ?? "medium",
@@ -1136,6 +1152,10 @@ export default function ProjectDetailPage({
                   />
                 </div>
                 <div>
+                  <Label className="text-xs">Start Date</Label>
+                  <Input type="date" value={taskForm.startDate} onChange={e => setTaskForm(f => ({ ...f, startDate: e.target.value }))} />
+                </div>
+                <div>
                   <Label className="text-xs">Due Date (optional)</Label>
                   <Input type="date" value={taskForm.dueDate} onChange={e => setTaskForm(f => ({ ...f, dueDate: e.target.value }))} />
                 </div>
@@ -1263,7 +1283,7 @@ export default function ProjectDetailPage({
 
         {/* Gantt Tab */}
         <TabsContent value="gantt">
-          <ProjectGanttView project={project} />
+          <ProjectGanttView project={project} adminUsers={adminUsers as any[]} onUpdateTask={(id, data) => updateTask.mutateAsync({ id, ...data })} />
         </TabsContent>
 
         {/* Notes Tab */}

@@ -39,6 +39,12 @@ async function applyProjectTodoWorkflowSchema() {
 
   const connection = await mysql.createConnection(databaseUrl);
   try {
+    if (!(await schemaColumnExists(connection, "startDate"))) {
+      await connection.query(
+        "ALTER TABLE `pm_tasks` ADD COLUMN `startDate` timestamp NULL AFTER `ownerId`",
+      );
+    }
+
     const needsStatus = !(await schemaColumnExists(connection, "status"));
     if (needsStatus) {
       await connection.query(

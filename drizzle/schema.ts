@@ -5186,6 +5186,7 @@ export const pmTasks = mysqlTable(
     ownerId: int("ownerId")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
+    startDate: timestamp("startDate"),
     dueDate: timestamp("dueDate"),
     recurrence: varchar("recurrence", { length: 16 }).notNull().default("none"), // none | daily | weekdays | weekly | monthly
     priority: varchar("priority", { length: 16 }).notNull().default("medium"), // high | medium | low

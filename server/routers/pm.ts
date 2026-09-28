@@ -347,6 +347,7 @@ export const pmRouter = router({
             sectionId: pmTasks.sectionId,
             ownerId: pmTasks.ownerId,
             ownerName: users.name,
+            startDate: pmTasks.startDate,
             dueDate: pmTasks.dueDate,
             recurrence: pmTasks.recurrence,
             priority: pmTasks.priority,
@@ -1504,6 +1505,7 @@ export const pmRouter = router({
         sectionId: z.number().nullable().optional(),
         title: z.string().min(1).max(5000),
         ownerId: z.number(),
+        startDate: z.date().nullable().optional(),
         dueDate: z.date().nullable().optional(),
         recurrence: z.enum(TODO_RECURRENCES).default("none"),
         priority: z.enum(["high", "medium", "low"]).default("medium"),
@@ -1512,12 +1514,20 @@ export const pmRouter = router({
         if (input.recurrence !== "none" && !input.dueDate) {
           refinement.addIssue({ code: "custom", path: ["dueDate"], message: "A recurring To-Do needs a first due date." });
         }
+        if (input.startDate && input.dueDate && input.startDate > input.dueDate) {
+          refinement.addIssue({ code: "custom", path: ["startDate"], message: "The start date cannot be after the due date." });
+        }
       }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         await assertProjectAccess(db, input.projectId, ctx.user);
+        const startDate = input.startDate ?? new Date();
+        if (!input.startDate) startDate.setHours(12, 0, 0, 0);
+        if (input.dueDate && startDate > input.dueDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "The start date cannot be after the due date." });
+        }
         let sectionId = input.sectionId ?? null;
         if (input.parentTaskId) {
           const [parent] = await db.select({ id: pmTasks.id, projectId: pmTasks.projectId, sectionId: pmTasks.sectionId })
@@ -1563,6 +1573,7 @@ export const pmRouter = router({
           sectionId,
           title: input.title,
           ownerId: input.ownerId,
+          startDate,
           dueDate: input.dueDate ?? null,
           recurrence: input.recurrence,
           priority: input.priority,
@@ -1579,6 +1590,7 @@ export const pmRouter = router({
         title: z.string().min(1).max(5000).optional(),
         sectionId: z.number().nullable().optional(),
         ownerId: z.number().optional(),
+        startDate: z.date().nullable().optional(),
         dueDate: z.date().nullable().optional(),
         recurrence: z.enum(TODO_RECURRENCES).optional(),
         priority: z.enum(["high", "medium", "low"]).optional(),
@@ -1589,15 +1601,19 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const [task] = await db.select({ projectId: pmTasks.projectId, parentTaskId: pmTasks.parentTaskId, sectionId: pmTasks.sectionId, title: pmTasks.title, recurrence: pmTasks.recurrence, dueDate: pmTasks.dueDate, status: pmTasks.status })
+        const [task] = await db.select({ projectId: pmTasks.projectId, parentTaskId: pmTasks.parentTaskId, sectionId: pmTasks.sectionId, title: pmTasks.title, recurrence: pmTasks.recurrence, startDate: pmTasks.startDate, dueDate: pmTasks.dueDate, status: pmTasks.status })
           .from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
         const { id, sectionId, ...fields } = input;
         const finalRecurrence = input.recurrence ?? task.recurrence;
+        const finalStartDate = input.startDate === undefined ? task.startDate : input.startDate;
         const finalDueDate = input.dueDate === undefined ? task.dueDate : input.dueDate;
         if (finalRecurrence !== "none" && !finalDueDate) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "A recurring To-Do needs a due date." });
+        }
+        if (finalStartDate && finalDueDate && finalStartDate > finalDueDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "The start date cannot be after the due date." });
         }
         const completion = input.status === "completed" && task.status !== "completed"
           ? completionUpdate({ dueDate: finalDueDate, recurrence: finalRecurrence as TodoRecurrence })

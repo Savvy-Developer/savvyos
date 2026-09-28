@@ -1,284 +1,977 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type PointerEvent } from "react";
 import {
   addDays,
   addWeeks,
   differenceInCalendarDays,
   format,
+  isBefore,
+  startOfDay,
   startOfWeek,
   subWeeks,
 } from "date-fns";
 import {
+  AlertTriangle,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  CircleDot,
   Flag,
   ListTodo,
   Milestone,
+  Pencil,
+  User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 
 const DAYS_VISIBLE = 84;
+const TABLE_COLUMNS = "minmax(20rem, 24rem) minmax(44rem, 1fr)";
 
-type GanttEntry = {
-  id: string;
-  kind: "rock" | "project" | "milestone" | "todo";
+type TodoStatus = "not_started" | "in_progress" | "blocked" | "completed";
+
+type GanttTask = {
+  id: number;
   title: string;
-  dueDate: Date | string;
-  href?: string;
+  parentTaskId: number | null;
+  sectionId: number | null;
+  ownerId: number;
+  ownerName?: string | null;
+  startDate?: Date | string | null;
+  dueDate?: Date | string | null;
+  status?: TodoStatus | null;
+  completed: boolean;
+  createdAt: Date | string;
 };
 
-const kindMeta = {
-  rock: {
-    label: "Rock due date",
-    dot: "bg-violet-600",
-    icon: Flag,
-    detail: "text-violet-700",
+type GanttSection = {
+  id: number;
+  title: string;
+  dueDate?: Date | string | null;
+};
+
+type TaskRow = {
+  type: "task";
+  id: string;
+  task: GanttTask;
+  title: string;
+  startDate: Date;
+  dueDate: Date;
+  indent: number;
+};
+
+type SectionRow = {
+  type: "section";
+  id: string;
+  section: GanttSection | null;
+  title: string;
+  dueDate: Date | null;
+  openCount: number;
+  overdueCount: number;
+  taskIds: number[];
+};
+
+type ProjectRow = {
+  type: "project";
+  id: string;
+  title: string;
+  dueDate: Date;
+  isRock: boolean;
+};
+
+type GanttRow = TaskRow | SectionRow | ProjectRow;
+
+type ScheduleForm = {
+  startDate: string;
+  dueDate: string;
+  status: TodoStatus;
+  ownerId: string;
+};
+
+const TASK_STATUS_META: Record<
+  TodoStatus,
+  { label: string; bar: string; badge: string }
+> = {
+  not_started: {
+    label: "Not Started",
+    bar: "bg-slate-500 hover:bg-slate-600",
+    badge: "border-slate-200 bg-slate-50 text-slate-700",
   },
-  project: {
-    label: "Project due date",
-    dot: "bg-primary",
-    icon: Flag,
-    detail: "text-primary",
+  in_progress: {
+    label: "In Progress",
+    bar: "bg-blue-600 hover:bg-blue-700",
+    badge: "border-blue-200 bg-blue-50 text-blue-800",
   },
-  milestone: {
-    label: "Milestone",
-    dot: "bg-amber-500",
-    icon: Milestone,
-    detail: "text-amber-700",
+  blocked: {
+    label: "Blocked",
+    bar: "bg-rose-600 hover:bg-rose-700",
+    badge: "border-rose-200 bg-rose-50 text-rose-800",
   },
-  todo: {
-    label: "To-Do",
-    dot: "bg-emerald-600",
-    icon: ListTodo,
-    detail: "text-emerald-700",
+  completed: {
+    label: "Completed",
+    bar: "bg-emerald-600/55 hover:bg-emerald-600/70",
+    badge: "border-emerald-200 bg-emerald-50 text-emerald-800",
   },
-} as const;
+};
 
 function asDate(value: Date | string) {
   return value instanceof Date ? value : new Date(value);
 }
 
-export default function ProjectGanttView({ project }: { project: any }) {
+function toDateInput(value: Date | string | null | undefined) {
+  return value ? format(asDate(value), "yyyy-MM-dd") : "";
+}
+
+function taskStatus(task: GanttTask): TodoStatus {
+  return (task.status ??
+    (task.completed ? "completed" : "not_started")) as TodoStatus;
+}
+
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function daysToPercent(days: number) {
+  return (days / DAYS_VISIBLE) * 100;
+}
+
+function isTaskOverdue(task: GanttTask, today: Date) {
+  return (
+    !task.completed && !!task.dueDate && isBefore(asDate(task.dueDate), today)
+  );
+}
+
+function scheduleDates(task: GanttTask) {
+  const startDate = asDate(task.startDate ?? task.createdAt);
+  const dueDate = asDate(task.dueDate!);
+  return {
+    startDate: startDate <= dueDate ? startDate : dueDate,
+    dueDate,
+  };
+}
+
+export default function ProjectGanttView({
+  project,
+  adminUsers = [],
+  onUpdateTask,
+}: {
+  project: any;
+  adminUsers?: any[];
+  onUpdateTask: (id: number, data: Record<string, unknown>) => Promise<unknown>;
+}) {
   const [start, setStart] = useState(() =>
     startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 })
   );
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [editingTask, setEditingTask] = useState<GanttTask | null>(null);
+  const [scheduleForm, setScheduleForm] = useState<ScheduleForm>({
+    startDate: "",
+    dueDate: "",
+    status: "not_started",
+    ownerId: "",
+  });
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ task: GanttTask; startX: number } | null>(null);
+  const suppressClickRef = useRef(false);
+
   const end = addDays(start, DAYS_VISIBLE - 1);
   const days = useMemo(
     () =>
       Array.from({ length: DAYS_VISIBLE }, (_, index) => addDays(start, index)),
     [start]
   );
-  const entries = useMemo<GanttEntry[]>(() => {
-    const projectBaseUrl = `/projects/${project.id}`;
-    return [
-      ...(project.dueDate
-        ? [
-            {
-              id: `${project.isRock ? "rock" : "project"}-${project.id}`,
-              kind: project.isRock ? ("rock" as const) : ("project" as const),
-              title: project.title,
-              dueDate: project.dueDate,
-              href: `${projectBaseUrl}?tab=tasks`,
-            },
-          ]
-        : []),
-      ...((project.todoSections ?? []) as any[])
-        .filter(section => section.dueDate)
-        .map(section => ({
-          id: `milestone-${section.id}`,
-          kind: "milestone" as const,
-          title: section.title,
-          dueDate: section.dueDate,
-          href: `${projectBaseUrl}?tab=tasks`,
-        })),
-      ...((project.tasks ?? []) as any[])
-        .filter(task => !task.completed && task.dueDate)
-        .map(task => ({
-          id: `todo-${task.id}`,
-          kind: "todo" as const,
-          title: task.title,
-          dueDate: task.dueDate,
-          href: `${projectBaseUrl}?tab=tasks#todo-${task.id}`,
-        })),
-    ].sort(
-      (left, right) =>
-        asDate(left.dueDate).getTime() - asDate(right.dueDate).getTime()
+  const today = startOfDay(new Date());
+  const people = useMemo(
+    () =>
+      [...adminUsers].sort((left: any, right: any) =>
+        (left.name ?? left.email ?? "").localeCompare(
+          right.name ?? right.email ?? ""
+        )
+      ),
+    [adminUsers]
+  );
+
+  const allTasks = (project.tasks ?? []) as GanttTask[];
+  const unscheduledTasks = useMemo(
+    () => allTasks.filter(task => !task.completed && !task.dueDate),
+    [allTasks]
+  );
+
+  const { rows, scheduledTaskRows, rowsOutsideWindow } = useMemo(() => {
+    const sections = (project.todoSections ?? []) as GanttSection[];
+    const visibleTasks = allTasks.filter(
+      task => showCompleted || !task.completed
     );
-  }, [project]);
-  const visibleEntries = entries.filter(entry => {
-    const due = asDate(entry.dueDate);
-    return due >= start && due <= end;
-  });
-  const hiddenBefore = entries.filter(
-    entry => asDate(entry.dueDate) < start
-  ).length;
-  const hiddenAfter = entries.filter(
-    entry => asDate(entry.dueDate) > end
-  ).length;
+    const tasksBySection = new Map<number | null, GanttTask[]>();
+    for (const task of visibleTasks) {
+      const group = tasksBySection.get(task.sectionId ?? null) ?? [];
+      group.push(task);
+      tasksBySection.set(task.sectionId ?? null, group);
+    }
+
+    const nextRows: GanttRow[] = [];
+    const taskRows: TaskRow[] = [];
+    if (project.dueDate) {
+      nextRows.push({
+        type: "project",
+        id: `project-${project.id}`,
+        title: project.title,
+        dueDate: asDate(project.dueDate),
+        isRock: Boolean(project.isRock),
+      });
+    }
+
+    const groups: Array<{ section: GanttSection | null; tasks: GanttTask[] }> =
+      [
+        ...sections.map(section => ({
+          section,
+          tasks: tasksBySection.get(section.id) ?? [],
+        })),
+        {
+          section: null,
+          tasks: tasksBySection.get(null) ?? [],
+        },
+      ];
+
+    for (const group of groups) {
+      const scheduledTasks = group.tasks.filter(task => !!task.dueDate);
+      const openCount = group.tasks.filter(task => !task.completed).length;
+      const overdueCount = group.tasks.filter(task =>
+        isTaskOverdue(task, today)
+      ).length;
+      if (!group.section && scheduledTasks.length === 0) continue;
+      if (
+        group.section &&
+        !group.section.dueDate &&
+        scheduledTasks.length === 0
+      )
+        continue;
+
+      const groupTaskIds = scheduledTasks.map(task => task.id);
+      nextRows.push({
+        type: "section",
+        id: group.section ? `section-${group.section.id}` : "section-main",
+        section: group.section,
+        title: group.section?.title ?? "Main To-Dos",
+        dueDate: group.section?.dueDate ? asDate(group.section.dueDate) : null,
+        openCount,
+        overdueCount,
+        taskIds: groupTaskIds,
+      });
+
+      const includedTaskIds = new Set(group.tasks.map(task => task.id));
+      const childrenByParent = new Map<number, GanttTask[]>();
+      for (const task of group.tasks) {
+        if (
+          task.parentTaskId === null ||
+          !includedTaskIds.has(task.parentTaskId)
+        )
+          continue;
+        const children = childrenByParent.get(task.parentTaskId) ?? [];
+        children.push(task);
+        childrenByParent.set(task.parentTaskId, children);
+      }
+      const compareTasks = (left: GanttTask, right: GanttTask) => {
+        const leftDate = left.dueDate
+          ? asDate(left.dueDate).getTime()
+          : Number.MAX_SAFE_INTEGER;
+        const rightDate = right.dueDate
+          ? asDate(right.dueDate).getTime()
+          : Number.MAX_SAFE_INTEGER;
+        return leftDate - rightDate || left.title.localeCompare(right.title);
+      };
+      Array.from(childrenByParent.values()).forEach(children =>
+        children.sort(compareTasks)
+      );
+
+      const addTaskRows = (task: GanttTask, indent: number) => {
+        if (task.dueDate) {
+          const dates = scheduleDates(task);
+          const row: TaskRow = {
+            type: "task",
+            id: `task-${task.id}`,
+            task,
+            title: task.title,
+            startDate: dates.startDate,
+            dueDate: dates.dueDate,
+            indent,
+          };
+          nextRows.push(row);
+          taskRows.push(row);
+        }
+        for (const child of childrenByParent.get(task.id) ?? []) {
+          addTaskRows(child, indent + 1);
+        }
+      };
+
+      group.tasks
+        .filter(
+          task =>
+            task.parentTaskId === null ||
+            !includedTaskIds.has(task.parentTaskId)
+        )
+        .sort(compareTasks)
+        .forEach(task => addTaskRows(task, 1));
+    }
+
+    const visibleTaskIds = new Set(
+      taskRows
+        .filter(row => row.startDate <= end && row.dueDate >= start)
+        .map(row => row.task.id)
+    );
+    const visibleRows = nextRows.filter(row => {
+      if (row.type === "task") return visibleTaskIds.has(row.task.id);
+      if (row.type === "project")
+        return row.dueDate >= start && row.dueDate <= end;
+      return (
+        (row.dueDate !== null && row.dueDate >= start && row.dueDate <= end) ||
+        row.taskIds.some(taskId => visibleTaskIds.has(taskId))
+      );
+    });
+    const outside =
+      taskRows.filter(row => row.startDate > end || row.dueDate < start)
+        .length +
+      nextRows.filter(
+        row =>
+          (row.type === "project" || row.type === "section") &&
+          row.dueDate !== null &&
+          (row.dueDate < start || row.dueDate > end)
+      ).length;
+
+    return {
+      rows: visibleRows,
+      scheduledTaskRows: taskRows,
+      rowsOutsideWindow: outside,
+    };
+  }, [
+    allTasks,
+    end,
+    project.dueDate,
+    project.id,
+    project.isRock,
+    project.title,
+    project.todoSections,
+    showCompleted,
+    start,
+    today,
+  ]);
+
+  function openSchedule(task: GanttTask) {
+    const dates = scheduleDates(task);
+    setScheduleForm({
+      startDate: toDateInput(dates.startDate),
+      dueDate: toDateInput(dates.dueDate),
+      status: taskStatus(task),
+      ownerId: String(task.ownerId),
+    });
+    setEditingTask(task);
+  }
+
+  async function saveSchedule() {
+    if (!editingTask) return;
+    if (
+      scheduleForm.startDate &&
+      scheduleForm.dueDate &&
+      scheduleForm.startDate > scheduleForm.dueDate
+    ) {
+      return;
+    }
+    setSavingSchedule(true);
+    try {
+      await onUpdateTask(editingTask.id, {
+        startDate: scheduleForm.startDate
+          ? new Date(`${scheduleForm.startDate}T12:00:00`)
+          : null,
+        dueDate: scheduleForm.dueDate
+          ? new Date(`${scheduleForm.dueDate}T12:00:00`)
+          : null,
+        status: scheduleForm.status,
+        ownerId: Number(scheduleForm.ownerId),
+      });
+      setEditingTask(null);
+    } catch {
+      // The parent mutation displays the actionable server error.
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  function beginTaskDrag(
+    event: PointerEvent<HTMLButtonElement>,
+    task: GanttTask
+  ) {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = { task, startX: event.clientX };
+    setDraggingTaskId(task.id);
+  }
+
+  function finishTaskDrag(
+    event: PointerEvent<HTMLButtonElement>,
+    task: GanttTask
+  ) {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    setDraggingTaskId(null);
+    if (!drag || drag.task.id !== task.id || !timelineRef.current) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const timelineWidth = timelineRef.current.getBoundingClientRect().width;
+    if (!timelineWidth) return;
+    const shiftDays = Math.round(
+      (event.clientX - drag.startX) / (timelineWidth / DAYS_VISIBLE)
+    );
+    if (shiftDays === 0) return;
+    suppressClickRef.current = true;
+    const dates = scheduleDates(task);
+    void onUpdateTask(task.id, {
+      startDate: addDays(dates.startDate, shiftDays),
+      dueDate: addDays(dates.dueDate, shiftDays),
+    }).catch(() => undefined);
+  }
+
+  function cancelTaskDrag() {
+    dragRef.current = null;
+    setDraggingTaskId(null);
+  }
+
+  function renderCalendarGrid() {
+    return days.map(day => (
+      <span
+        key={day.toISOString()}
+        className={cn(
+          "absolute inset-y-0 border-l border-border/45",
+          (day.getDay() === 0 || day.getDay() === 6) && "bg-muted/25"
+        )}
+        style={{
+          left: `${daysToPercent(differenceInCalendarDays(day, start))}%`,
+          width: `${daysToPercent(1)}%`,
+        }}
+      />
+    ));
+  }
+
+  function markerPosition(date: Date) {
+    return `${daysToPercent(clamp(differenceInCalendarDays(date, start) + 0.5, 0, DAYS_VISIBLE))}%`;
+  }
+
+  function taskBarStyle(row: TaskRow) {
+    const startOffset = clamp(
+      differenceInCalendarDays(row.startDate, start),
+      0,
+      DAYS_VISIBLE - 1
+    );
+    const endOffset = clamp(
+      differenceInCalendarDays(row.dueDate, start),
+      0,
+      DAYS_VISIBLE - 1
+    );
+    return {
+      left: `${daysToPercent(startOffset)}%`,
+      width: `${Math.max(daysToPercent(endOffset - startOffset + 1), daysToPercent(1))}%`,
+    };
+  }
+
+  const todayVisible = today >= start && today <= end;
+  const scheduleError = Boolean(
+    scheduleForm.startDate &&
+      scheduleForm.dueDate &&
+      scheduleForm.startDate > scheduleForm.dueDate
+  );
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border bg-card p-4">
         <div>
           <div className="flex items-center gap-2">
             <CalendarDays className="h-5 w-5 text-primary" />
             <h2 className="font-semibold">Gantt Chart</h2>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Timeline for this project’s due date, milestone sections, and open
-            To-Dos. Markers show due dates because start dates are not stored.
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Plan active Project To-Dos from start to due date. Drag a bar to
+            move its schedule, or select it to update dates, status, and
+            assignee.
           </p>
         </div>
-        <div className="flex items-center gap-1 rounded-md border bg-background p-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setStart(current => subWeeks(current, 12))}
-            aria-label="Show earlier dates"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2 text-xs"
-            onClick={() =>
-              setStart(
-                startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 })
-              )
-            }
-          >
-            Today
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setStart(current => addWeeks(current, 12))}
-            aria-label="Show later dates"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5">
+            <Switch
+              id="show-completed-gantt-todos"
+              checked={showCompleted}
+              onCheckedChange={setShowCompleted}
+            />
+            <Label
+              htmlFor="show-completed-gantt-todos"
+              className="cursor-pointer text-xs text-muted-foreground"
+            >
+              Show completed
+            </Label>
+          </div>
+          <div className="flex items-center gap-1 rounded-md border bg-background p-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setStart(current => subWeeks(current, 12))}
+              aria-label="Show earlier dates"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={() =>
+                setStart(
+                  startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 })
+                )
+              }
+            >
+              Today
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setStart(current => addWeeks(current, 12))}
+              aria-label="Show later dates"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
+      {unscheduledTasks.length > 0 ? (
+        <a
+          href={`/projects/${project.id}?tab=tasks`}
+          className="flex items-center justify-between gap-3 rounded-lg border border-amber-300/70 bg-amber-50/60 px-3 py-2.5 text-sm text-amber-950 transition-colors hover:bg-amber-100/70"
+        >
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700" />
+            <span>
+              <strong>{unscheduledTasks.length}</strong> open To-Do
+              {unscheduledTasks.length === 1 ? " needs" : "s need"} a due date
+              and {unscheduledTasks.length === 1 ? "is" : "are"} not yet on the
+              schedule.
+            </span>
+          </span>
+          <span className="shrink-0 text-xs font-semibold text-amber-800">
+            Review To-Dos
+          </span>
+        </a>
+      ) : null}
+
       <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
-        {Object.entries(kindMeta).map(([kind, meta]) => (
-          <span key={kind} className="inline-flex items-center gap-1.5">
-            <span className={`h-2.5 w-2.5 rounded-full ${meta.dot}`} />
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-amber-500" />
+          Milestone
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-violet-600" />
+          Project or Rock due date
+        </span>
+        {Object.entries(TASK_STATUS_META).map(([status, meta]) => (
+          <span key={status} className="inline-flex items-center gap-1.5">
+            <span
+              className={`h-2.5 w-4 rounded-sm ${meta.bar.split(" ")[0]}`}
+            />
             {meta.label}
           </span>
         ))}
+        <span className="inline-flex items-center gap-1.5">
+          <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
+          Overdue
+        </span>
         <span className="ml-auto">
           {format(start, "MMM d, yyyy")} – {format(end, "MMM d, yyyy")}
         </span>
       </div>
 
-      {entries.length === 0 ? (
+      {scheduledTaskRows.length === 0 &&
+      !project.dueDate &&
+      !(project.todoSections ?? []).some(
+        (section: GanttSection) => section.dueDate
+      ) ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          This project has no dated project, milestone, or open To-Do items yet.
+          This project has no scheduled work yet. Add due dates to Project
+          To-Dos or milestones to build its timeline.
         </div>
-      ) : null}
-      {entries.length > 0 ? (
+      ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
-          <div className="min-w-[900px]">
+          <div className="min-w-[1100px]">
             <div
               className="grid border-b bg-muted/35"
-              style={{ gridTemplateColumns: "19rem minmax(0, 1fr)" }}
+              style={{ gridTemplateColumns: TABLE_COLUMNS }}
             >
-              <div className="sticky left-0 z-20 border-r bg-card px-3 py-2 text-xs font-semibold text-muted-foreground">
+              <div className="sticky left-0 z-30 border-r bg-card px-3 py-2 text-xs font-semibold text-muted-foreground">
                 Work item
               </div>
-              <div className="relative h-10 overflow-hidden">
+              <div ref={timelineRef} className="relative h-10 overflow-hidden">
                 {days.map((day, index) =>
                   day.getDay() === 1 || index === 0 ? (
                     <div
                       key={day.toISOString()}
                       className="absolute top-0 h-full border-l border-border px-1.5 pt-2 text-[10px] font-medium text-muted-foreground"
-                      style={{ left: `${(index / DAYS_VISIBLE) * 100}%` }}
+                      style={{ left: `${daysToPercent(index)}%` }}
                     >
                       {format(day, "MMM d")}
                     </div>
                   ) : null
                 )}
-                <div className="absolute inset-x-0 bottom-0 flex h-3">
-                  {days.map(day => (
-                    <span
-                      key={day.toISOString()}
-                      className={`flex-1 border-l border-border/45 ${day.getDay() === 0 || day.getDay() === 6 ? "bg-muted/30" : ""}`}
-                    />
-                  ))}
+                <div className="absolute inset-x-0 bottom-0 h-3">
+                  {renderCalendarGrid()}
                 </div>
+                {todayVisible ? (
+                  <span
+                    className="absolute inset-y-0 z-10 w-px bg-primary/80"
+                    style={{ left: markerPosition(today) }}
+                    aria-label="Today"
+                  />
+                ) : null}
               </div>
             </div>
-            {visibleEntries.map(entry => {
-              const due = asDate(entry.dueDate);
-              const position =
-                ((differenceInCalendarDays(due, start) + 0.5) / DAYS_VISIBLE) *
-                100;
-              const meta = kindMeta[entry.kind];
-              const Icon = meta.icon;
-              return (
-                <a
-                  key={entry.id}
-                  href={entry.href}
-                  className="grid border-b last:border-b-0 hover:bg-muted/35"
-                  style={{ gridTemplateColumns: "19rem minmax(0, 1fr)" }}
-                >
-                  <div className="sticky left-0 z-10 flex min-w-0 items-center gap-2 border-r bg-card px-3 py-2">
-                    <Icon className={`h-3.5 w-3.5 shrink-0 ${meta.detail}`} />
-                    <span className="min-w-0 truncate text-sm">
-                      {entry.title}
-                    </span>
-                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-                      {format(due, "MMM d")}
-                    </span>
-                  </div>
-                  <div className="relative min-h-9 overflow-hidden">
-                    {days.map(day => (
+
+            {rows.map(row => {
+              if (row.type === "project") {
+                const Icon = row.isRock ? Flag : CircleDot;
+                return (
+                  <div
+                    key={row.id}
+                    className="grid border-b border-violet-200/70 bg-violet-50/35"
+                    style={{ gridTemplateColumns: TABLE_COLUMNS }}
+                  >
+                    <div className="sticky left-0 z-20 flex min-w-0 items-center gap-2 border-r bg-violet-50 px-3 py-2">
+                      <Icon className="h-3.5 w-3.5 shrink-0 text-violet-700" />
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                        {row.title}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-violet-800">
+                        Due {format(row.dueDate, "MMM d")}
+                      </span>
+                    </div>
+                    <div className="relative min-h-9 overflow-hidden">
+                      {renderCalendarGrid()}
                       <span
-                        key={day.toISOString()}
-                        className={`absolute inset-y-0 border-l border-border/45 ${day.getDay() === 0 || day.getDay() === 6 ? "bg-muted/20" : ""}`}
-                        style={{
-                          left: `${(differenceInCalendarDays(day, start) / DAYS_VISIBLE) * 100}%`,
-                          width: `${100 / DAYS_VISIBLE}%`,
-                        }}
+                        title={`${row.title} · due ${format(row.dueDate, "MMM d, yyyy")}`}
+                        className="absolute top-1/2 z-10 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] border-2 border-card bg-violet-600 shadow-sm"
+                        style={{ left: markerPosition(row.dueDate) }}
                       />
-                    ))}
-                    <span
-                      title={`${entry.title} · due ${format(due, "MMM d, yyyy")}`}
-                      className={`absolute top-1/2 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-card ${meta.dot} shadow-sm`}
-                      style={{ left: `${position}%` }}
-                    >
-                      <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                    </span>
+                    </div>
                   </div>
-                </a>
+                );
+              }
+
+              if (row.type === "section") {
+                const isMilestone = !!row.section?.dueDate;
+                return (
+                  <div
+                    key={row.id}
+                    className="grid border-b bg-muted/20"
+                    style={{ gridTemplateColumns: TABLE_COLUMNS }}
+                  >
+                    <div className="sticky left-0 z-20 flex min-w-0 items-center gap-2 border-r bg-muted px-3 py-1.5">
+                      {isMilestone ? (
+                        <Milestone className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+                      ) : (
+                        <ListTodo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {row.title}
+                      </span>
+                      {row.openCount ? (
+                        <span className="shrink-0 rounded bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {row.openCount} open
+                        </span>
+                      ) : null}
+                      {row.overdueCount ? (
+                        <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">
+                          <AlertTriangle className="h-3 w-3" />
+                          {row.overdueCount}
+                        </span>
+                      ) : null}
+                      {row.dueDate ? (
+                        <span className="shrink-0 text-[10px] text-amber-800">
+                          Due {format(row.dueDate, "MMM d")}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="relative min-h-8 overflow-hidden">
+                      {renderCalendarGrid()}
+                      {row.dueDate &&
+                      row.dueDate >= start &&
+                      row.dueDate <= end ? (
+                        <span
+                          title={`${row.title} milestone · due ${format(row.dueDate, "MMM d, yyyy")}`}
+                          className="absolute top-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] border-2 border-card bg-amber-500 shadow-sm"
+                          style={{ left: markerPosition(row.dueDate) }}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              }
+
+              const status = taskStatus(row.task);
+              const statusMeta =
+                TASK_STATUS_META[status] ?? TASK_STATUS_META.not_started;
+              const overdue = isTaskOverdue(row.task, today);
+              return (
+                <div
+                  key={row.id}
+                  className="grid border-b last:border-b-0 hover:bg-muted/25"
+                  style={{ gridTemplateColumns: TABLE_COLUMNS }}
+                >
+                  <div
+                    className="sticky left-0 z-10 flex min-w-0 items-center gap-2 border-r bg-card px-3 py-2"
+                    style={{ paddingLeft: `${0.75 + row.indent * 1.15}rem` }}
+                  >
+                    <ListTodo
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0",
+                        overdue ? "text-red-600" : "text-primary"
+                      )}
+                    />
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 truncate text-left text-sm hover:text-primary hover:underline"
+                      onClick={() => openSchedule(row.task)}
+                    >
+                      {row.title}
+                    </button>
+                    {overdue ? (
+                      <AlertTriangle
+                        className="h-3.5 w-3.5 shrink-0 text-red-600"
+                        aria-label="Overdue"
+                      />
+                    ) : null}
+                    <span
+                      className={cn(
+                        "hidden shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium lg:inline",
+                        statusMeta.badge
+                      )}
+                    >
+                      {statusMeta.label}
+                    </span>
+                    <span
+                      className={cn(
+                        "hidden shrink-0 text-[10px] xl:inline",
+                        overdue
+                          ? "font-semibold text-red-700"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {format(row.startDate, "MMM d")} –{" "}
+                      {format(row.dueDate, "MMM d")}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      onClick={() => openSchedule(row.task)}
+                      aria-label={`Schedule ${row.title}`}
+                      title="Edit schedule"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <div className="relative min-h-10 overflow-hidden">
+                    {renderCalendarGrid()}
+                    {todayVisible ? (
+                      <span
+                        className="absolute inset-y-0 z-[1] w-px bg-primary/55"
+                        style={{ left: markerPosition(today) }}
+                      />
+                    ) : null}
+                    <button
+                      type="button"
+                      className={cn(
+                        "absolute top-1/2 z-10 h-5 -translate-y-1/2 rounded-sm border border-card/80 shadow-sm transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
+                        overdue
+                          ? "bg-red-600 hover:bg-red-700"
+                          : statusMeta.bar,
+                        draggingTaskId === row.task.id &&
+                          "cursor-grabbing opacity-70 shadow-md"
+                      )}
+                      style={taskBarStyle(row)}
+                      title={`${row.title} · ${format(row.startDate, "MMM d, yyyy")} – ${format(row.dueDate, "MMM d, yyyy")}. Drag to move the schedule; select to edit.`}
+                      aria-label={`Schedule ${row.title} from ${format(row.startDate, "MMMM d")} through ${format(row.dueDate, "MMMM d")}`}
+                      onPointerDown={event => beginTaskDrag(event, row.task)}
+                      onPointerUp={event => finishTaskDrag(event, row.task)}
+                      onPointerCancel={cancelTaskDrag}
+                      onClick={() => {
+                        if (suppressClickRef.current) {
+                          suppressClickRef.current = false;
+                          return;
+                        }
+                        openSchedule(row.task);
+                      }}
+                    >
+                      <span className="sr-only">{row.title}</span>
+                    </button>
+                  </div>
+                </div>
               );
             })}
-            {visibleEntries.length === 0 ? (
+
+            {rows.length === 0 ? (
               <div className="p-10 text-center text-sm text-muted-foreground">
-                No due dates fall in this 12-week window. Use the arrows to
-                browse the timeline.
+                No scheduled work falls in this 12-week window. Use the arrows
+                to browse the timeline.
               </div>
             ) : null}
           </div>
         </div>
-      ) : null}
-      {hiddenBefore || hiddenAfter ? (
+      )}
+
+      {rowsOutsideWindow ? (
         <p className="text-xs text-muted-foreground">
-          {hiddenBefore
-            ? `${hiddenBefore} item${hiddenBefore === 1 ? "" : "s"} due earlier. `
-            : ""}
-          {hiddenAfter
-            ? `${hiddenAfter} item${hiddenAfter === 1 ? "" : "s"} due later.`
-            : ""}
+          {rowsOutsideWindow} scheduled item
+          {rowsOutsideWindow === 1 ? " is" : "s are"} outside this 12-week
+          window.
         </p>
       ) : null}
+
+      <Dialog
+        open={Boolean(editingTask)}
+        onOpenChange={open => !open && setEditingTask(null)}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Schedule To-Do</DialogTitle>
+            <DialogDescription>{editingTask?.title}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="gantt-task-start-date">Start date</Label>
+              <Input
+                id="gantt-task-start-date"
+                type="date"
+                value={scheduleForm.startDate}
+                onChange={event =>
+                  setScheduleForm(form => ({
+                    ...form,
+                    startDate: event.target.value,
+                  }))
+                }
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="gantt-task-due-date">Due date</Label>
+              <Input
+                id="gantt-task-due-date"
+                type="date"
+                value={scheduleForm.dueDate}
+                onChange={event =>
+                  setScheduleForm(form => ({
+                    ...form,
+                    dueDate: event.target.value,
+                  }))
+                }
+                className="mt-1"
+              />
+            </div>
+            {scheduleError ? (
+              <p className="sm:col-span-2 text-xs font-medium text-destructive">
+                The start date cannot be after the due date.
+              </p>
+            ) : null}
+            <div>
+              <Label htmlFor="gantt-task-status">Status</Label>
+              <Select
+                value={scheduleForm.status}
+                onValueChange={status =>
+                  setScheduleForm(form => ({
+                    ...form,
+                    status: status as TodoStatus,
+                  }))
+                }
+              >
+                <SelectTrigger id="gantt-task-status" className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(TASK_STATUS_META).map(([status, meta]) => (
+                    <SelectItem key={status} value={status}>
+                      {meta.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="gantt-task-assignee">Assignee</Label>
+              <Select
+                value={scheduleForm.ownerId}
+                onValueChange={ownerId =>
+                  setScheduleForm(form => ({ ...form, ownerId }))
+                }
+              >
+                <SelectTrigger id="gantt-task-assignee" className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {people.map((person: any) => (
+                    <SelectItem key={person.id} value={String(person.id)}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <User className="h-3.5 w-3.5" />
+                        {person.name ?? person.email ?? `User #${person.id}`}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <p className="rounded-md border border-primary/15 bg-primary/[0.025] px-3 py-2 text-xs text-muted-foreground">
+            Drag the bar to shift both dates together. Change these fields when
+            the duration, status, or assignee needs to change.
+          </p>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditingTask(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                savingSchedule || scheduleError || !scheduleForm.ownerId
+              }
+              onClick={saveSchedule}
+            >
+              {savingSchedule ? "Saving…" : "Save schedule"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
