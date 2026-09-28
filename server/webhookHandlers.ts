@@ -14,7 +14,7 @@ import { getDb as _getDb, logActivity, scheduleAircallPhoneRematch } from "./db"
 import { triggerGhlContactSync } from "./_core/ghlSync";
 import { triggerSmartPlansForContact } from "./smartPlanScheduler";
 import { organicSocialIds, resolveOrganicSocialLeadSourceId } from "./organicSocialLeadSources";
-import { isOrganicSocialName } from "@shared/organicSocial";
+import { isOldSiteSocialSource, isOrganicSocialName } from "@shared/organicSocial";
 
 async function getDb() {
   const db = await _getDb();
@@ -849,7 +849,15 @@ async function createContactFromEvent(
   const phone = normalizeOptionalUsPhone(pickField(data, raw, ["phone", "mobile", "cell"]));
   const smsMarketingConsentProvided = hasExplicitSmsMarketingConsent(data, raw);
 
+  // The old site's Leads table marks some leads "social". Those go to the
+  // Organic Social parent (Cam's rule); everything else keeps the endpoint
+  // default, then "Unattributed (Webhook)".
+  const oldSiteSource = pickField(data, raw, ["source", "leadSource", "lead_source"]);
+  const organicParentId = isOldSiteSocialSource(oldSiteSource)
+    ? ((await organicSocialIds(db))?.parentId ?? null)
+    : null;
   const leadSourceId =
+    organicParentId ??
     (await resolveLeadSourceId(undefined, endpoint.defaultLeadSourceId)) ??
     (await getOrCreateFallbackLeadSourceId());
 
