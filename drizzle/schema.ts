@@ -5187,6 +5187,7 @@ export const pmTodoSections = mysqlTable(
       .notNull()
       .references(() => pmProjects.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 128 }).notNull(),
+    description: text("description"),
     dueDate: timestamp("dueDate"),
     sortOrder: int("sortOrder").notNull().default(0),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -5196,6 +5197,33 @@ export const pmTodoSections = mysqlTable(
 );
 export type PmTodoSection = typeof pmTodoSections.$inferSelect;
 export type InsertPmTodoSection = typeof pmTodoSections.$inferInsert;
+
+// A row means milestoneId is blocked by predecessorMilestoneId. Dependencies
+// may cross Projects so quarterly Rocks can show their true execution order.
+export const pmMilestoneDependencies = mysqlTable(
+  "pm_milestone_dependencies",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    milestoneId: int("milestoneId")
+      .notNull()
+      .references(() => pmTodoSections.id, { onDelete: "cascade" }),
+    predecessorMilestoneId: int("predecessorMilestoneId")
+      .notNull()
+      .references(() => pmTodoSections.id, { onDelete: "cascade" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("pm_milestone_dependencies_unique").on(
+      table.milestoneId,
+      table.predecessorMilestoneId,
+    ),
+    index("pm_milestone_dependencies_predecessor_idx").on(
+      table.predecessorMilestoneId,
+      table.milestoneId,
+    ),
+  ],
+);
+export type PmMilestoneDependency = typeof pmMilestoneDependencies.$inferSelect;
 
 export const pmProjectCollaborators = mysqlTable(
   "pm_project_collaborators",

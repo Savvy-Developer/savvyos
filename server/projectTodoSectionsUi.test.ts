@@ -96,9 +96,12 @@ describe("project todo section UI", () => {
     expect(sectionComponent).not.toContain("px-2 py-5 text-center");
   });
 
-  it("keeps project section headers limited to their title and milestone date", () => {
+  it("keeps project section headers compact while exposing milestone context below", () => {
     expect(sectionComponent).toContain("{section.title}");
     expect(sectionComponent).toContain("Due ${new Date");
+    expect(sectionComponent).toContain("section.description");
+    expect(sectionComponent).toContain("ProjectMilestoneDependencyDialog");
+    expect(sectionComponent).toContain("Depends on");
     expect(sectionComponent).not.toContain("completedCount");
     expect(sectionComponent).not.toContain("<Badge");
     expect(projectBoard).not.toContain("{taskIds.length}");
@@ -118,7 +121,7 @@ describe("project todo section UI", () => {
       'utils.pm.projects.getById.invalidate({ id: projectId })'
     );
     expect(sectionComponent).toContain(
-      'onUpdate({ title: section.title, dueDate: null })'
+      'onUpdate({ title: section.title, description: section.description ?? null, dueDate: null })'
     );
   });
 
@@ -171,5 +174,7 @@ describe("project todo section UI", () => {
     expect(todoSchemaGuard).toContain("ALTER TABLE `pm_tasks` ADD COLUMN `status`");
     expect(todoSchemaGuard).toContain("ALTER TABLE `pm_tasks` ADD COLUMN `recurrence`");
     expect(todoSchemaGuard).toContain("pm_tasks_project_status_idx");
+    expect(todoSchemaGuard).toContain("pm_todo_sections` ADD COLUMN `description`");
+    expect(todoSchemaGuard).toContain("pm_milestone_dependencies");
   });
 });

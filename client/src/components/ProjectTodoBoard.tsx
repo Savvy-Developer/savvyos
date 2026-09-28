@@ -29,6 +29,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, ListChecks } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProjectTodoSection } from "@/components/ProjectTodoSection";
+import type { ProjectMilestoneDependencyOption } from "@/components/ProjectMilestoneDependencyDialog";
 
 export type ProjectTodoLayoutItem =
   | { type: "task"; id: number }
@@ -46,7 +47,10 @@ type TodoRow = {
 type SectionRow = {
   id: number;
   title: string;
+  description?: string | null;
   dueDate?: Date | string | null;
+  predecessorMilestoneIds?: number[];
+  predecessors?: ProjectMilestoneDependencyOption[];
   sortOrder: number;
   createdAt?: Date | string | null;
 };
@@ -400,6 +404,9 @@ function SortableSectionRow({
   onAddTodo,
   onUpdate,
   onDelete,
+  milestoneDependencyOptions,
+  onSetDependencies,
+  dependenciesPending,
   children,
   isRock,
   disabled,
@@ -412,8 +419,11 @@ function SortableSectionRow({
   todoCount: number;
   displayCount: number;
   onAddTodo: () => void;
-  onUpdate: (updates: { title: string; dueDate: Date | null }) => void;
+  onUpdate: (updates: { title: string; description: string | null; dueDate: Date | null }) => void;
   onDelete: () => void;
+  milestoneDependencyOptions?: ProjectMilestoneDependencyOption[];
+  onSetDependencies?: (predecessorMilestoneIds: number[]) => void;
+  dependenciesPending?: boolean;
   children: ReactNode;
   isRock: boolean;
   disabled: boolean;
@@ -447,6 +457,9 @@ function SortableSectionRow({
         onAddTodo={onAddTodo}
         onUpdate={onUpdate}
         onDelete={onDelete}
+        milestoneDependencyOptions={milestoneDependencyOptions}
+        onSetDependencies={onSetDependencies}
+        dependenciesPending={dependenciesPending}
         isRock={isRock}
         dragHandle={{
           setActivatorNodeRef: sortable.setActivatorNodeRef,
@@ -538,6 +551,9 @@ export function ProjectTodoBoard({
   onAddTodo,
   onUpdateSection,
   onDeleteSection,
+  milestoneDependencyOptions = [],
+  onSetMilestoneDependencies,
+  milestoneDependenciesPending = false,
   isRock,
   onLayoutChange,
   saving,
@@ -547,8 +563,11 @@ export function ProjectTodoBoard({
   showCompleted: boolean;
   renderTodo: (todo: TodoRow, dragHandle?: any) => ReactNode;
   onAddTodo: (sectionId: number) => void;
-  onUpdateSection: (sectionId: number, updates: { title: string; dueDate: Date | null }) => void;
+  onUpdateSection: (sectionId: number, updates: { title: string; description: string | null; dueDate: Date | null }) => void;
   onDeleteSection: (section: SectionRow) => void;
+  milestoneDependencyOptions?: ProjectMilestoneDependencyOption[];
+  onSetMilestoneDependencies?: (milestoneId: number, predecessorMilestoneIds: number[]) => void;
+  milestoneDependenciesPending?: boolean;
   onLayoutChange: (layout: ProjectTodoLayoutItem[]) => Promise<unknown>;
   saving: boolean;
   isRock: boolean;
@@ -697,6 +716,9 @@ export function ProjectTodoBoard({
         onAddTodo={() => onAddTodo(section.id)}
           onUpdate={updates => onUpdateSection(section.id, updates)}
           onDelete={() => onDeleteSection(section)}
+          milestoneDependencyOptions={milestoneDependencyOptions}
+          onSetDependencies={onSetMilestoneDependencies ? predecessorMilestoneIds => onSetMilestoneDependencies(section.id, predecessorMilestoneIds) : undefined}
+          dependenciesPending={milestoneDependenciesPending}
           isRock={isRock}
           disabled={saving}
         acceptingTask={isTaskReadyForSection}

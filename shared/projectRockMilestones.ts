@@ -1,6 +1,7 @@
 export type ProjectRockMilestoneDraft = {
   title: string;
   dueDate: string;
+  description?: string;
 };
 
 type DatedMilestone = {
@@ -16,8 +17,9 @@ export function prepareProjectRockMilestones(drafts: readonly ProjectRockMilesto
     .map((milestone) => ({
       title: milestone.title.trim(),
       dueDate: milestone.dueDate,
+      description: milestone.description?.trim() ?? "",
     }))
-    .filter((milestone) => Boolean(milestone.title || milestone.dueDate));
+    .filter((milestone) => Boolean(milestone.title || milestone.dueDate || milestone.description));
 
   return {
     milestones,

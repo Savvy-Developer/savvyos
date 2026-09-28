@@ -474,10 +474,12 @@ export default function ProjectDetailPage({
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
   const { data: routingOptions = [] } = trpc.pm.projects.routingOptions.useQuery();
   const { data: moveProjects = [] } = trpc.pm.projects.moveDestinations.useQuery();
+  const { data: milestoneDependencyOptions = [] } = trpc.pm.sections.dependencyOptions.useQuery({ projectId });
 
   const [showAddTask, setShowAddTask] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);
   const [sectionTitle, setSectionTitle] = useState("");
+  const [sectionDescription, setSectionDescription] = useState("");
   const [sectionDueDate, setSectionDueDate] = useState("");
   const [parentTodo, setParentTodo] = useState<any>(null);
   const [taskForm, setTaskForm] = useState({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", startDate: "", dueDate: "", recurrence: "none" as Recurrence, priority: "medium" as Priority, notes: "" });
@@ -506,7 +508,7 @@ export default function ProjectDetailPage({
   });
 
   const createSection = trpc.pm.sections.create.useMutation({
-    onSuccess: () => { toast.success("Section added"); refetch(); setShowAddSection(false); setSectionTitle(""); setSectionDueDate(""); },
+    onSuccess: () => { toast.success("Section added"); refetch(); setShowAddSection(false); setSectionTitle(""); setSectionDescription(""); setSectionDueDate(""); },
     onError: (e) => toast.error(e.message),
   });
   const updateSection = trpc.pm.sections.update.useMutation({
@@ -526,6 +528,10 @@ export default function ProjectDetailPage({
       toast.error(e.message);
     },
     onSettled: () => { void utils.pm.projects.getById.invalidate({ id: projectId }); },
+  });
+  const setMilestoneDependencies = trpc.pm.sections.setDependencies.useMutation({
+    onSuccess: () => { toast.success("Milestone dependencies updated"); refetch(); },
+    onError: (e) => toast.error(e.message),
   });
   const deleteSection = trpc.pm.sections.delete.useMutation({
     onSuccess: () => { toast.success("Section deleted; its todos returned to the main list"); refetch(); },
@@ -674,7 +680,7 @@ export default function ProjectDetailPage({
       definitionOfDone: project.definitionOfDone ?? "",
       weeklyUpdatesEnabled: Boolean(project.weeklyUpdatesEnabled),
       weeklyReportingOwnerId: String(project.weeklyReportingOwnerId ?? ""),
-      rockMilestones: [{ title: "", dueDate: "" }],
+      rockMilestones: [{ title: "", dueDate: "", description: "" }],
       routedMeetingIds: (project.routedMeetings ?? []).map((meeting: any) => meeting.id),
       routesTouched: false,
     });
@@ -848,8 +854,8 @@ export default function ProjectDetailPage({
                 <Textarea value={editForm.description} onChange={e => setEditForm((f: any) => ({ ...f, description: e.target.value }))} rows={2} />
               </div>
               <div className="sm:col-span-2 xl:col-span-4 rounded-lg border border-primary/20 bg-primary/[0.025] p-2.5">
-                <div className="flex items-center gap-2"><Checkbox id="edit-project-rock" checked={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isRock: checked === true, rockMilestones: checked === true && !f.rockMilestones?.length ? [{ title: "", dueDate: "" }] : f.rockMilestones }))} /><Label htmlFor="edit-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label></div>
-                {editForm.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label>Quarter *</Label><ProjectRockQuarterSelect value={editForm.rockQuarter} onValueChange={rockQuarter => setEditForm((f: any) => ({ ...f, rockQuarter }))} /></div><div><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div>{!project.isRock ? <div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each dated milestone becomes a project section after you save, ready for to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: [...(f.rockMilestones ?? []), { title: "", dueDate: "" }] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-2">{(editForm.rockMilestones ?? []).map((milestone: { title: string; dueDate: string }, index: number) => <div key={`rock-milestone-${index}`} className="grid grid-cols-[minmax(0,1fr)_9.5rem_2rem] gap-2"><Input value={milestone.title} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string }, position: number) => position === index ? { ...value, title: event.target.value } : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Input type="date" value={milestone.dueDate} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string }, position: number) => position === index ? { ...value, dueDate: event.target.value } : value) }))} aria-label={`Due date for milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={(editForm.rockMilestones ?? []).length === 1} onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).filter((_: { title: string; dueDate: string }, position: number) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div>)}</div></div> : <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">Rock milestones are managed as project sections below, where their to-dos live.</p>}<RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={editForm.routedMeetingIds ?? []} onChange={(routedMeetingIds) => setEditForm((f: any) => ({ ...f, routedMeetingIds, routesTouched: true }))} /></div> : null}
+                <div className="flex items-center gap-2"><Checkbox id="edit-project-rock" checked={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isRock: checked === true, rockMilestones: checked === true && !f.rockMilestones?.length ? [{ title: "", dueDate: "", description: "" }] : f.rockMilestones }))} /><Label htmlFor="edit-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label></div>
+                {editForm.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label>Quarter *</Label><ProjectRockQuarterSelect value={editForm.rockQuarter} onValueChange={rockQuarter => setEditForm((f: any) => ({ ...f, rockQuarter }))} /></div><div><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div>{!project.isRock ? <div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each dated milestone becomes a project section after you save, ready for to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: [...(f.rockMilestones ?? []), { title: "", dueDate: "", description: "" }] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-3">{(editForm.rockMilestones ?? []).map((milestone: { title: string; dueDate: string; description: string }, index: number) => <div key={`rock-milestone-${index}`} className="rounded-md border border-border/70 p-2"><div className="grid grid-cols-[minmax(0,1fr)_9.5rem_2rem] gap-2"><Input value={milestone.title} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string; description: string }, position: number) => position === index ? { ...value, title: event.target.value } : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Input type="date" value={milestone.dueDate} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string; description: string }, position: number) => position === index ? { ...value, dueDate: event.target.value } : value) }))} aria-label={`Due date for milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={(editForm.rockMilestones ?? []).length === 1} onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).filter((_: { title: string; dueDate: string; description: string }, position: number) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div><Textarea value={milestone.description} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string; description: string }, position: number) => position === index ? { ...value, description: event.target.value } : value) }))} placeholder="Milestone description, dependencies, and external dependencies" rows={3} maxLength={8_000} className="mt-2" aria-label={`Description for milestone ${index + 1}`} /></div>)}</div></div> : <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">Rock milestones are managed as project sections below, where their to-dos live.</p>}<RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={editForm.routedMeetingIds ?? []} onChange={(routedMeetingIds) => setEditForm((f: any) => ({ ...f, routedMeetingIds, routesTouched: true }))} /></div> : null}
               </div>
               <div className="sm:col-span-2 xl:col-span-4 rounded-lg border bg-muted/20 p-2.5">
                 <div className="flex items-center gap-2">
@@ -1114,8 +1120,8 @@ export default function ProjectDetailPage({
           </div>
 
           {showAddSection && (
-            <form onSubmit={event => { event.preventDefault(); if (!sectionTitle.trim()) return; if (project.isRock && !sectionDueDate) { toast.error("Every Rock milestone section needs a due date"); return; } createSection.mutate({ projectId, title: sectionTitle.trim(), dueDate: sectionDueDate ? new Date(sectionDueDate) : null }); }} className="flex flex-col gap-2 rounded-lg border border-primary/30 bg-card p-3 sm:flex-row sm:items-end">
-              <div className="min-w-0 flex-1">
+            <form onSubmit={event => { event.preventDefault(); if (!sectionTitle.trim()) return; if (project.isRock && !sectionDueDate) { toast.error("Every Rock milestone section needs a due date"); return; } createSection.mutate({ projectId, title: sectionTitle.trim(), description: sectionDescription.trim() || null, dueDate: sectionDueDate ? new Date(sectionDueDate) : null }); }} className="grid gap-2 rounded-lg border border-primary/30 bg-card p-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end">
+              <div className="min-w-0">
                 <Label htmlFor="project-todo-section-title" className="mb-1.5 block text-xs">Section Title *</Label>
                 <Input id="project-todo-section-title" value={sectionTitle} onChange={event => setSectionTitle(event.target.value)} placeholder="Such as Launch tasks" maxLength={128} required autoFocus />
               </div>
@@ -1123,9 +1129,13 @@ export default function ProjectDetailPage({
                 <Label htmlFor="project-todo-section-due-date" className="mb-1.5 block text-xs">Due Date {project.isRock ? "*" : "(optional)"}</Label>
                 <Input id="project-todo-section-due-date" type="date" value={sectionDueDate} onChange={event => setSectionDueDate(event.target.value)} required={project.isRock} />
               </div>
+              <div className="sm:col-span-2">
+                <Label htmlFor="project-todo-section-description" className="mb-1.5 block text-xs">Description (optional)</Label>
+                <Textarea id="project-todo-section-description" value={sectionDescription} onChange={event => setSectionDescription(event.target.value)} placeholder={project.isRock ? "Include Depends on and External dependency details" : "Add context for this section"} rows={3} maxLength={8_000} />
+              </div>
               <div className="flex shrink-0 gap-2">
                 <Button type="submit" size="sm" disabled={!sectionTitle.trim() || (project.isRock && !sectionDueDate) || createSection.isPending}>{createSection.isPending ? "Adding…" : "Add Section"}</Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddSection(false); setSectionTitle(""); setSectionDueDate(""); }}>Cancel</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddSection(false); setSectionTitle(""); setSectionDescription(""); setSectionDueDate(""); }}>Cancel</Button>
               </div>
             </form>
           )}
@@ -1223,6 +1233,9 @@ export default function ProjectDetailPage({
                 onDeleteSection={section => {
                   if (window.confirm(`Delete “${section.title}”? Todos in it will return to the main list.`)) deleteSection.mutate({ id: section.id });
                 }}
+                milestoneDependencyOptions={milestoneDependencyOptions as any[]}
+                onSetMilestoneDependencies={(milestoneId, predecessorMilestoneIds) => setMilestoneDependencies.mutate({ milestoneId, predecessorMilestoneIds })}
+                milestoneDependenciesPending={setMilestoneDependencies.isPending}
                 onLayoutChange={(layout: ProjectTodoLayoutItem[]) => saveTodoLayout.mutateAsync({ projectId, layout })}
                 saving={saveTodoLayout.isPending}
                 isRock={Boolean(project.isRock)}

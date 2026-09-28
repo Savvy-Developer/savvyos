@@ -7,6 +7,7 @@ import {
   pmProjectRockMeetings,
   pmProjectCollaborators,
   pmTodoSections,
+  pmMilestoneDependencies,
   pmTasks,
   pmTaskDependencies,
   pmTaskComments,
@@ -39,6 +40,10 @@ import {
   normalizePredecessorTaskIds,
   wouldCreateProjectTaskDependencyCycle,
 } from "../projectTaskDependencies";
+import {
+  normalizePredecessorMilestoneIds,
+  wouldCreateMilestoneDependencyCycle,
+} from "../projectMilestoneDependencies";
 import { visible_meeting_ids } from "../pulse/access";
 import { hasPulseCapability } from "../pulse/authorization";
 import { hasDatedProjectRockMilestone } from "@shared/projectRockMilestones";
@@ -55,6 +60,7 @@ const ROCK_MILESTONE_LIMIT = 20;
 const rockMilestoneSchema = z.object({
   title: z.string().trim().min(1, "A milestone needs a title.").max(128, "Milestone titles can be at most 128 characters."),
   dueDate: z.coerce.date(),
+  description: z.string().trim().max(8_000).optional().nullable(),
 });
 
 type RockMilestoneInput = z.infer<typeof rockMilestoneSchema>;
@@ -368,6 +374,51 @@ export const pmRouter = router({
           .where(eq(pmTodoSections.projectId, input.id))
           .orderBy(asc(pmTodoSections.sortOrder), asc(pmTodoSections.createdAt), asc(pmTodoSections.id));
 
+        const sectionIds = todoSections.map(section => section.id);
+        const milestoneDependencyLinks = sectionIds.length
+          ? await db
+            .select({
+              milestoneId: pmMilestoneDependencies.milestoneId,
+              predecessorMilestoneId: pmMilestoneDependencies.predecessorMilestoneId,
+            })
+            .from(pmMilestoneDependencies)
+            .where(inArray(pmMilestoneDependencies.milestoneId, sectionIds))
+          : [];
+        const predecessorMilestoneIds = Array.from(new Set(
+          milestoneDependencyLinks.map(link => link.predecessorMilestoneId),
+        ));
+        const predecessorMilestones = predecessorMilestoneIds.length
+          ? await db
+            .select({
+              id: pmTodoSections.id,
+              title: pmTodoSections.title,
+              description: pmTodoSections.description,
+              dueDate: pmTodoSections.dueDate,
+              projectId: pmTodoSections.projectId,
+              projectTitle: pmProjects.title,
+            })
+            .from(pmTodoSections)
+            .innerJoin(pmProjects, eq(pmProjects.id, pmTodoSections.projectId))
+            .where(inArray(pmTodoSections.id, predecessorMilestoneIds))
+          : [];
+        const predecessorById = new Map(predecessorMilestones.map(milestone => [milestone.id, milestone]));
+        const dependenciesByMilestoneId = new Map<number, typeof predecessorMilestones>();
+        for (const dependency of milestoneDependencyLinks) {
+          const predecessor = predecessorById.get(dependency.predecessorMilestoneId);
+          if (!predecessor) continue;
+          dependenciesByMilestoneId.set(dependency.milestoneId, [
+            ...(dependenciesByMilestoneId.get(dependency.milestoneId) ?? []),
+            predecessor,
+          ]);
+        }
+        const todoSectionsWithDependencies = todoSections.map(section => ({
+          ...section,
+          predecessorMilestoneIds: (dependenciesByMilestoneId.get(section.id) ?? []).map(predecessor => predecessor.id),
+          predecessors: (dependenciesByMilestoneId.get(section.id) ?? []).sort((left, right) =>
+            left.projectTitle.localeCompare(right.projectTitle) || left.title.localeCompare(right.title),
+          ),
+        }));
+
         const tasks = await db
           .select({
             id: pmTasks.id,
@@ -508,7 +559,7 @@ export const pmRouter = router({
           snapshot: buildProjectWeeklyUpdateSnapshot(tasks, todoSections, project.dueDate),
         };
 
-        return { ...project, collaborators, todoSections, tasks: tasksWithDependencies, weeklyUpdates, weeklyUpdateContext, activity, routedMeetings };
+        return { ...project, collaborators, todoSections: todoSectionsWithDependencies, tasks: tasksWithDependencies, weeklyUpdates, weeklyUpdateContext, activity, routedMeetings };
       }),
 
     timeline: protectedProcedure
@@ -716,6 +767,7 @@ export const pmRouter = router({
             await transaction.insert(pmTodoSections).values(input.rockMilestones.map((milestone, sortOrder) => ({
               projectId: newProjectId,
               title: milestone.title.trim(),
+              description: milestone.description?.trim() || null,
               dueDate: milestone.dueDate,
               sortOrder,
             })));
@@ -859,9 +911,23 @@ export const pmRouter = router({
               await transaction.insert(pmTodoSections).values(rockMilestones.map((milestone, index) => ({
                 projectId: id,
                 title: milestone.title.trim(),
+                description: milestone.description?.trim() || null,
                 dueDate: milestone.dueDate,
                 sortOrder: Number(sectionOrder?.maxSortOrder ?? -1) + index + 1,
               })));
+            }
+            if (input.isRock === false) {
+              const projectMilestones = await transaction
+                .select({ id: pmTodoSections.id })
+                .from(pmTodoSections)
+                .where(eq(pmTodoSections.projectId, id));
+              const projectMilestoneIds = projectMilestones.map(milestone => milestone.id);
+              if (projectMilestoneIds.length) {
+                await transaction.delete(pmMilestoneDependencies).where(or(
+                  inArray(pmMilestoneDependencies.milestoneId, projectMilestoneIds),
+                  inArray(pmMilestoneDependencies.predecessorMilestoneId, projectMilestoneIds),
+                ));
+              }
             }
             if (syncRockRoutes) {
               await transaction.delete(pmProjectRockMeetings).where(eq(pmProjectRockMeetings.projectId, id));
@@ -1509,10 +1575,41 @@ export const pmRouter = router({
   // ── Todo Sections ──────────────────────────────────────────────────────────
 
   sections: router({
+    dependencyOptions: protectedProcedure
+      .input(z.object({ projectId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) return [];
+        await assertProjectAccess(db, input.projectId, ctx.user);
+        const accessibleProjectIds = canViewAllProjects(ctx.user)
+          ? null
+          : await getAccessibleProjectIds(db, ctx.user.id);
+        if (accessibleProjectIds !== null && accessibleProjectIds.length === 0) return [];
+        return db
+          .select({
+            id: pmTodoSections.id,
+            title: pmTodoSections.title,
+            description: pmTodoSections.description,
+            dueDate: pmTodoSections.dueDate,
+            projectId: pmTodoSections.projectId,
+            projectTitle: pmProjects.title,
+          })
+          .from(pmTodoSections)
+          .innerJoin(pmProjects, eq(pmProjects.id, pmTodoSections.projectId))
+          .where(and(
+            eq(pmProjects.isRock, true),
+            isNull(pmProjects.archivedAt),
+            ...(accessibleProjectIds === null ? [] : [inArray(pmProjects.id, accessibleProjectIds)]),
+          ))
+          .orderBy(asc(pmProjects.title), asc(pmTodoSections.sortOrder), asc(pmTodoSections.id));
+      }),
+
     create: protectedProcedure
       .input(z.object({
         projectId: z.number(),
         title: z.string().trim().min(1).max(128),
+        description: z.string().trim().max(8_000).nullable().optional(),
         dueDate: z.coerce.date().nullable().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1537,6 +1634,7 @@ export const pmRouter = router({
         const [result] = await db.insert(pmTodoSections).values({
           projectId: input.projectId,
           title: input.title,
+          description: input.description?.trim() || null,
           dueDate: input.dueDate ?? null,
           sortOrder: Math.max(Number(sectionOrder?.maxSortOrder ?? -1), Number(taskOrder?.maxSortOrder ?? -1)) + 1,
         });
@@ -1548,13 +1646,14 @@ export const pmRouter = router({
       .input(z.object({
         id: z.number(),
         title: z.string().trim().min(1).max(128).optional(),
+        description: z.string().trim().max(8_000).nullable().optional(),
         dueDate: z.coerce.date().nullable().optional(),
-      }).refine((input) => input.title !== undefined || input.dueDate !== undefined, { message: "Provide a section title or due date to update." }))
+      }).refine((input) => input.title !== undefined || input.description !== undefined || input.dueDate !== undefined, { message: "Provide a section title, description, or due date to update." }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const [section] = await db.select({ projectId: pmTodoSections.projectId, title: pmTodoSections.title, dueDate: pmTodoSections.dueDate })
+        const [section] = await db.select({ projectId: pmTodoSections.projectId, title: pmTodoSections.title, description: pmTodoSections.description, dueDate: pmTodoSections.dueDate })
           .from(pmTodoSections).where(eq(pmTodoSections.id, input.id)).limit(1);
         if (!section) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, section.projectId, ctx.user);
@@ -1563,16 +1662,96 @@ export const pmRouter = router({
         if (project?.isRock && !finalDueDate) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock milestone section needs a due date." });
         }
-        const updates: { title?: string; dueDate?: Date | null } = {};
+        const updates: { title?: string; description?: string | null; dueDate?: Date | null } = {};
         if (input.title !== undefined) updates.title = input.title;
+        if (input.description !== undefined) updates.description = input.description?.trim() || null;
         if (input.dueDate !== undefined) updates.dueDate = input.dueDate;
         await db.update(pmTodoSections).set(updates).where(eq(pmTodoSections.id, input.id));
         const details = [
           input.title !== undefined && input.title !== section.title ? `Renamed section to "${input.title}"` : null,
+          input.description !== undefined && input.description !== section.description ? "Updated section description" : null,
           input.dueDate !== undefined ? input.dueDate ? `Set section due date to ${input.dueDate.toISOString().slice(0, 10)}` : "Cleared section due date" : null,
         ].filter(Boolean).join("; ");
         if (details) await logActivity(section.projectId, ctx.user.id, "section_updated", details);
         return { success: true };
+      }),
+
+    setDependencies: protectedProcedure
+      .input(z.object({
+        milestoneId: z.number().int().positive(),
+        predecessorMilestoneIds: z.array(z.number().int().positive()).max(100),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [milestone] = await db
+          .select({ id: pmTodoSections.id, projectId: pmTodoSections.projectId, title: pmTodoSections.title, isRock: pmProjects.isRock })
+          .from(pmTodoSections)
+          .innerJoin(pmProjects, eq(pmProjects.id, pmTodoSections.projectId))
+          .where(eq(pmTodoSections.id, input.milestoneId))
+          .limit(1);
+        if (!milestone) throw new TRPCError({ code: "NOT_FOUND", message: "This milestone no longer exists." });
+        await assertProjectAccess(db, milestone.projectId, ctx.user);
+        if (!milestone.isRock) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Only Rock milestones can have milestone dependencies." });
+        }
+
+        const predecessorMilestoneIds = normalizePredecessorMilestoneIds(input.predecessorMilestoneIds);
+        if (predecessorMilestoneIds.includes(milestone.id)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A milestone cannot depend on itself." });
+        }
+        const predecessors = predecessorMilestoneIds.length
+          ? await db
+            .select({ id: pmTodoSections.id, projectId: pmTodoSections.projectId, title: pmTodoSections.title, projectTitle: pmProjects.title, isRock: pmProjects.isRock, archivedAt: pmProjects.archivedAt })
+            .from(pmTodoSections)
+            .innerJoin(pmProjects, eq(pmProjects.id, pmTodoSections.projectId))
+            .where(inArray(pmTodoSections.id, predecessorMilestoneIds))
+          : [];
+        if (
+          predecessors.length !== predecessorMilestoneIds.length ||
+          predecessors.some(predecessor => !predecessor.isRock || predecessor.archivedAt)
+        ) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Dependencies must be active Rock milestones." });
+        }
+        if (!canViewAllProjects(ctx.user)) {
+          const accessibleProjectIds = new Set(await getAccessibleProjectIds(db, ctx.user.id));
+          if (predecessors.some(predecessor => !accessibleProjectIds.has(predecessor.projectId))) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "You can only select milestones from Projects you can access." });
+          }
+        }
+
+        const existingLinks = await db
+          .select({
+            milestoneId: pmMilestoneDependencies.milestoneId,
+            predecessorMilestoneId: pmMilestoneDependencies.predecessorMilestoneId,
+          })
+          .from(pmMilestoneDependencies);
+        if (wouldCreateMilestoneDependencyCycle(milestone.id, predecessorMilestoneIds, existingLinks)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This dependency would create a circular chain of milestones." });
+        }
+
+        await db.transaction(async transaction => {
+          await transaction.delete(pmMilestoneDependencies).where(eq(pmMilestoneDependencies.milestoneId, milestone.id));
+          if (predecessorMilestoneIds.length) {
+            await transaction.insert(pmMilestoneDependencies).values(
+              predecessorMilestoneIds.map(predecessorMilestoneId => ({
+                milestoneId: milestone.id,
+                predecessorMilestoneId,
+              })),
+            );
+          }
+        });
+        const labels = predecessors.map(predecessor => `“${predecessor.projectTitle} / ${predecessor.title}”`);
+        await logActivity(
+          milestone.projectId,
+          ctx.user.id,
+          "milestone_dependencies_updated",
+          labels.length
+            ? `Set “${milestone.title}” to depend on ${labels.join(", ")}`
+            : `Removed dependency blockers from “${milestone.title}”`,
+        );
+        return { success: true, predecessorMilestoneIds };
       }),
 
     delete: protectedProcedure

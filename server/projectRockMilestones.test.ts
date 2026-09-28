@@ -15,7 +15,7 @@ describe("project Rock milestone validation", () => {
   it("preserves partially completed rows so they are rejected", () => {
     const result = prepareProjectRockMilestones([{ title: "Launch plan", dueDate: "" }]);
 
-    expect(result.milestones).toEqual([{ title: "Launch plan", dueDate: "" }]);
+    expect(result.milestones).toEqual([{ title: "Launch plan", dueDate: "", description: "" }]);
     expect(result.hasIncompleteMilestone).toBe(true);
   });
 
@@ -27,9 +27,10 @@ describe("project Rock milestone validation", () => {
   });
 
   it("accepts a completed new milestone when there are no existing sections", () => {
-    const result = prepareProjectRockMilestones([{ title: "Launch plan", dueDate: "2026-12-31" }]);
+    const result = prepareProjectRockMilestones([{ title: "Launch plan", dueDate: "2026-12-31", description: "Depends on R1-M1" }]);
 
     expect(hasDatedProjectRockMilestone([], result.milestones)).toBe(true);
     expect(result.hasIncompleteMilestone).toBe(false);
+    expect(result.milestones[0]?.description).toBe("Depends on R1-M1");
   });
 });

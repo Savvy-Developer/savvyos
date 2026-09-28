@@ -20,6 +20,22 @@ async function schemaColumnExists(connection: mysql.Connection, columnName: stri
   return Number(rows[0]?.count ?? 0) > 0;
 }
 
+async function schemaColumnExistsOnTable(
+  connection: mysql.Connection,
+  tableName: string,
+  columnName: string,
+) {
+  const [rows] = await connection.query<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) AS count
+       FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?`,
+    [tableName, columnName],
+  );
+  return Number(rows[0]?.count ?? 0) > 0;
+}
+
 async function schemaIndexExists(connection: mysql.Connection, indexName: string) {
   const [rows] = await connection.query<mysql.RowDataPacket[]>(
     `SELECT COUNT(*) AS count
@@ -93,6 +109,28 @@ async function applyProjectTodoWorkflowSchema() {
     if (!(await schemaIndexExists(connection, "pm_tasks_project_status_idx"))) {
       await connection.query(
         "ALTER TABLE `pm_tasks` ADD KEY `pm_tasks_project_status_idx` (`projectId`, `status`, `dueDate`)",
+      );
+    }
+
+    if (!(await schemaColumnExistsOnTable(connection, "pm_todo_sections", "description"))) {
+      await connection.query(
+        "ALTER TABLE `pm_todo_sections` ADD COLUMN `description` text NULL AFTER `title`",
+      );
+    }
+
+    if (!(await schemaTableExists(connection, "pm_milestone_dependencies"))) {
+      await connection.query(
+        `CREATE TABLE \`pm_milestone_dependencies\` (
+          \`id\` int NOT NULL AUTO_INCREMENT,
+          \`milestoneId\` int NOT NULL,
+          \`predecessorMilestoneId\` int NOT NULL,
+          \`createdAt\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`pm_milestone_dependencies_unique\` (\`milestoneId\`,\`predecessorMilestoneId\`),
+          KEY \`pm_milestone_dependencies_predecessor_idx\` (\`predecessorMilestoneId\`,\`milestoneId\`),
+          CONSTRAINT \`pm_milestone_dependencies_milestone_fk\` FOREIGN KEY (\`milestoneId\`) REFERENCES \`pm_todo_sections\` (\`id\`) ON DELETE CASCADE,
+          CONSTRAINT \`pm_milestone_dependencies_predecessor_fk\` FOREIGN KEY (\`predecessorMilestoneId\`) REFERENCES \`pm_todo_sections\` (\`id\`) ON DELETE CASCADE
+        )`,
       );
     }
   } finally {

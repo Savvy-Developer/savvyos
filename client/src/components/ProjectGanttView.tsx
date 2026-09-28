@@ -78,7 +78,16 @@ type GanttTask = {
 type GanttSection = {
   id: number;
   title: string;
+  description?: string | null;
   dueDate?: Date | string | null;
+  predecessorMilestoneIds?: number[];
+  predecessors?: Array<{
+    id: number;
+    title: string;
+    projectId: number;
+    projectTitle: string;
+    dueDate?: Date | string | null;
+  }>;
 };
 
 type TaskRow = {
@@ -610,6 +619,7 @@ export default function ProjectGanttView({
             Plan active Project To-Dos from start to due date. Drag a bar to
             move its schedule, or select it to update dates, status, and
             assignee. Dependency arrows show work that must finish first.
+            Milestone diamonds label milestone-to-milestone dependencies.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -719,7 +729,11 @@ export default function ProjectGanttView({
         </span>
         <span className="inline-flex items-center gap-1.5">
           <GitBranch className="h-3.5 w-3.5 text-primary" />
-          Dependency
+          To-Do dependency
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rotate-45 rounded-[1px] border border-primary bg-primary/10" />
+          Milestone dependency
         </span>
         <span className="ml-auto">
           {format(start, "MMM d, yyyy")} – {format(end, "MMM d, yyyy")}
@@ -814,9 +828,12 @@ export default function ProjectGanttView({
                       ) : (
                         <ListTodo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       )}
-                      <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {row.title}
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {row.title}
+                        </span>
+                        {row.section?.predecessors?.length ? <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] font-medium normal-case tracking-normal text-primary" title={`Depends on ${row.section.predecessors.map(predecessor => `${predecessor.projectTitle} / ${predecessor.title}`).join(", ")}`}><span className="h-2 w-2 shrink-0 rotate-45 rounded-[1px] border border-primary bg-primary/10" /><span className="truncate">Depends on {row.section.predecessors.map(predecessor => predecessor.title).join(", ")}</span></span> : null}
+                      </div>
                       {row.openCount ? (
                         <span className="shrink-0 rounded bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                           {row.openCount} open
@@ -840,7 +857,7 @@ export default function ProjectGanttView({
                       row.dueDate >= start &&
                       row.dueDate <= end ? (
                         <span
-                          title={`${row.title} milestone · due ${format(row.dueDate, "MMM d, yyyy")}`}
+                          title={`${row.title} milestone · due ${format(row.dueDate, "MMM d, yyyy")}${row.section?.predecessors?.length ? ` · depends on ${row.section.predecessors.map(predecessor => `${predecessor.projectTitle} / ${predecessor.title}`).join(", ")}` : ""}`}
                           className="absolute top-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] border-2 border-card bg-amber-500 shadow-sm"
                           style={{ left: markerPosition(row.dueDate) }}
                         />

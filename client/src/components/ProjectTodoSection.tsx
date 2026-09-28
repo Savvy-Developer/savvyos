@@ -6,7 +6,9 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import ProjectMilestoneDependencyDialog, { type ProjectMilestoneDependencyOption } from "@/components/ProjectMilestoneDependencyDialog";
 import { useDroppable } from "@dnd-kit/core";
 import {
   CalendarDays,
@@ -31,23 +33,37 @@ export function ProjectTodoSection({
   dragHandle,
   acceptingTask,
   taskDragActive,
+  milestoneDependencyOptions,
+  onSetDependencies,
+  dependenciesPending,
   children,
 }: {
-  section: { id: number; title: string; dueDate?: Date | string | null };
+  section: {
+    id: number;
+    title: string;
+    description?: string | null;
+    dueDate?: Date | string | null;
+    predecessorMilestoneIds?: number[];
+    predecessors?: ProjectMilestoneDependencyOption[];
+  };
   todoCount: number;
   displayCount: number;
   onAddTodo: () => void;
-  onUpdate: (updates: { title: string; dueDate: Date | null }) => void;
+  onUpdate: (updates: { title: string; description: string | null; dueDate: Date | null }) => void;
   onDelete: () => void;
   isRock: boolean;
   dragHandle: any;
   acceptingTask: boolean;
   taskDragActive: boolean;
+  milestoneDependencyOptions?: ProjectMilestoneDependencyOption[];
+  onSetDependencies?: (predecessorMilestoneIds: number[]) => void;
+  dependenciesPending?: boolean;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(section.title);
+  const [description, setDescription] = useState(section.description ?? "");
   const dueDateValue = section.dueDate ? new Date(section.dueDate).toISOString().slice(0, 10) : "";
   const [dueDate, setDueDate] = useState(dueDateValue);
   const headerDrop = useDroppable({
@@ -61,6 +77,10 @@ export function ProjectTodoSection({
   }, [section.title]);
 
   useEffect(() => {
+    setDescription(section.description ?? "");
+  }, [section.description]);
+
+  useEffect(() => {
     setDueDate(section.dueDate ? new Date(section.dueDate).toISOString().slice(0, 10) : "");
   }, [section.dueDate]);
 
@@ -71,12 +91,13 @@ export function ProjectTodoSection({
   function saveSection() {
     const normalizedTitle = title.trim();
     if (!normalizedTitle || (isRock && !dueDate)) return;
-    onUpdate({ title: normalizedTitle, dueDate: dueDate ? new Date(`${dueDate}T12:00:00`) : null });
+    onUpdate({ title: normalizedTitle, description: description.trim() || null, dueDate: dueDate ? new Date(`${dueDate}T12:00:00`) : null });
     setEditing(false);
   }
 
   function cancelEditing() {
     setTitle(section.title);
+    setDescription(section.description ?? "");
     setDueDate(section.dueDate ? new Date(section.dueDate).toISOString().slice(0, 10) : "");
     setEditing(false);
   }
@@ -101,19 +122,21 @@ export function ProjectTodoSection({
           <GripVertical className="h-4 w-4" />
         </button>
         {editing ? (
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <ListChecks className="h-4 w-4 shrink-0 text-primary" />
-            <Input
-              value={title}
-              onChange={event => setTitle(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === "Enter") saveSection();
-                if (event.key === "Escape") cancelEditing();
-              }}
-              className="h-7 max-w-sm bg-background text-sm font-semibold"
-              autoFocus
-            />
-            <Input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className="h-7 w-32 shrink-0 bg-background text-xs" aria-label="Section due date" required={isRock} />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <ListChecks className="h-4 w-4 shrink-0 text-primary" />
+              <Input
+                value={title}
+                onChange={event => setTitle(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === "Escape") cancelEditing();
+                }}
+                className="h-7 max-w-sm bg-background text-sm font-semibold"
+                autoFocus
+              />
+              <Input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className="h-7 w-32 shrink-0 bg-background text-xs" aria-label="Section due date" required={isRock} />
+            </div>
+            <Textarea value={description} onChange={event => setDescription(event.target.value)} rows={3} maxLength={8_000} className="bg-background text-sm" placeholder={isRock ? "Milestone description, dependencies, and external dependencies" : "Optional section description"} aria-label="Section description" />
           </div>
         ) : (
           <CollapsibleTrigger asChild>
@@ -143,7 +166,7 @@ export function ProjectTodoSection({
             size="sm"
             variant="ghost"
             className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => onUpdate({ title: section.title, dueDate: null })}
+            onClick={() => onUpdate({ title: section.title, description: section.description ?? null, dueDate: null })}
           >
             Clear date
           </Button> : null}
@@ -175,6 +198,7 @@ export function ProjectTodoSection({
             </>
           ) : (
             <>
+              {isRock && onSetDependencies ? <ProjectMilestoneDependencyDialog milestone={section} options={milestoneDependencyOptions ?? []} isPending={dependenciesPending} onSave={onSetDependencies} /> : null}
               <Button
                 type="button"
                 size="icon"
@@ -212,6 +236,10 @@ export function ProjectTodoSection({
       </div>
 
       <CollapsibleContent>
+        {section.description || section.predecessors?.length ? <div className="space-y-2 border-b border-border/70 px-3 py-2.5">
+          {section.description ? <p className="whitespace-pre-wrap text-sm text-muted-foreground">{section.description}</p> : null}
+          {section.predecessors?.length ? <div className="flex flex-wrap items-center gap-1.5 text-xs text-primary"><span className="h-2.5 w-2.5 rotate-45 rounded-[1px] border border-primary bg-primary/10" /><span className="font-semibold">Depends on</span>{section.predecessors.map(predecessor => <span key={predecessor.id} className="rounded-full border border-primary/20 bg-primary/[0.025] px-2 py-0.5">{predecessor.projectTitle} / {predecessor.title}</span>)}</div> : null}
+        </div> : null}
         {displayCount > 0 || acceptingTask ? (
           <div className="space-y-2 p-2.5">{children}</div>
         ) : (
