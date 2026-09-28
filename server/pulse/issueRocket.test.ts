@@ -1,18 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { nextRocketSortOrder } from "./issueRocket";
+import { isRocketedIssue, ROCKET_SORT_ORDER } from "./issueRocket";
 
-describe("Pulse Issue Rocket ordering", () => {
-  it("places the first rocketed Issue ahead of existing unranked Issues", () => {
-    expect(nextRocketSortOrder(null)).toBe(-1);
-    expect(nextRocketSortOrder(undefined)).toBe(-1);
+describe("Pulse Issue Rocket state", () => {
+  it("uses one stable sort position for the current Rocketed Issue", () => {
+    expect(ROCKET_SORT_ORDER).toBe(-1);
   });
 
-  it("keeps the newest Rocket action at the very top", () => {
-    expect(nextRocketSortOrder(-4)).toBe(-5);
-    expect(nextRocketSortOrder(12)).toBe(11);
-  });
-
-  it("stays within the signed integer range", () => {
-    expect(nextRocketSortOrder(-2_147_483_646)).toBe(-2_147_483_646);
+  it("recognizes only promoted Issue positions as Rocketed", () => {
+    expect(isRocketedIssue(ROCKET_SORT_ORDER)).toBe(true);
+    expect(isRocketedIssue(-5)).toBe(true);
+    expect(isRocketedIssue(0)).toBe(false);
+    expect(isRocketedIssue(null)).toBe(false);
+    expect(isRocketedIssue(undefined)).toBe(false);
   });
 });

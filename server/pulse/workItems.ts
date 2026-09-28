@@ -28,7 +28,7 @@ import { sendTransactionalEmail } from "../_core/resendEmail";
 import { require_visible_meeting, visible_meeting_ids } from "./access";
 import { getPulseNotificationPreference } from "./notifications";
 import { isLegacyPulseImportSourceKey, withLegacyPulseImportProvenance } from "./legacyWorkImport";
-import { nextRocketSortOrder } from "./issueRocket";
+import { isRocketedIssue, ROCKET_SORT_ORDER } from "./issueRocket";
 
 const workItemTypeSchema = z.enum(["todo", "issue", "rock"]);
 const workflowStatusSchema = z.enum(["not_started", "in_progress", "blocked", "completed"]);
@@ -604,10 +604,17 @@ export const pulseWorkItemsRouter = router({
         ))
         .orderBy(asc(pulseWorkItems.sortOrder), asc(pulseWorkItems.createdAt))
         .limit(1);
-      if (firstIssue?.id === item.id) return { success: true, unchanged: true, sortOrder: item.sortOrder };
+      if (firstIssue?.id === item.id && isRocketedIssue(item.sortOrder)) return { success: true, unchanged: true, sortOrder: item.sortOrder };
 
-      const sortOrder = nextRocketSortOrder(firstIssue?.sortOrder ?? null);
+      const sortOrder = ROCKET_SORT_ORDER;
       await db.transaction(async (tx: any) => {
+        await tx.update(pulseWorkItems).set({ sortOrder: 0 }).where(and(
+          eq(pulseWorkItems.meetingId, meeting.id),
+          eq(pulseWorkItems.type, "issue"),
+          ne(pulseWorkItems.status, "completed"),
+          lt(pulseWorkItems.sortOrder, 0),
+          isNull(pulseWorkItems.deletedAt),
+        ));
         await tx.update(pulseWorkItems).set({ sortOrder }).where(eq(pulseWorkItems.id, item.id));
         await writeActivity(tx, ctx.user.id, "work_item", item.id, "issue_rocketed", "sortOrder", item.sortOrder, { sortOrder, meetingId: meeting.id });
       });

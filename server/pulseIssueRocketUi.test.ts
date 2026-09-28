@@ -11,6 +11,7 @@ describe("Pulse Issue Rocket", () => {
   it("orders Rocketed Issues before the ordinary Issue list", () => {
     expect(l10).toContain("asc(pulseWorkItems.sortOrder)");
     expect(l10).toContain("function getIssues");
+    expect(l10).toContain("isRocketed: issue.id === rocketId");
   });
 
   it("allows an active meeting participant to Rocket only an open meeting Issue", () => {
@@ -18,7 +19,9 @@ describe("Pulse Issue Rocket", () => {
     expect(workItems).toContain("getAccessibleWorkItem(db, ctx.user.id, input.workItemId)");
     expect(workItems).toContain("Only open meeting Issues can be rocketed.");
     expect(workItems).toContain('"issue_rocketed"');
-    expect(workItems).toContain("nextRocketSortOrder");
+    expect(workItems).toContain("ROCKET_SORT_ORDER");
+    expect(workItems).toContain("isRocketedIssue");
+    expect(workItems).toContain("lt(pulseWorkItems.sortOrder, 0)");
   });
 
   it("exposes a compact Rocket control directly on meeting Issue rows", () => {
@@ -26,5 +29,7 @@ describe("Pulse Issue Rocket", () => {
     expect(itemEditor).toContain("trpc.pulse.workItems.rocketIssue.useMutation");
     expect(itemEditor).toContain("Rocket Issue to top");
     expect(itemEditor).toContain("isIssue && item.meetingId");
+    expect(itemEditor).toContain("Rocketed");
+    expect(itemEditor).toContain("isRocketedIssue");
   });
 });
