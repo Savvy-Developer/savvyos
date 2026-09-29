@@ -594,17 +594,13 @@ export const pulseWorkItemsRouter = router({
       if (item.type !== "issue" || !meeting || item.status === "completed") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only open meeting Issues can be rocketed." });
       }
-      const [firstIssue] = await db.select({ id: pulseWorkItems.id, sortOrder: pulseWorkItems.sortOrder })
-        .from(pulseWorkItems)
-        .where(and(
-          eq(pulseWorkItems.meetingId, meeting.id),
-          eq(pulseWorkItems.type, "issue"),
-          ne(pulseWorkItems.status, "completed"),
-          isNull(pulseWorkItems.deletedAt),
-        ))
-        .orderBy(asc(pulseWorkItems.sortOrder), asc(pulseWorkItems.createdAt))
-        .limit(1);
-      if (firstIssue?.id === item.id && isRocketedIssue(item.sortOrder)) return { success: true, unchanged: true, sortOrder: item.sortOrder };
+      if (isRocketedIssue(item.sortOrder)) {
+        await db.transaction(async (tx: any) => {
+          await tx.update(pulseWorkItems).set({ sortOrder: 0 }).where(eq(pulseWorkItems.id, item.id));
+          await writeActivity(tx, ctx.user.id, "work_item", item.id, "issue_unrocketed", "sortOrder", item.sortOrder, { sortOrder: 0, meetingId: meeting.id });
+        });
+        return { success: true, rocketed: false, sortOrder: 0 };
+      }
 
       const sortOrder = ROCKET_SORT_ORDER;
       await db.transaction(async (tx: any) => {
@@ -618,7 +614,7 @@ export const pulseWorkItemsRouter = router({
         await tx.update(pulseWorkItems).set({ sortOrder }).where(eq(pulseWorkItems.id, item.id));
         await writeActivity(tx, ctx.user.id, "work_item", item.id, "issue_rocketed", "sortOrder", item.sortOrder, { sortOrder, meetingId: meeting.id });
       });
-      return { success: true, unchanged: false, sortOrder };
+      return { success: true, rocketed: true, sortOrder };
     }),
 
   setWorkflowStatus: pulseMemberProcedure
