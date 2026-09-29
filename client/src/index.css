@@ -319,7 +319,7 @@
 
   .pulse-runner-content {
     width: 100%;
-    max-width: 80rem;
+    max-width: none;
     margin-inline: auto;
     padding: 1rem 0.875rem 1.25rem;
   }

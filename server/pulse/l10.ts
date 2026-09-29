@@ -39,6 +39,7 @@ import { periodToDatePerformance } from "../rrScorecard";
 import { getMeetingCascadePayloads } from "./cascadePayload";
 import { publishDraftCascade, validateCascadeDelivery } from "./cascades";
 import { encodeCascadeContent } from "../../shared/pulseCascadeContent";
+import { getL10RunnerSteps, L10_RUNNER_STEPS, normaliseL10RunnerDurations } from "./l10RunnerAgenda";
 
 const id = () => crypto.randomUUID();
 const day = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
@@ -46,7 +47,7 @@ const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time s
 const meetingId = z.string().uuid();
 const sessionId = z.string().uuid();
 const dashboardSections = ["overview", "segue", "headlines", "scorecard", "rocks", "todos", "issues", "archive"] as const;
-const runnerSteps = ["segue", "scorecard", "rocks", "headlines", "todos", "issues", "conclude"] as const;
+const runnerSteps = L10_RUNNER_STEPS;
 const workType = z.enum(["todo", "issue", "rock"]);
 const rockStatus = z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]);
 const todoStatus = z.enum(["not_started", "in_progress", "blocked", "completed"]);
@@ -81,7 +82,7 @@ function normaliseSections(stored: Record<string, boolean> | null | undefined) {
 }
 
 function normaliseDurations(stored: Record<string, number> | null | undefined) {
-  return { segue: 5, scorecard: 5, rocks: 5, headlines: 5, todos: 5, issues: 60, conclude: 5, ...(stored ?? {}) };
+  return normaliseL10RunnerDurations(stored);
 }
 
 function dateValue(value: Date | string | null | undefined) {
@@ -512,7 +513,7 @@ export const pulseL10Router = router({
     const db = await database();
     await requireL10Runner(db, ctx.user, input.meetingId);
     const dashboard = await dashboardPayload(db, ctx.user, input.meetingId);
-    return { ...dashboard, runner: { steps: runnerSteps.filter((step) => step === "conclude" || dashboard.meeting.sectionsEnabled[step]), durations: normaliseDurations((await require_visible_meeting(db, ctx.user.id, input.meetingId)).sectionDurations) } };
+    return { ...dashboard, runner: { steps: getL10RunnerSteps(dashboard.meeting.sectionsEnabled), durations: normaliseDurations((await require_visible_meeting(db, ctx.user.id, input.meetingId)).sectionDurations) } };
   }),
 
   startSession: pulseMemberProcedure.input(z.object({ meetingId, scheduledFor: z.coerce.date().optional() })).mutation(async ({ ctx, input }) => {
@@ -521,7 +522,8 @@ export const pulseL10Router = router({
     if (meeting.label !== "level_10") throw new TRPCError({ code: "BAD_REQUEST", message: "Only Level 10 meetings use this runner." });
     const current = await getActiveSession(db, input.meetingId);
     if (current) return { session: current, resumed: true };
-    const newSession = { id: id(), meetingId: input.meetingId, scheduledFor: input.scheduledFor ?? scheduledNow(), activeStep: normaliseSections(meeting.sectionsEnabled).segue ? "segue" : "scorecard", startedById: ctx.user.id, attendeeIds: [] as number[] };
+    const activeStep = getL10RunnerSteps(normaliseSections(meeting.sectionsEnabled))[0] ?? "conclude";
+    const newSession = { id: id(), meetingId: input.meetingId, scheduledFor: input.scheduledFor ?? scheduledNow(), activeStep, startedById: ctx.user.id, attendeeIds: [] as number[] };
     await db.insert(pulseMeetingSessions).values(newSession);
     await writeActivity(db, ctx.user.id, "session", newSession.id, "started", null, { meetingId: input.meetingId });
     return { session: newSession, resumed: false };
@@ -531,7 +533,7 @@ export const pulseL10Router = router({
     const db = await database();
     const meeting = await requireL10Runner(db, ctx.user, input.meetingId);
     const session = await requireSession(db, input.meetingId, input.sessionId, true);
-    if (input.activeStep && input.activeStep !== "conclude" && !normaliseSections(meeting.sectionsEnabled)[input.activeStep]) throw new TRPCError({ code: "BAD_REQUEST", message: "That disabled section is not part of this L10." });
+    if (input.activeStep && !getL10RunnerSteps(normaliseSections(meeting.sectionsEnabled)).includes(input.activeStep)) throw new TRPCError({ code: "BAD_REQUEST", message: "That disabled section is not part of this L10." });
     if (input.attendeeIds) for (const personId of input.attendeeIds) await assertMember(db, input.meetingId, personId);
     const { meetingId: _meetingId, sessionId: _sessionId, ...changes } = input;
     await db.update(pulseMeetingSessions).set({ ...changes, pausedAt: input.status === "paused" ? new Date() : input.status === "running" ? null : undefined }).where(eq(pulseMeetingSessions.id, session.id));
