@@ -385,6 +385,7 @@ function healthFromReports(reports: any[], scheduledMinutes: number) {
 
 async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: string) {
   const meeting = await require_visible_meeting(db, user.id, targetMeetingId);
+  const canRateParticipants = meeting.label === "level_10" && (meeting.facilitatorId === user.id || meeting.administratorId === user.id);
   const [members, scorecard, rocks, todos, issues, segue, headlines, briefs, reports, activeSession, cascades] = await Promise.all([
     listMembers(db, targetMeetingId),
     getScorecard(db, targetMeetingId, Math.max(1, Math.min(16, meeting.scorecardHistoryWeeks ?? 8))),
@@ -402,7 +403,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     ? await Promise.all([
       db.select({ personId: pulseSessionRatings.personId, rating: pulseSessionRatings.rating, reason: pulseSessionRatings.reason })
         .from(pulseSessionRatings)
-        .where(and(eq(pulseSessionRatings.sessionId, activeSession.id), eq(pulseSessionRatings.ratedById, user.id))),
+        .where(canRateParticipants ? eq(pulseSessionRatings.sessionId, activeSession.id) : and(eq(pulseSessionRatings.sessionId, activeSession.id), eq(pulseSessionRatings.ratedById, user.id))),
       db.select({ rating: pulseSessionRatings.rating })
         .from(pulseSessionRatings)
         .where(eq(pulseSessionRatings.sessionId, activeSession.id)),
@@ -447,7 +448,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
       canConfigure,
       canRun: meeting.label === "level_10" && canRun,
       canRecallCompletedInRun: meeting.label === "level_10" && meeting.administratorId === user.id,
-      canRateParticipants: meeting.label === "level_10" && (meeting.facilitatorId === user.id || meeting.administratorId === user.id),
+      canRateParticipants,
       canViewAllHealth,
       canSendCascade,
     },
