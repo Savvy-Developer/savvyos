@@ -79,6 +79,13 @@ vi.mock("./_core/ghlSync", () => ({
 const mockTriggerSmartPlansForContact = vi.hoisted(() =>
   vi.fn().mockResolvedValue(1)
 );
+// The website form sub-sources, by name, as they exist after startup.
+vi.mock("./websiteLeadSources", () => ({
+  websiteLeadSourceId: vi.fn(async (_db: unknown, name: string | null) =>
+    name ? ({ "Property Inquiry": 360101, "Deeper Analysis Request": 360037, "Financing Request": 360103 } as Record<string, number>)[name] ?? null : null
+  ),
+}));
+
 // The Organic Social rows, as the live database has them after startup.
 vi.mock("./organicSocialLeadSources", () => ({
   organicSocialIds: vi.fn(async () => ({ parentId: 360045, children: new Map() })),
@@ -299,6 +306,18 @@ describe("unmatched email", () => {
     );
     expect(state.__mock.inserted[0].leadSourceId).toBe(360045);
     expect(mockTriggerSmartPlansForContact).toHaveBeenCalledWith(900, 360045);
+  });
+
+  it("files an old-site property lead under the matching website sub-source", async () => {
+    await savvyWebEventHandler(
+      envelope("lead.created", {
+        leadEmail: "property@example.com",
+        name: "Property Lead",
+        source: "property_detail",
+      }),
+      endpoint
+    );
+    expect(state.__mock.inserted[0].leadSourceId).toBe(360101);
   });
 
   it("keeps the endpoint default for any other old-site source", async () => {

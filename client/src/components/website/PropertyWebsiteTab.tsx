@@ -632,6 +632,11 @@ export default function PropertyWebsiteTab({
               />
             </div>
           )}
+          <ProformaNumbersHint
+            proforma={proformaOptions.find((item: any) => String(item.id) === draft.sourceProformaId)}
+            draft={draft}
+            onUse={values => setDraft(current => ({ ...current, ...values }))}
+          />
           <div className="grid gap-4 md:grid-cols-5">
             <Field
               label="Projected annual revenue"
@@ -741,6 +746,51 @@ export default function PropertyWebsiteTab({
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * Says when the numbers on this listing no longer match the linked
+ * pro-forma, and offers to take the pro-forma's. Saved numbers are reloaded
+ * into the form, so without this a listing could show last month's figures
+ * with nothing on the page to say so.
+ */
+function ProformaNumbersHint({
+  proforma,
+  draft,
+  onUse,
+}: {
+  proforma: any;
+  draft: { projectedRevenue: string; cashOnCash: string; capRate: string };
+  onUse: (values: { projectedRevenue: string; cashOnCash: string; capRate: string }) => void;
+}) {
+  if (!proforma) return null;
+  // Rounded so 0.0375 shows as 3.75, not 3.7499999999999996.
+  const tidy = (value: string) => (value === "" ? "" : String(Math.round(Number(value) * 100) / 100));
+  const fromProforma = {
+    projectedRevenue: proforma.grossRevenue == null ? "" : tidy(String(proforma.grossRevenue)),
+    cashOnCash: tidy(rateToPercent(proforma.cashOnCash)),
+    capRate: tidy(rateToPercent(proforma.capRate)),
+  };
+  const differs = (a: string, b: string) =>
+    (a || "") !== "" && (b || "") !== "" && Math.abs(Number(a) - Number(b)) > 0.005;
+  const mismatch =
+    differs(draft.projectedRevenue, fromProforma.projectedRevenue) ||
+    differs(draft.cashOnCash, fromProforma.cashOnCash) ||
+    differs(draft.capRate, fromProforma.capRate);
+  if (!mismatch) return null;
+  const show = (value: string, suffix: string, prefix = "") => (value === "" ? "none" : `${prefix}${value}${suffix}`);
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      <p>
+        These numbers differ from the linked pro-forma (revenue {show(fromProforma.projectedRevenue, "", "$")},
+        cash-on-cash {show(fromProforma.cashOnCash, "%")}, cap rate {show(fromProforma.capRate, "%")}). Keep them only
+        if you typed them on purpose.
+      </p>
+      <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => onUse(fromProforma)}>
+        Use the pro-forma numbers
+      </Button>
     </div>
   );
 }
