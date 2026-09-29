@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, lt } from "drizzle-orm";
 import { z } from "zod";
 import {
   activityLog,
@@ -239,6 +239,30 @@ export const agentRenewalsRouter = router({
         completedLast12Months: history.length,
       },
     };
+  }),
+
+  /** A lightweight sidebar count for scheduled renewals that are past their anniversary. */
+  overdueCount: protectedProcedure.query(async ({ ctx }) => {
+    await requireRenewalAccess(ctx.user);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+
+    const [result] = await db
+      .select({ count: count() })
+      .from(agentRenewals)
+      .innerJoin(users, eq(agentRenewals.agentId, users.id))
+      .innerJoin(userProfiles, eq(userProfiles.userId, users.id))
+      .where(
+        and(
+          eq(agentRenewals.status, "scheduled"),
+          eq(users.role, "agent"),
+          eq(users.isActive, true),
+          isNotNull(userProfiles.onboardedDate),
+          lt(agentRenewals.renewalDate, dateFromKey(startOfToday()))
+        )
+      );
+
+    return { count: Number(result?.count ?? 0) };
   }),
 
   setOnboardedDate: protectedProcedure

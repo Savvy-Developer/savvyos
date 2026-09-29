@@ -445,6 +445,7 @@ function buildAdminNav(
   resendInboxUnread: number = 0,
   marketingTextInboxUnread: number = 0,
   pendingPtoApprovals: number = 0,
+  overdueAgentRenewals: number = 0,
   canManageSuperPermissions: boolean = false
 ): NavGroup[] {
   return [
@@ -625,6 +626,7 @@ function buildAdminNav(
           icon: CalendarDays,
           label: "Agent Renewals",
           path: "/agent-renewals",
+          badge: overdueAgentRenewals > 0 ? overdueAgentRenewals : undefined,
         },
         { icon: Settings, label: "PTO Administration", path: "/pto/admin" },
         {
@@ -1093,6 +1095,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     undefined,
     { enabled: role === "admin", staleTime: 30000 }
   );
+  const canViewAgentRenewals =
+    role === "admin" &&
+    !!(adminPerms as Record<string, boolean> | undefined)?.canViewAgentRenewals;
+  const { data: overdueAgentRenewalsData } =
+    trpc.agentRenewals.overdueCount.useQuery(undefined, {
+      enabled: canViewAgentRenewals,
+      refetchInterval: 60000,
+    });
 
   // Chat stays invisible until a user is explicitly permitted. Query every
   // authenticated role so the top bar becomes available automatically when a
@@ -1156,6 +1166,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const myOverdueTaskCount = (myOverdueTaskData as any)?.count ?? 0;
   const pendingMarketingCount = (pendingMarketingData as any)?.count ?? 0;
   const pendingPtoApprovalsCount = (pendingPtoApprovalsData as any)?.count ?? 0;
+  const overdueAgentRenewalsCount =
+    (overdueAgentRenewalsData as any)?.count ?? 0;
   const hasActiveOnboarding = onboardingStatus?.active ?? false;
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
   const resendInboxUnreadCount = (resendInboxUnreadData as any)?.count ?? 0;
@@ -1185,6 +1197,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           resendInboxUnreadCount,
           marketingTextInboxUnreadCount,
           pendingPtoApprovalsCount,
+          overdueAgentRenewalsCount,
           !!canManageSuperPermissions
         )
       : role === "isa"

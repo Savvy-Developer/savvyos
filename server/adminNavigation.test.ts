@@ -7,6 +7,7 @@ const appLayout = readFileSync(path.join(root, "client/src/components/AppLayout.
 const reportingPage = readFileSync(path.join(root, "client/src/pages/ReportingSuitePage.tsx"), "utf8");
 const transactionsPage = readFileSync(path.join(root, "client/src/pages/TransactionsPage.tsx"), "utf8");
 const permissionsRouter = readFileSync(path.join(root, "server/routers/permissions.ts"), "utf8");
+const agentRenewalsRouter = readFileSync(path.join(root, "server/routers/agentRenewals.ts"), "utf8");
 
 function adminNavigationSource() {
   const start = appLayout.indexOf("function buildAdminNav(");
@@ -111,5 +112,18 @@ describe("admin navigation consolidation", () => {
     expect(permissionsRouter).toContain('{ key: "canViewOperationsEscalations",  label: "Operations Escalations",     group: "Work" }');
     expect(permissionsRouter).toContain('{ key: "canViewJobBoard",               label: "Job Board",                  group: "HR" }');
     expect(permissionsRouter).toContain('{ key: "canViewTalentProfile",          label: "Talent Profiles",            group: "HR" }');
+  });
+
+  it("shows overdue agent renewals in the permitted admin navigation", () => {
+    const source = adminNavigationSource();
+
+    expect(source).toContain('label: "Agent Renewals"');
+    expect(source).toContain('badge: overdueAgentRenewals > 0 ? overdueAgentRenewals : undefined');
+    expect(appLayout).toContain("trpc.agentRenewals.overdueCount.useQuery");
+    expect(appLayout).toContain("enabled: canViewAgentRenewals");
+    expect(appLayout).toContain("overdueAgentRenewalsCount,");
+    expect(agentRenewalsRouter).toContain("overdueCount: protectedProcedure.query");
+    expect(agentRenewalsRouter).toContain('eq(agentRenewals.status, "scheduled")');
+    expect(agentRenewalsRouter).toContain("lt(agentRenewals.renewalDate, dateFromKey(startOfToday()))");
   });
 });

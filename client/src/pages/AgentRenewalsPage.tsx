@@ -138,6 +138,7 @@ export default function AgentRenewalsPage() {
       setCompletionItem(null);
       setAgreementFile(null);
       void utils.agentRenewals.getOverview.invalidate();
+      void utils.agentRenewals.overdueCount.invalidate();
     },
     onError: (error) => toast.error(error.message ?? "Unable to complete renewal"),
   });
@@ -147,6 +148,7 @@ export default function AgentRenewalsPage() {
       toast.success(`Onboarded date saved. Renewal scheduled for ${formatDate(result.renewalDate)}.`);
       setOnboardingItem(null);
       void utils.agentRenewals.getOverview.invalidate();
+      void utils.agentRenewals.overdueCount.invalidate();
     },
     onError: (error) => toast.error(error.message ?? "Unable to save onboarded date"),
   });
