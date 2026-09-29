@@ -56,6 +56,7 @@ import { trpc } from "@/lib/trpc";
 import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
 import { captureVisitAttribution, formAttribution } from "@/lib/visitAttribution";
+import { trackWebsiteEvent, type SellPlacement } from "@/lib/websiteAnalytics";
 import {
   editableListPage,
   listPageHeading,
@@ -119,6 +120,11 @@ import {
   LiveSectionTitle,
   ShareButton,
 } from "@/components/website/liveSiteParts";
+
+/** Same event the old site pushed for its Sell buttons, so GTM reports stay comparable. */
+function trackSellClick(placement: SellPlacement) {
+  trackWebsiteEvent({ event: "sell_cta_click", placement, destination: publicPath("/sell") });
+}
 
 const BASE = PUBLIC_SITE_BASE;
 const LOGO =
@@ -299,7 +305,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                   {label}
                 </a>
               ))}
-              <a className={linkClass} href={path("/sell")}>
+              <a className={linkClass} href={path("/sell")} onClick={() => trackSellClick("nav")}>
                 Sell
               </a>
               <a className={linkClass} href={path("/contact")}>
@@ -328,7 +334,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                 {label}
               </a>
             ))}
-            <a className={mobileLinkClass} href={path("/sell")}>
+            <a className={mobileLinkClass} href={path("/sell")} onClick={() => trackSellClick("nav")}>
               Sell
             </a>
             <a className={mobileLinkClass} href={path("/contact")}>
@@ -378,7 +384,7 @@ function SiteFooter() {
             <a className={linkClass} href={path("/markets")}>Markets</a>
             <a className={linkClass} href={path("/case-studies")}>Case Studies</a>
             <a className={linkClass} href={path("/resources")}>Resources</a>
-            <a className={linkClass} href={path("/sell")}>Sell Your STR</a>
+            <a className={linkClass} href={path("/sell")} onClick={() => trackSellClick("footer")}>Sell Your STR</a>
             {legal.data && <a className={linkClass} href={path("/legal")}>Legal</a>}
             {privacy.data && <a className={linkClass} href={path("/privacy")}>Privacy Policy</a>}
             <a
@@ -498,6 +504,7 @@ function LeadForm({
   });
   const submit = trpc.website.submitLead.useMutation({
     onSuccess: () => {
+      trackWebsiteEvent({ event: "website_lead_submitted", intent: intent ?? "general", requestType });
       toast.success(
         "Your message is in. A Savvy STR specialist will follow up shortly."
       );
@@ -687,6 +694,7 @@ function HomePage() {
               <a
                 className="inline-flex items-center justify-center rounded-md border border-[#05314a] bg-white px-8 py-4 text-lg font-semibold text-[#05314a] shadow-lg transition-colors hover:bg-[color-mix(in_oklab,#10c0df_12%,white)]"
                 href={path("/sell")}
+                onClick={() => trackSellClick("hero")}
               >
                 <Calendar className="mr-2 h-5 w-5" />
                 Sell My STR for Top Dollar
@@ -4872,7 +4880,10 @@ function SellerLeadForm({ phone, tel }: { phone: string; tel: string }) {
   const [touched, setTouched] = useState(false);
   const [sent, setSent] = useState(false);
   const submit = trpc.website.submitLead.useMutation({
-    onSuccess: () => setSent(true),
+    onSuccess: () => {
+      trackWebsiteEvent({ event: "seller_lead_submitted", timeline: values.timeline || "" });
+      setSent(true);
+    },
     onError: error => toast.error(error.message || "Could not send your details"),
   });
   const set = (field: keyof SellerValues) => (
