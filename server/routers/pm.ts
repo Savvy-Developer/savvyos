@@ -2586,6 +2586,132 @@ export const pmRouter = router({
         return { success: true, rolledForward: false };
       }),
 
+    routeToProject: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          destinationProjectId: z.number().int().positive(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        const [todo] = await db
+          .select()
+          .from(pmPersonalTodos)
+          .where(eq(pmPersonalTodos.id, input.id))
+          .limit(1);
+        if (!todo) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "This personal To-Do no longer exists.",
+          });
+        }
+        if (todo.userId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Personal To-Dos can only be moved by their owner.",
+          });
+        }
+        if (todo.completed) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Reopen this personal To-Do before moving it to a Project.",
+          });
+        }
+
+        // A personal record has no Project source access to verify. The
+        // destination is nevertheless checked server-side so a user cannot
+        // add work to a Project outside their allowed collaboration scope.
+        await assertProjectAccess(db, input.destinationProjectId, ctx.user);
+        const [destinationProject] = await db
+          .select({
+            id: pmProjects.id,
+            title: pmProjects.title,
+            archivedAt: pmProjects.archivedAt,
+          })
+          .from(pmProjects)
+          .where(eq(pmProjects.id, input.destinationProjectId))
+          .limit(1);
+        if (!destinationProject || destinationProject.archivedAt) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The destination Project is unavailable.",
+          });
+        }
+
+        const [[sectionOrder], [taskOrder]] = await Promise.all([
+          db
+            .select({
+              maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)`,
+            })
+            .from(pmTodoSections)
+            .where(eq(pmTodoSections.projectId, input.destinationProjectId)),
+          db
+            .select({
+              maxSortOrder: sql<number>`coalesce(max(${pmTasks.sortOrder}), -1)`,
+            })
+            .from(pmTasks)
+            .where(
+              and(
+                eq(pmTasks.projectId, input.destinationProjectId),
+                isNull(pmTasks.parentTaskId),
+                isNull(pmTasks.sectionId)
+              )
+            ),
+        ]);
+        const sortOrder =
+          Math.max(
+            Number(sectionOrder?.maxSortOrder ?? -1),
+            Number(taskOrder?.maxSortOrder ?? -1)
+          ) + 1;
+        const now = new Date();
+        now.setHours(12, 0, 0, 0);
+        const startDate =
+          todo.dueDate && todo.dueDate < now ? todo.dueDate : now;
+        let taskId = 0;
+
+        await db.transaction(async transaction => {
+          const [result] = await transaction.insert(pmTasks).values({
+            projectId: input.destinationProjectId,
+            parentTaskId: null,
+            sectionId: null,
+            title: todo.title,
+            ownerId: todo.userId,
+            startDate,
+            dueDate: todo.dueDate,
+            recurrence: todo.recurrence,
+            priority: "medium",
+            status: "not_started",
+            completed: false,
+            completedAt: null,
+            notes: todo.notes,
+            sortOrder,
+          });
+          taskId = Number(result.insertId);
+          await transaction
+            .delete(pmPersonalTodos)
+            .where(eq(pmPersonalTodos.id, todo.id));
+        });
+
+        await logActivity(
+          input.destinationProjectId,
+          ctx.user.id,
+          "task_created",
+          `Moved personal To-Do "${todo.title}" into this Project`,
+          taskId
+        );
+        return {
+          success: true,
+          taskId,
+          destinationProjectId: destinationProject.id,
+          destinationProjectTitle: destinationProject.title,
+        };
+      }),
+
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
