@@ -25,6 +25,24 @@ describe("Pulse dashboard consolidation", () => {
     expect(weeklyPreparation).not.toContain("prep.data.meetings.map((meeting: any) => { const fields");
   });
 
+  it("leads My Work with Weekly Preparation", () => {
+    const weeklyPreparationIndex = myWorkPage.indexOf('title="Weekly Preparation"');
+    const myWorkIndex = myWorkPage.indexOf('title="My Work"');
+    expect(weeklyPreparationIndex).toBeGreaterThan(-1);
+    expect(myWorkIndex).toBeGreaterThan(weeklyPreparationIndex);
+    expect(myWorkPage).toContain('<PulseWeeklyPreparation embedded />');
+  });
+
+  it("uses a constrained tabbed queue instead of side-by-side To-Do and Issue lists", () => {
+    expect(myWorkPage).toContain("function CompactWorkQueue");
+    expect(myWorkPage).toContain('value="todos"');
+    expect(myWorkPage).toContain('value="issues"');
+    expect(myWorkPage).toContain('aria-label="My Work list type"');
+    expect(myWorkPage).toContain("max-w-5xl");
+    expect(myWorkPage).toContain("max-h-[28rem]");
+    expect(myWorkPage).not.toContain("lg:grid-cols-2");
+  });
+
   it("provides an authorized master scorecard Pulse tab", () => {
     expect(myWorkPage).toContain("PulseMasterScorecard");
     expect(myWorkPage).toContain('value="scorecard"');
@@ -48,9 +66,8 @@ describe("Pulse dashboard consolidation", () => {
     expect(myWorkPage).toContain("DashboardSection");
     expect(myWorkPage).toContain('title="My Measurables"');
     expect(myWorkPage).toContain("<PulseMyMeasurables embedded />");
-    expect(myWorkPage).toContain('title="Weekly Preparation"');
     expect(myWorkPage).toContain("<CollapsibleTrigger");
-    expect(myWorkPage).not.toContain("activeWorkTab");
+    expect(myWorkPage).toContain("activeWorkTab");
     expect(myWorkPage).not.toContain('TabsContent value="measurables"');
   });
 });
