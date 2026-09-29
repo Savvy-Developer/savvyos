@@ -13,6 +13,7 @@ describe("SavvyOS MCP access", () => {
       "amyrollins@savvy.realty",
       "marcusclay@savvy.realty",
       "birdiehardin@savvy.realty",
+      "morganloftus@savvy.realty",
     ]) {
       expect(isMcpAuthorizedUser(email)).toBe(true);
     }

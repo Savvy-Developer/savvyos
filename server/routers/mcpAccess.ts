@@ -11,6 +11,7 @@ export const MCP_AUTHORIZED_USER_EMAILS = new Set([
   "amyrollins@savvy.realty",
   "marcusclay@savvy.realty",
   "birdiehardin@savvy.realty",
+  "morganloftus@savvy.realty",
 ]);
 
 export function isMcpAuthorizedUser(email: string | null | undefined): boolean {
