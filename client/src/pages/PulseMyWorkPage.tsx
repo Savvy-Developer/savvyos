@@ -4,7 +4,9 @@ import { ChevronDown, ClipboardList, History, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { formatEasternDateTime } from "@/lib/format";
@@ -40,7 +42,7 @@ function CompactWorkQueue({
   const [activeWorkTab, setActiveWorkTab] = useState("todos");
   const issueEmptyLabel = issueTimeframe === "all" ? "No open Issues in this workspace." : issueTimeframe === "short_term" ? "No Short Term Issues in this workspace." : "No Long Term Issues in this workspace.";
 
-  return <Tabs value={activeWorkTab} onValueChange={setActiveWorkTab} className="max-w-5xl">
+  return <Tabs value={activeWorkTab} onValueChange={setActiveWorkTab} className="w-full">
     <Card className="pulse-card-compact overflow-hidden">
       <CardHeader className="flex flex-wrap items-start justify-between gap-3 py-3">
         <div className="min-w-0">
@@ -74,14 +76,16 @@ function DashboardSection({
   description,
   children,
   defaultOpen = true,
+  className,
 }: {
   title: string;
   description: string;
   children: ReactNode;
   defaultOpen?: boolean;
+  className?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  return <Collapsible open={open} onOpenChange={setOpen}>
+  return <Collapsible className={className} open={open} onOpenChange={setOpen}>
     <Card className="pulse-card-compact">
       <CardHeader className="flex flex-row items-start justify-between gap-3 py-2.5">
         <div className="min-w-0"><CardTitle className="text-base">{title}</CardTitle><CardDescription className="mt-0.5">{description}</CardDescription></div>
@@ -124,7 +128,7 @@ export default function PulseMyWorkPage() {
   const workspaces = data.workspaces ?? [];
   const todos = data.items.todos.filter((item: any) => item.status !== "dropped" && !item.parentWorkItemId);
   const issues = data.items.issues.filter((item: any) => issueTimeframe === "all" || item.issueTimeframe === issueTimeframe);
-  const workspaceControls = <div><p className="mb-1 text-sm font-semibold">Show work from</p><div className="flex flex-wrap gap-1">{workspaces.map((workspace: any) => <button type="button" key={workspace.id} onClick={() => setWorkspaceId(workspace.id)} className={`h-8 rounded-md border px-2.5 text-left text-xs font-semibold transition-colors ${workspaceId === workspace.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}>{workspace.name}</button>)}</div><p className="mt-1.5 text-xs text-muted-foreground">Choose all L10s or one meeting. Every item keeps its meeting home.</p></div>;
+  const workspaceControls = <div className="max-w-sm"><Label htmlFor="pulse-workspace">Show work from</Label><Select value={workspaceId} onValueChange={setWorkspaceId}><SelectTrigger id="pulse-workspace" aria-label="Show work from" className="mt-1 h-10 w-full bg-background"><SelectValue placeholder="Choose an L10 workspace" /></SelectTrigger><SelectContent>{workspaces.map((workspace: any) => <SelectItem key={workspace.id} value={workspace.id}>{workspace.name}</SelectItem>)}</SelectContent></Select><p className="mt-1.5 text-xs text-muted-foreground">Choose all L10s or one meeting. Every item keeps its meeting home.</p></div>;
 
   return <main className="pulse-page pulse-page-stack">
     <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -136,15 +140,16 @@ export default function PulseMyWorkPage() {
       <TabsContent value="work" className="mt-0 space-y-3">
         <DashboardSection title="Weekly Preparation" description="Prepare one meeting at a time; every entry stays connected to its forum."><PulseWeeklyPreparation embedded /></DashboardSection>
 
-        <DashboardSection title="My Work" description="Keep the current queue focused: choose one list, then update work in its original meeting.">
-          <div className="max-w-5xl space-y-3">
+        <section className="grid gap-3 xl:grid-cols-2 xl:items-start">
+          <DashboardSection className="min-w-0" title="My Work" description="Keep the current queue focused: choose one list, then update work in its original meeting.">
+          <div className="space-y-3">
             <PulseL10WorkCreator meetings={data.meetings} onCreated={changed} workspaceControls={workspaceControls} />
             <CompactWorkQueue todos={todos} issues={issues} issueTimeframe={issueTimeframe} onIssueTimeframeChange={setIssueTimeframe} onChanged={changed} showDestination={workspaceId === "all"} />
             <Card className="pulse-card-compact"><CardHeader className="pb-2"><CardTitle>Rocks</CardTitle><CardDescription>Longer-term priorities, their milestones, and current status.</CardDescription></CardHeader><CardContent>{data.items.rocks.length ? data.items.rocks.map((item: any) => <WorkRow key={item.id} item={item} onChanged={changed} />) : <p className="text-sm text-muted-foreground">No active Rocks in this workspace.</p>}</CardContent></Card>
           </div>
-        </DashboardSection>
-
-        <DashboardSection title="My Measurables" description="Submit every active measurable you own for the current reporting week."><PulseMyMeasurables embedded /></DashboardSection>
+          </DashboardSection>
+          <DashboardSection className="min-w-0" title="My Measurables" description="Submit every active measurable you own for the current reporting week."><PulseMyMeasurables embedded /></DashboardSection>
+        </section>
         <DashboardSection title="Incoming Cascades" description="Messages from authorized Pulse meetings stay here until you acknowledge them.">{data.actionCenter.cascades.length ? <div className="space-y-2">{data.actionCenter.cascades.map((cascade: any) => <PulseCascadeCard key={cascade.id} message={cascade} isAcknowledging={acknowledgeCascade.isPending} onAcknowledge={(messageId) => acknowledgeCascade.mutate({ messageId, from: "my_work" })} />)}</div> : <p className="text-sm text-muted-foreground">No cascading messages need your acknowledgment.</p>}</DashboardSection>
         <DashboardSection title="At a Glance" description="A compact view of your current workload and preparation." defaultOpen={false}><div aria-label="At a glance" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5"><Card className={data.counts.overdue ? "border-rose-200 bg-rose-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Overdue</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.overdue}</p><p className="text-xs text-muted-foreground">Past deadline</p></CardContent></Card><Card className={data.counts.unacknowledged ? "border-amber-200 bg-amber-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Unacknowledged</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.unacknowledged}</p><p className="text-xs text-muted-foreground">Cascades</p></CardContent></Card><Card><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Due this week</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.dueSoon}</p><p className="text-xs text-muted-foreground">Open To-Dos</p></CardContent></Card><Card className={data.counts.missingMeasurables ? "border-sky-200 bg-sky-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Prep needed</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.missingMeasurables}</p><p className="text-xs text-muted-foreground">Measurables</p></CardContent></Card><Card><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Rocks off track</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.offTrackRocks}</p><p className="text-xs text-muted-foreground">Need a next action</p></CardContent></Card></div></DashboardSection>
         <section className="grid items-stretch gap-2 xl:grid-cols-2"><PulseCompletedHistory className="h-full min-h-36 min-w-0 overflow-hidden" contextId={workspaceId === "all" ? undefined : workspaceId} title={workspaceId === "all" ? "Completed & Resolved work" : "Completed & Resolved in this meeting"} description={workspaceId === "all" ? "Search work you completed or resolved across authorized Pulse forums." : "Search completed or resolved work from this exact meeting."} onlyMine onChanged={changed} compact /><ActivitySummary activity={data.activity ?? []} /></section>

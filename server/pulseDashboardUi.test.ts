@@ -38,9 +38,20 @@ describe("Pulse dashboard consolidation", () => {
     expect(myWorkPage).toContain('value="todos"');
     expect(myWorkPage).toContain('value="issues"');
     expect(myWorkPage).toContain('aria-label="My Work list type"');
-    expect(myWorkPage).toContain("max-w-5xl");
     expect(myWorkPage).toContain("max-h-[28rem]");
     expect(myWorkPage).not.toContain("lg:grid-cols-2");
+  });
+
+  it("uses a meeting dropdown and pairs My Work with My Measurables", () => {
+    expect(myWorkPage).toContain('id="pulse-workspace"');
+    expect(myWorkPage).toContain('aria-label="Show work from"');
+    expect(myWorkPage).toContain("<SelectContent>{workspaces.map");
+    expect(myWorkPage).not.toContain("workspaces.map((workspace: any) => <button");
+    expect(myWorkPage).toContain('section className="grid gap-3 xl:grid-cols-2 xl:items-start"');
+    const myWorkIndex = myWorkPage.indexOf('title="My Work"');
+    const measurableIndex = myWorkPage.indexOf('title="My Measurables"');
+    expect(measurableIndex).toBeGreaterThan(myWorkIndex);
+    expect(myWorkPage.slice(myWorkIndex, measurableIndex)).toContain('className="min-w-0"');
   });
 
   it("provides an authorized master scorecard Pulse tab", () => {
