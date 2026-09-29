@@ -705,8 +705,9 @@ function ChatMessage({
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const canManage = meId === row.message.senderId;
   const senderName = displayName(row.sender);
+  const messageTime = `${formatMessageTime(row.message.createdAt)}${row.message.editedAt ? " · edited" : ""}`;
   return (
-    <article className={`group relative flex gap-3${showSender ? "" : " pl-12"}`}>
+    <article className={`group relative ${showSender ? "flex gap-3" : "pl-12"}`}>
       {showSender && (
         <Avatar className="h-9 w-9 shrink-0">
           <AvatarImage src={row.profilePhotoUrl ?? undefined} />
@@ -716,42 +717,42 @@ function ChatMessage({
         </Avatar>
       )}
       <div className="min-w-0 flex-1">
-        <div className="flex min-h-6 items-center gap-2 pr-36">
-          {showSender && <span className="font-medium">{senderName}</span>}
-          <span className="text-xs text-muted-foreground">
-            {formatMessageTime(row.message.createdAt)}
-            {row.message.editedAt ? " · edited" : ""}
-          </span>
-          <div className="absolute right-0 top-0 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 shadow-sm md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100">
-            <div className="relative">
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-6 w-6"
-                title="Add reaction"
-                onClick={() => setReactionPickerOpen(value => !value)}
-              >
-                <SmilePlus className="h-3.5 w-3.5" />
-              </Button>
-              {reactionPickerOpen && (
-                <div className="absolute right-0 z-20 mt-1 flex gap-1 rounded-lg border bg-popover p-1 shadow-lg">
-                  {REACTION_EMOJIS.map(emoji => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      className="rounded p-1 text-base hover:bg-muted"
-                      onClick={() => {
-                        onReact(emoji);
-                        setReactionPickerOpen(false);
-                      }}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+        {showSender && (
+          <div className="flex min-h-6 items-center gap-2 pr-36">
+            <span className="font-medium">{senderName}</span>
+            <span className="text-xs text-muted-foreground">{messageTime}</span>
+          </div>
+        )}
+        <div className="absolute right-0 top-0 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 shadow-sm md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100">
+          <div className="relative">
             <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              title="Add reaction"
+              onClick={() => setReactionPickerOpen(value => !value)}
+            >
+              <SmilePlus className="h-3.5 w-3.5" />
+            </Button>
+            {reactionPickerOpen && (
+              <div className="absolute right-0 z-20 mt-1 flex gap-1 rounded-lg border bg-popover p-1 shadow-lg">
+                {REACTION_EMOJIS.map(emoji => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    className="rounded p-1 text-base hover:bg-muted"
+                    onClick={() => {
+                      onReact(emoji);
+                      setReactionPickerOpen(false);
+                    }}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <Button
               size="icon"
               variant="ghost"
               className="h-6 w-6"
@@ -759,8 +760,8 @@ function ChatMessage({
               onClick={onReply}
             >
               <Reply className="h-3 w-3" />
-            </Button>
-            <Button
+          </Button>
+          <Button
               size="icon"
               variant="ghost"
               className="h-6 w-6"
@@ -768,10 +769,10 @@ function ChatMessage({
               onClick={onMarkUnread}
             >
               <Mail className="h-3 w-3" />
-            </Button>
-            {canManage && (
-              <>
-                <Button
+          </Button>
+          {canManage && (
+            <>
+              <Button
                   size="icon"
                   variant="ghost"
                   className="h-6 w-6"
@@ -782,8 +783,8 @@ function ChatMessage({
                   }}
                 >
                   <Pencil className="h-3 w-3" />
-                </Button>
-                <Button
+              </Button>
+              <Button
                   size="icon"
                   variant="ghost"
                   className="h-6 w-6 text-muted-foreground hover:text-destructive"
@@ -791,10 +792,9 @@ function ChatMessage({
                   onClick={() => setConfirmDelete(true)}
                 >
                   <Trash2 className="h-3 w-3" />
-                </Button>
-              </>
-            )}
-          </div>
+              </Button>
+            </>
+          )}
         </div>
         {row.parent && (
           <button
@@ -840,9 +840,17 @@ function ChatMessage({
         ) : (
           <>
             {row.message.body && (
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+              <p className={`${showSender ? "mt-0.5 " : ""}whitespace-pre-wrap break-words text-sm leading-5 text-foreground`}>
                 {row.message.body}
+                {!showSender && (
+                  <span className="ml-2 whitespace-nowrap text-xs text-muted-foreground">
+                    {messageTime}
+                  </span>
+                )}
               </p>
+            )}
+            {!row.message.body && !showSender && (
+              <span className="text-xs text-muted-foreground">{messageTime}</span>
             )}
             {row.attachments.map(attachment => (
               <AttachmentView key={attachment.id} attachment={attachment} />
@@ -1673,7 +1681,7 @@ export default function ChatPage() {
             </header>
             <div className="relative min-h-0 flex-1">
               <ScrollArea ref={messageScrollAreaRef} className="h-full">
-                <div className="mx-auto max-w-4xl space-y-5 px-4 py-5 md:px-6">
+                <div className="mx-auto max-w-4xl px-4 py-5 md:px-6">
                   {messagesLoading ? (
                     <div className="flex justify-center py-12">
                       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1692,7 +1700,7 @@ export default function ChatPage() {
                     messageRows.map((row, index) => (
                       <div
                         key={row.message.id}
-                        className={isConsecutiveMessage(index) ? "!mt-1.5" : undefined}
+                        className={index === 0 ? undefined : isConsecutiveMessage(index) ? "mt-1" : "mt-3"}
                         data-chat-message-id={row.message.id}
                       >
                         {firstUnreadMessageId === row.message.id && (
