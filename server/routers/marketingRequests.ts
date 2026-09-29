@@ -16,14 +16,15 @@ function randomSuffix() {
   return Math.random().toString(36).substring(2, 10);
 }
 
-// Template IDs and layer names come from the "Savvy STR Agents" project in
-// Bannerbear (the three "Savvy - ... FINAL" templates). Bannerbear matches
-// modifications to layers by exact name and silently drops any that do not
-// exist, so these must track the templates. Status text matches each
+// Template IDs and layer names come from the "My First Project" project in
+// Bannerbear (the three "Savvy - ... FINAL" templates), owned by the paid
+// marketing@ account. BANNERBEAR_API_KEY must be that project's key.
+// Bannerbear matches modifications to layers by exact name and silently drops
+// any that do not exist, so these must track the templates. Status text matches each
 // template's own default so the API output looks the same as the editor.
 const AUTOMATIC_MARKETING_TYPES = {
   under_contract: {
-    template: "Rqg32K5QjJNBD8V07Y",
+    template: "gdeyVMZOYq4zD4QmW6",
     label: "Under Contract",
     fileSlug: "under-contract",
     requiresPrice: false,
@@ -34,7 +35,7 @@ const AUTOMATIC_MARKETING_TYPES = {
     agentImageLayer: "image_container_rectangle_12",
   },
   just_closed: {
-    template: "7wpnPQZz0roEDdOgxo",
+    template: "RGlOVA5R2W4P5nPgXw",
     label: "Just Closed",
     fileSlug: "just-closed",
     requiresPrice: true,
@@ -45,7 +46,7 @@ const AUTOMATIC_MARKETING_TYPES = {
     agentImageLayer: "image_container_rectangle_12",
   },
   just_listed: {
-    template: "wvgMNmDoEzpzZyARK0",
+    template: "BAQGWyDLNlEaZgmENL",
     label: "Just Listed",
     fileSlug: "just-listed",
     requiresPrice: true,
