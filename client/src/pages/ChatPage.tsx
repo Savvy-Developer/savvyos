@@ -682,6 +682,7 @@ function ManageGroupDialog({ group, sections, open, onOpenChange, onChanged }: {
 function AttachmentView({ attachment }: { attachment: Attachment }) { if (isImage(attachment.mimeType)) return <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="mt-2 block w-fit"><img src={attachment.fileUrl} alt={attachment.fileName} className="max-h-64 max-w-full rounded-lg border object-contain" /></a>; return <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="mt-2 flex max-w-sm items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors hover:bg-muted"><FileText className="h-5 w-5 shrink-0 text-primary" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{attachment.fileName}</span><span className="block text-xs text-muted-foreground">{formatFileSize(attachment.fileSize)}</span></span></a>; }
 function ChatMessage({
   row,
+  showSender,
   meId,
   onUpdate,
   onDelete,
@@ -690,6 +691,7 @@ function ChatMessage({
   onMarkUnread,
 }: {
   row: MessageRow;
+  showSender: boolean;
   meId: number | null;
   onUpdate: (body: string) => void;
   onDelete: () => void;
@@ -704,16 +706,18 @@ function ChatMessage({
   const canManage = meId === row.message.senderId;
   const senderName = displayName(row.sender);
   return (
-    <article className="group relative flex gap-3">
-      <Avatar className="h-9 w-9 shrink-0">
-        <AvatarImage src={row.profilePhotoUrl ?? undefined} />
-        <AvatarFallback className="bg-primary/10 text-xs text-primary">
-          {initials(senderName)}
-        </AvatarFallback>
-      </Avatar>
+    <article className={`group relative flex gap-3${showSender ? "" : " pl-12"}`}>
+      {showSender && (
+        <Avatar className="h-9 w-9 shrink-0">
+          <AvatarImage src={row.profilePhotoUrl ?? undefined} />
+          <AvatarFallback className="bg-primary/10 text-xs text-primary">
+            {initials(senderName)}
+          </AvatarFallback>
+        </Avatar>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex min-h-6 items-center gap-2 pr-36">
-          <span className="font-medium">{senderName}</span>
+          {showSender && <span className="font-medium">{senderName}</span>}
           <span className="text-xs text-muted-foreground">
             {formatMessageTime(row.message.createdAt)}
             {row.message.editedAt ? " · edited" : ""}
@@ -1435,6 +1439,9 @@ export default function ChatPage() {
     selectedChannel?.name.toLowerCase() !== "announcements" ||
     !!workspace?.isChatAdmin;
   const messageRows = messages as MessageRow[];
+  const isConsecutiveMessage = (index: number) =>
+    index > 0 &&
+    messageRows[index - 1].message.senderId === messageRows[index].message.senderId;
   const firstUnreadMessageId = messageRows.find(
     row =>
       row.message.id > (readState?.lastReadMessageId ?? 0) &&
@@ -1682,9 +1689,10 @@ export default function ChatPage() {
                       </p>
                     </div>
                   ) : (
-                    messageRows.map(row => (
+                    messageRows.map((row, index) => (
                       <div
                         key={row.message.id}
+                        className={isConsecutiveMessage(index) ? "!mt-1.5" : undefined}
                         data-chat-message-id={row.message.id}
                       >
                         {firstUnreadMessageId === row.message.id && (
@@ -1696,6 +1704,7 @@ export default function ChatPage() {
                         )}
                         <ChatMessage
                           row={row}
+                          showSender={!isConsecutiveMessage(index)}
                           meId={user?.id ?? null}
                           onUpdate={body =>
                             updateMessage.mutate({
