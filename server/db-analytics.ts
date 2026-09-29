@@ -1084,7 +1084,7 @@ export async function getLeadSourceAnalyticsReport(opts?: {
 // ─── 10. Onboarding Report ────────────────────────────────────────────────────
 
 export async function getOnboardingReport(opts?: {
-  status?: "in_progress" | "completed";
+  status?: "in_progress" | "graduated" | "terminated";
   agentId?: number;
 }) {
   const db = await getDb();
@@ -1098,6 +1098,10 @@ export async function getOnboardingReport(opts?: {
       status: onboardingInstances.status,
       startedAt: onboardingInstances.startedAt,
       completedAt: onboardingInstances.completedAt,
+      graduatedAt: onboardingInstances.graduatedAt,
+      terminatedAt: onboardingInstances.terminatedAt,
+      terminationReason: onboardingInstances.terminationReason,
+      completionDurationMinutes: onboardingInstances.completionDurationMinutes,
     })
     .from(onboardingInstances)
     .innerJoin(users, eq(onboardingInstances.agentUserId, users.id))
@@ -1120,8 +1124,12 @@ export async function getOnboardingReport(opts?: {
 
       const total = Number(taskStats.total);
       const completedCount = Number(taskStats.completed);
-      const daysToComplete = inst.completedAt
-        ? Math.round((inst.completedAt.getTime() - inst.startedAt.getTime()) / 86400000)
+      const finishedAt =
+        inst.graduatedAt ?? inst.terminatedAt ?? inst.completedAt;
+      const daysToComplete = inst.completionDurationMinutes != null
+        ? Math.round(Number(inst.completionDurationMinutes) / 1440)
+        : finishedAt
+          ? Math.round((finishedAt.getTime() - inst.startedAt.getTime()) / 86400000)
         : null;
 
       return {
@@ -1130,19 +1138,26 @@ export async function getOnboardingReport(opts?: {
         agentName: inst.agentName ?? "Unknown",
         status: inst.status,
         startedAt: inst.startedAt,
-        completedAt: inst.completedAt,
+        finishedAt,
+        terminationReason: inst.terminationReason,
+        completionDurationMinutes: inst.completionDurationMinutes,
         daysToComplete,
         totalTasks: total,
         completedTasks: completedCount,
-        overdueTasks: Number(taskStats.overdue),
+        overdueTasks:
+          inst.status === "in_progress" ? Number(taskStats.overdue) : 0,
         pct: total > 0 ? Math.round((completedCount / total) * 100) : 0,
       };
     })
   );
 
-  const completedInstances = enriched.filter((i) => i.status === "completed" && i.daysToComplete !== null);
-  const avgDaysToComplete = completedInstances.length > 0
-    ? Math.round(completedInstances.reduce((acc, i) => acc + (i.daysToComplete ?? 0), 0) / completedInstances.length)
+  const finishedInstances = enriched.filter(
+    i =>
+      (i.status === "graduated" || i.status === "terminated") &&
+      i.daysToComplete !== null
+  );
+  const avgDaysToComplete = finishedInstances.length > 0
+    ? Math.round(finishedInstances.reduce((acc, i) => acc + (i.daysToComplete ?? 0), 0) / finishedInstances.length)
     : null;
 
   return {
@@ -1150,7 +1165,8 @@ export async function getOnboardingReport(opts?: {
     summary: {
       total: enriched.length,
       inProgress: enriched.filter((i) => i.status === "in_progress").length,
-      completed: enriched.filter((i) => i.status === "completed").length,
+      graduated: enriched.filter((i) => i.status === "graduated").length,
+      terminated: enriched.filter((i) => i.status === "terminated").length,
       avgDaysToComplete,
       totalOverdueTasks: enriched.reduce((acc, i) => acc + i.overdueTasks, 0),
     },

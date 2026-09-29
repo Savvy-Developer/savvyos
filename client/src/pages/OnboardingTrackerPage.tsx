@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -49,6 +50,7 @@ import {
   Trash2,
   UserCheck,
   Users,
+  XCircle,
 } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 
@@ -65,6 +67,18 @@ type OnboardingTask = {
 
 type TaskView = "all" | "incomplete" | "completed";
 type DueSort = "due_asc" | "due_desc";
+
+function lifecycleLabel(status: string) {
+  if (status === "graduated") return "Graduated";
+  if (status === "terminated") return "Terminated";
+  return "Onboarded";
+}
+
+function lifecycleBadgeVariant(status: string) {
+  if (status === "terminated") return "destructive" as const;
+  if (status === "graduated") return "default" as const;
+  return "secondary" as const;
+}
 
 function isOverdue(
   dueDate: Date | string | null | undefined,
@@ -110,7 +124,7 @@ export default function OnboardingTrackerPage() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const [statusFilter, setStatusFilter] = useState<
-    "all" | "in_progress" | "completed" | "overdue"
+    "all" | "in_progress" | "graduated" | "terminated" | "overdue"
   >("all");
   const [selectedInstanceId, setSelectedInstanceId] = useState<number | null>(
     null
@@ -132,6 +146,12 @@ export default function OnboardingTrackerPage() {
     agentName: string;
     templateName: string;
   } | null>(null);
+  const [instanceToTerminate, setInstanceToTerminate] = useState<{
+    id: number;
+    agentName: string;
+    templateName: string;
+  } | null>(null);
+  const [terminationReason, setTerminationReason] = useState("");
 
   const serverStatus =
     statusFilter === "overdue" ? "in_progress" : statusFilter;
@@ -199,6 +219,18 @@ export default function OnboardingTrackerPage() {
     },
     onError: error => toast.error(error.message),
   });
+  const terminateInstanceMut = trpc.onboarding.terminateInstance.useMutation({
+    onSuccess: () => {
+      toast.success("Onboarding terminated and recorded");
+      void utils.onboarding.getInstance.invalidate();
+      void utils.onboarding.listInstances.invalidate();
+      void utils.onboarding.getReport.invalidate();
+      setSelectedInstanceId(null);
+      setInstanceToTerminate(null);
+      setTerminationReason("");
+    },
+    onError: error => toast.error(error.message),
+  });
 
   const visibleTaskGroups = useMemo(() => {
     const tasks = (instanceDetail?.tasks ?? []) as OnboardingTask[];
@@ -226,8 +258,11 @@ export default function OnboardingTrackerPage() {
   const inProgressCount = instances.filter(
     instance => instance.instance.status === "in_progress"
   ).length;
-  const completedCount = instances.filter(
-    instance => instance.instance.status === "completed"
+  const graduatedCount = instances.filter(
+    instance => instance.instance.status === "graduated"
+  ).length;
+  const terminatedCount = instances.filter(
+    instance => instance.instance.status === "terminated"
   ).length;
   const overdueCount = instances.filter(
     instance => Number(instance.overdueTasks) > 0
@@ -270,6 +305,7 @@ export default function OnboardingTrackerPage() {
             >
               <Checkbox
                 checked={task.completed}
+                disabled={instanceDetail?.instance.status === "terminated"}
                 onCheckedChange={checked =>
                   toggleTaskMut.mutate({
                     taskId: task.id,
@@ -339,7 +375,8 @@ export default function OnboardingTrackerPage() {
                           No due date
                         </span>
                       )}
-                      {!task.completed && (
+                      {!task.completed &&
+                        instanceDetail?.instance.status !== "terminated" && (
                         <Button
                           variant="link"
                           size="sm"
@@ -376,7 +413,7 @@ export default function OnboardingTrackerPage() {
         title="On/Offboarding Tracker"
         subtitle="Review every checklist, adjust launched assignments, and keep task dates on track."
       />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard
           icon={<Users className="h-5 w-5 text-blue-500" />}
           label="Total"
@@ -384,7 +421,7 @@ export default function OnboardingTrackerPage() {
         />
         <SummaryCard
           icon={<Clock className="h-5 w-5 text-amber-500" />}
-          label="In Progress"
+          label="Onboarded"
           value={inProgressCount}
         />
         <SummaryCard
@@ -394,8 +431,13 @@ export default function OnboardingTrackerPage() {
         />
         <SummaryCard
           icon={<CheckCircle2 className="h-5 w-5 text-emerald-500" />}
-          label="Completed"
-          value={completedCount}
+          label="Graduated"
+          value={graduatedCount}
+        />
+        <SummaryCard
+          icon={<XCircle className="h-5 w-5 text-red-500" />}
+          label="Terminated"
+          value={terminatedCount}
         />
       </div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -409,8 +451,9 @@ export default function OnboardingTrackerPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="in_progress">Onboarded</SelectItem>
+            <SelectItem value="graduated">Graduated</SelectItem>
+            <SelectItem value="terminated">Terminated</SelectItem>
             <SelectItem value="overdue">Overdue</SelectItem>
           </SelectContent>
         </Select>
@@ -436,6 +479,10 @@ export default function OnboardingTrackerPage() {
             const completed = Number(item.completedTasks);
             const overdue = Number(item.overdueTasks);
             const pct = total ? Math.round((completed / total) * 100) : 0;
+            const canTerminate =
+              item.template?.type === "onboarding" &&
+              item.instance.status === "in_progress" &&
+              completed < total;
             const agentName =
               item.agent?.name ?? item.agent?.email ?? "Unknown Agent";
             return (
@@ -449,16 +496,8 @@ export default function OnboardingTrackerPage() {
                       <div className="mb-1 flex flex-wrap items-center gap-2">
                         <UserCheck className="h-4 w-4 text-muted-foreground" />
                         <span className="font-semibold">{agentName}</span>
-                        <Badge
-                          variant={
-                            item.instance.status === "completed"
-                              ? "default"
-                              : "secondary"
-                          }
-                        >
-                          {item.instance.status === "completed"
-                            ? "Completed"
-                            : "In Progress"}
+                        <Badge variant={lifecycleBadgeVariant(item.instance.status)}>
+                          {lifecycleLabel(item.instance.status)}
                         </Badge>
                         {overdue > 0 && (
                           <Badge variant="destructive" className="text-xs">
@@ -470,8 +509,10 @@ export default function OnboardingTrackerPage() {
                       <p className="text-sm text-muted-foreground">
                         Template: {item.template?.name ?? "Unknown"} · Started{" "}
                         {safeFormat(item.instance.startedAt, "MMM d, yyyy")}
-                        {item.instance.completedAt &&
-                          ` · Completed ${safeFormat(item.instance.completedAt, "MMM d, yyyy")}`}
+                        {item.instance.graduatedAt &&
+                          ` · Graduated ${safeFormat(item.instance.graduatedAt, "MMM d, yyyy")}`}
+                        {item.instance.terminatedAt &&
+                          ` · Terminated ${safeFormat(item.instance.terminatedAt, "MMM d, yyyy")}`}
                       </p>
                       <div className="mt-2 flex items-center gap-3">
                         <Progress value={pct} className="h-2 flex-1" />
@@ -481,35 +522,56 @@ export default function OnboardingTrackerPage() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openAssignment(item)}
-                      >
-                        <Pencil className="mr-1 h-4 w-4" /> Edit Assignment
-                      </Button>
+                      {item.instance.status === "in_progress" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openAssignment(item)}
+                        >
+                          <Pencil className="mr-1 h-4 w-4" /> Edit Assignment
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         onClick={() => setSelectedInstanceId(item.instance.id)}
                       >
                         <Eye className="mr-1 h-4 w-4" /> View Checklist
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="text-destructive"
-                        aria-label={`Remove ${item.template?.name ?? "onboarding"} from ${agentName}`}
-                        onClick={() =>
-                          setInstanceToRemove({
-                            id: item.instance.id,
-                            agentName,
-                            templateName:
-                              item.template?.name ?? "Onboarding checklist",
-                          })
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {canTerminate && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() =>
+                            setInstanceToTerminate({
+                              id: item.instance.id,
+                              agentName,
+                              templateName:
+                                item.template?.name ?? "Onboarding checklist",
+                            })
+                          }
+                        >
+                          <XCircle className="mr-1 h-4 w-4" />
+                          Terminate onboarding
+                        </Button>
+                      )}
+                      {item.instance.status === "in_progress" && (
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="text-destructive"
+                          aria-label={`Remove ${item.template?.name ?? "onboarding"} from ${agentName}`}
+                          onClick={() =>
+                            setInstanceToRemove({
+                              id: item.instance.id,
+                              agentName,
+                              templateName:
+                                item.template?.name ?? "Onboarding checklist",
+                            })
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -555,38 +617,34 @@ export default function OnboardingTrackerPage() {
                     </strong>
                   </span>
                   <Badge
-                    variant={
-                      instanceDetail.instance.status === "completed"
-                        ? "default"
-                        : "secondary"
-                    }
+                    variant={lifecycleBadgeVariant(instanceDetail.instance.status)}
                   >
-                    {instanceDetail.instance.status === "completed"
-                      ? "Completed"
-                      : "In Progress"}
+                    {lifecycleLabel(instanceDetail.instance.status)}
                   </Badge>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setAssignmentTarget({
-                        id: instanceDetail.instance.id,
-                        agentUserId: instanceDetail.instance.agentUserId,
-                        agentName:
-                          instanceDetail.agent?.name ??
-                          instanceDetail.agent?.email ??
-                          "this agent",
-                      });
-                      setAssignmentAgentId(
-                        String(instanceDetail.instance.agentUserId)
-                      );
-                    }}
-                  >
-                    <Pencil className="mr-1 h-4 w-4" />
-                    Edit Assignment
-                  </Button>
+                  {instanceDetail.instance.status === "in_progress" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setAssignmentTarget({
+                          id: instanceDetail.instance.id,
+                          agentUserId: instanceDetail.instance.agentUserId,
+                          agentName:
+                            instanceDetail.agent?.name ??
+                            instanceDetail.agent?.email ??
+                            "this agent",
+                        });
+                        setAssignmentAgentId(
+                          String(instanceDetail.instance.agentUserId)
+                        );
+                      }}
+                    >
+                      <Pencil className="mr-1 h-4 w-4" />
+                      Edit Assignment
+                    </Button>
+                  )}
                   {instanceDetail.instance.status === "in_progress" && (
                     <Button
                       variant="outline"
@@ -642,6 +700,19 @@ export default function OnboardingTrackerPage() {
                   </CardContent>
                 </Card>
               )}
+              {instanceDetail.instance.status === "terminated" &&
+                instanceDetail.instance.terminationReason && (
+                  <Card className="border-red-500/30 bg-red-500/5">
+                    <CardContent className="p-4 text-sm">
+                      <p className="font-medium text-red-700">
+                        Termination reason
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        {instanceDetail.instance.terminationReason}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
               <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-end">
                 <div className="flex-1">
                   <Label className="text-xs text-muted-foreground">
@@ -695,6 +766,69 @@ export default function OnboardingTrackerPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(instanceToTerminate)}
+        onOpenChange={open => {
+          if (!open && !terminateInstanceMut.isPending) {
+            setInstanceToTerminate(null);
+            setTerminationReason("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Terminate onboarding?</DialogTitle>
+            <DialogDescription>
+              {instanceToTerminate
+                ? `End “${instanceToTerminate.templateName}” for ${instanceToTerminate.agentName}? The checklist will remain in history, and linked admin tasks will be cancelled.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="onboarding-termination-reason">
+              Termination reason <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="onboarding-termination-reason"
+              value={terminationReason}
+              onChange={event => setTerminationReason(event.target.value)}
+              placeholder="Explain why this onboarding is being terminated."
+              rows={4}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setInstanceToTerminate(null);
+                setTerminationReason("");
+              }}
+              disabled={terminateInstanceMut.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={
+                !terminationReason.trim() || terminateInstanceMut.isPending
+              }
+              onClick={() =>
+                instanceToTerminate &&
+                terminateInstanceMut.mutate({
+                  id: instanceToTerminate.id,
+                  reason: terminationReason.trim(),
+                })
+              }
+            >
+              {terminateInstanceMut.isPending
+                ? "Terminating..."
+                : "Confirm Termination"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -35,6 +35,17 @@ async function syncLinkedOnboardingTask(
     .where(eq(onboardingInstanceTasks.id, onboardingInstanceTaskId));
   if (!onboardingTask) return;
 
+  const [instance] = await db
+    .select({
+      status: onboardingInstances.status,
+      startedAt: onboardingInstances.startedAt,
+    })
+    .from(onboardingInstances)
+    .where(eq(onboardingInstances.id, onboardingTask.instanceId));
+  // A terminated checklist is immutable. Its linked admin tasks are cancelled
+  // during termination and must not reopen or graduate the historical record.
+  if (!instance || instance.status === "terminated") return;
+
   const completedAt = completed ? new Date() : null;
   await db.update(onboardingInstanceTasks).set({
     completed,
@@ -50,9 +61,18 @@ async function syncLinkedOnboardingTask(
       eq(onboardingInstanceTasks.completed, false),
     ));
   const allCompleted = Number(remaining?.count ?? 0) === 0;
+  const completionDurationMinutes = allCompleted
+    ? Math.max(
+        0,
+        Math.round((completedAt!.getTime() - instance.startedAt.getTime()) / 60_000)
+      )
+    : null;
   await db.update(onboardingInstances).set({
-    status: allCompleted ? "completed" : "in_progress",
+    status: allCompleted ? "graduated" : "in_progress",
     completedAt: allCompleted ? completedAt : null,
+    graduatedAt: allCompleted ? completedAt : null,
+    graduatedByUserId: allCompleted ? completedByUserId : null,
+    completionDurationMinutes,
   }).where(eq(onboardingInstances.id, onboardingTask.instanceId));
 }
 

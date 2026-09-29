@@ -937,7 +937,7 @@ Return only valid JSON array.`;
   /** Onboarding/offboarding report */
   onboardingReport: protectedProcedure
     .input(z.object({
-      status: z.enum(["in_progress", "completed"]).optional(), agentId: z.number().optional(),
+      status: z.enum(["in_progress", "graduated", "terminated"]).optional(), agentId: z.number().optional(),
     }).optional())
     .query(async ({ input }) => getOnboardingReport({ status: input?.status, agentId: input?.agentId })),
 

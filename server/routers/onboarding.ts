@@ -13,6 +13,15 @@ async function getDatabase() {
   return d;
 }
 
+function calculateLifecycleDurationMinutes(
+  startedAt: Date | string | null | undefined,
+  finishedAt: Date
+): number | null {
+  const startedAtMs = startedAt ? new Date(startedAt).getTime() : Number.NaN;
+  if (!Number.isFinite(startedAtMs)) return null;
+  return Math.max(0, Math.round((finishedAt.getTime() - startedAtMs) / 60_000));
+}
+
 async function requireAdminAssignee(
   db: Awaited<ReturnType<typeof getDatabase>>,
   adminUserId: number | null | undefined
@@ -414,6 +423,8 @@ export const onboardingRouter = router({
       const [instResult] = await db.insert(onboardingInstances).values({
         agentUserId: input.agentUserId,
         templateId: input.templateId,
+        startedAt,
+        startedByUserId: ctx.user.id,
       });
       const instanceId = instResult.insertId;
       // Copy template tasks into instance tasks, computing due dates
@@ -536,10 +547,19 @@ export const onboardingRouter = router({
       const db = await getDatabase();
       await requireOnboardingAgent(db, input.agentUserId);
       const [instance] = await db
-        .select({ id: onboardingInstances.id })
+        .select({
+          id: onboardingInstances.id,
+          status: onboardingInstances.status,
+        })
         .from(onboardingInstances)
         .where(eq(onboardingInstances.id, input.id));
       if (!instance) throw new TRPCError({ code: "NOT_FOUND" });
+      if (instance.status !== "in_progress") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Finished onboarding records cannot be reassigned.",
+        });
+      }
       await db
         .update(onboardingInstances)
         .set({ agentUserId: input.agentUserId })
@@ -553,10 +573,20 @@ export const onboardingRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
       const [instance] = await db
-        .select({ id: onboardingInstances.id })
+        .select({
+          id: onboardingInstances.id,
+          status: onboardingInstances.status,
+        })
         .from(onboardingInstances)
         .where(eq(onboardingInstances.id, input.id));
       if (!instance) throw new TRPCError({ code: "NOT_FOUND" });
+      if (instance.status !== "in_progress") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Finished onboarding records are retained in history and cannot be removed.",
+        });
+      }
 
       const instanceTasks = await db
         .select({ linkedTaskId: onboardingInstanceTasks.linkedTaskId })
@@ -583,11 +613,101 @@ export const onboardingRouter = router({
       return { success: true };
     }),
 
+  terminateInstance: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        reason: z
+          .string()
+          .trim()
+          .min(1, "A termination reason is required.")
+          .max(5_000),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDatabase();
+      const [instance] = await db
+        .select({
+          id: onboardingInstances.id,
+          status: onboardingInstances.status,
+          startedAt: onboardingInstances.startedAt,
+          templateType: onboardingTemplates.type,
+        })
+        .from(onboardingInstances)
+        .innerJoin(
+          onboardingTemplates,
+          eq(onboardingInstances.templateId, onboardingTemplates.id)
+        )
+        .where(eq(onboardingInstances.id, input.id));
+      if (!instance) throw new TRPCError({ code: "NOT_FOUND" });
+      if (instance.templateType !== "onboarding") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Only onboarding checklists can be terminated.",
+        });
+      }
+      if (instance.status !== "in_progress") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Only an active onboarding checklist can be terminated.",
+        });
+      }
+
+      const [remaining] = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(onboardingInstanceTasks)
+        .where(
+          and(
+            eq(onboardingInstanceTasks.instanceId, instance.id),
+            eq(onboardingInstanceTasks.completed, false)
+          )
+        );
+      if (Number(remaining?.count ?? 0) === 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "A completed onboarding checklist cannot be terminated.",
+        });
+      }
+
+      const linkedTasks = await db
+        .select({ linkedTaskId: onboardingInstanceTasks.linkedTaskId })
+        .from(onboardingInstanceTasks)
+        .where(eq(onboardingInstanceTasks.instanceId, instance.id));
+      const linkedTaskIds = linkedTasks
+        .map(task => task.linkedTaskId)
+        .filter((taskId): taskId is number => taskId != null);
+      if (linkedTaskIds.length > 0) {
+        await db
+          .update(tasksTable)
+          .set({ status: "cancelled", completedAt: null })
+          .where(inArray(tasksTable.id, linkedTaskIds));
+      }
+
+      const terminatedAt = new Date();
+      await db
+        .update(onboardingInstances)
+        .set({
+          status: "terminated",
+          terminatedAt,
+          terminatedByUserId: ctx.user.id,
+          terminationReason: input.reason,
+          completionDurationMinutes: calculateLifecycleDurationMinutes(
+            instance.startedAt,
+            terminatedAt
+          ),
+        })
+        .where(eq(onboardingInstances.id, instance.id));
+      return { success: true, terminatedAt };
+    }),
+
   listInstances: protectedProcedure
     .input(
       z
         .object({
-          status: z.enum(["in_progress", "completed", "all"]).default("all"),
+          status: z
+            .enum(["in_progress", "graduated", "terminated", "all"])
+            .default("all"),
         })
         .optional()
     )
@@ -606,6 +726,7 @@ export const onboardingRouter = router({
           template: {
             id: onboardingTemplates.id,
             name: onboardingTemplates.name,
+            type: onboardingTemplates.type,
           },
           totalTasks:
             sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id})`.as(
@@ -616,7 +737,7 @@ export const onboardingRouter = router({
               "completedTasks"
             ),
           overdueTasks:
-            sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id} AND completed = false AND dueDate IS NOT NULL AND dueDate < NOW())`.as(
+            sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id} AND completed = false AND dueDate IS NOT NULL AND dueDate < NOW() AND ${onboardingInstances.status} = 'in_progress')`.as(
               "overdueTasks"
             ),
         })
@@ -734,6 +855,12 @@ export const onboardingRouter = router({
         .from(onboardingInstances)
         .where(eq(onboardingInstances.id, input.instanceId));
       if (!instance) throw new TRPCError({ code: "NOT_FOUND" });
+      if (instance.status !== "in_progress") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Finished onboarding records cannot have due dates changed.",
+        });
+      }
       // Update all tasks that have a dueDate
       await db.execute(
         sql`UPDATE onboarding_instance_tasks SET dueDate = DATE_ADD(dueDate, INTERVAL ${input.days} DAY) WHERE instanceId = ${input.instanceId} AND dueDate IS NOT NULL`
@@ -760,6 +887,17 @@ export const onboardingRouter = router({
         .from(onboardingInstanceTasks)
         .where(eq(onboardingInstanceTasks.id, input.taskId));
       if (!task) throw new TRPCError({ code: "NOT_FOUND" });
+      const [instance] = await db
+        .select({ status: onboardingInstances.status })
+        .from(onboardingInstances)
+        .where(eq(onboardingInstances.id, task.instanceId));
+      if (!instance) throw new TRPCError({ code: "NOT_FOUND" });
+      if (instance.status !== "in_progress") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Finished onboarding records cannot have due dates changed.",
+        });
+      }
       const dueDate = input.dueDate ? new Date(input.dueDate) : null;
       await db
         .update(onboardingInstanceTasks)
@@ -932,9 +1070,10 @@ export const onboardingRouter = router({
     const [totals] = await db
       .select({
         totalInstances: sql<number>`COUNT(*)`,
-        completedInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'completed' THEN 1 ELSE 0 END)`,
+        graduatedInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'graduated' THEN 1 ELSE 0 END)`,
+        terminatedInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'terminated' THEN 1 ELSE 0 END)`,
         inProgressInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'in_progress' THEN 1 ELSE 0 END)`,
-        avgCompletionDays: sql<number>`AVG(CASE WHEN ${onboardingInstances.status} = 'completed' AND ${onboardingInstances.completedAt} IS NOT NULL THEN DATEDIFF(${onboardingInstances.completedAt}, ${onboardingInstances.startedAt}) ELSE NULL END)`,
+        avgCompletionDays: sql<number>`AVG(CASE WHEN ${onboardingInstances.status} IN ('graduated', 'terminated') AND ${onboardingInstances.completionDurationMinutes} IS NOT NULL THEN ${onboardingInstances.completionDurationMinutes} / 1440.0 ELSE NULL END)`,
       })
       .from(onboardingInstances);
 
@@ -981,8 +1120,9 @@ export const onboardingRouter = router({
         agentName: users.name,
         agentEmail: users.email,
         totalInstances: sql<number>`COUNT(DISTINCT ${onboardingInstances.id})`,
-        completedInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'completed' THEN 1 ELSE 0 END)`,
-        avgDays: sql<number>`AVG(CASE WHEN ${onboardingInstances.status} = 'completed' AND ${onboardingInstances.completedAt} IS NOT NULL THEN DATEDIFF(${onboardingInstances.completedAt}, ${onboardingInstances.startedAt}) ELSE NULL END)`,
+        graduatedInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'graduated' THEN 1 ELSE 0 END)`,
+        terminatedInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'terminated' THEN 1 ELSE 0 END)`,
+        avgDays: sql<number>`AVG(CASE WHEN ${onboardingInstances.status} IN ('graduated', 'terminated') AND ${onboardingInstances.completionDurationMinutes} IS NOT NULL THEN ${onboardingInstances.completionDurationMinutes} / 1440.0 ELSE NULL END)`,
         overdueTasks: sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks oit INNER JOIN onboarding_instances oi2 ON oit.instanceId = oi2.id WHERE oi2.agentUserId = ${users.id} AND oit.completed = false AND oit.dueDate IS NOT NULL AND oit.dueDate < NOW() AND oi2.status = 'in_progress')`,
       })
       .from(onboardingInstances)
@@ -993,7 +1133,8 @@ export const onboardingRouter = router({
     return {
       summary: {
         totalInstances: Number(totals?.totalInstances ?? 0),
-        completedInstances: Number(totals?.completedInstances ?? 0),
+        graduatedInstances: Number(totals?.graduatedInstances ?? 0),
+        terminatedInstances: Number(totals?.terminatedInstances ?? 0),
         inProgressInstances: Number(totals?.inProgressInstances ?? 0),
         avgCompletionDays:
           totals?.avgCompletionDays != null
@@ -1007,7 +1148,8 @@ export const onboardingRouter = router({
         agentName: a.agentName,
         agentEmail: a.agentEmail,
         totalInstances: Number(a.totalInstances),
-        completedInstances: Number(a.completedInstances),
+        graduatedInstances: Number(a.graduatedInstances),
+        terminatedInstances: Number(a.terminatedInstances),
         avgDays: a.avgDays != null ? Math.round(Number(a.avgDays)) : null,
         overdueTasks: Number(a.overdueTasks),
       })),
@@ -1068,6 +1210,12 @@ export const onboardingRouter = router({
         .from(onboardingInstances)
         .where(eq(onboardingInstances.id, task.instanceId));
       if (!instance) throw new TRPCError({ code: "NOT_FOUND" });
+      if (instance.status === "terminated") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Terminated onboarding checklists cannot be changed.",
+        });
+      }
       // Access check: admin can toggle any, agent can only toggle their own agent-assigned tasks
       if (ctx.user.role !== "admin") {
         if (instance.agentUserId !== ctx.user.id) {
@@ -1113,11 +1261,18 @@ export const onboardingRouter = router({
           )
         );
       if (input.completed && Number(remaining?.count ?? 1) === 0) {
+        const graduatedAt = new Date();
         await db
           .update(onboardingInstances)
           .set({
-            status: "completed",
-            completedAt: new Date(),
+            status: "graduated",
+            completedAt: graduatedAt,
+            graduatedAt,
+            graduatedByUserId: ctx.user.id,
+            completionDurationMinutes: calculateLifecycleDurationMinutes(
+              instance.startedAt,
+              graduatedAt
+            ),
           })
           .where(eq(onboardingInstances.id, task.instanceId));
       } else if (!input.completed) {
@@ -1127,6 +1282,9 @@ export const onboardingRouter = router({
           .set({
             status: "in_progress",
             completedAt: null,
+            graduatedAt: null,
+            graduatedByUserId: null,
+            completionDurationMinutes: null,
           })
           .where(eq(onboardingInstances.id, task.instanceId));
       }

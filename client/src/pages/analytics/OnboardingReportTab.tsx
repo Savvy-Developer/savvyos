@@ -7,9 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { UserPlus, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
 import { fmtNum, KpiCard, EmptyState, ExportButton, Th, Td } from "./shared";
+import { safeFormatET } from "@/lib/safeFormat";
 
 export default function OnboardingReportTab() {
-  const [status, setStatus] = useState<"in_progress" | "completed" | undefined>();
+  const [status, setStatus] = useState<"in_progress" | "graduated" | "terminated" | undefined>();
   const [agentId, setAgentId] = useState<number | undefined>();
 
   const { data: agents } = trpc.users.list.useQuery({ role: "agent" });
@@ -32,8 +33,9 @@ export default function OnboardingReportTab() {
           <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="All" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="in_progress">Onboarded</SelectItem>
+            <SelectItem value="graduated">Graduated</SelectItem>
+            <SelectItem value="terminated">Terminated</SelectItem>
           </SelectContent>
         </Select>
         <span className="text-sm text-muted-foreground font-medium">Agent:</span>
@@ -48,10 +50,11 @@ export default function OnboardingReportTab() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <KpiCard label="Total Onboardings" value={fmtNum(summary?.total ?? 0)} icon={<UserPlus className="h-5 w-5" />} />
-        <KpiCard label="In Progress" value={fmtNum(summary?.inProgress ?? 0)} icon={<Clock className="h-5 w-5" />} />
-        <KpiCard label="Completed" value={fmtNum(summary?.completed ?? 0)} icon={<CheckCircle2 className="h-5 w-5" />} />
+        <KpiCard label="Onboarded" value={fmtNum(summary?.inProgress ?? 0)} icon={<Clock className="h-5 w-5" />} />
+        <KpiCard label="Graduated" value={fmtNum(summary?.graduated ?? 0)} icon={<CheckCircle2 className="h-5 w-5" />} />
+        <KpiCard label="Terminated" value={fmtNum(summary?.terminated ?? 0)} icon={<AlertTriangle className="h-5 w-5" />} />
         <KpiCard label="Avg Days to Complete" value={summary?.avgDaysToComplete ? `${summary.avgDaysToComplete}d` : "—"} icon={<Clock className="h-5 w-5" />} />
       </div>
 
@@ -70,9 +73,10 @@ export default function OnboardingReportTab() {
             <CardTitle className="text-sm font-semibold">Agent Onboarding Instances</CardTitle>
             <ExportButton
               data={filtered.map((i: any) => ({
-                Agent: i.agentName, Status: i.status, "Started": new Date(i.startedAt).toLocaleDateString(),
-                "Completed": i.completedAt ? new Date(i.completedAt).toLocaleDateString() : "—",
-                "Days": i.daysToComplete ?? "—", "Progress %": i.pct,
+                Agent: i.agentName, Status: i.status, "Started": safeFormatET(i.startedAt),
+                "Finished": i.finishedAt ? safeFormatET(i.finishedAt) : "—",
+                "Duration": i.completionDurationMinutes != null ? `${i.completionDurationMinutes} min` : "—",
+                "Termination Reason": i.terminationReason ?? "—", "Progress %": i.pct,
                 "Total Tasks": i.totalTasks, "Completed Tasks": i.completedTasks, "Overdue": i.overdueTasks,
               }))}
               filename="onboarding-report.csv"
@@ -99,11 +103,11 @@ export default function OnboardingReportTab() {
                       <tr key={i.instanceId} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                         <Td className="font-medium">{i.agentName}</Td>
                         <Td>
-                          <Badge variant={i.status === "completed" ? "default" : "secondary"} className="text-xs">
-                            {i.status === "in_progress" ? "In Progress" : "Completed"}
+                          <Badge variant={i.status === "terminated" ? "destructive" : i.status === "graduated" ? "default" : "secondary"} className="text-xs">
+                            {i.status === "in_progress" ? "Onboarded" : i.status === "graduated" ? "Graduated" : "Terminated"}
                           </Badge>
                         </Td>
-                        <Td className="text-muted-foreground text-xs">{new Date(i.startedAt).toLocaleDateString()}</Td>
+                        <Td className="text-muted-foreground text-xs">{safeFormatET(i.startedAt)}</Td>
                         <Td className="text-right">{i.completedTasks}/{i.totalTasks}</Td>
                         <Td className="text-right">
                           {i.overdueTasks > 0

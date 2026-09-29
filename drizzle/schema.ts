@@ -3295,11 +3295,26 @@ export const onboardingInstances = mysqlTable("onboarding_instances", {
   templateId: int("templateId")
     .notNull()
     .references(() => onboardingTemplates.id),
-  status: mysqlEnum("status", ["in_progress", "completed"])
+  status: mysqlEnum("status", ["in_progress", "graduated", "terminated"])
     .default("in_progress")
     .notNull(),
   startedAt: timestamp("startedAt").defaultNow().notNull(),
+  startedByUserId: int("startedByUserId").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  // completedAt remains for compatibility with historical data and legacy reads.
   completedAt: timestamp("completedAt"),
+  graduatedAt: timestamp("graduatedAt"),
+  graduatedByUserId: int("graduatedByUserId").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  terminatedAt: timestamp("terminatedAt"),
+  terminatedByUserId: int("terminatedByUserId").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  terminationReason: text("terminationReason"),
+  // Duration from startedAt to either graduation or termination, in whole minutes.
+  completionDurationMinutes: int("completionDurationMinutes"),
 });
 export type OnboardingInstance = typeof onboardingInstances.$inferSelect;
 

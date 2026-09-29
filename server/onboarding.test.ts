@@ -228,6 +228,20 @@ describe("onboarding", () => {
         onboardingOverdueNotificationRecipients.includeAffectedAgent
       ).toBeDefined();
     });
+
+    it("persists onboarding lifecycle timestamps, actors, and duration", async () => {
+      const { onboardingInstances } = await import("../drizzle/schema");
+      expect(onboardingInstances.startedByUserId).toBeDefined();
+      expect(onboardingInstances.graduatedAt).toBeDefined();
+      expect(onboardingInstances.graduatedByUserId).toBeDefined();
+      expect(onboardingInstances.terminatedAt).toBeDefined();
+      expect(onboardingInstances.terminatedByUserId).toBeDefined();
+      expect(onboardingInstances.terminationReason).toBeDefined();
+      expect(onboardingInstances.completionDurationMinutes).toBeDefined();
+      expect(onboardingInstances.status.enumValues).toEqual(
+        expect.arrayContaining(["in_progress", "graduated", "terminated"])
+      );
+    });
   });
 
   describe("template stages", () => {
@@ -388,6 +402,10 @@ describe("onboarding", () => {
       });
       expect(result.id).toBe(100);
 
+      const instanceValues = mockDb.values.mock.calls[0]?.[0];
+      expect(instanceValues.startedAt).toBeInstanceOf(Date);
+      expect(instanceValues.startedByUserId).toBe(1);
+
       const instanceTaskValues = capturedValues.filter(
         values => "instanceId" in values
       );
@@ -420,7 +438,7 @@ describe("onboarding", () => {
     it("moves a launched checklist to another active agent", async () => {
       mockDb.where
         .mockResolvedValueOnce([{ id: 7, role: "agent", isActive: true }])
-        .mockResolvedValueOnce([{ id: 100 }]);
+        .mockResolvedValueOnce([{ id: 100, status: "in_progress" }]);
       const caller = appRouter.createCaller(makeCtx());
       const result = await caller.onboarding.updateInstanceAssignment({
         id: 100,
@@ -432,12 +450,136 @@ describe("onboarding", () => {
 
     it("removes a launched checklist and its linked standard tasks", async () => {
       mockDb.where
-        .mockResolvedValueOnce([{ id: 100 }])
+        .mockResolvedValueOnce([{ id: 100, status: "in_progress" }])
         .mockResolvedValueOnce([{ linkedTaskId: 22 }, { linkedTaskId: null }]);
       const caller = appRouter.createCaller(makeCtx());
       const result = await caller.onboarding.deleteInstance({ id: 100 });
       expect(result.success).toBe(true);
       expect(mockDb.delete).toHaveBeenCalledTimes(2);
+    });
+
+    it("retains finished checklists in onboarding history", async () => {
+      mockDb.where.mockResolvedValueOnce([{ id: 100, status: "terminated" }]);
+      const caller = appRouter.createCaller(makeCtx());
+      await expect(caller.onboarding.deleteInstance({ id: 100 })).rejects.toThrow(
+        "Finished onboarding records are retained in history"
+      );
+    });
+  });
+
+  describe("onboarding lifecycle termination", () => {
+    it("terminates an active unfinished checklist with a reason, actor, and duration", async () => {
+      const startedAt = new Date(Date.now() - 95 * 60_000);
+      mockDb.where
+        .mockResolvedValueOnce([
+          {
+            id: 100,
+            status: "in_progress",
+            startedAt,
+            templateType: "onboarding",
+          },
+        ])
+        .mockResolvedValueOnce([{ count: 2 }])
+        .mockResolvedValueOnce([{ linkedTaskId: 22 }]);
+
+      const caller = appRouter.createCaller(makeCtx());
+      const result = await caller.onboarding.terminateInstance({
+        id: 100,
+        reason: "The agent withdrew before completing onboarding.",
+      });
+
+      expect(result.success).toBe(true);
+      const lifecycleValues = mockDb.set.mock.calls
+        .map(call => call[0])
+        .find(values => values.status === "terminated");
+      expect(lifecycleValues).toMatchObject({
+        status: "terminated",
+        terminatedByUserId: 1,
+        terminationReason: "The agent withdrew before completing onboarding.",
+      });
+      expect(lifecycleValues.terminatedAt).toBeInstanceOf(Date);
+      expect(lifecycleValues.completionDurationMinutes).toBeGreaterThanOrEqual(94);
+      expect(mockDb.set).toHaveBeenCalledWith({
+        status: "cancelled",
+        completedAt: null,
+      });
+    });
+
+    it("requires a non-empty termination reason", async () => {
+      const caller = appRouter.createCaller(makeCtx());
+      await expect(
+        caller.onboarding.terminateInstance({ id: 100, reason: "   " })
+      ).rejects.toThrow("A termination reason is required");
+    });
+
+    it("refuses to terminate a graduated checklist", async () => {
+      mockDb.where.mockResolvedValueOnce([
+        {
+          id: 100,
+          status: "graduated",
+          startedAt: new Date(),
+          templateType: "onboarding",
+        },
+      ]);
+      const caller = appRouter.createCaller(makeCtx());
+      await expect(
+        caller.onboarding.terminateInstance({ id: 100, reason: "Too late" })
+      ).rejects.toThrow("Only an active onboarding checklist can be terminated");
+    });
+
+    it("is forbidden for agents", async () => {
+      const caller = appRouter.createCaller(makeCtx({ role: "agent" }));
+      await expect(
+        caller.onboarding.terminateInstance({ id: 100, reason: "Test" })
+      ).rejects.toThrow("FORBIDDEN");
+    });
+  });
+
+  describe("onboarding graduation", () => {
+    it("records graduation and duration when the final checklist task is completed", async () => {
+      const startedAt = new Date(Date.now() - 130 * 60_000);
+      mockDb.where
+        .mockResolvedValueOnce([
+          { id: 10, instanceId: 100, assignee: "agent", linkedTaskId: null },
+        ])
+        .mockResolvedValueOnce([
+          { id: 100, agentUserId: 5, status: "in_progress", startedAt },
+        ])
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce([{ count: 0 }]);
+
+      const caller = appRouter.createCaller(makeCtx({ id: 5, role: "agent" }));
+      const result = await caller.onboarding.toggleTask({
+        taskId: 10,
+        completed: true,
+      });
+
+      expect(result.success).toBe(true);
+      const lifecycleValues = mockDb.set.mock.calls
+        .map(call => call[0])
+        .find(values => values.status === "graduated");
+      expect(lifecycleValues).toMatchObject({
+        status: "graduated",
+        graduatedByUserId: 5,
+      });
+      expect(lifecycleValues.graduatedAt).toBeInstanceOf(Date);
+      expect(lifecycleValues.completedAt).toBe(lifecycleValues.graduatedAt);
+      expect(lifecycleValues.completionDurationMinutes).toBeGreaterThanOrEqual(129);
+    });
+
+    it("does not allow a terminated checklist to be changed", async () => {
+      mockDb.where
+        .mockResolvedValueOnce([
+          { id: 10, instanceId: 100, assignee: "agent", linkedTaskId: null },
+        ])
+        .mockResolvedValueOnce([
+          { id: 100, agentUserId: 5, status: "terminated" },
+        ]);
+
+      const caller = appRouter.createCaller(makeCtx({ id: 5, role: "agent" }));
+      await expect(
+        caller.onboarding.toggleTask({ taskId: 10, completed: true })
+      ).rejects.toThrow("Terminated onboarding checklists cannot be changed");
     });
   });
 
@@ -517,8 +659,7 @@ describe("onboarding", () => {
       // Mock select for task existence
       mockDb.where
         .mockResolvedValueOnce([{ id: 10, instanceId: 1, dueDate: new Date() }])
-        // Mock the update().set().where() chain
-        .mockResolvedValueOnce(undefined);
+        .mockResolvedValueOnce([{ status: "in_progress" }]);
 
       const caller = appRouter.createCaller(makeCtx());
       const result = await caller.onboarding.updateTaskDueDate({
@@ -531,7 +672,7 @@ describe("onboarding", () => {
     it("clears due date when null is passed", async () => {
       mockDb.where
         .mockResolvedValueOnce([{ id: 10, instanceId: 1, dueDate: new Date() }])
-        .mockResolvedValueOnce(undefined);
+        .mockResolvedValueOnce([{ status: "in_progress" }]);
 
       const caller = appRouter.createCaller(makeCtx());
       const result = await caller.onboarding.updateTaskDueDate({
@@ -592,7 +733,8 @@ describe("onboarding", () => {
       mockDb.from.mockResolvedValueOnce([
         {
           totalInstances: 5,
-          completedInstances: 3,
+          graduatedInstances: 3,
+          terminatedInstances: 0,
           inProgressInstances: 2,
           avgCompletionDays: 12,
         },
@@ -624,7 +766,8 @@ describe("onboarding", () => {
                 agentName: "Dev Agent",
                 agentEmail: "dev@test.com",
                 totalInstances: 2,
-                completedInstances: 1,
+                graduatedInstances: 1,
+                terminatedInstances: 0,
                 avgDays: 10,
                 overdueTasks: 1,
               },
@@ -637,7 +780,8 @@ describe("onboarding", () => {
       const result = await caller.onboarding.getReport();
 
       expect(result.summary.totalInstances).toBe(5);
-      expect(result.summary.completedInstances).toBe(3);
+      expect(result.summary.graduatedInstances).toBe(3);
+      expect(result.summary.terminatedInstances).toBe(0);
       expect(result.summary.inProgressInstances).toBe(2);
       expect(result.summary.avgCompletionDays).toBe(12);
       expect(result.summary.overdueTaskCount).toBe(4);
@@ -652,7 +796,8 @@ describe("onboarding", () => {
       mockDb.from.mockResolvedValueOnce([
         {
           totalInstances: 1,
-          completedInstances: 0,
+          graduatedInstances: 0,
+          terminatedInstances: 0,
           inProgressInstances: 1,
           avgCompletionDays: null,
         },
