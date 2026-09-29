@@ -486,6 +486,47 @@ export async function updateContact(
   }
   scheduleAircallPhoneRematch(id, normalizedData);
 }
+
+/** The selected contacts that still have no lead source. */
+export function missingContactLeadSourceWhere(contactIds: number[]) {
+  return and(inArray(contacts.id, contactIds), isNull(contacts.leadSourceId));
+}
+
+/**
+ * Backfills a lead source on contacts that were created without one. Only rows
+ * whose leadSourceId is still empty are touched: a contact that already has a
+ * source keeps it, even if it was selected. The rows are locked while they are
+ * read so a concurrent correction cannot be overwritten, and the same opt-in
+ * session flag as updateContact lets the change past the attribution trigger.
+ * Returns the contacts that were actually updated.
+ */
+export async function setMissingContactLeadSource(
+  contactIds: number[],
+  leadSourceId: number,
+): Promise<Array<{ id: number; firstName: string; lastName: string }>> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const ids = Array.from(new Set(contactIds));
+  if (ids.length === 0) return [];
+  return db.transaction(async (tx) => {
+    const missing = await tx
+      .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName })
+      .from(contacts)
+      .where(missingContactLeadSourceWhere(ids))
+      .for("update");
+    if (missing.length === 0) return [];
+    await tx.execute(sql.raw(`SET @${CONTACT_LEAD_SOURCE_UPDATE_SESSION_VARIABLE} = 1`));
+    try {
+      await tx
+        .update(contacts)
+        .set({ leadSourceId })
+        .where(missingContactLeadSourceWhere(missing.map(row => row.id)));
+    } finally {
+      await tx.execute(sql.raw(`SET @${CONTACT_LEAD_SOURCE_UPDATE_SESSION_VARIABLE} = 0`));
+    }
+    return missing;
+  });
+}
 export async function archiveContact(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");

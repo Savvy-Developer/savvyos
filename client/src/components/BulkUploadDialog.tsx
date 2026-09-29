@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +43,10 @@ interface BulkUploadDialogProps {
   columns: BulkUploadColumn[];
   onUpload: (rows: Record<string, string>[]) => Promise<BulkUploadSummary>;
   onSuccess?: () => void;
+  /** Extra settings that apply to the whole upload, shown above the preview. */
+  uploadSettings?: ReactNode;
+  /** When set, the import is blocked and this reason is shown instead. */
+  importBlockedReason?: string | null;
 }
 
 // ─── CSV Parsing ──────────────────────────────────────────────────────────────
@@ -108,6 +112,8 @@ export default function BulkUploadDialog({
   columns,
   onUpload,
   onSuccess,
+  uploadSettings,
+  importBlockedReason,
 }: BulkUploadDialogProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("upload");
@@ -256,6 +262,8 @@ export default function BulkUploadDialog({
               </Button>
             </div>
 
+            {uploadSettings}
+
             <div className="overflow-x-auto rounded-lg border">
               <table className="w-full text-xs">
                 <thead className="bg-muted/40 border-b">
@@ -284,6 +292,13 @@ export default function BulkUploadDialog({
                 </tbody>
               </table>
             </div>
+
+            {importBlockedReason && (
+              <div className="flex items-center gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {importBlockedReason}
+              </div>
+            )}
 
             {parseError && (
               <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 rounded-lg p-3">
@@ -358,7 +373,7 @@ export default function BulkUploadDialog({
           {step === "preview" && (
             <>
               <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button onClick={handleImport} disabled={uploading || parsedRows.length === 0}>
+              <Button onClick={handleImport} disabled={uploading || parsedRows.length === 0 || !!importBlockedReason}>
                 {uploading ? "Importing…" : `Import ${parsedRows.length} rows`}
               </Button>
             </>
