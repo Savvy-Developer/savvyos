@@ -6,7 +6,9 @@ import {
   AD_ATTRIBUTION_MAX_LENGTH,
   adAttributionParams,
   adAttributionUpdates,
+  bookingUtmParams,
   campaignSourceFrom,
+  CONTACT_CALENDAR_FALLBACK_UTMS,
   readAdAttribution,
   sessionAdAttribution,
   isPaidAttribution,
@@ -176,5 +178,43 @@ describe("isPaidAttribution", () => {
   it("is what the website lead form uses to pick the lead source type", () => {
     const router = readFileSync(path.resolve(import.meta.dirname, "routers/website.ts"), "utf8");
     expect(router).toContain('isPaidAttribution(adAttribution) ? "paid_lead" : "organic"');
+  });
+});
+
+describe("bookingUtmParams (contact page calendar fallback)", () => {
+  it("uses the fallback when the visit has no UTMs", () => {
+    expect(bookingUtmParams(null, CONTACT_CALENDAR_FALLBACK_UTMS)).toEqual({
+      utm_source: "website",
+      utm_medium: "contact",
+      utm_campaign: "newsite-contact",
+    });
+    expect(bookingUtmParams({}, CONTACT_CALENDAR_FALLBACK_UTMS)).toEqual(CONTACT_CALENDAR_FALLBACK_UTMS);
+  });
+
+  it("keeps all five incoming UTMs and ignores the fallback", () => {
+    const incoming = readAdAttribution(META);
+    expect(bookingUtmParams(incoming, CONTACT_CALENDAR_FALLBACK_UTMS)).toEqual(META);
+  });
+
+  it("never mixes a partly tagged link with the fallback", () => {
+    const incoming = readAdAttribution({ utm_source: "instagram" });
+    expect(bookingUtmParams(incoming, CONTACT_CALENDAR_FALLBACK_UTMS)).toEqual({ utm_source: "instagram" });
+  });
+
+  it("treats blank incoming values as no UTMs", () => {
+    const incoming = readAdAttribution({ utm_source: " ", utm_campaign: "" });
+    expect(bookingUtmParams(incoming, CONTACT_CALENDAR_FALLBACK_UTMS)).toEqual(CONTACT_CALENDAR_FALLBACK_UTMS);
+  });
+
+  it("does not hand out the shared fallback object", () => {
+    const out = bookingUtmParams(null, CONTACT_CALENDAR_FALLBACK_UTMS);
+    out.utm_source = "changed";
+    expect(CONTACT_CALENDAR_FALLBACK_UTMS.utm_source).toBe("website");
+  });
+
+  it("is what the contact page calendar uses", () => {
+    const page = readFileSync(path.resolve(import.meta.dirname, "../client/src/pages/PublicWebsite.tsx"), "utf8");
+    expect(page).toContain("bookingUtmParams(captureVisitAttribution(), CONTACT_CALENDAR_FALLBACK_UTMS)");
+    expect(page).toContain("primary_color=10c0df&${calendarUtms}");
   });
 });
