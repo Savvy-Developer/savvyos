@@ -102,6 +102,7 @@ import { ensureWebsiteTeamSchema } from "../websiteTeamSchema";
 import { ensureWebsitePriceDropSchema } from "../websitePriceDropSchema";
 import { ensureWebsiteSoldSweepSchema } from "../websiteSoldSweepSchema";
 import { ensureWebsiteListingExpirySchema } from "../websiteListingExpirySchema";
+import { ensureTransactionTerminationTextSchema } from "../transactionTerminationTextSchema";
 import { ensureOrganicSocialLeadSources } from "../organicSocialLeadSources";
 import { ensureWebsiteLeadSources } from "../websiteLeadSources";
 import { ensureMarketStateFix } from "../marketStateFix";
@@ -142,6 +143,7 @@ async function startServer() {
   await ensureWebsitePriceDropSchema();
   await ensureWebsiteSoldSweepSchema();
   await ensureWebsiteListingExpirySchema();
+  await ensureTransactionTerminationTextSchema();
   // Organic Social lead sources exist before the first organic lead arrives
   // (a lead source locks at creation), and the legacy Facebook/Instagram
   // import buckets are renamed and retired once.

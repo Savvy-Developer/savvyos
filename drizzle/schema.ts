@@ -1637,7 +1637,8 @@ export const transactions = mysqlTable("transactions", {
   // Financial integrity flag
   payoutIntegrityFlag: boolean("payoutIntegrityFlag").default(false).notNull(),
   payoutIntegrityNote: text("payoutIntegrityNote"),
-  terminationReason: text("terminationReason"),
+  // Detailed termination records must not be constrained to MySQL TEXT's 64 KB ceiling.
+  terminationReason: mediumtext("terminationReason"),
   listingId: int("listing_id").references(() => listings.id),
   sellerContactId: int("seller_contact_id").references(() => contacts.id),
   // Dual-agency buyer side
@@ -3178,7 +3179,8 @@ export const transactionNotes = mysqlTable("transaction_notes", {
   authorId: int("authorId")
     .notNull()
     .references(() => users.id),
-  content: text("content").notNull(),
+  // Termination reasons are also recorded as transaction notes.
+  content: mediumtext("content").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export type TransactionNote = typeof transactionNotes.$inferSelect;
