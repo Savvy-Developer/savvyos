@@ -56,6 +56,7 @@ import { trpc } from "@/lib/trpc";
 import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
 import { captureVisitAttribution, formAttribution } from "@/lib/visitAttribution";
+import { bookingUtmParams, CONTACT_CALENDAR_FALLBACK_UTMS } from "@shared/adAttribution";
 import { trackWebsiteEvent, type SellPlacement } from "@/lib/websiteAnalytics";
 import {
   editableListPage,
@@ -4247,7 +4248,13 @@ function ContactPage() {
   const contactPhone = settings?.contactPhone || "(828) 407-1705";
   const contactEmail = settings?.contactEmail || "hello@savvy.realty";
   const tel = `tel:${contactPhone.replace(/[^+\d]/g, "")}`;
-  const calendarSrc = `${MARKET_MATCH_CALENDLY}?embed_type=Inline&embed_domain=${encodeURIComponent(window.location.hostname)}&primary_color=10c0df`;
+  // The visit's UTMs (this URL, else held from the landing page), or the
+  // contact page fallback when there are none. Worked out once per page load.
+  const calendarUtms = useMemo(
+    () => new URLSearchParams(bookingUtmParams(captureVisitAttribution(), CONTACT_CALENDAR_FALLBACK_UTMS)).toString(),
+    []
+  );
+  const calendarSrc = `${MARKET_MATCH_CALENDLY}?embed_type=Inline&embed_domain=${encodeURIComponent(window.location.hostname)}&primary_color=10c0df&${calendarUtms}`;
   const stats: Array<[any, string, string]> = [
     [DollarSign, "$250M+", "STRs Sold in 2024"],
     [Users, "294", "Investor Transactions"],

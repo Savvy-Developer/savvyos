@@ -138,6 +138,35 @@ export function adAttributionParams(attribution: AdAttribution | null | undefine
 }
 
 /**
+ * The new site's contact page calendar fallback (Cam, 29 Sep 2026). The live
+ * savvy-agents.com contact page uses utm_campaign=contact-page, so the two
+ * pages stay apart in reporting.
+ */
+export const CONTACT_CALENDAR_FALLBACK_UTMS: Record<string, string> = {
+  utm_source: "website",
+  utm_medium: "contact",
+  utm_campaign: "newsite-contact",
+};
+
+/**
+ * The UTM parameters a booking calendar should carry.
+ *
+ * A booking made with no tracking at all is credited to nobody: someone who
+ * typed the address, came back from a bookmark or followed a shared
+ * screenshot. So a calendar can name a fallback, and it applies only when the
+ * visit carries no UTM at all. The visitor's own UTMs always win, and they are
+ * never mixed with the fallback: a link tagged only utm_source=instagram stays
+ * exactly that, rather than picking up the fallback's medium and campaign.
+ */
+export function bookingUtmParams(
+  attribution: AdAttribution | null | undefined,
+  fallback: Record<string, string>
+): Record<string, string> {
+  const incoming = adAttributionParams(attribution);
+  return Object.keys(incoming).length ? incoming : { ...fallback };
+}
+
+/**
  * Whether the visit that produced a lead was paid for.
  *
  * Meta and Google Ads both write a campaign tag, so a campaign on its own is
