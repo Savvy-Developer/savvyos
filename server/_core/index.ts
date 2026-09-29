@@ -82,6 +82,8 @@ import {
 import { websiteTagsForRequest } from "../websiteTracking";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
 import { registerLegacySiteRedirects } from "../legacySiteRedirects";
+import { registerWebsiteLinkForwarding } from "../websiteLinkForwarding";
+import { ensureWebsiteLinkForwardingSchema } from "../websiteLinkForwardingSchema";
 import { registerReleaseNotificationRoute } from "../releaseNotificationRoute";
 import { registerMarketingEmailUnsubscribeRoutes } from "../marketingEmailUnsubscribe";
 import { registerReadOnlyMcpRoute } from "../readOnlyMcp";
@@ -147,6 +149,7 @@ async function startServer() {
   await ensureWebsiteTeamSchema();
   await ensureWebsitePriceDropSchema();
   await ensureWebsiteSoldSweepSchema();
+  await ensureWebsiteLinkForwardingSchema();
   await ensureWebsiteListingExpirySchema();
   await ensureTransactionTerminationTextSchema();
   // Organic Social lead sources exist before the first organic lead arrives
@@ -313,6 +316,11 @@ async function startServer() {
   });
   // Public, count-only MLS Properties schema check (no listing data).
   registerMlsStatusRoute(app);
+  // Links to home.savvy-agents.com/newsite forward to the site's new address
+  // once that is switched on in Website Studio (off until then). Before the
+  // redirect rules below, so a published link always lands on the same page
+  // with its UTMs.
+  registerWebsiteLinkForwarding(app);
   // Legacy GHL paths resolve first so a migration redirect never competes with
   // a landing-page slug or a branded short link.
   registerLandingPageRedirects(app);

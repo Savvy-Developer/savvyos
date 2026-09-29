@@ -1515,6 +1515,23 @@ export const websiteSoldSweeps = mysqlTable(
 export type WebsiteSoldSweep = typeof websiteSoldSweeps.$inferSelect;
 
 /**
+ * Forwarding for links to home.savvy-agents.com/newsite once the site moves
+ * (shared/websiteLinkForwarding.ts). One row, singletonKey "primary"; no row
+ * means off. Created at startup by server/websiteLinkForwardingSchema.ts; the
+ * same statement is kept in drizzle/20260929_website_link_forwarding.sql.
+ */
+export const websiteLinkForwarding = mysqlTable("website_link_forwarding", {
+  id: int("id").autoincrement().primaryKey(),
+  singletonKey: varchar("singletonKey", { length: 64 }).default("primary").notNull().unique(),
+  enabled: boolean("enabled").default(false).notNull(),
+  targetOrigin: varchar("targetOrigin", { length: 255 }),
+  keepBasePath: boolean("keepBasePath").default(false).notNull(),
+  updatedById: int("updatedById"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type WebsiteLinkForwardingRow = typeof websiteLinkForwarding.$inferSelect;
+
+/**
  * How long each website listing has been live, for the 90-day expiry
  * (server/websiteListingExpiry.ts). liveSince restarts whenever a listing goes
  * from not live back to live, so a republished listing gets a fresh 90 days.
