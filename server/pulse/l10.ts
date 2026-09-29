@@ -321,8 +321,7 @@ async function getIssues(db: any, targetMeetingId: string) {
     .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
     .where(and(eq(pulseWorkItems.meetingId, targetMeetingId), eq(pulseWorkItems.type, "issue"), ne(pulseWorkItems.status, "completed"), isNull(pulseWorkItems.deletedAt)))
     .orderBy(asc(pulseWorkItems.sortOrder), asc(pulseWorkItems.status), asc(pulseWorkItems.priority), asc(pulseWorkItems.createdAt));
-  const rocketId = rows.find((issue: any) => Number(issue.sortOrder) < 0)?.id ?? null;
-  return rows.map((issue: any) => ({ ...issue, isRocketed: issue.id === rocketId }));
+  return rows.map((issue: any) => ({ ...issue, isRocketed: Number(issue.sortOrder) < 0 }));
 }
 
 async function getUpdates(db: any, targetMeetingId: string, updateType: "segue" | "headline" | "brief") {

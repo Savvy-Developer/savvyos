@@ -11,18 +11,17 @@ describe("Pulse Issue Rocket", () => {
   it("orders Rocketed Issues before the ordinary Issue list", () => {
     expect(l10).toContain("asc(pulseWorkItems.sortOrder)");
     expect(l10).toContain("function getIssues");
-    expect(l10).toContain("isRocketed: issue.id === rocketId");
+    expect(l10).toContain("isRocketed: Number(issue.sortOrder) < 0");
   });
 
-  it("allows an active meeting participant to Rocket and un-Rocket an open meeting Issue", () => {
+  it("allows an active meeting participant to Rocket and un-Rocket multiple open meeting Issues", () => {
     expect(workItems).toContain("rocketIssue: pulseMemberProcedure");
     expect(workItems).toContain("getAccessibleWorkItem(db, ctx.user.id, input.workItemId)");
     expect(workItems).toContain("Only open meeting Issues can be rocketed.");
     expect(workItems).toContain('"issue_rocketed"');
     expect(workItems).toContain('"issue_unrocketed"');
-    expect(workItems).toContain("ROCKET_SORT_ORDER");
+    expect(workItems).toContain("nextRocketSortOrder");
     expect(workItems).toContain("isRocketedIssue");
-    expect(workItems).toContain("lt(pulseWorkItems.sortOrder, 0)");
     expect(workItems).toContain("rocketed: false");
   });
 
@@ -34,5 +33,6 @@ describe("Pulse Issue Rocket", () => {
     expect(itemEditor).toContain("Rocketed");
     expect(itemEditor).toContain("isRocketedIssue");
     expect(itemEditor).toContain("Issue returned to normal order.");
+    expect(itemEditor).toContain("Issue added to Rocket priorities.");
   });
 });

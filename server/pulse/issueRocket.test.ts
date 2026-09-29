@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { isRocketedIssue, ROCKET_SORT_ORDER } from "./issueRocket";
+import { isRocketedIssue, nextRocketSortOrder, ROCKET_SORT_ORDER } from "./issueRocket";
 
 describe("Pulse Issue Rocket state", () => {
-  it("uses one stable sort position for the current Rocketed Issue", () => {
+  it("uses a negative sort position for the first Rocketed Issue", () => {
     expect(ROCKET_SORT_ORDER).toBe(-1);
+    expect(nextRocketSortOrder(null)).toBe(-1);
   });
 
-  it("recognizes only promoted Issue positions as Rocketed", () => {
+  it("keeps multiple Rocketed Issues and places each new one first", () => {
+    expect(nextRocketSortOrder(-1)).toBe(-2);
+    expect(nextRocketSortOrder(-4)).toBe(-5);
+  });
+
+  it("recognizes every negative Issue position as Rocketed", () => {
     expect(isRocketedIssue(ROCKET_SORT_ORDER)).toBe(true);
     expect(isRocketedIssue(-5)).toBe(true);
     expect(isRocketedIssue(0)).toBe(false);

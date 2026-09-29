@@ -155,7 +155,7 @@ function PulseQuickWorkControls({ item, onChanged }: { item: any; onChanged: () 
     onError: (error) => toast.error(error.message),
   });
   const rocketIssue = trpc.pulse.workItems.rocketIssue.useMutation({
-    onSuccess: (result) => { toast.success(result.rocketed ? "Issue moved to the top for this L10." : "Issue returned to normal order."); void utils.pulse.workItems.invalidate(); void utils.pulse.personal.invalidate(); void utils.pulse.l10.invalidate(); onChanged(); },
+    onSuccess: (result) => { toast.success(result.rocketed ? "Issue added to Rocket priorities." : "Issue returned to normal order."); void utils.pulse.workItems.invalidate(); void utils.pulse.personal.invalidate(); void utils.pulse.l10.invalidate(); onChanged(); },
     onError: (error) => toast.error(error.message),
   });
   const setStatus = trpc.pulse.workItems.setWorkflowStatus.useMutation({
