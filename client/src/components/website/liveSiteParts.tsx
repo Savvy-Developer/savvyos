@@ -976,12 +976,14 @@ export function LiveInvestorQuotes({ quotes }: { quotes: Quote[] }) {
               <ChevronLeft className="h-5 w-5" />
             </button>
           )}
+          {/* Phones show one card at a time: each card fits its own quote
+              instead of stretching to the longest one. */}
           <div
             ref={track}
             role="group"
             aria-roledescription="carousel"
             aria-label="Client testimonials"
-            className="no-scrollbar flex flex-1 snap-x snap-mandatory gap-8 overflow-x-auto scroll-smooth pb-1"
+            className="no-scrollbar flex flex-1 snap-x snap-mandatory items-start gap-8 overflow-x-auto scroll-smooth pb-1 md:items-stretch"
           >
             {quotes.map((quote, index) => {
               const line = [quote.title, quote.location].filter(Boolean).join(" • ");

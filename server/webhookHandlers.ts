@@ -15,6 +15,8 @@ import { triggerGhlContactSync } from "./_core/ghlSync";
 import { triggerSmartPlansForContact } from "./smartPlanScheduler";
 import { organicSocialIds, resolveOrganicSocialLeadSourceId } from "./organicSocialLeadSources";
 import { isOldSiteSocialSource, isOrganicSocialName } from "@shared/organicSocial";
+import { oldSiteWebsiteLeadSource } from "@shared/websiteLeadSources";
+import { websiteLeadSourceId } from "./websiteLeadSources";
 
 async function getDb() {
   const db = await _getDb();
@@ -856,8 +858,15 @@ async function createContactFromEvent(
   const organicParentId = isOldSiteSocialSource(oldSiteSource)
     ? ((await organicSocialIds(db))?.parentId ?? null)
     : null;
+  // Old-site lead types that match a website form (property_detail,
+  // book_showing, deeper_analysis, financing, agent_profile, seller, other)
+  // go to the same Savvy-Agents.com sub-source a new-site lead would.
+  const websiteFormSourceId = organicParentId
+    ? null
+    : await websiteLeadSourceId(db, oldSiteWebsiteLeadSource(oldSiteSource));
   const leadSourceId =
     organicParentId ??
+    websiteFormSourceId ??
     (await resolveLeadSourceId(undefined, endpoint.defaultLeadSourceId)) ??
     (await getOrCreateFallbackLeadSourceId());
 

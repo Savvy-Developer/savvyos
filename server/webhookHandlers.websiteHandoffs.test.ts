@@ -56,6 +56,13 @@ vi.mock("./db", () => ({
   scheduleAircallPhoneRematch: vi.fn(),
 }));
 
+// The website form sub-sources, by name, as they exist after startup.
+vi.mock("./websiteLeadSources", () => ({
+  websiteLeadSourceId: vi.fn(async (_db: unknown, name: string | null) =>
+    name ? ({ "Property Inquiry": 360101, "Deeper Analysis Request": 360037, "Financing Request": 360103 } as Record<string, number>)[name] ?? null : null
+  ),
+}));
+
 vi.mock("./_core/ghlSync", () => ({
   triggerGhlContactSync: vi.fn(),
 }));

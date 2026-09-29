@@ -14,6 +14,7 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog, properties, proformas, documents } from "../../drizzle/schema";
 import { aliasedTable, eq, desc, or, and, sql, inArray } from "drizzle-orm";
+import { syncWebsiteListingsWithProforma } from "../proformaWebsiteSync";
 import { buildNormalizedKey, capitalizeAddress, capitalizeCity, normalizeState, prepareTypedPropertyAddress } from "../addressNormalization";
 
 const wholePropertyCount = z.union([
@@ -923,6 +924,13 @@ export const propertiesRouter = router({
         capRate: fd._calcCapRate || null,
         notes: input.notes ?? existing.notes,
       } as any).where(eq(proformas.id, input.id));
+      // Website listings linked to this pro-forma follow its new numbers,
+      // except numbers someone typed over on the listing's Website tab.
+      await syncWebsiteListingsWithProforma(db, input.id, {
+        grossRevenue: existing.grossRevenue ?? null,
+        cashOnCash: existing.cashOnCash ?? null,
+        capRate: existing.capRate ?? null,
+      }).catch(error => console.error("[Proforma] Website listing sync failed for pro-forma", input.id, error));
       const property = await getPropertyById(existing.propertyId);
       const propertyAddress = property
         ? [property.address, [property.city, property.state].filter(Boolean).join(", "), property.zip].filter(Boolean).join(" ")

@@ -102,6 +102,8 @@ import { ensureWebsitePriceDropSchema } from "../websitePriceDropSchema";
 import { ensureWebsiteSoldSweepSchema } from "../websiteSoldSweepSchema";
 import { ensureWebsiteListingExpirySchema } from "../websiteListingExpirySchema";
 import { ensureOrganicSocialLeadSources } from "../organicSocialLeadSources";
+import { ensureWebsiteLeadSources } from "../websiteLeadSources";
+import { ensureMarketStateFix } from "../marketStateFix";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -143,6 +145,10 @@ async function startServer() {
   // (a lead source locks at creation), and the legacy Facebook/Instagram
   // import buckets are renamed and retired once.
   await ensureOrganicSocialLeadSources();
+  // Lead sources for the website forms (under Savvy-Agents.com), and the
+  // one-time state fix for seven markets listed under "Other".
+  await ensureWebsiteLeadSources();
+  await ensureMarketStateFix();
 
   const app = express();
   const server = createServer(app);

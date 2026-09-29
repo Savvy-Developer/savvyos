@@ -95,6 +95,8 @@ import {
   isPaidAttribution,
 } from "@shared/adAttribution";
 import { resolveOrganicSocialLeadSourceId } from "../organicSocialLeadSources";
+import { websiteLeadSourceId } from "../websiteLeadSources";
+import { websiteFormLeadSource } from "@shared/websiteLeadSources";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 
 /**
@@ -2043,15 +2045,27 @@ export const websiteRouter = router({
       const adCampaign = campaignSourceFrom(adAttribution);
       let contactId = existing[0]?.id;
       if (!contactId) {
-        // A visit from an organic social post (utm_medium=social) is filed
-        // under Organic Social now, because the lead source locks at creation.
+        // The lead source locks at creation, so it is decided here. A visit
+        // from an organic social post (utm_medium=social) goes to Organic
+        // Social; every other website lead goes to the Savvy-Agents.com
+        // sub-source for the form it used.
         const organicSourceId = await resolveOrganicSocialLeadSourceId(db, adAttribution);
+        const leadSourceId =
+          organicSourceId ??
+          (await websiteLeadSourceId(
+            db,
+            websiteFormLeadSource({
+              intent: input.intent,
+              requestType: input.requestType,
+              sourcePath: input.sourcePath,
+            })
+          ));
         const result = await db.insert(contacts).values({
           firstName: input.firstName,
           lastName: input.lastName,
           email: normalizedEmail,
           phone: input.phone || null,
-          ...(organicSourceId ? { leadSourceId: organicSourceId } : {}),
+          ...(leadSourceId ? { leadSourceId } : {}),
           // First touch, locked after this. A lead that arrived through an
           // ad is a paid lead; anything else on the site is organic, including
           // an organic social post that carries a campaign name.
@@ -2064,11 +2078,11 @@ export const websiteRouter = router({
         });
         contactId = Number((result as any)[0]?.insertId);
         // Website contacts had no lead source, so they never started a Smart
-        // Plan. Organic social ones now do, like every other intake with a
-        // source. Never blocks or fails the visitor's form.
-        if (organicSourceId) {
+        // Plan. Now they do, like every other intake with a source. Never
+        // blocks or fails the visitor's form.
+        if (leadSourceId) {
           const newContactId = contactId;
-          await triggerSmartPlansForContact(newContactId, organicSourceId).catch(error =>
+          await triggerSmartPlansForContact(newContactId, leadSourceId).catch(error =>
             console.error("[SmartPlan] Website enrollment failed for contact", newContactId, error)
           );
         }

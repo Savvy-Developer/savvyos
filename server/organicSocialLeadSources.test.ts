@@ -109,8 +109,10 @@ describe("where the rule is applied", () => {
   it("files new website contacts from organic social and starts their Smart Plans", () => {
     const website = read("routers/website.ts");
     expect(website).toContain("const organicSourceId = await resolveOrganicSocialLeadSourceId(db, adAttribution);");
-    expect(website).toContain("...(organicSourceId ? { leadSourceId: organicSourceId } : {}),");
-    expect(website).toContain("await triggerSmartPlansForContact(newContactId, organicSourceId)");
+    // Organic social is checked first; the website form source only fills in when it is not organic.
+    expect(website).toContain("organicSourceId ??");
+    expect(website).toContain("...(leadSourceId ? { leadSourceId } : {}),");
+    expect(website).toContain("await triggerSmartPlansForContact(newContactId, leadSourceId)");
     // The UTM fields are still written alongside the lead source.
     expect(website).toContain("...adAttributionUpdates(adAttribution),");
   });

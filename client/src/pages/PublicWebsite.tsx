@@ -1472,7 +1472,7 @@ function InvestmentCalculator({ item }: { item: any }) {
 
 /** A section heading on the property page, as on the live site: a short
  *  spacer where the live site draws a (transparent) accent bar, then the
- *  title. */
+ *  title. Phones skip the spacer. */
 function PropertySectionTitle({
   children,
   size = "xl",
@@ -1484,9 +1484,10 @@ function PropertySectionTitle({
 }) {
   return (
     <div className={`flex items-center gap-3 ${size === "3xl" ? "mb-4" : "mb-4"}`}>
-      <div className={`h-1 ${size === "3xl" ? "w-12" : "w-8"} rounded-full`} />
+      {/* On phones the spacer only pushed the title off-line; hidden there. */}
+      <div className={`hidden sm:block h-1 ${size === "3xl" ? "w-12" : "w-8"} rounded-full`} />
       {size === "3xl" ? (
-        <h2 className="text-3xl font-bold text-[#05314a]">{children}</h2>
+        <h2 className="text-2xl sm:text-3xl font-bold text-[#05314a]">{children}</h2>
       ) : (
         <h3 className="text-xl font-bold text-[#05314a]">{children}</h3>
       )}
@@ -2110,7 +2111,7 @@ function PropertyDetailPage({ slug }: { slug: string }) {
           <div className="max-h-[80vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-gray-100 p-6">
               <div className="flex items-center gap-3">
-                <div className="h-1 w-8 rounded-full" />
+                <div className="hidden h-1 w-8 rounded-full sm:block" />
                 <h2 className="text-2xl font-bold text-[#05314a]">About This Property</h2>
               </div>
               <button type="button" onClick={() => setShowAbout(false)} className="rounded-full p-2 transition-colors hover:bg-gray-100" aria-label="Close">
@@ -2812,7 +2813,7 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
         </div>
 
         {item.heroImageUrl ? (
-          <div className="relative h-96 bg-gray-200">
+          <div className="relative h-64 bg-gray-200 sm:h-96">
             <img src={item.heroImageUrl} alt={item.title} className="h-full w-full object-cover" />
           </div>
         ) : null}
@@ -2845,11 +2846,11 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
               ) : null}
 
               {item.body ? (
-                <div className="relative mb-8 overflow-hidden rounded-2xl border bg-gradient-to-br from-white via-white to-transparent p-8 shadow-lg">
+                <div className="relative mb-8 overflow-hidden rounded-2xl border bg-gradient-to-br from-white via-white to-transparent p-5 shadow-lg sm:p-8">
                   <div className="relative">
                     <div className="mb-6 flex items-center gap-3">
-                      <div className="h-1 w-12 rounded-full" />
-                      <h2 className="text-3xl font-bold text-[#05314a]">Details</h2>
+                      <div className="hidden h-1 w-12 rounded-full sm:block" />
+                      <h2 className="text-2xl font-bold text-[#05314a] sm:text-3xl">Details</h2>
                     </div>
                     <div className="prose max-w-none prose-headings:text-[#05314a] prose-a:text-[#10c0df]">
                       <ArticleBody markdown={item.body} />
