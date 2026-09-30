@@ -11,6 +11,9 @@ import { normalizeListing } from "./normalize/normalizeListing";
 import { propertyIdentity } from "./normalize/propertyIdentity";
 import { searchConditions } from "./search";
 import { licenseError } from "./license";
+import { mediaClientConfig, privateMlsStorageError } from "./privateMedia";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { parseODataPage } from "./adapters/types";
 import { __testables__ as mcpTestables } from "../readOnlyMcp";
 import { MLS_SOURCE_SEEDS, seedCompliance } from "./sources";
@@ -334,5 +337,31 @@ describe("license and isolation guards", () => {
     expect(() => parseODataPage({ error: { message: "quota" } })).toThrow();
     expect(() => parseODataPage(null)).toThrow();
     expect(parseODataPage({ value: [] }).value).toEqual([]);
+  });
+});
+
+describe("private MLS media storage", () => {
+  const railway = {
+    MLS_MEDIA_BUCKET: "mls-media-abc123",
+    MLS_MEDIA_ENDPOINT: "https://t3.storageapi.dev",
+    MLS_MEDIA_REGION: "auto",
+    MLS_MEDIA_ACCESS_KEY_ID: "test-key-id",
+    MLS_MEDIA_SECRET_ACCESS_KEY: "test-secret",
+  } as NodeJS.ProcessEnv;
+
+  it("refuses the public SavvyOS bucket and incomplete endpoint credentials", () => {
+    expect(privateMlsStorageError({} as NodeJS.ProcessEnv)).toMatch(/dedicated private bucket/);
+    expect(privateMlsStorageError({ MLS_MEDIA_BUCKET: "savvyos" } as NodeJS.ProcessEnv)).toMatch(/public SavvyOS/);
+    expect(privateMlsStorageError({ ...railway, MLS_MEDIA_SECRET_ACCESS_KEY: "" })).toMatch(/required/);
+    expect(privateMlsStorageError(railway)).toBeNull();
+  });
+
+  it("signs short-lived virtual-hosted URLs against a Railway bucket", async () => {
+    const config = mediaClientConfig(railway);
+    expect(config).toMatchObject({ region: "auto", endpoint: "https://t3.storageapi.dev", forcePathStyle: false });
+    const url = new URL(await getSignedUrl(new S3Client(config), new GetObjectCommand({ Bucket: "mls-media-abc123", Key: "mls/1/2/photo.jpg" }), { expiresIn: 60 }));
+    expect(url.host).toBe("mls-media-abc123.t3.storageapi.dev");
+    expect(url.pathname).toBe("/mls/1/2/photo.jpg");
+    expect(url.searchParams.get("X-Amz-Expires")).toBe("60");
   });
 });

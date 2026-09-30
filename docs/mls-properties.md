@@ -40,7 +40,7 @@ Each feed runs as a cycle inside the worker:
 6. Handle deletions: MLS Grid `MlgCanView=false`, RESO `Deleted` resources where offered, and scheduled key reconciliation for providers without delete signals. Reconciliation aborts if it would remove more than max(1,000, 20%) of a feed, unless forced.
 7. Refresh metadata weekly, write the run log, and release the lease.
 
-Photos download in a separate media loop, by priority (primary photo first, then active listings, then everything else), under each provider's media limits. They are stored in a dedicated private S3 bucket and served only through `/api/mls/media`, which checks the session, the MLS permission, and the feed license, then redirects to a 60-second signed URL. Nothing is hotlinked.
+Photos download in a separate media loop, by priority (primary photo first, then active listings, then everything else), under each provider's media limits. They are stored in a dedicated private bucket (a Railway Storage Bucket in production) and served only through `/api/mls/media`, which checks the session, the MLS permission, and the feed license, then redirects to a 60-second signed URL. Nothing is hotlinked.
 
 ## Provider adapters
 
@@ -69,7 +69,7 @@ Provider notes and source links are in `server/mls/adapters/*.ts` headers and th
 ## Go-live checklist for one MLS
 
 1. Signed agreement with the MLS, the sponsoring broker, and the provider that covers internal back-office use, the fields you need, photo storage, and history retention if wanted. Record the exact limits.
-2. Create a private S3 bucket for MLS media with Block Public Access on. Set `MLS_MEDIA_BUCKET` on both the web and worker services. It must not be the public `savvyos` bucket.
+2. Create a Railway Storage Bucket for MLS media (private by default). On both the web and worker services, set `MLS_MEDIA_BUCKET`, `MLS_MEDIA_ENDPOINT`, `MLS_MEDIA_REGION`, `MLS_MEDIA_ACCESS_KEY_ID`, and `MLS_MEDIA_SECRET_ACCESS_KEY` as variable references to the bucket's `BUCKET`, `ENDPOINT`, `REGION`, `ACCESS_KEY_ID`, and `SECRET_ACCESS_KEY`. It must never be the public `savvyos` bucket.
 3. Add the credential in Railway: `MLS_CRED_<REF>_TOKEN`, or `MLS_CRED_<REF>_CLIENT_ID` and `MLS_CRED_<REF>_CLIENT_SECRET` for OAuth.
 4. Add a Railway service from this repo with `SAVVYOS_PROCESS=mlsIngestionWorker`, plus the same `DATABASE_URL`, AWS, and `MLS_*` variables as the web service.
 5. In **Feeds and mappings**, update the source with the signed terms (confidential fields, attribution, disclaimer, refresh rule), then create the feed: provider, feed type, credential reference, `OriginatingSystemName` and key prefix where required, media and retention policy.
@@ -86,6 +86,8 @@ Provider notes and source links are in `server/mls/adapters/*.ts` headers and th
 |---|---|---|
 | `SAVVYOS_PROCESS=mlsIngestionWorker` | Worker service | Starts the ingestion worker instead of the web server |
 | `MLS_MEDIA_BUCKET` | Web and worker | Dedicated private bucket for MLS photos. Media work waits until it is set. |
+| `MLS_MEDIA_ENDPOINT`, `MLS_MEDIA_REGION`, `MLS_MEDIA_ACCESS_KEY_ID`, `MLS_MEDIA_SECRET_ACCESS_KEY` | Web and worker | Railway bucket connection, as variable references. Leave the endpoint empty to use a private AWS bucket with the default AWS credentials. |
+| `MLS_MEDIA_FORCE_PATH_STYLE=true` | Web and worker | Only for older buckets that require path-style URLs |
 | `MLS_CRED_<REF>_TOKEN`, `_CLIENT_ID`, `_CLIENT_SECRET` | Worker, and web for Test connection | Provider credentials by reference |
 | `MLS_INGESTION=off` | Worker | Keep the worker idle |
 | `MLS_INGESTION_IN_WEB=on` | Web | Run ingestion inside the web process (small deployments only) |
