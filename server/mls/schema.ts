@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise";
+import { ensureDeclaredMlsFeeds } from "./feedBootstrap";
 import { MLS_TABLE_DDL } from "./schemaDdl";
 import { MLS_SOURCE_SEEDS, seedCompliance } from "./sources";
 
@@ -93,6 +94,13 @@ async function ensure() {
     await applyMlsSchema(connection);
   } catch (error) {
     console.error("[mlsSchema] could not apply MLS Properties schema", error);
+    await connection?.end().catch(() => undefined);
+    return;
+  }
+  try {
+    if (process.env.MLS_DECLARED_FEEDS !== "off") await ensureDeclaredMlsFeeds(connection);
+  } catch (error) {
+    console.error("[mlsFeeds] could not create declared MLS feeds", error);
   } finally {
     await connection?.end().catch(() => undefined);
   }

@@ -114,3 +114,16 @@ pnpm vitest run server/mls                      # unit tests
 MLS_E2E_DATABASE_URL=mysql://root@127.0.0.1:3307/savvyos_mls_e2e \
   pnpm vitest run server/mls/mls.e2e.test.ts    # end to end with local MySQL and a mock MLS Grid server
 ```
+
+## Licensed feeds declared in code
+
+`server/mls/feedBootstrap.ts` lists the feeds Savvy has licensed. On startup (web and worker), SavvyOS creates any that are missing, under a MySQL named lock, and never edits one that exists. Admin changes in Feeds and mappings always win. Set `MLS_DECLARED_FEEDS=off` to skip this.
+
+| Feed | Token variable | Why |
+|---|---|---|
+| Canopy BBO (MLS Grid), `carolina` | `MLS_CRED_MLSGRID_BBO_TOKEN` | Back office superset: 2.6M records back to 2007, including canceled and expired. Each record keeps MLS Grid's `MlgCanUse` flags in `mls_listings.permittedUses`. |
+| MARIS IDX (MLS Grid), `maris2` | `MLS_CRED_MLSGRID_TOKEN` | MARIS is open on the IDX subscription only. |
+
+There is deliberately no Canopy IDX feed. It would duplicate every Canopy listing. When the public site is built, show only listings whose `permittedUses` includes `IDX`.
+
+Until a token variable is set, that feed shows "Credentials not configured" and the worker skips it.
