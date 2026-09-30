@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ClipboardList, History, ListChecks } from "lucide-react";
+import { CalendarCheck2, ChevronDown, ClipboardList, History, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -141,31 +141,31 @@ export default function PulseMyWorkPage() {
   const selectedMeeting = data.meetings.find((meeting: any) => meeting.id === selectedMeetingId);
   const todos = data.items.todos.filter((item: any) => item.status !== "dropped" && !item.parentWorkItemId);
   const issues = data.items.issues.filter((item: any) => issueTimeframe === "all" || item.issueTimeframe === issueTimeframe);
-  const meetingSelector = <div className="w-full max-w-md"><label htmlFor="pulse-meeting-workspace" className="text-sm font-medium">Prepare for</label><Select value={selectedMeetingId} onValueChange={setSelectedMeetingId}><SelectTrigger id="pulse-meeting-workspace" aria-label="Prepare for L10" className="mt-1 h-10 w-full bg-background"><SelectValue placeholder="Choose an L10" /></SelectTrigger><SelectContent>{data.meetings.map((meeting: any) => <SelectItem key={meeting.id} value={meeting.id}>{meeting.name}</SelectItem>)}</SelectContent></Select><p className="mt-1.5 text-xs text-muted-foreground">One selection keeps preparation, work, measurables, and meeting updates together.</p></div>;
+  const meetingSelector = <section aria-label="Selected L10 preparation workspace" className="mt-4 rounded-xl border-2 border-primary/30 bg-primary/[0.055] p-3 shadow-sm sm:flex sm:items-center sm:justify-between sm:gap-5 sm:p-4"><div className="min-w-0"><p className="flex items-center gap-2 text-sm font-semibold text-primary"><CalendarCheck2 className="h-4 w-4" />Preparing for</p><p className="mt-1 text-sm text-muted-foreground">Choose one L10. Every preparation and work panel below follows it.</p></div><div className="mt-3 w-full sm:mt-0 sm:max-w-md"><Select value={selectedMeetingId} onValueChange={setSelectedMeetingId}><SelectTrigger id="pulse-meeting-workspace" aria-label="Prepare for L10" className="h-12 w-full border-primary/40 bg-background px-3 text-base font-semibold shadow-sm hover:border-primary/60 focus-visible:ring-primary/30"><SelectValue placeholder="Choose an L10" /></SelectTrigger><SelectContent>{data.meetings.map((meeting: any) => <SelectItem key={meeting.id} value={meeting.id}>{meeting.name}</SelectItem>)}</SelectContent></Select></div></section>;
 
   return <main className="pulse-page pulse-page-stack">
     <Tabs value={activeTab} onValueChange={setActiveTab}>
       <header className="border-b border-border pb-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><p className="text-sm font-medium text-primary">Pulse</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">My EOS Dashboard</h1><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Choose one L10 and prepare its meeting updates, work, measurables, and Rocks together.</p></div><div className="flex w-full items-start gap-2 sm:w-auto"><HeaderCascadePanel messages={data.actionCenter.cascades} isAcknowledging={acknowledgeCascade.isPending} onAcknowledge={(messageId) => acknowledgeCascade.mutate({ messageId, from: "my_work" })} /><PulseNotificationsPopover meetingId={selectedMeetingId || undefined} /></div></div>
-        <div className="mt-3">{meetingSelector}</div>
+        {meetingSelector}
         <nav className="mt-3 max-w-full overflow-x-auto pb-1" aria-label="My EOS sections"><TabsList className="h-auto min-w-max justify-start"><TabsTrigger value="work" className="min-h-9"><ListChecks className="h-4 w-4" />My Work</TabsTrigger><TabsTrigger value="scorecard" className="min-h-9"><ClipboardList className="h-4 w-4" />Master Scorecard</TabsTrigger></TabsList></nav>
       </header>
 
       <TabsContent value="work" className="mt-0 space-y-3">
-        {selectedMeeting ? <><DashboardSection title={`Weekly Preparation · ${selectedMeeting.name}`} description="Prepare the selected L10’s measurables, Segue, Headlines, and Brief in one place."><PulseWeeklyPreparation embedded meetingId={selectedMeeting.id} /></DashboardSection>
+        {selectedMeeting ? <><DashboardSection title="Weekly Preparation" description="Prepare this L10’s measurables, Segue, Headlines, and Brief in one place."><PulseWeeklyPreparation embedded meetingId={selectedMeeting.id} /></DashboardSection>
 
         <section className="grid gap-3 xl:grid-cols-2 xl:items-start">
-          <DashboardSection className="min-w-0" title={`My Work · ${selectedMeeting.name}`} description="Keep this L10’s queue focused: switch between To-Dos and Issues, then update work in place.">
+          <DashboardSection className="min-w-0" title="My Work" description="Keep this L10’s queue focused: switch between To-Dos and Issues, then update work in place.">
           <div className="space-y-3">
-            <PulseL10WorkCreator meetingId={selectedMeeting.id} meetingName={selectedMeeting.name} onCreated={changed} />
+            <PulseL10WorkCreator meetingId={selectedMeeting.id} onCreated={changed} />
             <CompactWorkQueue todos={todos} issues={issues} issueTimeframe={issueTimeframe} onIssueTimeframeChange={setIssueTimeframe} onChanged={changed} showDestination={false} />
             <Card className="pulse-card-compact"><CardHeader className="pb-2"><CardTitle>Rocks</CardTitle><CardDescription>Longer-term priorities, their milestones, and current status.</CardDescription></CardHeader><CardContent>{data.items.rocks.length ? data.items.rocks.map((item: any) => <WorkRow key={item.id} item={item} onChanged={changed} />) : <p className="text-sm text-muted-foreground">No active Rocks in this L10.</p>}</CardContent></Card>
           </div>
           </DashboardSection>
-          <DashboardSection className="min-w-0" title={`My Measurables · ${selectedMeeting.name}`} description="Submit every active measurable you own for this L10’s current reporting week."><PulseMyMeasurables embedded meetingId={selectedMeeting.id} meetingName={selectedMeeting.name} /></DashboardSection>
+          <DashboardSection className="min-w-0" title="My Measurables" description="Submit every active measurable you own for this L10’s current reporting week."><PulseMyMeasurables embedded meetingId={selectedMeeting.id} /></DashboardSection>
         </section>
         <DashboardSection title="At a Glance" description="A compact view of your current workload and preparation." defaultOpen={false}><div aria-label="At a glance" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5"><Card className={data.counts.overdue ? "border-rose-200 bg-rose-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Overdue</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.overdue}</p><p className="text-xs text-muted-foreground">Past deadline</p></CardContent></Card><Card className={data.counts.unacknowledged ? "border-amber-200 bg-amber-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Unacknowledged</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.unacknowledged}</p><p className="text-xs text-muted-foreground">Cascades</p></CardContent></Card><Card><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Due this week</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.dueSoon}</p><p className="text-xs text-muted-foreground">Open To-Dos</p></CardContent></Card><Card className={data.counts.missingMeasurables ? "border-sky-200 bg-sky-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Prep needed</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.missingMeasurables}</p><p className="text-xs text-muted-foreground">Measurables</p></CardContent></Card><Card><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Rocks off track</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.offTrackRocks}</p><p className="text-xs text-muted-foreground">Need a next action</p></CardContent></Card></div></DashboardSection>
-        <section className="grid items-stretch gap-2 xl:grid-cols-2"><PulseCompletedHistory className="h-full min-h-36 min-w-0 overflow-hidden" contextId={selectedMeeting.id} title={`Completed & Resolved · ${selectedMeeting.name}`} description="Search work you completed or resolved in this L10." onlyMine onChanged={changed} compact /><ActivitySummary activity={data.activity ?? []} /></section>
+        <section className="grid items-stretch gap-2 xl:grid-cols-2"><PulseCompletedHistory className="h-full min-h-36 min-w-0 overflow-hidden" contextId={selectedMeeting.id} title="Completed & Resolved work" description="Search work you completed or resolved in this L10." onlyMine onChanged={changed} compact /><ActivitySummary activity={data.activity ?? []} /></section>
         </> : <Card><CardContent className="p-5 text-sm text-muted-foreground">Add or join an L10 to prepare its work here.</CardContent></Card>}
       </TabsContent>
 

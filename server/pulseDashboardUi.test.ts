@@ -19,11 +19,14 @@ describe("Pulse dashboard consolidation", () => {
   });
 
   it("leads My EOS with one shared L10 selector and preparation", () => {
-    const weeklyPreparationIndex = myWorkPage.indexOf('title={`Weekly Preparation · ${selectedMeeting.name}`}');
-    const myWorkIndex = myWorkPage.indexOf('title={`My Work · ${selectedMeeting.name}`}');
+    const weeklyPreparationIndex = myWorkPage.indexOf('title="Weekly Preparation"');
+    const myWorkIndex = myWorkPage.indexOf('title="My Work"');
     expect(weeklyPreparationIndex).toBeGreaterThan(-1);
     expect(myWorkIndex).toBeGreaterThan(weeklyPreparationIndex);
     expect(myWorkPage).toContain('aria-label="Prepare for L10"');
+    expect(myWorkPage).toContain('aria-label="Selected L10 preparation workspace"');
+    expect(myWorkPage).toContain('Preparing for');
+    expect(myWorkPage).toContain('border-2 border-primary/30 bg-primary/[0.055]');
     expect(myWorkPage).toContain('<PulseWeeklyPreparation embedded meetingId={selectedMeeting.id} />');
     expect(myWorkPage).not.toContain('aria-label="Show work from"');
     expect(weeklyPreparation).toContain('if (meetingId) return <section id="weekly-preparation"');
@@ -40,14 +43,14 @@ describe("Pulse dashboard consolidation", () => {
 
   it("pairs selected L10 work with selected L10 measurables", () => {
     expect(myWorkPage).toContain('section className="grid gap-3 xl:grid-cols-2 xl:items-start"');
-    expect(myWorkPage).toContain('title={`My Measurables · ${selectedMeeting.name}`}');
-    expect(myWorkPage).toContain('<PulseMyMeasurables embedded meetingId={selectedMeeting.id} meetingName={selectedMeeting.name} />');
+    expect(myWorkPage).toContain('title="My Measurables"');
+    expect(myWorkPage).toContain('<PulseMyMeasurables embedded meetingId={selectedMeeting.id} />');
     expect(myWorkPage).toContain('className="min-w-0"');
   });
 
   it("keeps Incoming Cascades compact but informative beside the My EOS title", () => {
     const headerIndex = myWorkPage.indexOf('<header className="border-b border-border pb-4">');
-    const weeklyPreparationIndex = myWorkPage.indexOf('title={`Weekly Preparation · ${selectedMeeting.name}`}');
+    const weeklyPreparationIndex = myWorkPage.indexOf('title="Weekly Preparation"');
     expect(myWorkPage).toContain("function HeaderCascadePanel");
     expect(myWorkPage).toContain('aria-label="Incoming Cascades"');
     expect(myWorkPage).toContain('className="h-24 min-w-0 flex-1 rounded-lg border border-border bg-muted/20 p-2.5 sm:w-80 sm:flex-none"');

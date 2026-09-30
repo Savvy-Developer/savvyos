@@ -16,8 +16,14 @@ describe("My EOS unified L10 workspace", () => {
     expect(dashboard).toContain('aria-label="Prepare for L10"');
     expect(dashboard).toContain('setSelectedMeetingId(data.meetings[0].id)');
     expect(dashboard).toContain('<PulseWeeklyPreparation embedded meetingId={selectedMeeting.id} />');
-    expect(dashboard).toContain('<PulseMyMeasurables embedded meetingId={selectedMeeting.id} meetingName={selectedMeeting.name} />');
-    expect(dashboard).toContain('<PulseL10WorkCreator meetingId={selectedMeeting.id} meetingName={selectedMeeting.name} onCreated={changed} />');
+    expect(dashboard).toContain('<PulseMyMeasurables embedded meetingId={selectedMeeting.id} />');
+    expect(dashboard).toContain('<PulseL10WorkCreator meetingId={selectedMeeting.id} onCreated={changed} />');
+    expect(dashboard).toContain('title="Weekly Preparation"');
+    expect(dashboard).toContain('title="My Work"');
+    expect(dashboard).toContain('title="My Measurables"');
+    expect(dashboard).not.toContain('Weekly Preparation · ${selectedMeeting.name}');
+    expect(dashboard).not.toContain('My Work · ${selectedMeeting.name}');
+    expect(dashboard).not.toContain('My Measurables · ${selectedMeeting.name}');
     expect(dashboard).not.toContain('id="pulse-workspace"');
     expect(dashboard).not.toContain('<PulseWeeklyPreparation embedded />');
   });
@@ -26,6 +32,8 @@ describe("My EOS unified L10 workspace", () => {
     expect(preparation).toContain('meetingId?: string');
     expect(preparation).toContain('const activeId = meetingId ?? (activeMeetingId');
     expect(preparation).toContain('if (meetingId) return <section id="weekly-preparation"');
+    expect(preparation).toContain('hideMeetingName={embedded && Boolean(meetingId)}');
+    expect(preparation).toContain('hideMeetingName ? "Preparation status" : meeting.name');
     expect(preparation).toContain('Segue, Headlines, and Brief together');
   });
 
@@ -41,6 +49,7 @@ describe("My EOS unified L10 workspace", () => {
 
   it("creates new work directly in the selected L10", () => {
     expect(creator).toContain('defaultDestinationId={meetingId}');
-    expect(creator).toContain('Add work to {meetingName}');
+    expect(creator).toContain('New To-Dos and Issues start in the L10 selected above.');
+    expect(creator).not.toContain('meetingName');
   });
 });
