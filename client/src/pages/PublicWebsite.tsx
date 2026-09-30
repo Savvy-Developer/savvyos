@@ -76,7 +76,7 @@ import {
 import {
   publishedTestimonials,
 } from "@shared/websiteTestimonials";
-import { teamInitials } from "@shared/websiteTeam";
+import { TEAM_SECTIONS, TEAM_SECTION_LABELS, teamInitials } from "@shared/websiteTeam";
 import {
   SELLER_LISTED_OPTIONS,
   SELLER_TIMELINES,
@@ -4920,8 +4920,10 @@ function TeamMemberCard({ member }: { member: any }) {
 function TeamPage() {
   usePageTitle("Meet the Team");
   const team = trpc.website.publicTeamMembers.useQuery();
+  const agentList = trpc.website.publicAgents.useQuery();
   const { data: settings } = trpc.website.publicSettings.useQuery();
   const members = team.data ?? [];
+  const agents: any[] = (agentList.data as any[]) ?? [];
   const stats: Array<{ value: string; label: string }> = Array.isArray(settings?.stats)
     ? (settings!.stats as Array<{ value: string; label: string }>).slice(0, 4)
     : [];
@@ -4980,27 +4982,75 @@ function TeamPage() {
           </div>
         </section>
 
-        {members.length > 0 && (
-          <section className="bg-white py-16 lg:py-24">
+        {TEAM_SECTIONS.map(section => {
+          const people = members.filter((member: any) => (member.section === "leadership" ? "leadership" : "staff") === section);
+          if (!people.length) return null;
+          return (
+            <section key={section} className="bg-white py-14 lg:py-20">
+              <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div className="mb-10 text-center">
+                  <h2 className="text-3xl font-bold text-[#05314a] md:text-4xl">{TEAM_SECTION_LABELS[section]}</h2>
+                  <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-600">
+                    {section === "leadership"
+                      ? "The people leading Savvy STR Agents."
+                      : "The Savvy team behind every deal, from first call to closing."}
+                  </p>
+                </div>
+                <div
+                  className={`mx-auto grid gap-8 md:grid-cols-2 lg:grid-cols-3 ${people.length === 1 ? "max-w-sm md:grid-cols-1 lg:grid-cols-1" : people.length === 2 ? "max-w-3xl lg:grid-cols-2" : "max-w-6xl"}`}
+                >
+                  {people.map((member: any) => (
+                    <TeamMemberCard key={member.id ?? member.name} member={member} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          );
+        })}
+
+        {agents.length > 0 && (
+          <section className="bg-white py-14 lg:py-20">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-              <div className="mb-12 text-center">
-                <h2 className="text-3xl font-bold text-[#05314a] md:text-4xl">Meet the Team</h2>
+              <div className="mb-10 text-center">
+                <h2 className="text-3xl font-bold text-[#05314a] md:text-4xl">Our Agents</h2>
                 <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-600">
-                  The passionate people behind Savvy, dedicated to helping you succeed in STR investing.
+                  {agents.length} short-term rental specialists, each in the market they know best.
                 </p>
               </div>
-              <div
-                className={`mx-auto grid gap-8 md:grid-cols-2 lg:grid-cols-3 ${members.length === 1 ? "max-w-sm md:grid-cols-1 lg:grid-cols-1" : members.length === 2 ? "max-w-3xl lg:grid-cols-2" : "max-w-6xl"}`}
-              >
-                {members.map((member: any) => (
-                  <TeamMemberCard key={member.id ?? member.name} member={member} />
-                ))}
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+                {agents.map((agent: any) => {
+                  const place = (Array.isArray(agent.markets) ? agent.markets : []).filter(Boolean).slice(0, 2).join(", ");
+                  return (
+                    <a
+                      key={agent.id}
+                      href={path(`/agents/${agent.slug}`)}
+                      className="group flex flex-col items-center rounded-xl border border-gray-100 bg-white p-4 text-center shadow-sm transition-shadow hover:shadow-md"
+                    >
+                      <div className="mb-3 h-24 w-24 overflow-hidden rounded-full border-2 border-gray-100 bg-gray-100">
+                        {agent.imageUrl ? (
+                          <img src={agent.imageUrl} alt={agent.name} loading="lazy" className="h-full w-full object-cover object-top" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-xl font-bold text-[#05314a]">
+                            {teamInitials(agent.name || "")}
+                          </div>
+                        )}
+                      </div>
+                      <p className="font-semibold leading-tight text-[#05314a] group-hover:text-[#10c0df]">{agent.name}</p>
+                      {place ? <p className="mt-1 line-clamp-2 text-xs text-gray-500">{place}</p> : null}
+                    </a>
+                  );
+                })}
+              </div>
+              <div className="mt-8 text-center">
+                <a href={path("/agents")} className="inline-flex items-center gap-2 font-semibold text-[#05314a] hover:text-[#10c0df]">
+                  Search agents by market <ChevronRight className="h-5 w-5" />
+                </a>
               </div>
             </div>
           </section>
         )}
 
-        <section className={`py-16 lg:py-24 ${members.length ? "bg-gray-50" : "bg-white"}`}>
+        <section className={`py-16 lg:py-24 ${members.length || agents.length ? "bg-gray-50" : "bg-white"}`}>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className={`grid items-center gap-12 ${stats.length ? "lg:grid-cols-2" : ""}`}>
               <div className={stats.length ? "" : "mx-auto max-w-3xl"}>
@@ -5047,7 +5097,7 @@ function TeamPage() {
           </div>
         </section>
 
-        <section className={`py-16 lg:py-24 ${members.length ? "bg-white" : "bg-gray-50"}`}>
+        <section className={`py-16 lg:py-24 ${members.length || agents.length ? "bg-white" : "bg-gray-50"}`}>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mb-12 text-center">
               <span className="text-sm font-semibold uppercase tracking-wider text-[#10c0df]">What Drives Us</span>

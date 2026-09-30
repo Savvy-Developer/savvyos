@@ -3500,6 +3500,7 @@ export const websiteRouter = router({
         imageUrl: z.string().max(2048).nullable().optional(),
         email: z.string().max(320).nullable().optional(),
         linkedinUrl: z.string().max(512).nullable().optional(),
+        section: z.enum(["leadership", "staff"]).default("staff"),
         status: z.enum(["draft", "published", "archived"]).default("draft"),
         sortOrder: z.number().int().min(-10000).max(10000).default(0),
       })
@@ -3525,6 +3526,7 @@ export const websiteRouter = router({
         imageUrl: row.imageUrl,
         email: row.email,
         linkedinUrl: row.linkedinUrl,
+        section: row.section,
         status: row.status,
         sortOrder: row.sortOrder,
         updatedById: ctx.user.id,

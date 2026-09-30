@@ -17,3 +17,7 @@ CREATE TABLE IF NOT EXISTS `website_team_members` (
   PRIMARY KEY (`id`),
   KEY `website_team_members_status_idx` (`status`, `sortOrder`)
 );
+
+-- 30 Sep 2026: Team page sections. Added at startup by
+-- server/websiteTeamSchema.ts only when missing; kept here for the record.
+-- ALTER TABLE `website_team_members` ADD COLUMN `section` varchar(20) NOT NULL DEFAULT 'staff' AFTER `linkedinUrl`;

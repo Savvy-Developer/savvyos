@@ -1478,6 +1478,8 @@ export const websiteTeamMembers = mysqlTable(
     imageUrl: text("imageUrl"),
     email: varchar("email", { length: 320 }),
     linkedinUrl: varchar("linkedinUrl", { length: 512 }),
+    /** Which part of the Team page: "leadership" or "staff". Agents are listed from their profiles. */
+    section: varchar("section", { length: 20 }).default("staff").notNull(),
     status: mysqlEnum("status", ["draft", "published", "archived"])
       .default("draft")
       .notNull(),
