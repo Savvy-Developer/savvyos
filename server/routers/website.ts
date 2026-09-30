@@ -84,6 +84,22 @@ import {
 } from "../websiteDailyEmail";
 import { listResendSegments } from "../_core/resendMarketingBroadcast";
 import { moveWebsiteImages } from "../websiteImageRehost";
+import { ZillowLookupInputError, extractZillowPhotoUrls, fetchZillowListing } from "../externalApis";
+
+/** A zillow.com listing link, normalised, or null for anything else. */
+function zillowLinkOf(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const raw = value.trim();
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    const host = url.hostname.toLowerCase();
+    if (host !== "zillow.com" && !host.endsWith(".zillow.com")) return null;
+    url.protocol = "https:";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
 import {
   loadRecentPriceDrops,
   priceDropAlertsEnabled,
@@ -745,6 +761,8 @@ const propertyWebsiteContentInput = z.object({
   slug: z.string().trim().min(3).max(255).optional(),
   status: statusSchema.default("draft"),
   sourceProformaId: z.number().int().positive().nullable().optional(),
+  // The listing's own Zillow page, remembered for "Import photos from Zillow".
+  sourceUrl: nullableText,
   assignedAgentId: z.number().int().positive().nullable().optional(),
   headline: nullableText,
   summary: nullableText,
@@ -1348,8 +1366,17 @@ export const websiteRouter = router({
       const db = await getDb();
       if (!db) return null;
       const signedIn = await visitorIsSignedIn(ctx.req);
+      // Savvy team members signed in on the website can open a Draft listing
+      // at its future address, to check it before publishing. Everyone else
+      // still gets "not found" for anything that isn't published.
+      let isStaff = false;
+      try {
+        isStaff = (await staffFromRequest(ctx.req as any)) != null;
+      } catch {
+        isStaff = false;
+      }
       const rows = await db
-        .select(propertyProjection)
+        .select({ ...propertyProjection, listingStatus: websiteProperties.status })
         .from(websiteProperties)
         .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
         .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
@@ -1361,7 +1388,9 @@ export const websiteRouter = router({
         .where(
           and(
             eq(websiteProperties.slug, input.slug),
-            eq(websiteProperties.status, "published")
+            isStaff
+              ? inArray(websiteProperties.status, ["published", "draft"])
+              : eq(websiteProperties.status, "published")
           )
         )
         .limit(1);
@@ -3046,6 +3075,10 @@ export const websiteRouter = router({
           cashOnCash: row.cashOnCash,
           capRate: row.capRate,
           publishes: row.status === "final" && (range != null || comps.length > 0),
+          // The subject property's own Zillow link from the pro-forma's
+          // Acquisition tab, for "Import photos from Zillow". Comps are
+          // separate and never offered.
+          zillowUrl: zillowLinkOf((row.formData as any)?.propertyLink),
           blockedByDraft: row.status !== "final",
           revenue: range,
           compCount: comps.length,
@@ -3066,6 +3099,46 @@ export const websiteRouter = router({
    * a property they own without any studio permission. It never touches the
    * SavvyOS property record, which is why there is no address here to reconcile.
    */
+  /**
+   * Every photo from the property's own Zillow listing, for the Website tab.
+   * Returns the photos only; nothing is saved until the form is saved.
+   */
+  importZillowPhotos: protectedProcedure
+    .input(
+      z.object({
+        propertyId: z.number().int().positive(),
+        zillowUrl: z.string().trim().min(1).max(2000),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      if (!(await propertyWebsiteAccess(ctx, db, input.propertyId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can't edit this property's website listing." });
+      }
+      const link = zillowLinkOf(input.zillowUrl);
+      if (!link) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Paste the property's Zillow listing link (zillow.com/homedetails/...).",
+        });
+      }
+      let data: any;
+      try {
+        data = await fetchZillowListing(link);
+      } catch (error: any) {
+        if (error instanceof ZillowLookupInputError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+        }
+        throw new TRPCError({ code: "BAD_GATEWAY", message: error?.message || "Zillow lookup failed." });
+      }
+      const photos = extractZillowPhotoUrls(data);
+      if (!photos.length) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zillow returned no photos for that listing." });
+      }
+      return { photos, zillowUrl: link };
+    }),
+
   savePropertyWebsiteContent: protectedProcedure
     .input(propertyWebsiteContentInput)
     .mutation(async ({ input, ctx }) => {
@@ -3147,6 +3220,7 @@ export const websiteRouter = router({
       const data = {
         status: input.status,
         sourceProformaId: input.sourceProformaId || null,
+        ...(input.sourceUrl !== undefined ? { sourceUrl: input.sourceUrl || null } : {}),
         assignedAgentId: input.assignedAgentId || null,
         headline: input.headline || null,
         summary: input.summary || null,
