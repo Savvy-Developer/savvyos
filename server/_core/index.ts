@@ -5,6 +5,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerMagicLinkRoutes } from "./magicLink";
+import { isCrossSiteWrite, isTrustedOrigin } from "./corsPolicy";
 import { registerStaffWebsiteHandoffRoute } from "../staffWebsiteHandoff";
 import { registerUploadRoutes } from "../uploadRoutes";
 import { registerMlsMediaRoute } from "../mls/privateMedia";
@@ -164,12 +165,20 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // Enable CORS for mobile clients, webviews, and preflight requests
+  // CORS. Only our own hosts get credentialed access; any other origin can
+  // read anonymous responses but never a signed-in one, and cannot make a
+  // state-changing /api call. See corsPolicy.ts.
   app.use((req, res, next) => {
     const origin = req.headers.origin;
+    if (isCrossSiteWrite(req)) {
+      return res.status(403).json({ error: "Cross-site request refused." });
+    }
     if (origin) {
       res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.vary("Origin");
+      if (isTrustedOrigin(origin)) {
+        res.setHeader("Access-Control-Allow-Credentials", "true");
+      }
       res.setHeader(
         "Access-Control-Allow-Methods",
         "GET,POST,PUT,PATCH,DELETE,OPTIONS"
