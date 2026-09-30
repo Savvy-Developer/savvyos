@@ -12,6 +12,7 @@ import {
   resetLeadAgingForAgent,
   archiveContact,
   deleteContact,
+  setMissingContactLeadSource,
 } from "../db";
 import { contacts as contactsTable, leadSources, tasks as tasksTable, communications as commsTable, agentConnections as agentConnectionsTable, transactions as txTable, taskNotes as taskNotesTable, transactionNotes as txNotesTable, listings, listingNotes as listingNotesTable, properties, contactProperties, activityLog, users, connectionRequests as connectionRequestsTable, smartPlans as smartPlansTable, smartPlanEnrollments as smartPlanEnrollmentsTable, contactIntelligenceActionReviews, contactIntelligenceProfiles } from "../../drizzle/schema";
 import { eq, or, and, desc, like, isNull, aliasedTable, notInArray, sql } from "drizzle-orm";
@@ -48,6 +49,48 @@ const NON_MANUAL_LEAD_SOURCE_NAMES = new Set([
 
 function isNonManualLeadSource(name: string | null | undefined): boolean {
   return NON_MANUAL_LEAD_SOURCE_NAMES.has((name ?? "").trim().toLowerCase());
+}
+
+type ContactsDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+/**
+ * Checks that a lead source can be given to contacts by a person (not an
+ * integration) and returns its display label, "Parent → Child" for a
+ * sub-source. The rules match a manual lead-source correction: the source and
+ * its category must be active, the Unattributed sources are reserved for
+ * automated records, and only admins may use SOI List.
+ */
+async function requireManualLeadSource(
+  db: ContactsDb,
+  leadSourceId: number,
+  role: string,
+): Promise<string> {
+  const [source] = await db
+    .select({
+      id: leadSources.id,
+      name: leadSources.name,
+      parentId: leadSources.parentId,
+      isActive: leadSources.isActive,
+    })
+    .from(leadSources)
+    .where(eq(leadSources.id, leadSourceId))
+    .limit(1);
+  if (!source || !source.isActive || isNonManualLeadSource(source.name)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active manual lead source." });
+  }
+  if (role !== "admin" && source.name.trim().toLowerCase() === "soi list") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can select SOI List as a contact's lead source." });
+  }
+  if (!source.parentId) return source.name;
+  const [parent] = await db
+    .select({ name: leadSources.name, isActive: leadSources.isActive })
+    .from(leadSources)
+    .where(eq(leadSources.id, source.parentId))
+    .limit(1);
+  if (!parent?.isActive) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a lead source under an active category." });
+  }
+  return `${parent.name} → ${source.name}`;
 }
 
 function excerpt(value: string | null | undefined, fallback: string, maxLength = 600): string {
@@ -730,6 +773,49 @@ export const contactsRouter = router({
       return { updated };
     }),
 
+  // Fills in a lead source on selected contacts that were created without
+  // one (for example an older bulk upload). It never changes a source that is
+  // already set, so it cannot be used to rewrite first-touch attribution; that
+  // stays with the single-contact correction above. Same Super Permission.
+  bulkSetMissingLeadSource: protectedProcedure
+    .input(z.object({
+      contactIds: z.array(z.number().int().positive()).min(1).max(500),
+      leadSourceId: z.number().int().positive(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const permitted = ctx.user.role === "admin"
+        && await canAdminUsePermission(ctx.user, "canEditContactLeadSource");
+      if (!permitted) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have permission to edit a contact's lead source.",
+        });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const leadSourceLabel = await requireManualLeadSource(db, input.leadSourceId, ctx.user.role);
+
+      const selected = Array.from(new Set(input.contactIds));
+      const updatedContacts = await setMissingContactLeadSource(selected, input.leadSourceId);
+      for (const contact of updatedContacts) {
+        await logActivity({
+          userId: ctx.user.id,
+          action: "contact_lead_source_updated",
+          entityType: "contact",
+          entityId: contact.id,
+          relatedContactId: contact.id,
+          details: {
+            actorName: ctx.user.name ?? "Unknown",
+            actorRole: ctx.user.role,
+            contactName: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || "Unknown Contact",
+            source: "bulk_set_missing_lead_source",
+            changes: [{ field: "Lead source", from: null, to: leadSourceLabel }],
+          },
+        });
+      }
+      return { updated: updatedContacts.length, skipped: selected.length - updatedContacts.length };
+    }),
+
   getAiSummary: protectedProcedure
     .input(z.object({ id: z.number(), forceRefresh: z.boolean().optional() }))
     .query(async ({ input }) => {
@@ -1331,6 +1417,7 @@ Please write the comprehensive AI summary now.`;
         contact_updated: "Contact details updated",
         contact_archived: "Contact archived",
         contact_deleted: "Contact deleted",
+        contact_lead_source_updated: "Lead source updated",
         isa_status_updated: "ISA status updated",
         // Agent connection actions
         agent_connection_created: "Agent connection created",
@@ -1421,6 +1508,9 @@ Please write the comprehensive AI summary now.`;
 
   bulkUpload: protectedProcedure
     .input(z.object({
+      // Applied to every row. The CSV has no column for it, and without it
+      // every imported contact landed in "Unknown / No source" in reporting.
+      leadSourceId: z.number({ message: "Choose a lead source for this upload." }).int().positive("Choose a lead source for this upload."),
       rows: z.array(z.object({
         firstName: z.string(),
         lastName: z.string(),
@@ -1459,6 +1549,10 @@ Please write the comprehensive AI summary now.`;
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Validated once, before any row is created, so an invalid source fails
+      // the whole upload instead of leaving a partial import behind.
+      const leadSourceLabel = await requireManualLeadSource(db, input.leadSourceId, ctx.user.role);
 
       const results: Array<{ row: number; status: "created" | "skipped" | "error"; reason?: string; name?: string }> = [];
       let created = 0;
@@ -1513,11 +1607,12 @@ Please write the comprehensive AI summary now.`;
             spousePhone,
             notes: row.notes?.trim() || null,
             tags: tags ?? null,
+            leadSourceId: input.leadSourceId,
             leadSourceType: (row.leadSourceType as any) ?? null,
             campaignSource: row.campaignSource?.trim() || null,
             isaStatus: (row.pipelineStatus as any) ?? (row.isaStatus as any) ?? null,
           } as any);
-          await logActivity({ userId: ctx.user.id, action: "contact_created", entityType: "contact", entityId: id, details: { name: `${row.firstName} ${row.lastName}`, source: "bulk_upload" } });
+          await logActivity({ userId: ctx.user.id, action: "contact_created", entityType: "contact", entityId: id, details: { name: `${row.firstName} ${row.lastName}`, source: "bulk_upload", leadSource: leadSourceLabel } });
           results.push({ row: rowNum, status: "created", name: `${row.firstName} ${row.lastName}` });
           created++;
         } catch (err: any) {

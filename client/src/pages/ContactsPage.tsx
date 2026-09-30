@@ -341,6 +341,9 @@ export default function ContactsPage() {
   const [bulkIsaId, setBulkIsaId] = useState<string>("none");
   const [dateFiltersOpen, setDateFiltersOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkUploadLeadSourceId, setBulkUploadLeadSourceId] = useState<number | null>(null);
+  const [bulkLeadSourceOpen, setBulkLeadSourceOpen] = useState(false);
+  const [bulkLeadSourceId, setBulkLeadSourceId] = useState<number | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -432,6 +435,24 @@ export default function ContactsPage() {
 
   const requestConnMut = trpc.connectionRequests.create.useMutation({
     onSuccess: () => { toast.success("Connection created successfully!"); setCreateOpen(false); setForm(emptyForm); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(
+    undefined,
+    { enabled: user?.role === "admin", staleTime: 30_000 },
+  );
+  const canBulkSetLeadSource = user?.role === "admin"
+    && !!(adminPermissions as Record<string, boolean> | undefined)?.canEditContactLeadSource;
+
+  const bulkSetMissingLeadSource = trpc.contacts.bulkSetMissingLeadSource.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Lead source set on ${data.updated} contact${data.updated !== 1 ? "s" : ""}, skipped ${data.skipped} that already had one`);
+      setBulkLeadSourceOpen(false);
+      setBulkLeadSourceId(null);
+      setSelectedIds(new Set());
+      utils.contacts.list.invalidate();
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -534,6 +555,14 @@ export default function ContactsPage() {
     });
   }
 
+  function handleBulkSetLeadSource() {
+    if (selectedIds.size === 0 || !bulkLeadSourceId) return;
+    bulkSetMissingLeadSource.mutate({
+      contactIds: Array.from(selectedIds),
+      leadSourceId: bulkLeadSourceId,
+    });
+  }
+
   function toggleSelect(id: number, e: React.MouseEvent) {
     e.stopPropagation();
     setSelectedIds(prev => {
@@ -631,11 +660,29 @@ export default function ContactsPage() {
       />
       <BulkUploadDialog
         open={bulkOpen}
-        onOpenChange={setBulkOpen}
+        onOpenChange={(open) => {
+          setBulkOpen(open);
+          if (!open) setBulkUploadLeadSourceId(null);
+        }}
         title="Bulk Upload Contacts"
         columns={contactBulkColumns}
+        uploadSettings={
+          <div className="rounded-lg border p-3">
+            <Label>Lead source for this upload *</Label>
+            <LeadSourcePicker
+              className="mt-1"
+              value={bulkUploadLeadSourceId}
+              onChange={setBulkUploadLeadSourceId}
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Every contact in this file gets this lead source. The Lead Source Type and Campaign Source columns are kept as extra detail. New contacts join any active Smart Plan that starts from this source.
+            </p>
+          </div>
+        }
+        importBlockedReason={bulkUploadLeadSourceId ? null : "Choose a lead source for this upload before importing."}
         onUpload={async (rows) => {
-          const result = await bulkUploadMutation.mutateAsync({ rows: rows as any });
+          if (!bulkUploadLeadSourceId) throw new Error("Choose a lead source for this upload before importing.");
+          const result = await bulkUploadMutation.mutateAsync({ leadSourceId: bulkUploadLeadSourceId, rows: rows as any });
           return result;
         }}
         onSuccess={() => {
@@ -770,6 +817,7 @@ export default function ContactsPage() {
           className="w-full sm:w-48"
           options={[
             { value: "all", label: "All Lead Sources" },
+            { value: "-1", label: "No lead source" },
             ...(() => {
               const allSources = leadSourcesData as any[];
               const topLevel = allSources.filter((s: any) => !s.ls.parentId);
@@ -819,6 +867,17 @@ export default function ContactsPage() {
             <Users className="h-3.5 w-3.5 mr-1" />
             Assign ISA
           </Button>
+          {canBulkSetLeadSource && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
+              onClick={() => { setBulkLeadSourceId(null); setBulkLeadSourceOpen(true); }}
+            >
+              <TrendingUp className="h-3.5 w-3.5 mr-1" />
+              Set lead source
+            </Button>
+          )}
           <button
             className="ml-auto text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
             onClick={() => setSelectedIds(new Set())}
@@ -1094,6 +1153,38 @@ export default function ContactsPage() {
             <Button variant="outline" onClick={() => { setBulkIsaOpen(false); setBulkIsaId("none"); }}>Cancel</Button>
             <Button onClick={handleBulkAssign} disabled={bulkAssignIsa.isPending}>
               {bulkAssignIsa.isPending ? "Updating..." : `Update ${selectedIds.size} Contact${selectedIds.size !== 1 ? "s" : ""}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Bulk Set Lead Source Dialog ── */}
+      <Dialog open={bulkLeadSourceOpen} onOpenChange={(v) => { if (!v) { setBulkLeadSourceOpen(false); setBulkLeadSourceId(null); } }}>
+        <DialogContent className="max-w-md w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle>Set Lead Source</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Sets a lead source on the <span className="font-semibold text-foreground">{selectedIds.size} selected contact{selectedIds.size !== 1 ? "s" : ""}</span> that don't have one yet.
+              Contacts that already have a lead source are skipped and keep theirs.
+            </p>
+            <div>
+              <Label>Lead source</Label>
+              <LeadSourcePicker
+                className="mt-1"
+                value={bulkLeadSourceId}
+                onChange={setBulkLeadSourceId}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground bg-muted/40 rounded p-2">
+              Each change is recorded on the contact's history. Smart Plans are not started by this.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setBulkLeadSourceOpen(false); setBulkLeadSourceId(null); }}>Cancel</Button>
+            <Button onClick={handleBulkSetLeadSource} disabled={!bulkLeadSourceId || bulkSetMissingLeadSource.isPending}>
+              {bulkSetMissingLeadSource.isPending ? "Updating..." : "Set lead source"}
             </Button>
           </DialogFooter>
         </DialogContent>
