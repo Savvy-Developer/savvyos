@@ -3,6 +3,8 @@ import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import {
   pulseActivityLog,
+  pmProjectRockMeetings,
+  pmProjects,
   pulseMeetingRocks,
   pulseMeetingScorecardMetrics,
   pulseMeetingUpdates,
@@ -125,6 +127,65 @@ async function ownedMeasurableRows(db: any, personId: number, meetingId?: string
     .orderBy(asc(rolesResponsibilities.title), asc(rrScorecardMetrics.name));
 }
 
+/**
+ * Projects remain the authority for Project Rocks. This only projects a
+ * route the current person can both access and owns (or reports for) into
+ * their selected My EOS L10 workspace.
+ */
+async function ownedProjectRockRoutes(db: any, personId: number, meetingIds: string[]) {
+  if (!meetingIds.length) return [];
+  return db.select({
+    projectId: pmProjects.id,
+    title: pmProjects.title,
+    description: pmProjects.description,
+    ownerId: pmProjects.ownerId,
+    ownerName: users.name,
+    reportingOwnerId: pmProjects.weeklyReportingOwnerId,
+    status: pmProjects.rockStatus,
+    priority: pmProjects.priority,
+    dueDate: pmProjects.dueDate,
+    quarter: pmProjects.rockQuarter,
+    definitionOfDone: pmProjects.definitionOfDone,
+    updatedAt: pmProjects.updatedAt,
+    meetingId: pulseMeetings.id,
+    meetingName: pulseMeetings.name,
+    sortOrder: pmProjectRockMeetings.sortOrder,
+  }).from(pmProjectRockMeetings)
+    .innerJoin(pmProjects, eq(pmProjects.id, pmProjectRockMeetings.projectId))
+    .innerJoin(pulseMeetings, eq(pulseMeetings.id, pmProjectRockMeetings.meetingId))
+    .leftJoin(users, eq(users.id, pmProjects.ownerId))
+    .where(and(
+      inArray(pmProjectRockMeetings.meetingId, meetingIds),
+      eq(pmProjects.isRock, true),
+      isNull(pmProjects.archivedAt),
+      or(eq(pmProjects.ownerId, personId), eq(pmProjects.weeklyReportingOwnerId, personId)),
+    ))
+    .orderBy(asc(pmProjectRockMeetings.sortOrder), asc(pmProjects.title));
+}
+
+export function projectRockForMyEos(row: any) {
+  return {
+    id: `project-rock:${row.projectId}:${row.meetingId}`,
+    type: "rock" as const,
+    sourceType: "project" as const,
+    projectId: row.projectId,
+    title: row.title,
+    description: row.description,
+    status: row.status,
+    priorityLevel: row.priority,
+    dueDate: row.dueDate ? dateOnly(row.dueDate) : null,
+    quarter: row.quarter,
+    definitionOfDone: row.definitionOfDone,
+    ownerPersonId: row.ownerId,
+    assigneeId: row.reportingOwnerId ?? row.ownerId,
+    assigneeName: row.ownerName ?? "Unassigned",
+    meetingId: row.meetingId,
+    meetingName: row.meetingName,
+    updatedAt: row.updatedAt,
+    sourceHref: `/projects/${row.projectId}`,
+  };
+}
+
 async function personalMeasurables(db: any, personId: number, meetingId?: string) {
   const reportingWeek = measurableReportingWeek();
   const rows = await ownedMeasurableRows(db, personId, meetingId);
@@ -179,7 +240,7 @@ async function personalMeetingPrep(db: any, personId: number) {
     .where(and(inArray(pulseMeetings.id, ids), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt)))
     .orderBy(asc(pulseMeetings.name));
 
-  const [scorecards, drafts, submissions, history] = await Promise.all([
+  const [scorecards, drafts, submissions, history, projectRockRoutes] = await Promise.all([
     Promise.all(meetings.map(async (meeting: any) => ({ meeting, scorecard: await getMeetingScorecard(db, personId, meeting.id) }))),
     db.select().from(pulsePersonalInputs).where(and(
       eq(pulsePersonalInputs.personId, personId),
@@ -205,6 +266,7 @@ async function personalMeetingPrep(db: any, personId: number) {
       .innerJoin(pulseMeetings, eq(pulseMeetings.id, pulseWeeklySubmissions.meetingId))
       .where(and(eq(pulseWeeklySubmissions.personId, personId), inArray(pulseWeeklySubmissions.meetingId, ids)))
       .orderBy(desc(pulseWeeklySubmissions.submittedAt)).limit(20),
+    ownedProjectRockRoutes(db, personId, meetings.map((meeting: any) => meeting.id)),
   ]);
 
   const metricIds = scorecards.flatMap(({ scorecard }: any) => scorecard.items.map((item: any) => item.metricId));
@@ -215,6 +277,11 @@ async function personalMeetingPrep(db: any, personId: number) {
   const autoConfigByMetric = new Map(autoConfigs.map((config: any) => [config.metricId, config]));
   const draftByKey = new Map<string, any>(drafts.map((draft: any) => [`${draft.meetingId}:${draft.inputKey}`, draft]));
   const submittedIds = new Set(submissions.map((submission: any) => submission.meetingId));
+  const projectRocksByMeeting = new Map<string, any[]>();
+  for (const route of projectRockRoutes as any[]) {
+    if (["done", "dropped"].includes(route.status)) continue;
+    projectRocksByMeeting.set(route.meetingId, [...(projectRocksByMeeting.get(route.meetingId) ?? []), projectRockForMyEos(route)]);
+  }
   const fields: any[] = [];
 
   for (const { meeting, scorecard } of scorecards) {
@@ -275,6 +342,7 @@ async function personalMeetingPrep(db: any, personId: number) {
       metricCount: metrics.length,
       incompleteMetrics: metrics.filter((field: any) => !isFieldComplete(field)).length,
       complete: metrics.every(isFieldComplete),
+      projectRocks: projectRocksByMeeting.get(meeting.id) ?? [],
     };
   });
 
@@ -288,7 +356,7 @@ async function personalMeetingPrep(db: any, personId: number) {
 }
 
 async function weeklyPreparationRocks(db: any, personId: number, meetingId: string) {
-  const [items, routes] = await Promise.all([
+  const [items, routes, projectRockRoutes] = await Promise.all([
     listAccessibleItems(db, personId, {}),
     db.select({
       workItemId: pulseMeetingRocks.workItemId,
@@ -303,8 +371,11 @@ async function weeklyPreparationRocks(db: any, personId: number, meetingId: stri
         isNull(pulseWorkItems.meetingId),
         isNull(pulseWorkItems.deletedAt),
       )),
+    ownedProjectRockRoutes(db, personId, [meetingId]),
   ]);
-  return projectRoutedPersonalRocks(items, routes, personId)
+  const nativeRocks = projectRoutedPersonalRocks(items, routes, personId);
+  const projectRocks = (projectRockRoutes as any[]).map(projectRockForMyEos);
+  return [...nativeRocks, ...projectRocks]
     .filter((item: any) => item.type === "rock" && item.meetingId === meetingId && (item.ownerPersonId === personId || item.assigneeId === personId) && !["done", "dropped"].includes(item.status))
     .map((item: any) => ({ title: item.title, status: item.status, percentComplete: item.percentComplete, dueDate: item.dueDate }));
 }
@@ -634,7 +705,7 @@ export const pulsePersonalRouter = router({
       throw new TRPCError({ code: "NOT_FOUND", message: "That workspace is not available." });
     }
 
-    const [allItems, meetings, prep, pendingCascades, canRun, routedPersonalRockMeetings] = await Promise.all([
+    const [allItems, meetings, prep, pendingCascades, canRun, routedPersonalRockMeetings, routedProjectRockRoutes] = await Promise.all([
       listAccessibleItems(db, ctx.user.id, {}),
       ids.length ? db.select({
         id: pulseMeetings.id, name: pulseMeetings.name, label: pulseMeetings.label, dayOfWeek: pulseMeetings.dayOfWeek,
@@ -656,11 +727,16 @@ export const pulsePersonalRouter = router({
           isNull(pulseWorkItems.meetingId),
           isNull(pulseWorkItems.deletedAt),
         )) : Promise.resolve([]),
+      ownedProjectRockRoutes(db, ctx.user.id, ids),
     ]);
 
     const itemsWithRoutedPersonalRocks = projectRoutedPersonalRocks(allItems, routedPersonalRockMeetings as Array<{ workItemId: string; meetingId: string; meetingName: string }>, ctx.user.id);
-    const ownedItems = itemsWithRoutedPersonalRocks.filter((item: any) => (item.assigneeId === ctx.user.id || item.ownerPersonId === ctx.user.id) && Boolean(item.meetingId))
-      .map((item: any) => ({ ...item, source: item.meetingName ?? "L10", sourceHref: `/pulse/meetings/${item.meetingId}` }));
+    const projectRockItems = (routedProjectRockRoutes as any[])
+      .filter((route: any) => !["done", "dropped"].includes(route.status))
+      .map(projectRockForMyEos);
+    const ownedItems = [...itemsWithRoutedPersonalRocks, ...projectRockItems]
+      .filter((item: any) => (item.assigneeId === ctx.user.id || item.ownerPersonId === ctx.user.id) && Boolean(item.meetingId))
+      .map((item: any) => ({ ...item, source: item.meetingName ?? "L10", sourceHref: item.sourceHref ?? `/pulse/meetings/${item.meetingId}` }));
     const inWorkspace = (item: any) => workspaceId === "all" || item.meetingId === workspaceId;
     const items = ownedItems.filter(inWorkspace);
     const today = todayEastern();

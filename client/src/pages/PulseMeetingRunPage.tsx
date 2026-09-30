@@ -17,6 +17,7 @@ import { PulseMeetingCompletionRail } from "@/components/pulse/PulseMeetingCompl
 import { PulseIssueTimeframeFilter, type IssueTimeframeFilterValue } from "@/components/pulse/PulseWorkItemBadges";
 import { PulseCascadeDraftForm } from "@/components/pulse/PulseCascadeComposer";
 import { PulseCascadeCard } from "@/components/pulse/PulseCascadeCard";
+import { ALL_ROCK_OWNERS, PulseRockOwnerFilter, rockOwnerKey } from "@/components/pulse/PulseRockOwnerFilter";
 
 const stepMeta: Record<string, { title: string; description: string }> = {
   segue: { title: "Segue", description: "Share personal and professional wins. Keep it brief and reset for the meeting." },
@@ -54,7 +55,10 @@ function ScorecardStep({ data }: { data: any }) {
 
 function RocksStep({ data, onChanged }: { data: any; onChanged: () => void }) {
   const update = trpc.pulse.l10.setRockStatus.useMutation({ onSuccess: onChanged, onError: (error) => toast.error(error.message) });
-  return <div className="space-y-3">{data.sections.rocks.length ? data.sections.rocks.map((rock: any) => <div key={rock.id} className="rounded-lg border border-border p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{rock.title}</p><p className="mt-1 text-sm text-muted-foreground">{rock.ownerName} · {rock.percentComplete}% complete</p></div><div className="flex flex-wrap gap-2">{["on_track", "at_risk", "off_track"].map((status) => <Button key={status} size="sm" variant={rock.status === status ? "default" : "outline"} disabled={update.isPending} onClick={() => update.mutate({ meetingId: data.meeting.id, workItemId: rock.id, status: status as any })}>{status.replaceAll("_", " ")}</Button>)}</div></div></div>) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No Rocks are configured for review.</p>}</div>;
+  const [ownerFilter, setOwnerFilter] = useState(ALL_ROCK_OWNERS);
+  const rocks = data.sections.rocks;
+  const filteredRocks = ownerFilter === ALL_ROCK_OWNERS ? rocks : rocks.filter((rock: any) => rockOwnerKey(rock) === ownerFilter);
+  return <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/[0.025] p-3"><div><p className="font-medium">Review one owner at a time</p><p className="mt-0.5 text-sm text-muted-foreground">Finish this person’s Rocks, then select the next owner.</p></div><PulseRockOwnerFilter rocks={rocks} value={ownerFilter} onValueChange={setOwnerFilter} /></div>{rocks.length ? filteredRocks.length ? filteredRocks.map((rock: any) => <div key={rock.id} className="rounded-lg border border-border p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{rock.title}</p><p className="mt-1 text-sm text-muted-foreground">{rock.ownerName} · {rock.percentComplete}% complete</p></div><div className="flex flex-wrap gap-2">{["on_track", "at_risk", "off_track"].map((status) => <Button key={status} size="sm" variant={rock.status === status ? "default" : "outline"} disabled={update.isPending} onClick={() => update.mutate(rock.projectId ? { meetingId: data.meeting.id, projectId: rock.projectId, status: status as any } : { meetingId: data.meeting.id, workItemId: rock.id, status: status as any })}>{status.replaceAll("_", " ")}</Button>)}</div></div></div>) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No active Rocks are assigned to this owner.</p> : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No Rocks are configured for review.</p>}</div>;
 }
 
 function HeadlinesStep({ data, sessionId, onChanged }: { data: any; sessionId: string; onChanged: () => void }) {

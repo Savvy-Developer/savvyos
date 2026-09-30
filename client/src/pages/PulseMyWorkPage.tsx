@@ -20,7 +20,21 @@ import { PulseMasterScorecard } from "@/components/pulse/PulseMasterScorecard";
 import { PulseIssueTimeframeFilter, type IssueTimeframeFilterValue } from "@/components/pulse/PulseWorkItemBadges";
 import { PulseCascadeCard } from "@/components/pulse/PulseCascadeCard";
 
+function ProjectRockWorkRow({ item, onChanged }: { item: any; onChanged: () => void }) {
+  const utils = trpc.useUtils();
+  const update = trpc.pulse.l10.setRockStatus.useMutation({
+    onSuccess: () => {
+      void utils.pulse.personal.dashboard.invalidate();
+      void utils.pulse.l10.dashboard.invalidate({ meetingId: item.meetingId });
+      onChanged();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  return <div className="rounded-md border border-primary/20 bg-primary/[0.025] p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="font-medium">{item.title}</p><p className="mt-0.5 text-xs text-muted-foreground">Project Rock · {item.quarter ?? "Current quarter"}{item.dueDate ? ` · Due ${new Date(`${item.dueDate}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}</p></div><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.status === "on_track" ? "bg-emerald-100 text-emerald-800" : item.status === "at_risk" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"}`}>{item.status.replaceAll("_", " ")}</span></div><div className="mt-2 flex flex-wrap gap-1.5">{["on_track", "at_risk", "off_track", "done"].map((status) => <Button key={status} type="button" size="sm" variant={item.status === status ? "default" : "outline"} className="h-7 px-2 text-xs capitalize" disabled={update.isPending} onClick={() => update.mutate({ meetingId: item.meetingId, projectId: item.projectId, status: status as any })}>{status.replaceAll("_", " ")}</Button>)}<Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild><a href={item.sourceHref}>Open Project</a></Button></div></div>;
+}
+
 function WorkRow({ item, onChanged, showDestination = false }: { item: any; onChanged: () => void; showDestination?: boolean }) {
+  if (item.sourceType === "project") return <ProjectRockWorkRow item={item} onChanged={onChanged} />;
   return <PulseInlineItemRow item={item} onChanged={onChanged} showDestination={showDestination} />;
 }
 
