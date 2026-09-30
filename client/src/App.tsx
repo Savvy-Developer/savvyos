@@ -22,6 +22,9 @@ import CommunicationsPage from "./pages/CommunicationsPage";
 import TransactionsPage from "./pages/TransactionsPage";
 import TransactionDetail from "./pages/TransactionDetail";
 import PropertiesPage from "./pages/PropertiesPage";
+import MlsPropertiesPage from "./pages/mls/MlsPropertiesPage";
+import MlsListingDetailPage from "./pages/mls/MlsListingDetailPage";
+import MlsFeedsPage from "./pages/mls/MlsFeedsPage";
 import PropertyDetail from "./pages/PropertyDetail";
 import ProformaPage from "./pages/ProformaPage";
 import MyProformasPage from "./pages/MyProformasPage";
@@ -359,6 +362,17 @@ function RecruitingRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function MlsPropertiesRoute({ children, manage = false }: { children: React.ReactNode; manage?: boolean }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewMlsProperties) return <NotFound />;
+  if (manage && !(permissions as any)?.canManageMlsFeeds) return <NotFound />;
+  return <>{children}</>;
+}
+
 function MarketMatchQuizRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
@@ -535,6 +549,9 @@ function Router() {
           <Route path="/reviews">{() => <ReviewsRoute><ReviewsPage /></ReviewsRoute>}</Route>
           <Route path="/coach-feedback">{() => <CoachFeedbackRoute><CoachFeedbackPage /></CoachFeedbackRoute>}</Route>
           <Route path="/vendors">{() => <AgentOnlyRoute><VendorListManagementPage /></AgentOnlyRoute>}</Route>
+          <Route path="/mls-properties/feeds">{() => <MlsPropertiesRoute manage><MlsFeedsPage /></MlsPropertiesRoute>}</Route>
+          <Route path="/mls-properties/listings/:id">{() => <MlsPropertiesRoute><MlsListingDetailPage /></MlsPropertiesRoute>}</Route>
+          <Route path="/mls-properties">{() => <MlsPropertiesRoute><MlsPropertiesPage /></MlsPropertiesRoute>}</Route>
           <Route path="/properties" component={PropertiesPage} />
           <Route path="/properties/:id" component={PropertyDetail} />
           <Route path="/properties/:id/proforma" component={ProformaPage} />

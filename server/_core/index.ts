@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerMagicLinkRoutes } from "./magicLink";
 import { registerUploadRoutes } from "../uploadRoutes";
+import { registerMlsMediaRoute } from "../mls/privateMedia";
 import { registerAuditRoutes } from "../auditRoutes";
 import { registerInvestorReportRoute } from "../proformaInvestorReport";
 import { registerExternalApiRoutes } from "../externalApis";
@@ -106,6 +107,8 @@ import { ensureTransactionTerminationTextSchema } from "../transactionTerminatio
 import { ensureOrganicSocialLeadSources } from "../organicSocialLeadSources";
 import { ensureWebsiteLeadSources } from "../websiteLeadSources";
 import { ensureMarketStateFix } from "../marketStateFix";
+import { ensureMlsSchema } from "../mls/schema";
+import { startInProcessMlsIngestion } from "../mls/worker";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -152,6 +155,9 @@ async function startServer() {
   // one-time state fix for seven markets listed under "Other".
   await ensureWebsiteLeadSources();
   await ensureMarketStateFix();
+  // MLS Properties tables and its two admin permission columns. The columns
+  // must exist before any request selects admin_permissions.
+  await ensureMlsSchema();
 
   const app = express();
   const server = createServer(app);
@@ -323,6 +329,7 @@ async function startServer() {
   registerMagicLinkRoutes(app);
   // File upload routes
   registerUploadRoutes(app);
+  registerMlsMediaRoute(app);
   // Browser file opens/downloads, which bypass standard tRPC mutations.
   registerAuditRoutes(app);
   // Pro-forma Investor Report (HTML-to-PDF with Puppeteer)
@@ -476,6 +483,9 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+  // MLS ingestion normally runs in its own service (SAVVYOS_PROCESS=mlsIngestionWorker).
+  // MLS_INGESTION_IN_WEB=on runs it here instead, for small deployments.
+  startInProcessMlsIngestion().catch(err => console.error("[mls] in-process ingestion failed to start:", err));
 
   // Canonical role-specific training guides are safely created or refreshed on startup.
   ensureSavvyOSTrainingGuides().catch(err =>

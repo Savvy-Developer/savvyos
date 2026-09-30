@@ -17,6 +17,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { contactsRouter, connectionRequestsRouter } from "./routers/contacts";
 import { agentConnectionsRouter } from "./routers/agentConnections";
 import { propertiesRouter } from "./routers/properties";
+import { mlsPropertiesRouter } from "./routers/mlsProperties";
 import { transactionsRouter } from "./routers/transactions";
 import { tasksRouter } from "./routers/tasks";
 import { documentsRouter } from "./routers/documents";
@@ -270,6 +271,7 @@ export const appRouter = router({
   calendarConnections: calendarConnectionsRouter,
   connectionRequests: connectionRequestsRouter,
   properties: propertiesRouter,
+  mlsProperties: mlsPropertiesRouter,
   transactions: transactionsRouter,
   checklists: checklistsRouter,
   tasks: tasksRouter,

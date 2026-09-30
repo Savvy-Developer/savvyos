@@ -28,6 +28,7 @@ import {
 import {
   BarChart3,
   Building2,
+  MapPinned,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
@@ -362,6 +363,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewTransactionExports: "/transaction-reporting",
   canViewListings: "/listings",
   canViewProperties: "/properties",
+  canViewMlsProperties: "/mls-properties",
   canViewCommission: "/commission",
   canViewReviews: "/reviews",
   canViewReferrals: "/referrals",
@@ -503,6 +505,7 @@ function buildAdminNav(
         { icon: FileText, label: "All Transactions", path: "/transactions" },
         { icon: Building2, label: "Listings", path: "/listings" },
         { icon: Building2, label: "Properties", path: "/properties" },
+        { icon: MapPinned, label: "MLS Properties", path: "/mls-properties" },
         {
           icon: DollarSign,
           label: "Commissions and Payouts",
