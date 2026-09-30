@@ -229,6 +229,50 @@ export function PulseCascadeComposerDialog({
   );
 }
 
+/**
+ * Session cascades are intentionally drafts: the runner can capture the
+ * handoff at any agenda step, then publishes every prepared message together
+ * when the L10 concludes.
+ */
+export function PulseCascadeDraftDialog({
+  open,
+  onOpenChange,
+  sourceMeetingId,
+  sourceMeetingName,
+  sessionId,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  sourceMeetingId: string;
+  sourceMeetingName: string;
+  sessionId: string;
+  onSaved?: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Prepare a cascading message</DialogTitle>
+          <DialogDescription>
+            Capture this handoff from {sourceMeetingName} now. It will publish
+            to the selected authorized meetings when this L10 closes.
+          </DialogDescription>
+        </DialogHeader>
+        <CascadeComposerForm
+          sourceMeetingId={sourceMeetingId}
+          sourceMeetingName={sourceMeetingName}
+          sessionId={sessionId}
+          onSaved={() => {
+            onSaved?.();
+            onOpenChange(false);
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function PulseCascadeDraftForm({
   sourceMeetingId,
   sourceMeetingName,

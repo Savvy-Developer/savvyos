@@ -58,9 +58,16 @@ describe("Pulse cascading-message workflow", () => {
     expect(dashboard).toContain("Sent cascades");
   });
 
-  it("uses the same composer at L10 closeout with a deferred-publication explanation", () => {
-    expect(runner).toContain("PulseCascadeDraftForm");
-    expect(runner).toContain("It publishes when this L10 closes.");
+  it("uses one global session composer with a deferred-publication explanation", () => {
+    const concludeStep = runner.slice(
+      runner.indexOf("function ConcludeStep"),
+      runner.indexOf("export default function PulseMeetingRunPage")
+    );
+
+    expect(runner).toContain("PulseCascadeDraftDialog");
+    expect(composer).toContain("It will publish");
+    expect(composer).toContain("when this L10 closes.");
+    expect(concludeStep).not.toContain("PulseCascade");
     expect(runner).not.toContain("setCascadeBody");
   });
 });

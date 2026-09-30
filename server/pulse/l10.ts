@@ -689,7 +689,10 @@ export const pulseL10Router = router({
 
   draftCascade: pulseMemberProcedure.input(z.object({ meetingId, sessionId, toMeetingIds: z.array(meetingId).min(1).max(20), subject: z.string().trim().min(1).max(255), body: z.string().trim().min(1).max(4000) })).mutation(async ({ ctx, input }) => {
     const db = await database();
-    const meeting = await requireL10Capability(db, ctx.user, input.meetingId, "run_l10s");
+    // Meeting Administrators and Pulse users with L10 runner authority can
+    // capture the same in-session cascade handoff. Publication remains tied
+    // to closing this active session.
+    const meeting = await requireL10Runner(db, ctx.user, input.meetingId);
     await requireSession(db, input.meetingId, input.sessionId, true);
     const targets = Array.from(new Set(input.toMeetingIds));
     if (targets.includes(input.meetingId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose another meeting to receive this message." });

@@ -6,6 +6,7 @@ const root = process.cwd();
 const read = (file: string) => readFileSync(path.join(root, file), "utf8");
 const runner = read("client/src/pages/PulseMeetingRunPage.tsx");
 const completionRail = read("client/src/components/pulse/PulseMeetingCompletionRail.tsx");
+const cascadeComposer = read("client/src/components/pulse/PulseCascadeComposer.tsx");
 const styles = read("client/src/index.css");
 const l10 = read("server/pulse/l10.ts");
 
@@ -47,5 +48,22 @@ describe("Pulse Meeting Runner workspace", () => {
     expect(completionRail).toContain("onChanged()");
     expect(completionRail).toContain("Recall is available to the person running this L10.");
     expect(completionRail).not.toContain("designated L10 Administrator");
+  });
+
+  it("keeps one cascade action available throughout the active runner", () => {
+    expect(runner).toContain("const [cascadeComposerOpen, setCascadeComposerOpen] = useState(false)");
+    expect(runner).toContain("<Send className=\"mr-2 h-4 w-4\"/>Cascade message");
+    expect(runner).toContain("<PulseCascadeDraftDialog");
+    expect(runner).toContain("sessionId={session.id}");
+    expect(runner).not.toContain("PulseCascadeDraftForm");
+    expect(cascadeComposer).toContain("export function PulseCascadeDraftDialog");
+    expect(cascadeComposer).toContain("Capture this handoff from {sourceMeetingName} now.");
+  });
+
+  it("allows each authorized L10 runner to prepare an in-session cascade", () => {
+    const draftCascade = l10.slice(l10.indexOf("draftCascade:"), l10.indexOf("closeSession:"));
+
+    expect(draftCascade).toContain("const meeting = await requireL10Runner(db, ctx.user, input.meetingId)");
+    expect(draftCascade).not.toContain('requireL10Capability(db, ctx.user, input.meetingId, "run_l10s")');
   });
 });
