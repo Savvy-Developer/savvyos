@@ -316,7 +316,7 @@ function ProformaPublishState({
       {!listingPublished && (
         <>
           {" "}
-          It appears once this listing itself is set to published.
+          It appears once this listing itself is set to published; until then the team can check it with Preview draft.
         </>
       )}
     </p>
