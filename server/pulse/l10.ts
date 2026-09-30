@@ -25,6 +25,7 @@ import {
   pmProjects,
   pmTasks,
   pmTodoSections,
+  pulseRunnerIssueSources,
   pulseWorkItems,
   rrScorecardMetrics,
   rolesResponsibilities,
@@ -50,6 +51,7 @@ const runnerSteps = L10_RUNNER_STEPS;
 const workType = z.enum(["todo", "issue", "rock"]);
 const rockStatus = z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]);
 const todoStatus = z.enum(["not_started", "in_progress", "blocked", "completed"]);
+const runnerIssueSourceType = z.enum(["headline", "scorecard", "rock"]);
 
 const L10_DEFAULT_SECTIONS: Record<(typeof dashboardSections)[number], boolean> = {
   overview: true,
@@ -293,6 +295,138 @@ async function getUpdates(db: any, targetMeetingId: string, updateType: "segue" 
     .orderBy(desc(pulseMeetingUpdates.createdAt)).limit(30);
 }
 
+function plainRunnerIssueContext(value: unknown, maxLength = 6_000) {
+  const plain = String(value ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return plain.length > maxLength ? `${plain.slice(0, maxLength - 1)}…` : plain;
+}
+
+function runnerIssueNumber(value: number | null | undefined) {
+  return value == null
+    ? "No value entered"
+    : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+}
+
+type RunnerIssueSource = {
+  sourceType: z.infer<typeof runnerIssueSourceType>;
+  sourceId: string;
+  defaultTitle: string;
+  context: string;
+  snapshot: Record<string, unknown>;
+};
+
+async function getRunnerIssueSource(
+  db: any,
+  personId: number,
+  targetMeetingId: string,
+  sourceType: z.infer<typeof runnerIssueSourceType>,
+  sourceId: string,
+): Promise<RunnerIssueSource> {
+  if (sourceType === "headline") {
+    const headline = (await getUpdates(db, targetMeetingId, "headline"))
+      .find((entry: any) => entry.id === sourceId);
+    if (!headline) throw notFound("This headline is not available in this L10.");
+
+    const body = plainRunnerIssueContext(headline.body);
+    return {
+      sourceType,
+      sourceId,
+      defaultTitle: `Headline: ${plainRunnerIssueContext(headline.body, 450)}`,
+      context: [
+        "Source: Headline",
+        `Shared by: ${headline.authorName ?? "Meeting participant"}`,
+        "",
+        body,
+      ].join("\n"),
+      snapshot: {
+        body,
+        authorName: headline.authorName ?? null,
+        createdAt: headline.createdAt,
+        sourceSessionId: headline.sessionId ?? null,
+      },
+    };
+  }
+
+  if (sourceType === "scorecard") {
+    const metric = (await getScorecard(db, personId, targetMeetingId))
+      .find((entry: any) => String(entry.metricId) === sourceId);
+    if (!metric) throw notFound("This measurable is not available in this L10.");
+
+    const metricName = plainRunnerIssueContext(metric.name, 500);
+    const ownerName = plainRunnerIssueContext(metric.owner?.name ?? "Unassigned", 300);
+    const signal = metric.onTarget === false
+      ? "Off target"
+      : metric.onTarget === true
+        ? "On track"
+        : "No current value";
+    return {
+      sourceType,
+      sourceId,
+      defaultTitle: `Review scorecard: ${metricName}`,
+      context: [
+        "Source: Scorecard measurable",
+        `Measurable: ${metricName}`,
+        `Owner: ${ownerName}`,
+        `Current: ${runnerIssueNumber(metric.current?.value)}`,
+        `Target: ${runnerIssueNumber(metric.target)}`,
+        `Signal: ${signal}`,
+        metric.current?.periodEnd ? `Period ending: ${metric.current.periodEnd}` : null,
+      ].filter(Boolean).join("\n"),
+      snapshot: {
+        metricId: metric.metricId,
+        name: metricName,
+        ownerName,
+        currentValue: metric.current?.value ?? null,
+        target: metric.target ?? null,
+        onTarget: metric.onTarget,
+        periodEnd: metric.current?.periodEnd ?? null,
+      },
+    };
+  }
+
+  const rock = (await getRocks(db, targetMeetingId)).find(
+    (entry: any) => entry.id === sourceId,
+  );
+  if (!rock) throw notFound("This Rock is not available in this L10.");
+
+  const description = plainRunnerIssueContext(rock.description);
+  const definitionOfDone = plainRunnerIssueContext(rock.definitionOfDone, 1_000);
+  const rockTitle = plainRunnerIssueContext(rock.title, 500);
+  const ownerName = plainRunnerIssueContext(rock.ownerName ?? "Unassigned", 300);
+  const homeMeetingName = rock.homeMeetingName
+    ? plainRunnerIssueContext(rock.homeMeetingName, 300)
+    : null;
+  return {
+    sourceType,
+    sourceId,
+    defaultTitle: `Review Rock: ${rockTitle}`,
+    context: [
+      "Source: Rock",
+      `Rock: ${rockTitle}`,
+      `Owner: ${ownerName}`,
+      `Status: ${String(rock.status ?? "not started").replaceAll("_", " ")}`,
+      `Progress: ${rock.percentComplete ?? 0}% complete`,
+      homeMeetingName ? `Home: ${homeMeetingName}` : null,
+      description ? "" : null,
+      description || null,
+      definitionOfDone ? `Done means: ${definitionOfDone}` : null,
+    ].filter(Boolean).join("\n"),
+    snapshot: {
+      source: rock.source,
+      rockTitle,
+      ownerName,
+      status: rock.status ?? null,
+      percentComplete: rock.percentComplete ?? 0,
+      homeMeetingName,
+      projectId: rock.projectId ?? null,
+      description: description || null,
+      definitionOfDone: definitionOfDone || null,
+    },
+  };
+}
+
 async function getReports(db: any, targetMeetingId: string) {
   return db.select({ report: pulseSessionReports, session: pulseMeetingSessions })
     .from(pulseSessionReports)
@@ -476,7 +610,23 @@ export const pulseL10Router = router({
     const db = await database();
     await requireL10Runner(db, ctx.user, input.meetingId);
     const dashboard = await dashboardPayload(db, ctx.user, input.meetingId);
-    return { ...dashboard, runner: { steps: getL10RunnerSteps(dashboard.meeting.sectionsEnabled), durations: normaliseDurations((await require_visible_meeting(db, ctx.user.id, input.meetingId)).sectionDurations) } };
+    const flaggedSources = dashboard.activeSession
+      ? await db.select({
+          sourceType: pulseRunnerIssueSources.sourceType,
+          sourceId: pulseRunnerIssueSources.sourceId,
+          issueWorkItemId: pulseRunnerIssueSources.issueWorkItemId,
+        })
+          .from(pulseRunnerIssueSources)
+          .where(eq(pulseRunnerIssueSources.sessionId, dashboard.activeSession.id))
+      : [];
+    return {
+      ...dashboard,
+      runner: {
+        steps: getL10RunnerSteps(dashboard.meeting.sectionsEnabled),
+        durations: normaliseDurations((await require_visible_meeting(db, ctx.user.id, input.meetingId)).sectionDurations),
+        flaggedSources,
+      },
+    };
   }),
 
   startSession: pulseMemberProcedure.input(z.object({ meetingId, scheduledFor: z.coerce.date().optional() })).mutation(async ({ ctx, input }) => {
@@ -564,6 +714,95 @@ export const pulseL10Router = router({
       await writeActivity(tx, ctx.user.id, "work_item", workItemId, "created", null, { meetingId: input.meetingId, sourceSessionId: input.sessionId ?? null, type: input.type });
     });
     return { id: workItemId };
+  }),
+
+  raiseIssueFromRunner: pulseMemberProcedure.input(z.object({
+    meetingId,
+    sessionId,
+    sourceType: runnerIssueSourceType,
+    sourceId: z.string().trim().min(1).max(64),
+    title: z.string().trim().min(1).max(500),
+    additionalContext: z.string().trim().max(2_000).optional(),
+    issueTimeframe: z.enum(["short_term", "long_term"]),
+  })).mutation(async ({ ctx, input }) => {
+    const db = await database();
+    await requireL10Runner(db, ctx.user, input.meetingId);
+    await requireSession(db, input.meetingId, input.sessionId, true);
+
+    const [existing] = await db.select({ issueWorkItemId: pulseRunnerIssueSources.issueWorkItemId })
+      .from(pulseRunnerIssueSources)
+      .where(and(
+        eq(pulseRunnerIssueSources.sessionId, input.sessionId),
+        eq(pulseRunnerIssueSources.sourceType, input.sourceType),
+        eq(pulseRunnerIssueSources.sourceId, input.sourceId),
+      ))
+      .limit(1);
+    if (existing) return { issueId: existing.issueWorkItemId, alreadyRaised: true };
+
+    const source = await getRunnerIssueSource(
+      db,
+      ctx.user.id,
+      input.meetingId,
+      input.sourceType,
+      input.sourceId,
+    );
+    const issueId = id();
+    const details = [
+      source.context,
+      input.additionalContext?.trim()
+        ? `Additional context:\n${plainRunnerIssueContext(input.additionalContext, 2_000)}`
+        : null,
+    ].filter(Boolean).join("\n\n").slice(0, 8_000);
+
+    try {
+      await db.transaction(async (tx: any) => {
+        await tx.insert(pulseWorkItems).values({
+          id: issueId,
+          type: "issue",
+          title: input.title,
+          description: details,
+          meetingId: input.meetingId,
+          sourceSessionId: input.sessionId,
+          ownerPersonId: null,
+          assigneeId: ctx.user.id,
+          createdById: ctx.user.id,
+          status: "not_started",
+          dueDate: null,
+          priorityLevel: "medium",
+          issueTimeframe: input.issueTimeframe,
+          percentComplete: 0,
+          percentSource: "manual",
+        });
+        await tx.insert(pulseRunnerIssueSources).values({
+          id: id(),
+          issueWorkItemId: issueId,
+          meetingId: input.meetingId,
+          sessionId: input.sessionId,
+          sourceType: source.sourceType,
+          sourceId: source.sourceId,
+          sourceSnapshot: source.snapshot,
+          createdById: ctx.user.id,
+        });
+        await writeActivity(tx, ctx.user.id, "work_item", issueId, "created_from_runner_source", null, {
+          meetingId: input.meetingId,
+          sessionId: input.sessionId,
+          sourceType: source.sourceType,
+          sourceId: source.sourceId,
+        });
+      });
+    } catch (error) {
+      const [concurrent] = await db.select({ issueWorkItemId: pulseRunnerIssueSources.issueWorkItemId })
+        .from(pulseRunnerIssueSources)
+        .where(and(
+          eq(pulseRunnerIssueSources.sessionId, input.sessionId),
+          eq(pulseRunnerIssueSources.sourceType, input.sourceType),
+          eq(pulseRunnerIssueSources.sourceId, input.sourceId),
+        ))
+        .limit(1);
+      if (concurrent) return { issueId: concurrent.issueWorkItemId, alreadyRaised: true };
+      throw error;
+    }
+    return { issueId, alreadyRaised: false };
   }),
 
   setTodoStatus: pulseMemberProcedure.input(z.object({ meetingId, workItemId: z.string().uuid(), status: todoStatus, statusNote: z.string().trim().min(1).max(2000) })).mutation(async ({ ctx, input }) => {

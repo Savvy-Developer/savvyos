@@ -10528,6 +10528,50 @@ export const pulseIssueResultingTodos = mysqlTable(
 export type PulseIssueResultingTodo =
   typeof pulseIssueResultingTodos.$inferSelect;
 
+/**
+ * A Meeting Runner flag creates one L10 Issue with an immutable source
+ * snapshot. The session-scoped uniqueness prevents duplicate IDS entries for
+ * the same headline, measurable, or Rock during a live L10.
+ */
+export const pulseRunnerIssueSources = mysqlTable(
+  "pulse_runner_issue_sources",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    issueWorkItemId: varchar("issueWorkItemId", { length: 36 })
+      .notNull()
+      .references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+    meetingId: varchar("meetingId", { length: 36 })
+      .notNull()
+      .references(() => pulseMeetings.id, { onDelete: "cascade" }),
+    sessionId: varchar("sessionId", { length: 36 })
+      .notNull()
+      .references(() => pulseMeetingSessions.id, { onDelete: "cascade" }),
+    sourceType: mysqlEnum("sourceType", ["headline", "scorecard", "rock"])
+      .notNull(),
+    sourceId: varchar("sourceId", { length: 64 }).notNull(),
+    sourceSnapshot: json("sourceSnapshot").$type<Record<string, unknown>>()
+      .notNull(),
+    createdById: int("createdById")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("pulse_runner_issue_sources_session_source_unique").on(
+      table.sessionId,
+      table.sourceType,
+      table.sourceId
+    ),
+    index("pulse_runner_issue_sources_meeting_idx").on(
+      table.meetingId,
+      table.sessionId
+    ),
+    index("pulse_runner_issue_sources_issue_idx").on(table.issueWorkItemId),
+  ]
+);
+export type PulseRunnerIssueSource =
+  typeof pulseRunnerIssueSources.$inferSelect;
+
 export const pulseWorkItemComments = mysqlTable(
   "pulse_work_item_comments",
   {

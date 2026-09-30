@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, ArrowRight, ChevronRight, Clock3, Pause, Play, Send, Timer } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronRight, Clock3, Flag, Pause, Play, Send, Timer } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,10 @@ import { PulseIssueTimeframeFilter, type IssueTimeframeFilterValue } from "@/com
 import { PulseCascadeDraftDialog } from "@/components/pulse/PulseCascadeComposer";
 import { PulseCascadeCard } from "@/components/pulse/PulseCascadeCard";
 import { ALL_ROCK_OWNERS, PulseRockOwnerFilter, rockOwnerKey } from "@/components/pulse/PulseRockOwnerFilter";
+import {
+  PulseRunnerIssueDialog,
+  type PulseRunnerIssueSourceRequest,
+} from "@/components/pulse/PulseRunnerIssueDialog";
 
 const stepMeta: Record<string, { title: string; description: string }> = {
   segue: { title: "Segue", description: "Share personal and professional wins. Keep it brief and reset for the meeting." },
@@ -39,21 +43,83 @@ function displayNumber(value: number | null | undefined) {
   return value == null ? "—" : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
 
-function UpdateList({ items }: { items: any[] }) {
-  return <div className="space-y-2">{items.length ? items.map((item: any) => <div key={item.id} className="rounded-lg border border-border bg-background p-3"><p className="text-sm">{item.body}</p><p className="mt-1 text-xs text-muted-foreground">{item.authorName ?? "Participant"}</p></div>) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Nothing has been added yet. Add it from the dashboard or capture it below.</p>}</div>;
+function issueSourceKey(sourceType: PulseRunnerIssueSourceRequest["sourceType"], sourceId: string) {
+  return `${sourceType}:${sourceId}`;
+}
+
+function IssueFlagButton({
+  source,
+  flaggedIssueId,
+  onFlag,
+}: {
+  source: PulseRunnerIssueSourceRequest;
+  flaggedIssueId?: string;
+  onFlag: (source: PulseRunnerIssueSourceRequest) => void;
+}) {
+  return flaggedIssueId ? (
+    <span
+      className="inline-flex min-h-8 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs font-semibold text-emerald-800"
+      title="An Issue was already created from this item in this L10."
+    >
+      In IDS
+    </span>
+  ) : (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="min-h-8 shrink-0 gap-1.5"
+      onClick={() => onFlag(source)}
+      aria-label={`Flag ${source.sourceLabel.toLowerCase()} for IDS`}
+      title="Add this context to the IDS Issues list"
+    >
+      <Flag className="h-3.5 w-3.5 text-amber-600" />
+      Flag for IDS
+    </Button>
+  );
+}
+
+function UpdateList({
+  items,
+  flaggedSources,
+  onFlagIssue,
+}: {
+  items: any[];
+  flaggedSources: Map<string, string>;
+  onFlagIssue: (source: PulseRunnerIssueSourceRequest) => void;
+}) {
+  return <div className="space-y-2">{items.length ? items.map((item: any) => {
+    const source: PulseRunnerIssueSourceRequest = {
+      sourceType: "headline",
+      sourceId: item.id,
+      sourceLabel: "Headline",
+      defaultTitle: `Headline: ${String(item.body).slice(0, 450)}`,
+      summary: `${item.authorName ?? "Meeting participant"}: ${item.body}`,
+    };
+    return <div key={item.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border bg-background p-3"><div className="min-w-0 flex-1"><p className="text-sm">{item.body}</p><p className="mt-1 text-xs text-muted-foreground">{item.authorName ?? "Participant"}</p></div><IssueFlagButton source={source} flaggedIssueId={flaggedSources.get(issueSourceKey(source.sourceType, source.sourceId))} onFlag={onFlagIssue} /></div>;
+  }) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Nothing has been added yet. Add it from the dashboard or capture it below.</p>}</div>;
 }
 
 function SegueStep({ data, sessionId, onChanged }: { data: any; sessionId: string; onChanged: () => void }) {
   const [body, setBody] = useState("");
   const create = trpc.pulse.l10.createUpdate.useMutation({ onSuccess: () => { setBody(""); onChanged(); }, onError: (error) => toast.error(error.message) });
-  return <div className="space-y-4"><UpdateList items={data.sections.segue}/><form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); if (body.trim()) create.mutate({ meetingId: data.meeting.id, sessionId, updateType: "segue", body: body.trim() }); }}><Input className="min-h-11" value={body} onChange={(event) => setBody(event.target.value)} placeholder="A personal or professional best…"/><Button type="submit" disabled={!body.trim() || create.isPending}>Add</Button></form></div>;
+  return <div className="space-y-4"><div className="space-y-2">{data.sections.segue.length ? data.sections.segue.map((item: any) => <div key={item.id} className="rounded-lg border border-border bg-background p-3"><p className="text-sm">{item.body}</p><p className="mt-1 text-xs text-muted-foreground">{item.authorName ?? "Participant"}</p></div>) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Nothing has been added yet. Add it from the dashboard or capture it below.</p>}</div><form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); if (body.trim()) create.mutate({ meetingId: data.meeting.id, sessionId, updateType: "segue", body: body.trim() }); }}><Input className="min-h-11" value={body} onChange={(event) => setBody(event.target.value)} placeholder="A personal or professional best…"/><Button type="submit" disabled={!body.trim() || create.isPending}>Add</Button></form></div>;
 }
 
-function ScorecardStep({ data }: { data: any }) {
-  return <div className="overflow-x-auto"><table className="min-w-[620px] w-full text-sm"><thead className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="pb-3">Measurable</th><th className="pb-3">Owner</th><th className="pb-3">Current</th><th className="pb-3">Target</th><th className="pb-3">Signal</th></tr></thead><tbody>{data.sections.scorecard.length ? data.sections.scorecard.map((metric: any) => <tr key={metric.metricId} className="border-b last:border-0"><td className="py-4 font-medium">{metric.name}</td><td className="py-4 text-muted-foreground">{metric.owner.name}</td><td className="py-4 font-semibold">{displayNumber(metric.current?.value)}</td><td className="py-4">{displayNumber(metric.target)}</td><td className="py-4">{metric.onTarget === false ? <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">Drop to IDS</span> : metric.onTarget === true ? <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800">On track</span> : <span className="text-muted-foreground">No value</span>}</td></tr>) : <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">No measurables are configured for this L10.</td></tr>}</tbody></table></div>;
+function ScorecardStep({ data, flaggedSources, onFlagIssue }: { data: any; flaggedSources: Map<string, string>; onFlagIssue: (source: PulseRunnerIssueSourceRequest) => void }) {
+  return <div className="overflow-x-auto"><table className="min-w-[760px] w-full text-sm"><thead className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="pb-3">Measurable</th><th className="pb-3">Owner</th><th className="pb-3">Current</th><th className="pb-3">Target</th><th className="pb-3">Signal</th><th className="pb-3 text-right"><span className="sr-only">IDS action</span></th></tr></thead><tbody>{data.sections.scorecard.length ? data.sections.scorecard.map((metric: any) => {
+    const source: PulseRunnerIssueSourceRequest = {
+      sourceType: "scorecard",
+      sourceId: String(metric.metricId),
+      sourceLabel: "Scorecard measurable",
+      defaultTitle: `Review scorecard: ${metric.name}`,
+      summary: `${metric.name} · ${metric.owner?.name ?? "Unassigned"}\nCurrent: ${displayNumber(metric.current?.value)} · Target: ${displayNumber(metric.target)}`,
+    };
+    return <tr key={metric.metricId} className="border-b last:border-0"><td className="py-4 font-medium">{metric.name}</td><td className="py-4 text-muted-foreground">{metric.owner.name}</td><td className="py-4 font-semibold">{displayNumber(metric.current?.value)}</td><td className="py-4">{displayNumber(metric.target)}</td><td className="py-4">{metric.onTarget === false ? <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">Off target</span> : metric.onTarget === true ? <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800">On track</span> : <span className="text-muted-foreground">No value</span>}</td><td className="py-4 text-right"><IssueFlagButton source={source} flaggedIssueId={flaggedSources.get(issueSourceKey(source.sourceType, source.sourceId))} onFlag={onFlagIssue} /></td></tr>;
+  }) : <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">No measurables are configured for this L10.</td></tr>}</tbody></table></div>;
 }
 
-function RocksStep({ data, onChanged }: { data: any; onChanged: () => void }) {
+function RocksStep({ data, onChanged, flaggedSources, onFlagIssue }: { data: any; onChanged: () => void; flaggedSources: Map<string, string>; onFlagIssue: (source: PulseRunnerIssueSourceRequest) => void }) {
   const update = trpc.pulse.l10.setRockStatus.useMutation({ onSuccess: onChanged, onError: (error) => toast.error(error.message) });
   const [ownerFilter, setOwnerFilter] = useState(ALL_ROCK_OWNERS);
   const [expandedRockIds, setExpandedRockIds] = useState<Set<string>>(() => new Set());
@@ -67,14 +133,21 @@ function RocksStep({ data, onChanged }: { data: any; onChanged: () => void }) {
   });
   return <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/[0.025] p-3"><div><p className="font-medium">Review one owner at a time</p><p className="mt-0.5 text-sm text-muted-foreground">Finish this person’s Rocks, then select the next owner.</p></div><PulseRockOwnerFilter rocks={rocks} value={ownerFilter} onValueChange={setOwnerFilter} /></div>{rocks.length ? filteredRocks.length ? filteredRocks.map((rock: any) => {
     const open = expandedRockIds.has(rock.id);
-    return <div key={rock.id} className="overflow-hidden rounded-lg border border-border"><button type="button" className="flex w-full items-start justify-between gap-3 p-4 text-left hover:bg-muted/35" onClick={() => toggleRock(rock.id)} aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${rock.title} Rock`}><div className="flex min-w-0 items-start gap-2"><ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} /><div className="min-w-0"><p className="truncate font-semibold">{rock.title}</p><p className="mt-1 truncate text-sm text-muted-foreground">{rock.ownerName} · {rock.percentComplete}% complete</p></div></div><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${rock.status === "on_track" || rock.status === "done" ? "bg-emerald-100 text-emerald-800" : rock.status === "at_risk" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>{rock.status.replaceAll("_", " ")}</span></button>{open ? <div className="border-t border-border p-4">{rock.description ? <p className="whitespace-pre-wrap text-sm text-muted-foreground">{rock.description}</p> : null}{rock.definitionOfDone ? <p className="mt-2 text-sm text-muted-foreground">Done means: {rock.definitionOfDone}</p> : null}<div className="mt-3 flex flex-wrap gap-2">{["on_track", "at_risk", "off_track", "done"].map((status) => <Button key={status} size="sm" variant={rock.status === status ? "default" : "outline"} disabled={update.isPending} onClick={() => update.mutate(rock.projectId ? { meetingId: data.meeting.id, projectId: rock.projectId, status: status as any } : { meetingId: data.meeting.id, workItemId: rock.id, status: status as any })}>{status.replaceAll("_", " ")}</Button>)}</div></div> : null}</div>;
+    const source: PulseRunnerIssueSourceRequest = {
+      sourceType: "rock",
+      sourceId: rock.id,
+      sourceLabel: "Rock",
+      defaultTitle: `Review Rock: ${rock.title}`,
+      summary: `${rock.title} · ${rock.ownerName ?? "Unassigned"}\n${rock.status.replaceAll("_", " ")} · ${rock.percentComplete}% complete`,
+    };
+    return <div key={rock.id} className="overflow-hidden rounded-lg border border-border"><button type="button" className="flex w-full items-start justify-between gap-3 p-4 text-left hover:bg-muted/35" onClick={() => toggleRock(rock.id)} aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${rock.title} Rock`}><div className="flex min-w-0 items-start gap-2"><ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} /><div className="min-w-0"><p className="truncate font-semibold">{rock.title}</p><p className="mt-1 truncate text-sm text-muted-foreground">{rock.ownerName} · {rock.percentComplete}% complete</p></div></div><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${rock.status === "on_track" || rock.status === "done" ? "bg-emerald-100 text-emerald-800" : rock.status === "at_risk" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>{rock.status.replaceAll("_", " ")}</span></button>{open ? <div className="border-t border-border p-4">{rock.description ? <p className="whitespace-pre-wrap text-sm text-muted-foreground">{rock.description}</p> : null}{rock.definitionOfDone ? <p className="mt-2 text-sm text-muted-foreground">Done means: {rock.definitionOfDone}</p> : null}<div className="mt-3 flex flex-wrap items-center gap-2">{["on_track", "at_risk", "off_track", "done"].map((status) => <Button key={status} size="sm" variant={rock.status === status ? "default" : "outline"} disabled={update.isPending} onClick={() => update.mutate(rock.projectId ? { meetingId: data.meeting.id, projectId: rock.projectId, status: status as any } : { meetingId: data.meeting.id, workItemId: rock.id, status: status as any })}>{status.replaceAll("_", " ")}</Button>)}<IssueFlagButton source={source} flaggedIssueId={flaggedSources.get(issueSourceKey(source.sourceType, source.sourceId))} onFlag={onFlagIssue} /></div></div> : null}</div>;
   }) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No active Rocks are assigned to this owner.</p> : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No Rocks are configured for review.</p>}</div>;
 }
 
-function HeadlinesStep({ data, sessionId, onChanged }: { data: any; sessionId: string; onChanged: () => void }) {
+function HeadlinesStep({ data, sessionId, onChanged, flaggedSources, onFlagIssue }: { data: any; sessionId: string; onChanged: () => void; flaggedSources: Map<string, string>; onFlagIssue: (source: PulseRunnerIssueSourceRequest) => void }) {
   const [body, setBody] = useState("");
   const create = trpc.pulse.l10.createUpdate.useMutation({ onSuccess: () => { setBody(""); onChanged(); }, onError: (error) => toast.error(error.message) });
-  return <div className="space-y-4"><UpdateList items={data.sections.headlines}/><form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); if (body.trim()) create.mutate({ meetingId: data.meeting.id, sessionId, updateType: "headline", body: body.trim() }); }}><Input className="min-h-11" value={body} onChange={(event) => setBody(event.target.value)} placeholder="A customer, employee, or operating update…"/><Button type="submit" disabled={!body.trim() || create.isPending}>Add</Button></form></div>;
+  return <div className="space-y-4"><UpdateList items={data.sections.headlines} flaggedSources={flaggedSources} onFlagIssue={onFlagIssue}/><form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); if (body.trim()) create.mutate({ meetingId: data.meeting.id, sessionId, updateType: "headline", body: body.trim() }); }}><Input className="min-h-11" value={body} onChange={(event) => setBody(event.target.value)} placeholder="A customer, employee, or operating update…"/><Button type="submit" disabled={!body.trim() || create.isPending}>Add</Button></form></div>;
 }
 
 function CascadesStep({ data, onChanged }: { data: any; onChanged: () => void }) {
@@ -158,6 +231,7 @@ export default function PulseMeetingRunPage({ meetingId }: { meetingId: string }
   const [notes, setNotes] = useState("");
   const [editorRequest, setEditorRequest] = useState<{ type: "todo" | "issue"; workItemId?: string } | null>(null);
   const [cascadeComposerOpen, setCascadeComposerOpen] = useState(false);
+  const [issueSourceRequest, setIssueSourceRequest] = useState<PulseRunnerIssueSourceRequest | null>(null);
   const openEditor = (item: any) => setEditorRequest({ type: item.type === "issue" ? "issue" : "todo", workItemId: item.id });
   const session = data?.activeSession as any;
   const steps = (data?.runner?.steps ?? []) as string[];
@@ -169,12 +243,16 @@ export default function PulseMeetingRunPage({ meetingId }: { meetingId: string }
   const totalSeconds = steps.reduce((total: number, name: string) => total + Number(durations[name] ?? 5) * 60, 0);
   const elapsedBeforeStep = steps.slice(0, stepIndex).reduce((total: number, name: string) => total + Number(durations[name] ?? 5) * 60, 0);
   const remainingStep = Number(durations[step] ?? 5) * 60 - Math.max(0, elapsed - elapsedBeforeStep);
+  const flaggedSources = useMemo(() => new Map(
+    ((data?.runner?.flaggedSources ?? []) as Array<{ sourceType: PulseRunnerIssueSourceRequest["sourceType"]; sourceId: string; issueWorkItemId: string }>)
+      .map(entry => [issueSourceKey(entry.sourceType, entry.sourceId), entry.issueWorkItemId]),
+  ), [data?.runner?.flaggedSources]);
   const persist = (changes: any) => session && update.mutate({ meetingId, sessionId: session.id, elapsedSeconds: elapsed, attendeeIds, notes, ...changes });
   const advance = (direction: -1 | 1) => { const next = steps[stepIndex + direction]; if (!next) return; setActiveStep(next); persist({ activeStep: next }); };
   const changed = () => { void utils.pulse.l10.runner.invalidate({ meetingId }); void utils.pulse.l10.dashboard.invalidate({ meetingId }); };
   if (isLoading) return <Skeleton className="h-[70vh] w-full"/>;
   if (error || !data) return <Card className="mx-auto max-w-3xl"><CardContent className="p-6">This L10 cannot be run. <Link className="underline" href={`/pulse/meetings/${meetingId}`}>Return to the workspace</Link>.</CardContent></Card>;
   if (!session) return <main className="mx-auto flex min-h-[60vh] max-w-xl items-center"><Card className="w-full"><CardHeader><CardTitle>Ready to run {data.meeting.name}?</CardTitle><CardDescription>Start a dated session. The shared timer, agenda progress, commitments, decisions, ratings, and cascades will remain with this session.</CardDescription></CardHeader><CardContent><Button className="min-h-11" disabled={start.isPending} onClick={() => start.mutate({ meetingId })}><Play className="mr-2 h-4 w-4"/>{start.isPending ? "Starting…" : "Start L10"}</Button></CardContent></Card></main>;
-  const body = step === "segue" ? <SegueStep data={data} sessionId={session.id} onChanged={changed}/> : step === "scorecard" ? <ScorecardStep data={data}/> : step === "rocks" ? <RocksStep data={data} onChanged={changed}/> : step === "headlines" ? <HeadlinesStep data={data} sessionId={session.id} onChanged={changed}/> : step === "cascades" ? <CascadesStep data={data} onChanged={changed}/> : step === "todos" ? <TodosStep data={data} sessionId={session.id} onCreate={(type) => openEditor({ type })} onChanged={changed}/> : step === "issues" ? <IdsStep data={data} sessionId={session.id} onCreate={(type) => openEditor({ type })} onChanged={changed}/> : <ConcludeStep data={data} session={session} elapsed={elapsed} attendeeIds={attendeeIds} notes={notes} setNotes={setNotes} onSave={persist} onClose={() => { changed(); window.location.assign(`/pulse/meetings/${meetingId}`); }}/>;
-  return <main className="pulse-runner-shell fixed inset-0 z-50 flex flex-col bg-background"><header className="shrink-0 border-b bg-background/95 px-4 py-3 backdrop-blur sm:px-6"><div className="flex w-full flex-wrap items-center justify-between gap-3"><Button asChild variant="ghost" className="min-h-11"><Link href={`/pulse/meetings/${meetingId}`}><ArrowLeft className="mr-2 h-4 w-4"/>Exit runner</Link></Button><div className="flex flex-wrap items-center justify-end gap-3"><Button type="button" variant="outline" className="min-h-11" onClick={() => setCascadeComposerOpen(true)}><Send className="mr-2 h-4 w-4"/>Cascade message</Button><div className="text-right"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Meeting timer</p><p className={`font-mono text-lg font-semibold ${totalSeconds - elapsed < 0 ? "text-amber-700" : ""}`}><Timer className="mr-1 inline h-4 w-4"/>{formatTime(totalSeconds - elapsed)} remaining</p></div><Button variant="outline" className="min-h-11" onClick={() => persist({ status: session.status === "running" ? "paused" : "running" })}>{session.status === "running" ? <><Pause className="mr-2 h-4 w-4"/>Pause</> : <><Play className="mr-2 h-4 w-4"/>Resume</>}</Button></div></div></header><Progress value={Math.min(100, (elapsed / Math.max(1, totalSeconds)) * 100)} className="h-1 shrink-0 rounded-none"/><div className="flex min-h-0 flex-1 flex-col"><div className="pulse-runner-scroll flex-1"><div className="pulse-runner-content flex min-h-full flex-col"><div className="flex flex-wrap gap-2">{steps.map((name: string, index: number) => <button type="button" key={name} onClick={() => { setActiveStep(name); persist({ activeStep: name }); }} className={`min-h-9 rounded-full px-3 text-xs font-semibold ${index === stepIndex ? "bg-primary text-primary-foreground" : index < stepIndex ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{index + 1}. {stepMeta[name]?.title ?? name}</button>)}</div><section className="flex flex-1 flex-col py-3 sm:py-4"><div className="w-full"><p className="text-sm font-semibold text-primary">Step {stepIndex + 1} of {steps.length}</p><h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">{stepMeta[step]?.title ?? step}</h1><p className="mt-3 max-w-2xl text-lg leading-7 text-muted-foreground">{stepMeta[step]?.description}</p><p className={`mt-4 inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${remainingStep < 0 ? "bg-amber-100 text-amber-800" : "bg-muted text-muted-foreground"}`}><Clock3 className="mr-2 h-4 w-4"/>{remainingStep < 0 ? "Over by " : "Time left "}{formatTime(remainingStep)}</p><Card className="mt-4 flex min-h-[28rem] flex-1 flex-col lg:min-h-[calc(100dvh-19rem)]"><CardContent className="flex flex-1 flex-col p-4 sm:p-5 lg:p-6">{body}</CardContent></Card></div></section></div></div><footer className="flex shrink-0 items-center justify-between gap-3 border-t bg-background px-3 py-2 sm:px-6"><Button variant="outline" className="min-h-11" disabled={stepIndex === 0} onClick={() => advance(-1)}><ArrowLeft className="mr-2 h-4 w-4"/>Back</Button><Button className="min-h-11" disabled={stepIndex === steps.length - 1} onClick={() => advance(1)}>Advance<ArrowRight className="ml-2 h-4 w-4"/></Button></footer></div><PulseItemEditor open={Boolean(editorRequest)} onOpenChange={(open) => { if (!open) setEditorRequest(null); }} workItemId={editorRequest?.workItemId} defaultType={editorRequest?.type ?? "todo"} defaultDestinationId={meetingId} sourceSessionId={session.id} onSaved={() => changed()} /><PulseCascadeDraftDialog open={cascadeComposerOpen} onOpenChange={setCascadeComposerOpen} sourceMeetingId={data.meeting.id} sourceMeetingName={data.meeting.name} sessionId={session.id} onSaved={changed} /></main>;
+  const body = step === "segue" ? <SegueStep data={data} sessionId={session.id} onChanged={changed}/> : step === "scorecard" ? <ScorecardStep data={data} flaggedSources={flaggedSources} onFlagIssue={setIssueSourceRequest}/> : step === "rocks" ? <RocksStep data={data} onChanged={changed} flaggedSources={flaggedSources} onFlagIssue={setIssueSourceRequest}/> : step === "headlines" ? <HeadlinesStep data={data} sessionId={session.id} onChanged={changed} flaggedSources={flaggedSources} onFlagIssue={setIssueSourceRequest}/> : step === "cascades" ? <CascadesStep data={data} onChanged={changed}/> : step === "todos" ? <TodosStep data={data} sessionId={session.id} onCreate={(type) => openEditor({ type })} onChanged={changed}/> : step === "issues" ? <IdsStep data={data} sessionId={session.id} onCreate={(type) => openEditor({ type })} onChanged={changed}/> : <ConcludeStep data={data} session={session} elapsed={elapsed} attendeeIds={attendeeIds} notes={notes} setNotes={setNotes} onSave={persist} onClose={() => { changed(); window.location.assign(`/pulse/meetings/${meetingId}`); }}/>;
+  return <main className="pulse-runner-shell fixed inset-0 z-50 flex flex-col bg-background"><header className="shrink-0 border-b bg-background/95 px-4 py-3 backdrop-blur sm:px-6"><div className="flex w-full flex-wrap items-center justify-between gap-3"><Button asChild variant="ghost" className="min-h-11"><Link href={`/pulse/meetings/${meetingId}`}><ArrowLeft className="mr-2 h-4 w-4"/>Exit runner</Link></Button><div className="flex flex-wrap items-center justify-end gap-3"><Button type="button" variant="outline" className="min-h-11" onClick={() => setCascadeComposerOpen(true)}><Send className="mr-2 h-4 w-4"/>Cascade message</Button><div className="text-right"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Meeting timer</p><p className={`font-mono text-lg font-semibold ${totalSeconds - elapsed < 0 ? "text-amber-700" : ""}`}><Timer className="mr-1 inline h-4 w-4"/>{formatTime(totalSeconds - elapsed)} remaining</p></div><Button variant="outline" className="min-h-11" onClick={() => persist({ status: session.status === "running" ? "paused" : "running" })}>{session.status === "running" ? <><Pause className="mr-2 h-4 w-4"/>Pause</> : <><Play className="mr-2 h-4 w-4"/>Resume</>}</Button></div></div></header><Progress value={Math.min(100, (elapsed / Math.max(1, totalSeconds)) * 100)} className="h-1 shrink-0 rounded-none"/><div className="flex min-h-0 flex-1 flex-col"><div className="pulse-runner-scroll flex-1"><div className="pulse-runner-content flex min-h-full flex-col"><div className="flex flex-wrap gap-2">{steps.map((name: string, index: number) => <button type="button" key={name} onClick={() => { setActiveStep(name); persist({ activeStep: name }); }} className={`min-h-9 rounded-full px-3 text-xs font-semibold ${index === stepIndex ? "bg-primary text-primary-foreground" : index < stepIndex ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{index + 1}. {stepMeta[name]?.title ?? name}</button>)}</div><section className="flex flex-1 flex-col py-3 sm:py-4"><div className="w-full"><p className="text-sm font-semibold text-primary">Step {stepIndex + 1} of {steps.length}</p><h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">{stepMeta[step]?.title ?? step}</h1><p className="mt-3 max-w-2xl text-lg leading-7 text-muted-foreground">{stepMeta[step]?.description}</p><p className={`mt-4 inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${remainingStep < 0 ? "bg-amber-100 text-amber-800" : "bg-muted text-muted-foreground"}`}><Clock3 className="mr-2 h-4 w-4"/>{remainingStep < 0 ? "Over by " : "Time left "}{formatTime(remainingStep)}</p><Card className="mt-4 flex min-h-[28rem] flex-1 flex-col lg:min-h-[calc(100dvh-19rem)]"><CardContent className="flex flex-1 flex-col p-4 sm:p-5 lg:p-6">{body}</CardContent></Card></div></section></div></div><footer className="flex shrink-0 items-center justify-between gap-3 border-t bg-background px-3 py-2 sm:px-6"><Button variant="outline" className="min-h-11" disabled={stepIndex === 0} onClick={() => advance(-1)}><ArrowLeft className="mr-2 h-4 w-4"/>Back</Button><Button className="min-h-11" disabled={stepIndex === steps.length - 1} onClick={() => advance(1)}>Advance<ArrowRight className="ml-2 h-4 w-4"/></Button></footer></div><PulseItemEditor open={Boolean(editorRequest)} onOpenChange={(open) => { if (!open) setEditorRequest(null); }} workItemId={editorRequest?.workItemId} defaultType={editorRequest?.type ?? "todo"} defaultDestinationId={meetingId} sourceSessionId={session.id} onSaved={() => changed()} /><PulseRunnerIssueDialog meetingId={meetingId} sessionId={session.id} source={issueSourceRequest} onOpenChange={(open) => { if (!open) setIssueSourceRequest(null); }} onRaised={() => changed()} /><PulseCascadeDraftDialog open={cascadeComposerOpen} onOpenChange={setCascadeComposerOpen} sourceMeetingId={data.meeting.id} sourceMeetingName={data.meeting.name} sessionId={session.id} onSaved={changed} /></main>;
 }

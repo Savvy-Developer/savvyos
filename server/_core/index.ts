@@ -116,6 +116,7 @@ import { ensureMarketStateFix } from "../marketStateFix";
 import { ensureMlsSchema } from "../mls/schema";
 import { registerMlsStatusRoute } from "../mls/status";
 import { startInProcessMlsIngestion } from "../mls/worker";
+import { ensurePulseRunnerIssueSourceSchema } from "../pulse/runnerIssueSourceSchema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -156,6 +157,7 @@ async function startServer() {
   await ensureWebsiteLinkForwardingSchema();
   await ensureWebsiteListingExpirySchema();
   await ensureTransactionTerminationTextSchema();
+  await ensurePulseRunnerIssueSourceSchema();
   // Organic Social lead sources exist before the first organic lead arrives
   // (a lead source locks at creation), and the legacy Facebook/Instagram
   // import buckets are renamed and retired once.
