@@ -204,7 +204,7 @@ export function registerExternalApiRoutes(app: express.Application) {
       if (!id && listingUrl) {
         id = extractAirbnbListingId(listingUrl);
       }
-      if (!id) return res.status(400).json({ error: "Listing ID or Airbnb URL is required" });
+      if (!id) return res.status(400).json({ error: "That link isn't an Airbnb listing. Paste the link to a listing page (it contains /rooms/ followed by a number)." });
 
       const detailUrl = `https://airbnb-search.p.rapidapi.com/stays/detail?listingId=${id}`;
       const response = await fetch(detailUrl, {

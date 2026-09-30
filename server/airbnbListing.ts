@@ -1,12 +1,28 @@
-const AIRBNB_LISTING_ID_PATTERN = /^\/rooms\/(\d+)/i;
+// /rooms/<id>, and Airbnb Plus / Luxe listings at /rooms/plus/<id> or /luxury/listing/<id>.
+const AIRBNB_LISTING_ID_PATTERN = /^\/(?:rooms\/(?:plus\/)?|luxury\/listing\/)(\d+)/i;
 
-/** Extracts a listing ID from the canonical Airbnb room URL variants. */
+/**
+ * Airbnb's own hosts: airbnb.com and every country site (airbnb.co.in,
+ * airbnb.co.uk, airbnb.ca, airbnb.com.au, airbnb.de, ...), with or without a
+ * subdomain such as www. or m. Listing IDs are the same on every one of them.
+ */
+const AIRBNB_HOST_PATTERN = /(^|\.)airbnb\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/i;
+
+export function isAirbnbHost(hostname: string): boolean {
+  return AIRBNB_HOST_PATTERN.test(hostname.toLowerCase());
+}
+
+/** Extracts a listing ID from any Airbnb room URL, on any Airbnb country site. */
 export function extractAirbnbListingId(value: unknown): string | null {
   if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  // A bare listing ID pasted on its own.
+  if (/^\d{4,25}$/.test(trimmed)) return trimmed;
   try {
-    const url = new URL(value);
-    const hostname = url.hostname.toLowerCase();
-    if (hostname !== "airbnb.com" && !hostname.endsWith(".airbnb.com")) return null;
+    // Accept links pasted without https://, e.g. "airbnb.co.in/rooms/123".
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    if (!isAirbnbHost(url.hostname)) return null;
     return url.pathname.match(AIRBNB_LISTING_ID_PATTERN)?.[1] ?? null;
   } catch {
     return null;

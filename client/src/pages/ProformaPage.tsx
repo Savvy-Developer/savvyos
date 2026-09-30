@@ -954,7 +954,12 @@ export default function ProformaPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) {
+        const text = await response.text();
+        let message = text;
+        try { message = JSON.parse(text)?.error || text; } catch { /* plain text */ }
+        throw new Error(message);
+      }
       const { data } = await response.json();
       if (!data) throw new Error("No data returned from Airbnb");
       // Update the comp at the given index
