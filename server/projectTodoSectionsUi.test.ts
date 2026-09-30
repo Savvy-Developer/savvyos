@@ -168,8 +168,11 @@ describe("project todo section UI", () => {
     expect(projectDetailPage).toContain("w-[5.5rem] shrink-0");
     expect(projectDetailPage).toContain("<ProjectTodoDueDateControl");
     expect(projectDetailPage).not.toContain('<Input aria-label="To-Do due date" type="date"');
+    expect(dueDateControl).toContain('import { Calendar } from "@/components/ui/calendar"');
+    expect(dueDateControl).toContain("<Calendar");
+    expect(dueDateControl).toContain("onSelect={selectDate}");
+    expect(dueDateControl).toContain('captionLayout="dropdown"');
     expect(dueDateControl).toContain('formatTodoDueMonthDay(currentDate)');
-    expect(dueDateControl).toContain("inferTodoDueDate(selectedMonth, selectedDay)");
     expect(dueDateControl).toContain('w-[5.75rem] shrink-0');
   });
 

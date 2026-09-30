@@ -55,7 +55,8 @@ describe("actionable My To-Dos dashboard", () => {
     expect(dashboard).toContain("w-[7rem] shrink-0");
     expect(dashboard).toContain("w-[5.5rem] shrink-0");
     expect(dashboard).toContain("<ProjectTodoDueDateControl");
-    expect(dueDateControl).toContain("The year is inferred");
+    expect(dueDateControl).toContain("Choose Project To-Do due date");
+    expect(dueDateControl).toContain("Clear due date");
     expect(dueDateControl).not.toContain('type="date"');
   });
 
