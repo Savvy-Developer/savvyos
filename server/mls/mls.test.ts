@@ -11,6 +11,7 @@ import { normalizeListing } from "./normalize/normalizeListing";
 import { propertyIdentity } from "./normalize/propertyIdentity";
 import { searchConditions } from "./search";
 import { licenseError } from "./license";
+import { summarize } from "./status";
 import { mediaClientConfig, privateMlsStorageError } from "./privateMedia";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -363,5 +364,18 @@ describe("private MLS media storage", () => {
     expect(url.host).toBe("mls-media-abc123.t3.storageapi.dev");
     expect(url.pathname).toBe("/mls/1/2/photo.jpg");
     expect(url.searchParams.get("X-Amz-Expires")).toBe("60");
+  });
+});
+
+describe("MLS schema status", () => {
+  it("reports ok only when every table, permission column, and seeded source exists", () => {
+    const now = new Date("2026-09-30T04:40:00Z");
+    const full = summarize({ tables: 999, permissionColumns: 2, sources: 999 }, now);
+    expect(full.status).toBe("ok");
+    expect(full.tables.expected).toBeGreaterThan(10);
+    expect(full.sources.expected).toBeGreaterThan(20);
+    expect(summarize({ tables: 0, permissionColumns: 2, sources: 0 }, now).status).toBe("incomplete");
+    expect(summarize({ tables: full.tables.expected, permissionColumns: 1, sources: full.sources.expected }, now).status).toBe("incomplete");
+    expect(Object.keys(full).sort()).toEqual(["checkedAt", "permissionColumns", "sources", "status", "tables"]);
   });
 });

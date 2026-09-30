@@ -108,6 +108,7 @@ import { ensureOrganicSocialLeadSources } from "../organicSocialLeadSources";
 import { ensureWebsiteLeadSources } from "../websiteLeadSources";
 import { ensureMarketStateFix } from "../marketStateFix";
 import { ensureMlsSchema } from "../mls/schema";
+import { registerMlsStatusRoute } from "../mls/status";
 import { startInProcessMlsIngestion } from "../mls/worker";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -309,6 +310,8 @@ async function startServer() {
   app.get("/healthz", (_req, res) => {
     res.status(200).json({ status: "ok" });
   });
+  // Public, count-only MLS Properties schema check (no listing data).
+  registerMlsStatusRoute(app);
   // Legacy GHL paths resolve first so a migration redirect never competes with
   // a landing-page slug or a branded short link.
   registerLandingPageRedirects(app);
