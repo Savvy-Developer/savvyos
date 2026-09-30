@@ -4466,11 +4466,79 @@ function marketPath(market: { name: string; state?: string | null }) {
   return path(`/markets/${encodeURIComponent(state)}/${marketSlug(market.name)}`);
 }
 
+/** Short price the way the old market pages print it: $550K, $1.1M. */
+function marketPrice(value: unknown) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
+  return `$${n}`;
+}
+
+function marketRooms(beds: unknown, baths: unknown) {
+  const parts: string[] = [];
+  if (beds != null && beds !== "") parts.push(`${Number(beds)} bd`);
+  if (baths != null && baths !== "") parts.push(`${Number(baths).toFixed(1)} ba`);
+  return parts.join(" · ");
+}
+
+/** An agent on a market page: photo, name, headline, two lines of bio. */
+function MarketAgentCard({ item }: { item: any }) {
+  return (
+    <a
+      href={path(`/agents/${item.slug}`)}
+      className="block rounded-xl border border-[#e5e5e5] bg-white p-5 transition-shadow hover:shadow-md"
+    >
+      <div className="flex items-center gap-4">
+        <img
+          src={item.imageUrl || "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=160&q=80"}
+          alt={item.name || "Agent"}
+          className="h-20 w-20 shrink-0 rounded-full object-cover object-[center_20%]"
+        />
+        <div className="min-w-0">
+          <h3 className="truncate text-lg font-medium text-[#05314a]">{item.name}</h3>
+          {item.headline ? <p className="line-clamp-2 text-sm text-gray-700">{item.headline}</p> : null}
+        </div>
+      </div>
+      {item.shortBio ? <p className="mt-4 line-clamp-2 text-[15px] leading-6 text-gray-800">{item.shortBio}</p> : null}
+    </a>
+  );
+}
+
+/** A listing on a market page: photo, address, place, price and rooms. */
+function MarketPropertyCard({ item }: { item: any }) {
+  const title = item.address || item.headline || "Investment Property";
+  const place = [item.city, item.state].filter(Boolean).join(", ");
+  return (
+    <a
+      href={path(`/properties/${item.slug}`)}
+      className="block overflow-hidden rounded-xl border border-[#e5e5e5] bg-white transition-shadow hover:shadow-md"
+    >
+      <div className="h-56 bg-gray-100">
+        <img
+          src={item.heroImageUrl || "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80"}
+          alt={title}
+          loading="lazy"
+          className="h-full w-full object-cover"
+        />
+      </div>
+      <div className="p-5">
+        <h3 className="truncate text-lg font-medium text-[#05314a]">{title}</h3>
+        {place ? <p className="truncate text-[15px] text-gray-800">{place}</p> : null}
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <span className="text-lg font-bold text-[#05314a]">{marketPrice(item.listPrice)}</span>
+          <span className="text-sm text-gray-700">{marketRooms(item.beds, item.baths)}</span>
+        </div>
+      </div>
+    </a>
+  );
+}
+
 /**
- * One market: its agents and the properties for sale in it, laid out like the
- * old site's /markets/<state>/<city> pages. Agents are matched to the market
- * by name, properties by the market's ZIP territories (the same rule as the
- * properties filter and the daily email).
+ * One market, laid out like the old site's /markets/<state>/<city> pages: the
+ * market name, "Agents in <city>" and "Properties in <city>", each with a View
+ * all link. Agents are matched to the market by name, properties by the
+ * market's ZIP territories (the same rule as the properties filter).
  */
 function MarketDetailPage({ state, city }: { state: string; city: string }) {
   const directory = trpc.website.publicMarketDirectory.useQuery();
@@ -4484,7 +4552,8 @@ function MarketDetailPage({ state, city }: { state: string; city: string }) {
     { marketId: market?.id },
     { enabled: !!market?.id }
   );
-  const place = market ? [String(market.name).split(",")[0].trim(), market.state].filter(Boolean).join(", ") : "";
+  const cityName = market ? String(market.name).split(",")[0].trim() : "";
+  const place = market ? [cityName, market.state].filter(Boolean).join(", ") : "";
   usePageTitle(market ? `${place} Short-Term Rentals for Sale` : "Market");
 
   if (directory.isLoading || agentsQuery.isLoading) return <LoadingPage />;
@@ -4502,7 +4571,6 @@ function MarketDetailPage({ state, city }: { state: string; city: string }) {
     );
   }
 
-  const cityName = String(market.name).split(",")[0].trim();
   const key = marketCityKey(market.name);
   const agents = ((agentsQuery.data || []) as any[]).filter(agent =>
     (Array.isArray(agent.markets) ? agent.markets : []).some((name: unknown) => marketCityKey(name) === key)
@@ -4512,79 +4580,54 @@ function MarketDetailPage({ state, city }: { state: string; city: string }) {
       .flatMap((agent: any) => agent.markets || [])
       .find((name: unknown) => marketCityKey(name) === key) || market.name;
   const listings: any[] = properties.data || [];
+  const viewAll = "inline-flex items-center gap-1 text-[15px] text-[#10c0df] hover:text-[#05314a]";
 
   return (
     <Shell>
       <div className="min-h-screen bg-white">
-        <section
-          className="px-4 py-14 text-center text-white sm:py-20"
-          style={{ background: "linear-gradient(135deg, #05314a 0%, #0b4966 55%, #10c0df 100%)" }}
-        >
-          <a href={path("/markets")} className="mb-4 inline-flex items-center gap-2 text-sm text-white/80 hover:text-white">
-            <ArrowLeft className="h-4 w-4" /> All markets
-          </a>
-          <h1 className="text-3xl font-bold tracking-tight md:text-5xl">{place}</h1>
-          <p className="mx-auto mt-3 max-w-2xl text-lg text-white/85">
-            Short-term rental investing in {cityName}: local specialist agents and the properties for sale.
-          </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-3 text-sm">
-            <span className="rounded-full bg-white/15 px-4 py-1.5">
-              {agents.length} {agents.length === 1 ? "local agent" : "local agents"}
-            </span>
-            <span className="rounded-full bg-white/15 px-4 py-1.5">
-              {properties.isLoading ? "…" : listings.length} {listings.length === 1 ? "property" : "properties"} for sale
-            </span>
-          </div>
-        </section>
+        <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+          <h1 className="mb-8 text-3xl font-bold text-[#05314a] md:text-4xl">{place}</h1>
 
-        <div className="mx-auto max-w-6xl space-y-14 px-4 py-12 sm:px-6 lg:px-8">
-          <section>
-            <div className="mb-6 flex items-center justify-between gap-4">
-              <h2 className="text-2xl font-bold text-[#05314a]">Agents in {cityName}</h2>
-              {agents.length > 3 ? (
-                <a href={`${path("/agents")}?market=${encodeURIComponent(String(agentMarketName))}`} className="text-sm font-semibold text-[#10c0df] hover:text-[#05314a]">
-                  View all →
-                </a>
-              ) : null}
+          <section className="mb-14">
+            <div className="mb-5 flex items-center justify-between gap-4">
+              <h2 className="text-2xl font-semibold text-[#05314a]">Agents in {cityName}</h2>
+              <a href={`${path("/agents")}?market=${encodeURIComponent(String(agentMarketName))}`} className={viewAll}>
+                View all <ArrowRight className="h-4 w-4" />
+              </a>
             </div>
             {agents.length ? (
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {agents.slice(0, 6).map((agent: any) => (
-                  <LiveAgentCard key={agent.id} item={agent} />
+                  <MarketAgentCard key={agent.id} item={agent} />
                 ))}
               </div>
             ) : (
-              <p className="rounded-xl bg-gray-50 px-6 py-8 text-center text-gray-600">
-                We're adding agents in {cityName}. <a className="font-semibold text-[#10c0df]" href={path("/contact")}>Talk to our team</a> and we'll connect you.
+              <p className="text-gray-600">
+                No agents listed here yet. <a className="text-[#10c0df]" href={path("/contact")}>Talk to our team</a>.
               </p>
             )}
           </section>
 
-          <section id="market-properties">
-            <div className="mb-6 flex items-center justify-between gap-4">
-              <h2 className="text-2xl font-bold text-[#05314a]">Properties in {cityName}</h2>
-              {listings.length > 6 ? (
-                <a href={`${path("/properties")}?market=${market.id}`} className="text-sm font-semibold text-[#10c0df] hover:text-[#05314a]">
-                  View all →
-                </a>
-              ) : null}
+          <section>
+            <div className="mb-5 flex items-center justify-between gap-4">
+              <h2 className="text-2xl font-semibold text-[#05314a]">Properties in {cityName}</h2>
+              <a href={`${path("/properties")}?market=${market.id}`} className={viewAll}>
+                View all <ArrowRight className="h-4 w-4" />
+              </a>
             </div>
             {properties.isLoading ? (
-              <p className="py-8 text-center text-gray-500">Loading properties…</p>
+              <p className="py-6 text-gray-500">Loading properties…</p>
             ) : listings.length ? (
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {listings.slice(0, 6).map((item: any) => (
-                  <LivePropertyCard key={item.id} item={item} />
+                {listings.slice(0, 9).map((item: any) => (
+                  <MarketPropertyCard key={item.id} item={item} />
                 ))}
               </div>
             ) : (
-              <div className="rounded-xl bg-gray-50 px-6 py-10 text-center">
-                <p className="text-gray-700">No listings in {cityName} on the site right now.</p>
-                <p className="mt-1 text-sm text-gray-500">Our local agents often know about properties before they list.</p>
-                <a href={path("/contact")} className="mt-5 inline-block rounded-lg bg-[#10c0df] px-6 py-3 font-semibold text-white hover:bg-[#43e8ff]">
-                  Get matched with a {cityName} agent
-                </a>
-              </div>
+              <p className="text-gray-600">
+                No properties listed here right now.{" "}
+                <a className="text-[#10c0df]" href={path("/contact")}>Ask a {cityName} agent</a> about what's coming up.
+              </p>
             )}
           </section>
         </div>
