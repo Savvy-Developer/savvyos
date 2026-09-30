@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, RefreshCw, Send, Target } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -51,11 +51,12 @@ function valueLabel(value: unknown) {
 type Draft = { value: string; note: string };
 
 /** A person-level weekly reporting surface; metric records remain authoritative in SavvyOS. */
-export function PulseMyMeasurables({ embedded = false }: { embedded?: boolean }) {
+export function PulseMyMeasurables({ embedded = false, meetingId, meetingName }: { embedded?: boolean; meetingId?: string; meetingName?: string }) {
   const utils = trpc.useUtils();
-  const measurableQuery = trpc.pulse.personal.myMeasurables.useQuery();
+  const measurableQuery = trpc.pulse.personal.myMeasurables.useQuery(meetingId ? { meetingId } : undefined);
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [reviewOpen, setReviewOpen] = useState(false);
+  useEffect(() => { setDrafts({}); setReviewOpen(false); }, [meetingId]);
   const refresh = trpc.pulse.personal.refreshMyMeasurable.useMutation({
     onSuccess: () => {
       toast.success("Measurable refreshed.");
@@ -124,6 +125,7 @@ export function PulseMyMeasurables({ embedded = false }: { embedded?: boolean })
   };
   const confirm = () =>
     submit.mutate({
+      meetingId,
       manualValues: summary
         .filter((measurable: any) => measurable.entryType === "manual")
         .map((measurable: any) => ({
@@ -166,8 +168,7 @@ export function PulseMyMeasurables({ embedded = false }: { embedded?: boolean })
             My Measurables
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Submit every active measurable you own for this Sunday–Saturday
-            reporting week.
+            Submit every active measurable you own for {meetingName ?? "this"} L10’s current reporting week.
           </p>
         </div> : null}
         {measurables.length ? (
@@ -190,8 +191,8 @@ export function PulseMyMeasurables({ embedded = false }: { embedded?: boolean })
           </CardTitle>
           <CardDescription>
             {measurables.length
-              ? `${measurables.length} active measurable${measurables.length === 1 ? "" : "s"} assigned to you.`
-              : "Active measurables assigned to you will appear here."}
+              ? `${measurables.length} active measurable${measurables.length === 1 ? "" : "s"} assigned to you${meetingName ? ` in ${meetingName}` : ""}.`
+              : `Active measurables assigned to you${meetingName ? ` in ${meetingName}` : ""} will appear here.`}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -233,7 +234,7 @@ export function PulseMyMeasurables({ embedded = false }: { embedded?: boolean })
                         className="h-8 text-xs"
                         disabled={refresh.isPending}
                         onClick={() =>
-                          refresh.mutate({ metricId: measurable.metricId })
+                          refresh.mutate({ metricId: measurable.metricId, meetingId })
                         }
                       >
                         <RefreshCw

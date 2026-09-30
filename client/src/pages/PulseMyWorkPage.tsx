@@ -1,10 +1,9 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ChevronDown, ClipboardList, History, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -124,43 +123,50 @@ function ActivitySummary({ activity }: { activity: any[] }) {
 
 export default function PulseMyWorkPage() {
   const utils = trpc.useUtils();
-  const [workspaceId, setWorkspaceId] = useState("all");
+  const [selectedMeetingId, setSelectedMeetingId] = useState("");
   const [issueTimeframe, setIssueTimeframe] = useState<IssueTimeframeFilterValue>("all");
   const [activeTab, setActiveTab] = useState("work");
-  const { data, isLoading, error } = trpc.pulse.personal.dashboard.useQuery({ workspaceId });
+  const { data, isLoading, error } = trpc.pulse.personal.dashboard.useQuery(selectedMeetingId ? { workspaceId: selectedMeetingId } : undefined);
   const changed = () => { void utils.pulse.personal.dashboard.invalidate(); void utils.pulse.workItems.invalidate(); void utils.pulse.notifications.invalidate(); void utils.pulse.cascades.pending.invalidate(); };
   const acknowledgeCascade = trpc.pulse.cascades.acknowledge.useMutation({ onSuccess: () => { changed(); toast.success("Cascade acknowledged."); }, onError: (error) => toast.error(error.message) });
+
+  useEffect(() => {
+    if (!data?.meetings?.length) return;
+    if (!selectedMeetingId || !data.meetings.some((meeting: any) => meeting.id === selectedMeetingId)) setSelectedMeetingId(data.meetings[0].id);
+  }, [data?.meetings, selectedMeetingId]);
 
   if (isLoading) return <main className="pulse-page pulse-page-stack"><Skeleton className="h-36 w-full" /><Skeleton className="h-[32rem] w-full" /></main>;
   if (error || !data) return <main className="pulse-page max-w-3xl"><Card><CardContent className="p-5">My EOS Dashboard is not available right now.</CardContent></Card></main>;
 
-  const workspaces = data.workspaces ?? [];
+  const selectedMeeting = data.meetings.find((meeting: any) => meeting.id === selectedMeetingId);
   const todos = data.items.todos.filter((item: any) => item.status !== "dropped" && !item.parentWorkItemId);
   const issues = data.items.issues.filter((item: any) => issueTimeframe === "all" || item.issueTimeframe === issueTimeframe);
-  const workspaceControls = <div className="max-w-sm"><Label htmlFor="pulse-workspace">Show work from</Label><Select value={workspaceId} onValueChange={setWorkspaceId}><SelectTrigger id="pulse-workspace" aria-label="Show work from" className="mt-1 h-10 w-full bg-background"><SelectValue placeholder="Choose an L10 workspace" /></SelectTrigger><SelectContent>{workspaces.map((workspace: any) => <SelectItem key={workspace.id} value={workspace.id}>{workspace.name}</SelectItem>)}</SelectContent></Select><p className="mt-1.5 text-xs text-muted-foreground">Choose all L10s or one meeting. Every item keeps its meeting home.</p></div>;
+  const meetingSelector = <div className="w-full max-w-md"><label htmlFor="pulse-meeting-workspace" className="text-sm font-medium">Prepare for</label><Select value={selectedMeetingId} onValueChange={setSelectedMeetingId}><SelectTrigger id="pulse-meeting-workspace" aria-label="Prepare for L10" className="mt-1 h-10 w-full bg-background"><SelectValue placeholder="Choose an L10" /></SelectTrigger><SelectContent>{data.meetings.map((meeting: any) => <SelectItem key={meeting.id} value={meeting.id}>{meeting.name}</SelectItem>)}</SelectContent></Select><p className="mt-1.5 text-xs text-muted-foreground">One selection keeps preparation, work, measurables, and meeting updates together.</p></div>;
 
   return <main className="pulse-page pulse-page-stack">
     <Tabs value={activeTab} onValueChange={setActiveTab}>
       <header className="border-b border-border pb-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><p className="text-sm font-medium text-primary">Pulse</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">My EOS Dashboard</h1><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Weekly preparation leads your dashboard, with work and scorecards kept compact below.</p></div><div className="flex w-full items-start gap-2 sm:w-auto"><HeaderCascadePanel messages={data.actionCenter.cascades} isAcknowledging={acknowledgeCascade.isPending} onAcknowledge={(messageId) => acknowledgeCascade.mutate({ messageId, from: "my_work" })} /><PulseNotificationsPopover meetingId={workspaceId === "all" ? undefined : workspaceId} /></div></div>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><p className="text-sm font-medium text-primary">Pulse</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">My EOS Dashboard</h1><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Choose one L10 and prepare its meeting updates, work, measurables, and Rocks together.</p></div><div className="flex w-full items-start gap-2 sm:w-auto"><HeaderCascadePanel messages={data.actionCenter.cascades} isAcknowledging={acknowledgeCascade.isPending} onAcknowledge={(messageId) => acknowledgeCascade.mutate({ messageId, from: "my_work" })} /><PulseNotificationsPopover meetingId={selectedMeetingId || undefined} /></div></div>
+        <div className="mt-3">{meetingSelector}</div>
         <nav className="mt-3 max-w-full overflow-x-auto pb-1" aria-label="My EOS sections"><TabsList className="h-auto min-w-max justify-start"><TabsTrigger value="work" className="min-h-9"><ListChecks className="h-4 w-4" />My Work</TabsTrigger><TabsTrigger value="scorecard" className="min-h-9"><ClipboardList className="h-4 w-4" />Master Scorecard</TabsTrigger></TabsList></nav>
       </header>
 
       <TabsContent value="work" className="mt-0 space-y-3">
-        <DashboardSection title="Weekly Preparation" description="Prepare one meeting at a time; every entry stays connected to its forum."><PulseWeeklyPreparation embedded /></DashboardSection>
+        {selectedMeeting ? <><DashboardSection title={`Weekly Preparation · ${selectedMeeting.name}`} description="Prepare the selected L10’s measurables, Segue, Headlines, and Brief in one place."><PulseWeeklyPreparation embedded meetingId={selectedMeeting.id} /></DashboardSection>
 
         <section className="grid gap-3 xl:grid-cols-2 xl:items-start">
-          <DashboardSection className="min-w-0" title="My Work" description="Keep the current queue focused: choose one list, then update work in its original meeting.">
+          <DashboardSection className="min-w-0" title={`My Work · ${selectedMeeting.name}`} description="Keep this L10’s queue focused: switch between To-Dos and Issues, then update work in place.">
           <div className="space-y-3">
-            <PulseL10WorkCreator meetings={data.meetings} onCreated={changed} workspaceControls={workspaceControls} />
-            <CompactWorkQueue todos={todos} issues={issues} issueTimeframe={issueTimeframe} onIssueTimeframeChange={setIssueTimeframe} onChanged={changed} showDestination={workspaceId === "all"} />
-            <Card className="pulse-card-compact"><CardHeader className="pb-2"><CardTitle>Rocks</CardTitle><CardDescription>Longer-term priorities, their milestones, and current status.</CardDescription></CardHeader><CardContent>{data.items.rocks.length ? data.items.rocks.map((item: any) => <WorkRow key={item.id} item={item} onChanged={changed} showDestination={workspaceId === "all"} />) : <p className="text-sm text-muted-foreground">No active Rocks in this workspace.</p>}</CardContent></Card>
+            <PulseL10WorkCreator meetingId={selectedMeeting.id} meetingName={selectedMeeting.name} onCreated={changed} />
+            <CompactWorkQueue todos={todos} issues={issues} issueTimeframe={issueTimeframe} onIssueTimeframeChange={setIssueTimeframe} onChanged={changed} showDestination={false} />
+            <Card className="pulse-card-compact"><CardHeader className="pb-2"><CardTitle>Rocks</CardTitle><CardDescription>Longer-term priorities, their milestones, and current status.</CardDescription></CardHeader><CardContent>{data.items.rocks.length ? data.items.rocks.map((item: any) => <WorkRow key={item.id} item={item} onChanged={changed} />) : <p className="text-sm text-muted-foreground">No active Rocks in this L10.</p>}</CardContent></Card>
           </div>
           </DashboardSection>
-          <DashboardSection className="min-w-0" title="My Measurables" description="Submit every active measurable you own for the current reporting week."><PulseMyMeasurables embedded /></DashboardSection>
+          <DashboardSection className="min-w-0" title={`My Measurables · ${selectedMeeting.name}`} description="Submit every active measurable you own for this L10’s current reporting week."><PulseMyMeasurables embedded meetingId={selectedMeeting.id} meetingName={selectedMeeting.name} /></DashboardSection>
         </section>
         <DashboardSection title="At a Glance" description="A compact view of your current workload and preparation." defaultOpen={false}><div aria-label="At a glance" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5"><Card className={data.counts.overdue ? "border-rose-200 bg-rose-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Overdue</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.overdue}</p><p className="text-xs text-muted-foreground">Past deadline</p></CardContent></Card><Card className={data.counts.unacknowledged ? "border-amber-200 bg-amber-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Unacknowledged</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.unacknowledged}</p><p className="text-xs text-muted-foreground">Cascades</p></CardContent></Card><Card><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Due this week</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.dueSoon}</p><p className="text-xs text-muted-foreground">Open To-Dos</p></CardContent></Card><Card className={data.counts.missingMeasurables ? "border-sky-200 bg-sky-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Prep needed</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.missingMeasurables}</p><p className="text-xs text-muted-foreground">Measurables</p></CardContent></Card><Card><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Rocks off track</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.offTrackRocks}</p><p className="text-xs text-muted-foreground">Need a next action</p></CardContent></Card></div></DashboardSection>
-        <section className="grid items-stretch gap-2 xl:grid-cols-2"><PulseCompletedHistory className="h-full min-h-36 min-w-0 overflow-hidden" contextId={workspaceId === "all" ? undefined : workspaceId} title={workspaceId === "all" ? "Completed & Resolved work" : "Completed & Resolved in this meeting"} description={workspaceId === "all" ? "Search work you completed or resolved across authorized Pulse forums." : "Search completed or resolved work from this exact meeting."} onlyMine onChanged={changed} compact /><ActivitySummary activity={data.activity ?? []} /></section>
+        <section className="grid items-stretch gap-2 xl:grid-cols-2"><PulseCompletedHistory className="h-full min-h-36 min-w-0 overflow-hidden" contextId={selectedMeeting.id} title={`Completed & Resolved · ${selectedMeeting.name}`} description="Search work you completed or resolved in this L10." onlyMine onChanged={changed} compact /><ActivitySummary activity={data.activity ?? []} /></section>
+        </> : <Card><CardContent className="p-5 text-sm text-muted-foreground">Add or join an L10 to prepare its work here.</CardContent></Card>}
       </TabsContent>
 
       <TabsContent value="scorecard" className="mt-5"><PulseMasterScorecard /></TabsContent>

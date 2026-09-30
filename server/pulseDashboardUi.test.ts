@@ -18,19 +18,15 @@ describe("Pulse dashboard consolidation", () => {
     expect(notifications).toContain("max-h-80 overflow-y-auto");
   });
 
-  it("shows one weekly preparation meeting at a time through meeting tabs", () => {
-    expect(weeklyPreparation).toContain("<TabsList");
-    expect(weeklyPreparation).toContain("<TabsTrigger key={meeting.id}");
-    expect(weeklyPreparation).toContain("<TabsContent key={meeting.id}");
-    expect(weeklyPreparation).not.toContain("prep.data.meetings.map((meeting: any) => { const fields");
-  });
-
-  it("leads My Work with Weekly Preparation", () => {
-    const weeklyPreparationIndex = myWorkPage.indexOf('title="Weekly Preparation"');
-    const myWorkIndex = myWorkPage.indexOf('title="My Work"');
+  it("leads My EOS with one shared L10 selector and preparation", () => {
+    const weeklyPreparationIndex = myWorkPage.indexOf('title={`Weekly Preparation · ${selectedMeeting.name}`}');
+    const myWorkIndex = myWorkPage.indexOf('title={`My Work · ${selectedMeeting.name}`}');
     expect(weeklyPreparationIndex).toBeGreaterThan(-1);
     expect(myWorkIndex).toBeGreaterThan(weeklyPreparationIndex);
-    expect(myWorkPage).toContain('<PulseWeeklyPreparation embedded />');
+    expect(myWorkPage).toContain('aria-label="Prepare for L10"');
+    expect(myWorkPage).toContain('<PulseWeeklyPreparation embedded meetingId={selectedMeeting.id} />');
+    expect(myWorkPage).not.toContain('aria-label="Show work from"');
+    expect(weeklyPreparation).toContain('if (meetingId) return <section id="weekly-preparation"');
   });
 
   it("uses a constrained tabbed queue instead of side-by-side To-Do and Issue lists", () => {
@@ -42,25 +38,16 @@ describe("Pulse dashboard consolidation", () => {
     expect(myWorkPage).not.toContain("lg:grid-cols-2");
   });
 
-  it("uses a meeting dropdown and pairs My Work with My Measurables", () => {
-    expect(myWorkPage).toContain('id="pulse-workspace"');
-    expect(myWorkPage).toContain('aria-label="Show work from"');
-    expect(myWorkPage).toContain("<SelectContent>{workspaces.map");
-    expect(myWorkPage).not.toContain("workspaces.map((workspace: any) => <button");
+  it("pairs selected L10 work with selected L10 measurables", () => {
     expect(myWorkPage).toContain('section className="grid gap-3 xl:grid-cols-2 xl:items-start"');
-    const myWorkIndex = myWorkPage.indexOf('title="My Work"');
-    const measurableIndex = myWorkPage.indexOf('title="My Measurables"');
-    expect(measurableIndex).toBeGreaterThan(myWorkIndex);
-    expect(myWorkPage.slice(myWorkIndex, measurableIndex)).toContain('className="min-w-0"');
-  });
-
-  it("shows each My EOS Rock's routed L10 destination", () => {
-    expect(myWorkPage).toContain('data.items.rocks.map((item: any) => <WorkRow key={item.id} item={item} onChanged={changed} showDestination={workspaceId === "all"} />)');
+    expect(myWorkPage).toContain('title={`My Measurables · ${selectedMeeting.name}`}');
+    expect(myWorkPage).toContain('<PulseMyMeasurables embedded meetingId={selectedMeeting.id} meetingName={selectedMeeting.name} />');
+    expect(myWorkPage).toContain('className="min-w-0"');
   });
 
   it("keeps Incoming Cascades compact but informative beside the My EOS title", () => {
     const headerIndex = myWorkPage.indexOf('<header className="border-b border-border pb-4">');
-    const weeklyPreparationIndex = myWorkPage.indexOf('title="Weekly Preparation"');
+    const weeklyPreparationIndex = myWorkPage.indexOf('title={`Weekly Preparation · ${selectedMeeting.name}`}');
     expect(myWorkPage).toContain("function HeaderCascadePanel");
     expect(myWorkPage).toContain('aria-label="Incoming Cascades"');
     expect(myWorkPage).toContain('className="h-24 min-w-0 flex-1 rounded-lg border border-border bg-muted/20 p-2.5 sm:w-80 sm:flex-none"');
@@ -94,10 +81,8 @@ describe("Pulse dashboard consolidation", () => {
     expect(scorecardRouter).toContain("periodStart: z.string().regex");
   });
 
-  it("keeps My Measurables as a collapsible section within My Work", () => {
+  it("keeps collapsible dashboard sections without a separate measurable tab", () => {
     expect(myWorkPage).toContain("DashboardSection");
-    expect(myWorkPage).toContain('title="My Measurables"');
-    expect(myWorkPage).toContain("<PulseMyMeasurables embedded />");
     expect(myWorkPage).toContain("<CollapsibleTrigger");
     expect(myWorkPage).toContain("activeWorkTab");
     expect(myWorkPage).not.toContain('TabsContent value="measurables"');

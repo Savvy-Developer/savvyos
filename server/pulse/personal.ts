@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   pulseActivityLog,
   pulseMeetingRocks,
+  pulseMeetingScorecardMetrics,
   pulseMeetingUpdates,
   pulseMeetings,
   pulseNotifications,
@@ -101,24 +102,31 @@ function asNumber(value: unknown): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
-async function ownedMeasurableRows(db: any, personId: number) {
+async function ownedMeasurableRows(db: any, personId: number, meetingId?: string) {
+  const ownership = or(
+    eq(rrScorecardMetrics.ownerId, personId),
+    and(isNull(rrScorecardMetrics.ownerId), eq(rolesResponsibilities.ownerId, personId)),
+  );
+  if (meetingId) {
+    return db.select({ metric: rrScorecardMetrics, responsibility: rolesResponsibilities, autoConfig: rrMetricAutoConfigs })
+      .from(pulseMeetingScorecardMetrics)
+      .innerJoin(rrScorecardMetrics, eq(rrScorecardMetrics.id, pulseMeetingScorecardMetrics.savvyosMetricId))
+      .innerJoin(rolesResponsibilities, eq(rolesResponsibilities.id, rrScorecardMetrics.responsibilityId))
+      .leftJoin(rrMetricAutoConfigs, eq(rrMetricAutoConfigs.metricId, rrScorecardMetrics.id))
+      .where(and(eq(pulseMeetingScorecardMetrics.meetingId, meetingId), eq(rrScorecardMetrics.status, "active"), ownership))
+      .orderBy(asc(pulseMeetingScorecardMetrics.sortOrder), asc(rrScorecardMetrics.name));
+  }
   return db.select({ metric: rrScorecardMetrics, responsibility: rolesResponsibilities, autoConfig: rrMetricAutoConfigs })
     .from(rrScorecardMetrics)
     .innerJoin(rolesResponsibilities, eq(rolesResponsibilities.id, rrScorecardMetrics.responsibilityId))
     .leftJoin(rrMetricAutoConfigs, eq(rrMetricAutoConfigs.metricId, rrScorecardMetrics.id))
-    .where(and(
-      eq(rrScorecardMetrics.status, "active"),
-      or(
-        eq(rrScorecardMetrics.ownerId, personId),
-        and(isNull(rrScorecardMetrics.ownerId), eq(rolesResponsibilities.ownerId, personId)),
-      ),
-    ))
+    .where(and(eq(rrScorecardMetrics.status, "active"), ownership))
     .orderBy(asc(rolesResponsibilities.title), asc(rrScorecardMetrics.name));
 }
 
-async function personalMeasurables(db: any, personId: number) {
+async function personalMeasurables(db: any, personId: number, meetingId?: string) {
   const reportingWeek = measurableReportingWeek();
-  const rows = await ownedMeasurableRows(db, personId);
+  const rows = await ownedMeasurableRows(db, personId, meetingId);
   const metricIds = rows.map((row: any) => row.metric.id);
   const values = metricIds.length
     ? await db.select().from(rrMetricValues).where(inArray(rrMetricValues.metricId, metricIds)).orderBy(desc(rrMetricValues.eventDate), desc(rrMetricValues.periodEnd))
@@ -408,11 +416,16 @@ export function nextOccurrence(dayOfWeek?: string | null, startTime?: string | n
 export const pulsePersonalRouter = router({
   inputs: pulseProcedure.query(async ({ ctx }) => personalMeetingPrep(await dbOrThrow(), ctx.user.id)),
 
-  myMeasurables: pulseProcedure.query(async ({ ctx }) => personalMeasurables(await dbOrThrow(), ctx.user.id)),
-
-  refreshMyMeasurable: pulseProcedure.input(z.object({ metricId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+  myMeasurables: pulseProcedure.input(z.object({ meetingId: z.string().uuid().optional() }).optional()).query(async ({ ctx, input }) => {
     const db = await dbOrThrow();
-    const owned = await ownedMeasurableRows(db, ctx.user.id);
+    if (input?.meetingId && !(await myMeetingIds(db, ctx.user.id)).includes(input.meetingId)) throw new TRPCError({ code: "NOT_FOUND", message: "That meeting is not available." });
+    return personalMeasurables(db, ctx.user.id, input?.meetingId);
+  }),
+
+  refreshMyMeasurable: pulseProcedure.input(z.object({ metricId: z.number().int().positive(), meetingId: z.string().uuid().optional() })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    if (input.meetingId && !(await myMeetingIds(db, ctx.user.id)).includes(input.meetingId)) throw new TRPCError({ code: "NOT_FOUND", message: "That meeting is not available." });
+    const owned = await ownedMeasurableRows(db, ctx.user.id, input.meetingId);
     const row = owned.find((candidate: any) => candidate.metric.id === input.metricId);
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "That measurable is not assigned to you." });
     if (row.metric.metricType === "manual" || !row.autoConfig) throw new TRPCError({ code: "BAD_REQUEST", message: "Only automatically pulled measurables can be refreshed." });
@@ -421,6 +434,7 @@ export const pulsePersonalRouter = router({
   }),
 
   submitMyMeasurables: pulseProcedure.input(z.object({
+    meetingId: z.string().uuid().optional(),
     manualValues: z.array(z.object({
       metricId: z.number().int().positive(),
       actualValue: z.number().finite(),
@@ -428,10 +442,11 @@ export const pulsePersonalRouter = router({
     })).max(200),
   })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow();
-    const before = await personalMeasurables(db, ctx.user.id);
+    if (input.meetingId && !(await myMeetingIds(db, ctx.user.id)).includes(input.meetingId)) throw new TRPCError({ code: "NOT_FOUND", message: "That meeting is not available." });
+    const before = await personalMeasurables(db, ctx.user.id, input.meetingId);
     const ownedById = new Map<number, any>(before.measurables.map((measurable: any) => [measurable.metricId, measurable]));
     const manualById = new Map(input.manualValues.map((value) => [value.metricId, value]));
-    const ownedRows = await ownedMeasurableRows(db, ctx.user.id);
+    const ownedRows = await ownedMeasurableRows(db, ctx.user.id, input.meetingId);
     const manualRows = ownedRows.filter((row: any) => row.metric.metricType === "manual");
 
     if (manualById.size !== input.manualValues.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Each manual measurable can be submitted only once." });
@@ -485,7 +500,7 @@ export const pulsePersonalRouter = router({
         pulseSubmissionSummary: summary,
         pulseActionUrl: "https://os.savvy-agents.com/pulse/dashboard#my-measurables",
         measurableReportingWeek: `${before.reportingWeek.start} to ${before.reportingWeek.end}`,
-      }, { idempotencyKey: `pulse-my-measurables:${ctx.user.id}:${before.reportingWeek.start}:${before.reportingWeek.end}` });
+      }, { idempotencyKey: `pulse-my-measurables:${ctx.user.id}:${input.meetingId ?? "all"}:${before.reportingWeek.start}:${before.reportingWeek.end}` });
     }
     return { success: true, reportingWeek: before.reportingWeek, recorded };
   }),
