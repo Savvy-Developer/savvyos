@@ -41,6 +41,44 @@ export function buildZillowLookupUrl(input: { zillowUrl?: string; address?: stri
   return `https://${RAPIDAPI_HOST}/pro/byaddress?propertyaddress=${encodeURIComponent(address)}`;
 }
 
+/**
+ * Every photo of the listing, largest size first choice, in Zillow's order.
+ *
+ * Only the subject property's own photo set (propertyDetails). Comparable or
+ * nearby homes in the same payload are never read.
+ */
+export function extractZillowPhotoUrls(data: any, maxPhotos = 40): string[] {
+  const pd = data?.propertyDetails ?? {};
+  const photos: string[] = [];
+  const add = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const url = value.trim();
+    if (!/^https:\/\//i.test(url) || photos.includes(url)) return;
+    photos.push(url);
+  };
+  const largest = (sources: any): string | undefined => {
+    if (!Array.isArray(sources) || !sources.length) return undefined;
+    return [...sources].sort((a, b) => Number(b?.width || 0) - Number(a?.width || 0))[0]?.url;
+  };
+  for (const photo of Array.isArray(pd.originalPhotos) ? pd.originalPhotos : []) {
+    add(largest(photo?.mixedSources?.jpeg) ?? largest(photo?.mixedSources?.webp) ?? photo?.url);
+  }
+  if (!photos.length) {
+    for (const photo of Array.isArray(pd.responsivePhotos) ? pd.responsivePhotos : []) {
+      add(largest(photo?.mixedSources?.jpeg) ?? photo?.url);
+    }
+  }
+  if (!photos.length) {
+    for (const photo of Array.isArray(pd.photos) ? pd.photos : []) add(photo?.url ?? photo);
+  }
+  if (!photos.length) {
+    add(pd.hiResImageLink);
+    add(pd.imgSrc);
+    add(data?.imgSrc);
+  }
+  return photos.slice(0, maxPhotos);
+}
+
 export function mapZillowPropertyResponse(data: any) {
   const pd = data?.propertyDetails;
   if (!pd || typeof pd !== "object" || Array.isArray(pd) || Object.keys(pd).length === 0) return null;
@@ -63,6 +101,7 @@ export function mapZillowPropertyResponse(data: any) {
     lotSizeUnit: pd.lotAreaUnits ?? pd.lotAreaUnit ?? "acres",
     description: pd.description ?? null,
     photoUrl,
+    photos: extractZillowPhotoUrls(data),
     address: pd.address ?? null,
     latitude: pd.latitude ?? null,
     longitude: pd.longitude ?? null,
@@ -72,6 +111,23 @@ export function mapZillowPropertyResponse(data: any) {
     annualInsurance: pd.annualHomeownersInsurance ?? null,
     homeStatus: pd.homeStatus ?? null,
   };
+}
+
+/** Look up one Zillow listing by URL. Throws ZillowLookupInputError for bad input. */
+export async function fetchZillowListing(zillowUrl: string): Promise<any> {
+  const url = buildZillowLookupUrl({ zillowUrl });
+  const rapidApiKey = process.env.RAPIDAPI_KEY;
+  if (!rapidApiKey) throw new Error("Zillow import is not configured (RAPIDAPI_KEY).");
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "x-rapidapi-host": RAPIDAPI_HOST,
+      "x-rapidapi-key": rapidApiKey,
+    },
+  });
+  if (!response.ok) throw new Error(`Zillow did not answer (${response.status}). Try again in a minute.`);
+  return response.json();
 }
 
 export function parseGoogleAddressDetails(result: any, sourceAddress?: string) {

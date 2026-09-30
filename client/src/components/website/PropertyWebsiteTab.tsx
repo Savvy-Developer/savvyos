@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Globe2, Loader2 } from "lucide-react";
+import { Download, ExternalLink, Globe2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -42,11 +43,13 @@ import {
 } from "./propertyTagOptions";
 
 const PUBLIC_PROPERTY_PATH = "/newsite/properties/";
+const PUBLIC_SITE_ORIGIN = `https://${(import.meta.env.VITE_PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase()}`;
 
 type Draft = {
   slug: string;
   status: "draft" | "published" | "archived";
   sourceProformaId: string;
+  sourceUrl: string;
   assignedAgentId: string;
   headline: string;
   summary: string;
@@ -73,6 +76,7 @@ function blankDraft(fallbackSlug: string): Draft {
     slug: fallbackSlug,
     status: "draft",
     sourceProformaId: "",
+    sourceUrl: "",
     assignedAgentId: "",
     headline: "",
     summary: "",
@@ -101,6 +105,7 @@ function draftFrom(website: any, fallbackSlug: string): Draft {
     slug: website.slug ?? fallbackSlug,
     status: website.status ?? "draft",
     sourceProformaId: website.sourceProformaId ? String(website.sourceProformaId) : "",
+    sourceUrl: website.sourceUrl ?? "",
     assignedAgentId: website.assignedAgentId ? String(website.assignedAgentId) : "",
     headline: website.headline ?? "",
     summary: website.summary ?? "",
@@ -367,9 +372,38 @@ export default function PropertyWebsiteTab({
     onError: error => toast.error(error.message),
   });
 
+  const importZillow = trpc.website.importZillowPhotos.useMutation({
+    onSuccess: result => {
+      const existing = splitLines(draft.galleryImageUrls);
+      const gallery = Array.from(new Set([...existing, ...result.photos]));
+      const added = gallery.length - existing.length;
+      setDraft(prior => ({
+        ...prior,
+        sourceUrl: result.zillowUrl,
+        // Blank fills in, anything already there wins: the hero is only set
+        // when there isn't one, and the gallery keeps what it had.
+        heroImageUrl: prior.heroImageUrl || result.photos[0],
+        galleryImageUrls: gallery.join("\n"),
+      }));
+      toast.success(
+        added > 0
+          ? `Added ${added} photo${added === 1 ? "" : "s"} from Zillow. Save to keep them.`
+          : "Those Zillow photos are already in the gallery."
+      );
+    },
+    onError: error => toast.error(error.message),
+  });
+
   const canEdit = !!content.data?.canEdit;
   const website = content.data?.website;
   const proformaOptions = content.data?.proformas ?? [];
+  // The Zillow link to import from: the one saved on the listing, else the
+  // linked pro-forma's own property link, else any pro-forma's. Never a comp.
+  const proformaZillowUrl =
+    (proformaOptions.find((item: any) => String(item.id) === draft.sourceProformaId) as any)?.zillowUrl ||
+    (proformaOptions.find((item: any) => item.zillowUrl) as any)?.zillowUrl ||
+    "";
+  const zillowLink = draft.sourceUrl || proformaZillowUrl;
   const agentOptions = content.data?.agents ?? [];
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft(prior => ({ ...prior, [key]: value }));
@@ -431,6 +465,7 @@ export default function PropertyWebsiteTab({
       slug: slugify(draft.slug) || fallbackSlug,
       status: draft.status,
       sourceProformaId: draft.sourceProformaId ? Number(draft.sourceProformaId) : null,
+      sourceUrl: draft.sourceUrl.trim() || null,
       assignedAgentId: draft.assignedAgentId ? Number(draft.assignedAgentId) : null,
       headline: draft.headline || null,
       summary: draft.summary || null,
@@ -485,11 +520,22 @@ export default function PropertyWebsiteTab({
             {website?.status === "published" && (
               <a
                 className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                href={`${PUBLIC_PROPERTY_PATH}${website.slug}`}
+                href={`${PUBLIC_SITE_ORIGIN}${PUBLIC_PROPERTY_PATH}${website.slug}`}
                 target="_blank"
                 rel="noreferrer"
               >
                 View <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+            {website?.status === "draft" && (
+              <a
+                className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                href={`${PUBLIC_SITE_ORIGIN}${PUBLIC_PROPERTY_PATH}${website.slug}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Drafts show only to Savvy team members signed in on the website with their SavvyOS login."
+              >
+                Preview draft <ExternalLink className="h-3 w-3" />
               </a>
             )}
           </div>
@@ -552,6 +598,37 @@ export default function PropertyWebsiteTab({
           <CardTitle className="text-base">Photos and highlights</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-lg border border-dashed p-3 md:col-span-2">
+            <Label className="text-sm">Zillow listing link</Label>
+            <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={zillowLink}
+                onChange={event => set("sourceUrl", event.target.value)}
+                placeholder="https://www.zillow.com/homedetails/..."
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!zillowLink.trim() || importZillow.isPending}
+                onClick={() => importZillow.mutate({ propertyId, zillowUrl: zillowLink.trim() })}
+              >
+                {importZillow.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                Import photos from Zillow
+              </Button>
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {draft.sourceUrl
+                ? "Pulls every photo of this listing into the gallery, and sets the hero if it's empty."
+                : proformaZillowUrl
+                  ? "Filled from the pro-forma's property link. Pulls every photo of this listing (never comps) into the gallery, and sets the hero if it's empty."
+                  : "Paste this property's Zillow link. Pulls every photo into the gallery, and sets the hero if it's empty."}
+            </p>
+          </div>
           <div>
             <Field
               label="Hero image URL"
