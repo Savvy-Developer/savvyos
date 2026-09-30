@@ -44,7 +44,8 @@ describe("actionable My To-Dos dashboard", () => {
   });
 
   it("uses a compact expandable workspace instead of padded edit dialogs", () => {
-    expect(dashboard).toContain('className="mb-4 overflow-hidden rounded-md');
+    expect(dashboard).toContain('className="mb-4"');
+    expect(dashboard).toContain('className="space-y-3"');
     expect(dashboard).toContain('className="space-y-1.5 p-1.5"');
     expect(dashboard).toContain("Edit Project To-Do");
     expect(dashboard).toContain("Project To-Do assignee");
@@ -53,7 +54,7 @@ describe("actionable My To-Dos dashboard", () => {
 
   it("organizes Assigned to Me records by Project and L10 source", () => {
     expect(projectsPage).toContain("Assigned to Me");
-    expect(dashboard).toContain("Assigned to Me");
+    expect(dashboard).not.toContain("Assigned to Me");
     expect(dashboard).toContain("My Project To-Dos");
     expect(dashboard).toContain("My L10 To-Dos");
     expect(dashboard).toContain("groupTodosBySource");

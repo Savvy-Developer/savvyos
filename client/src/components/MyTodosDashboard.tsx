@@ -967,22 +967,8 @@ export default function MyTodosDashboard() {
   });
 
   return (
-    <section className="mb-4 overflow-hidden rounded-md border border-primary/25 bg-primary/[0.02]">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-primary/15 px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <ClipboardList className="h-4 w-4 shrink-0 text-primary" />
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold">Assigned to Me</h2>
-            <p className="truncate text-xs text-muted-foreground">
-              Work your original Project and L10 records from one place.
-            </p>
-          </div>
-        </div>
-        <span className="rounded-full border border-primary/20 bg-background px-2 py-0.5 text-xs font-semibold text-primary">
-          {items.length} open
-        </span>
-      </div>
-      <div className="space-y-3 p-1.5">
+    <section className="mb-4">
+      <div className="space-y-3">
         {isLoading ? (
           <p className="px-2 py-3 text-sm text-muted-foreground">
             Loading your To-Dos…
