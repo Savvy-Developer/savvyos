@@ -359,19 +359,81 @@ export function SignUpBody() {
   );
 }
 
+/**
+ * Shown when the email and password were a SavvyOS staff login.
+ *
+ * The link is opened by the person's own click rather than by script, because
+ * browsers block a new tab opened after a network round trip. It works once
+ * and for two minutes; after that SavvyOS shows its own login page.
+ */
+function StaffHandoffCard({ handoffUrl, onReset }: { handoffUrl: string; onReset: () => void }) {
+  const [opened, setOpened] = useState(false);
+  return (
+    <AuthCard
+      title="Welcome back"
+      subtitle="This is a Savvy team account. SavvyOS opens in a new tab, on the Properties page."
+      footer={
+        <button type="button" className="font-bold text-cyan-600" onClick={onReset}>
+          Sign in with a different account
+        </button>
+      }
+    >
+      <div className="mt-6 space-y-3">
+        {opened ? (
+          <p className="text-sm leading-6 text-slate-600">
+            SavvyOS is open in another tab. If it did not open, go to{" "}
+            <a
+              className="font-semibold text-cyan-600"
+              href="https://os.savvy-agents.com/login"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              os.savvy-agents.com
+            </a>{" "}
+            and sign in there.
+          </p>
+        ) : (
+          <a
+            href={handoffUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpened(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-bold text-[#03293c]"
+            style={{ backgroundColor: CYAN }}
+          >
+            Open SavvyOS <ArrowRight className="h-4 w-4" />
+          </a>
+        )}
+        <p className="text-xs text-slate-500">
+          For your security this button works once, within two minutes.
+        </p>
+      </div>
+    </AuthCard>
+  );
+}
+
 export function SignInBody() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [handoffUrl, setHandoffUrl] = useState<string | null>(null);
   const signIn = trpc.websiteAccount.signIn.useMutation({
-    onSuccess: () => {
+    onSuccess: result => {
+      if (result.kind === "staff") {
+        setPassword("");
+        setHandoffUrl(result.handoffUrl);
+        return;
+      }
       window.location.href = currentNext();
     },
     onError: error => toast.error(error.message),
   });
+  if (handoffUrl) {
+    return <StaffHandoffCard handoffUrl={handoffUrl} onReset={() => setHandoffUrl(null)} />;
+  }
   return (
     <AuthCard
       title="Sign in"
-      subtitle="For investors. SavvyOS staff sign in through the SavvyOS login."
+      subtitle="Investors and Savvy team members. Team accounts are sent on to SavvyOS."
       footer={
         <>
           New here?{" "}

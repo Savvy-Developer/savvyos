@@ -17,7 +17,14 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Arriving from the website's Sign in with a SavvyOS link that was already
+  // used or had expired.
+  const [error, setError] = useState<string | null>(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("error") === "handoff_expired"
+      ? "That sign-in link has expired or was already used. Please sign in here."
+      : null
+  );
 
   const utils = trpc.useUtils();
 

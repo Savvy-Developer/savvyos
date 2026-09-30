@@ -37,6 +37,7 @@ import {
   sessionCookieFor,
   verifyPassword,
 } from "../_core/websiteAccountAuth";
+import { createStaffHandoff, findStaffForWebsiteSignIn } from "../staffWebsiteHandoff";
 
 /**
  * Investor accounts on the public website.
@@ -186,6 +187,17 @@ export const websiteAccountRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      // SavvyOS staff first. When the email and password are a working SavvyOS
+      // login, no investor session is created: the site gets a one-time link
+      // that signs them into SavvyOS on the Properties page. The check always
+      // costs one bcrypt comparison, so it does not reveal who is staff.
+      // Someone with both kinds of account reaches whichever one their
+      // password matches; if it matches both, SavvyOS wins.
+      const staff = await findStaffForWebsiteSignIn(email, input.password);
+      if (staff) {
+        return { kind: "staff" as const, handoffUrl: await createStaffHandoff(staff.id) };
+      }
+
       const [account] = await db
         .select({
           id: websiteAccounts.id,
@@ -215,7 +227,7 @@ export const websiteAccountRouter = router({
         .where(eq(websiteAccounts.id, account.id));
 
       setCookie(ctx, await sessionCookieFor(ctx.req as any, account.id));
-      return { id: account.id, email };
+      return { kind: "investor" as const, id: account.id, email };
     }),
 
   signOut: publicProcedure.mutation(async ({ ctx }) => {
