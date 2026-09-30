@@ -12,6 +12,7 @@ import {
   chatMessageReactions,
   chatMessages,
   chatSections,
+  pmPersonalTodos,
   userProfiles,
   users,
 } from "../../drizzle/schema";
@@ -727,6 +728,23 @@ export const chatRouter = router({
           .limit(input.limit);
         return hydrateMessages(state.db, rows.reverse(), ctx.user.id);
       }),
+
+    createPersonalTodo: protectedProcedure.input(messageIdSchema).mutation(async ({ input, ctx }) => {
+      const state = await requireMessageContext(ctx.user, input.messageId);
+      const title = state.message.body.trim();
+      if (!title) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Only Chat messages with text can become Personal To-Dos.",
+        });
+      }
+      const [result] = await state.db.insert(pmPersonalTodos).values({
+        userId: ctx.user.id,
+        title,
+        notes: `Created from SavvyOS Chat on ${state.message.createdAt.toISOString()}.`,
+      });
+      return { id: Number(result.insertId) };
+    }),
 
     send: protectedProcedure.input(messageInputSchema).mutation(async ({ input, ctx }) => {
       const state = await requireReadableChannel(ctx.user, input.channelId);

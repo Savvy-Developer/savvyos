@@ -2514,7 +2514,7 @@ export const pmRouter = router({
 
     create: protectedProcedure
       .input(z.object({
-        title: z.string().trim().min(1).max(5000),
+        title: z.string().trim().min(1).max(8_000),
         notes: z.string().trim().max(20_000).optional(),
         dueDate: z.date().nullable().optional(),
         recurrence: z.enum(["none", "daily", "weekdays", "weekly", "monthly"]).default("none"),
@@ -2540,7 +2540,7 @@ export const pmRouter = router({
     update: protectedProcedure
       .input(z.object({
         id: z.number(),
-        title: z.string().trim().min(1).max(5000).optional(),
+        title: z.string().trim().min(1).max(8_000).optional(),
         notes: z.string().trim().max(20_000).nullable().optional(),
         dueDate: z.date().nullable().optional(),
         recurrence: z.enum(["none", "daily", "weekdays", "weekly", "monthly"]).optional(),

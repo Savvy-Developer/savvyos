@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Archive, ArchiveRestore, ArrowLeft, AtSign, ChevronDown, ChevronRight, FileText, Hash, Image as ImageIcon, Loader2, Mail, MessageCircle, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, Reply, Search, Send, Settings2, SmilePlus, Trash2, UserPlus, Users, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, AtSign, ChevronDown, ChevronRight, FileText, Hash, Image as ImageIcon, ListTodo, Loader2, Mail, MessageCircle, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, Reply, Search, Send, Settings2, SmilePlus, Trash2, UserPlus, Users, X } from "lucide-react";
 import { toast } from "sonner";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "🎉", "👀", "✅"] as const;
@@ -689,6 +689,8 @@ function ChatMessage({
   onReply,
   onReact,
   onMarkUnread,
+  onCreatePersonalTodo,
+  isCreatingPersonalTodo,
 }: {
   row: MessageRow;
   showSender: boolean;
@@ -698,6 +700,8 @@ function ChatMessage({
   onReply: () => void;
   onReact: (emoji: (typeof REACTION_EMOJIS)[number]) => void;
   onMarkUnread: () => void;
+  onCreatePersonalTodo: () => void;
+  isCreatingPersonalTodo: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(row.message.body);
@@ -718,7 +722,7 @@ function ChatMessage({
       )}
       <div className="min-w-0 flex-1">
         {showSender && (
-          <div className="flex min-h-6 items-center gap-2 pr-36">
+          <div className="flex min-h-6 items-center gap-2 pr-44">
             <span className="font-medium">{senderName}</span>
             <span className="text-xs text-muted-foreground">{messageTime}</span>
           </div>
@@ -760,7 +764,18 @@ function ChatMessage({
               onClick={onReply}
             >
               <Reply className="h-3 w-3" />
-          </Button>
+            </Button>
+          <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              title="Create personal To-Do"
+              aria-label="Create personal To-Do"
+              disabled={!row.message.body.trim() || isCreatingPersonalTodo}
+              onClick={onCreatePersonalTodo}
+            >
+              {isCreatingPersonalTodo ? <Loader2 className="h-3 w-3 animate-spin" /> : <ListTodo className="h-3 w-3" />}
+            </Button>
           <Button
               size="icon"
               variant="ghost"
@@ -1298,6 +1313,14 @@ export default function ChatPage() {
     },
     onError: error => toast.error(error.message),
   });
+  const createPersonalTodo = trpc.chat.messages.createPersonalTodo.useMutation({
+    onSuccess: () => {
+      toast.success("Added to My Personal To-Dos");
+      void utils.pm.personalTodos.invalidate();
+      void utils.pm.personalTodos.stats.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
   const toggleReaction = trpc.chat.reactions.toggle.useMutation({
     onSuccess: () => refreshConversation(),
     onError: error => toast.error(error.message),
@@ -1732,6 +1755,13 @@ export default function ChatPage() {
                           }
                           onMarkUnread={() =>
                             markUnread.mutate({ messageId: row.message.id })
+                          }
+                          onCreatePersonalTodo={() =>
+                            createPersonalTodo.mutate({ messageId: row.message.id })
+                          }
+                          isCreatingPersonalTodo={
+                            createPersonalTodo.isPending &&
+                            createPersonalTodo.variables?.messageId === row.message.id
                           }
                         />
                       </div>
