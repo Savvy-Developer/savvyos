@@ -2,16 +2,16 @@ import { describe, expect, it } from "vitest";
 import { aggregateRows, cumulativeBounds, matchesFilters, periodBounds, sourceFields } from "./rolesResponsibilities";
 
 describe("R&R scorecard calculations", () => {
-  it("calculates the current weekly period from Monday through Sunday", () => {
+  it("calculates the current weekly period from Sunday through Saturday", () => {
     const bounds = periodBounds("weekly", new Date("2026-08-12T15:00:00Z"));
-    expect(bounds.start.toISOString()).toBe("2026-08-10T00:00:00.000Z");
-    expect(bounds.end.toISOString()).toBe("2026-08-17T00:00:00.000Z");
+    expect(bounds.start.toISOString()).toBe("2026-08-09T00:00:00.000Z");
+    expect(bounds.end.toISOString()).toBe("2026-08-16T00:00:00.000Z");
   });
 
   it("uses the configured cumulative reset instead of only the display period", () => {
     const bounds = cumulativeBounds({ frequency: "weekly", isCumulative: true, cumulativeReset: "monthly" }, new Date("2026-08-12T15:00:00Z"));
     expect(bounds.start.toISOString()).toBe("2026-08-01T00:00:00.000Z");
-    expect(bounds.end.toISOString()).toBe("2026-08-17T00:00:00.000Z");
+    expect(bounds.end.toISOString()).toBe("2026-08-16T00:00:00.000Z");
   });
 
   it("applies approved filters and safely handles multi-value filter selections", () => {

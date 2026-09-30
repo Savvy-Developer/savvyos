@@ -46,7 +46,7 @@ function addUtcDays(value: Date, days: number) {
 export function weekStartUtc(reference = new Date()) {
   const day = utcDay(reference);
   const weekday = day.getUTCDay();
-  return addUtcDays(day, weekday === 0 ? -6 : 1 - weekday);
+  return addUtcDays(day, -weekday);
 }
 
 export function dateOnlyUtc(value: Date) {

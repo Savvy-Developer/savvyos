@@ -26,7 +26,6 @@ import {
   pmTasks,
   pmTodoSections,
   pulseWorkItems,
-  rrMetricValues,
   rrScorecardMetrics,
   rolesResponsibilities,
   users,
@@ -35,11 +34,11 @@ import { router } from "../_core/trpc";
 import { getDb } from "../db";
 import { is_visible_meeting_manager, require_visible_meeting, visible_meeting_ids } from "./access";
 import { hasPulseCapability, PULSE_CAPABILITIES, pulseMemberProcedure, requirePulseCapability } from "./authorization";
-import { periodToDatePerformance } from "../rrScorecard";
 import { getMeetingCascadePayloads } from "./cascadePayload";
 import { publishDraftCascade, validateCascadeDelivery } from "./cascades";
 import { encodeCascadeContent } from "../../shared/pulseCascadeContent";
 import { getL10RunnerSteps, L10_RUNNER_STEPS, normaliseL10RunnerDurations } from "./l10RunnerAgenda";
+import { getMeetingScorecard } from "./scorecard";
 
 const id = () => crypto.randomUUID();
 const day = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
@@ -170,48 +169,8 @@ async function requireSession(db: any, targetMeetingId: string, targetSessionId:
   return session;
 }
 
-async function getScorecard(db: any, targetMeetingId: string, historyWeeks: number) {
-  const mappings = await db.select({ mappingId: pulseMeetingScorecardMetrics.id, metric: rrScorecardMetrics, responsibility: rolesResponsibilities, owner: users })
-    .from(pulseMeetingScorecardMetrics)
-    .innerJoin(rrScorecardMetrics, eq(rrScorecardMetrics.id, pulseMeetingScorecardMetrics.savvyosMetricId))
-    .innerJoin(rolesResponsibilities, eq(rolesResponsibilities.id, rrScorecardMetrics.responsibilityId))
-    .leftJoin(users, eq(users.id, rolesResponsibilities.ownerId))
-    .where(and(eq(pulseMeetingScorecardMetrics.meetingId, targetMeetingId), eq(rrScorecardMetrics.status, "active")))
-    .orderBy(asc(pulseMeetingScorecardMetrics.sortOrder));
-  const ids = mappings.map((row: any) => row.metric.id);
-  const values = ids.length ? await db.select().from(rrMetricValues).where(inArray(rrMetricValues.metricId, ids)).orderBy(desc(rrMetricValues.periodEnd)) : [];
-  const byMetric = new Map<number, any[]>();
-  values.forEach((value: any) => byMetric.set(value.metricId, [...(byMetric.get(value.metricId) ?? []), value]));
-  return mappings.map((row: any) => {
-    const sourceValues = byMetric.get(row.metric.id) ?? [];
-    const recordByValueId = periodToDatePerformance(sourceValues.map((value: any) => ({ id: value.id, actual: value.actualValue == null ? null : Number(value.actualValue), resultState: value.resultState })), row.metric);
-    const history = sourceValues.slice(0, historyWeeks).reverse().map((value: any) => ({
-      id: value.id,
-      periodStart: dateValue(value.periodStart),
-      periodEnd: dateValue(value.periodEnd),
-      value: value.actualValue == null ? null : Number(value.actualValue),
-      note: value.note ?? null,
-      periodToDatePerformance: recordByValueId.get(value.id) ?? null,
-    }));
-    const current = history.at(-1) ?? null;
-    const target = row.metric.targetValue == null ? null : Number(row.metric.targetValue);
-    const onTarget = current?.value == null || target == null ? null : row.metric.performanceDirection === "higher" ? current.value >= target : current.value <= target;
-    return {
-      mappingId: row.mappingId,
-      metricId: row.metric.id,
-      name: row.metric.name,
-      owner: { id: row.owner?.id ?? null, name: row.owner?.name ?? row.owner?.email ?? "Unassigned" },
-      target,
-      direction: row.metric.performanceDirection,
-      displayFormat: row.metric.displayFormat,
-      frequency: row.metric.frequency,
-      current,
-      history,
-      onTarget,
-      periodToDatePerformance: current?.periodToDatePerformance ?? null,
-      canEnter: row.metric.metricType === "manual",
-    };
-  });
+async function getScorecard(db: any, userId: number, targetMeetingId: string) {
+  return (await getMeetingScorecard(db, userId, targetMeetingId, true)).items;
 }
 
 async function getRocks(db: any, targetMeetingId: string) {
@@ -388,7 +347,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
   const canRateParticipants = meeting.label === "level_10" && (meeting.facilitatorId === user.id || meeting.administratorId === user.id);
   const [members, scorecard, rocks, todos, issues, segue, headlines, briefs, reports, activeSession, cascades] = await Promise.all([
     listMembers(db, targetMeetingId),
-    getScorecard(db, targetMeetingId, Math.max(1, Math.min(16, meeting.scorecardHistoryWeeks ?? 8))),
+    getScorecard(db, user.id, targetMeetingId),
     getRocks(db, targetMeetingId),
     getTodos(db, targetMeetingId),
     getIssues(db, targetMeetingId),
@@ -714,7 +673,7 @@ export const pulseL10Router = router({
     const session = await requireSession(db, input.meetingId, input.sessionId, true);
     for (const personId of input.attendeeIds) await assertMember(db, input.meetingId, personId);
     const [scorecard, rocks, commitments, resolvedIssues, ratings] = await Promise.all([
-      getScorecard(db, input.meetingId, Math.max(1, Math.min(16, meeting.scorecardHistoryWeeks ?? 8))),
+      getScorecard(db, ctx.user.id, input.meetingId),
       getRocks(db, input.meetingId),
       db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, assigneeId: pulseWorkItems.assigneeId, dueDate: pulseWorkItems.dueDate, status: pulseWorkItems.status }).from(pulseWorkItems).where(and(eq(pulseWorkItems.sourceSessionId, input.sessionId), eq(pulseWorkItems.type, "todo"), isNull(pulseWorkItems.deletedAt))),
       db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, solvedNote: pulseWorkItems.solvedNote, assigneeId: pulseWorkItems.assigneeId }).from(pulseWorkItems).where(and(eq(pulseWorkItems.resolvedInSessionId, input.sessionId), eq(pulseWorkItems.type, "issue"), isNull(pulseWorkItems.deletedAt))),

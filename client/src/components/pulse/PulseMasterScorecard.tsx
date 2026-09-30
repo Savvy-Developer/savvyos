@@ -112,8 +112,8 @@ export function PulseMasterScorecard() {
           </CardTitle>
           <CardDescription>
             All active SavvyOS metrics from the L10s you are authorized to
-            access. Select a cadence, then move backward through completed
-            reporting periods.
+            access. Weekly review compares previous week, this week, year-to-date
+            performance against target, and eight weeks of history.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

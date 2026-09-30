@@ -4,9 +4,9 @@ import { selectedScorecardPeriod } from "./scorecard";
 describe("selectedScorecardPeriod", () => {
   it("normalizes reporting dates to the matching weekly, monthly, quarterly, and annual period", () => {
     expect(selectedScorecardPeriod("weekly", "2026-09-27")).toMatchObject({
-      periodStart: "2026-09-21",
-      periodEnd: "2026-09-27",
-      label: "Week of Sep 21, 2026",
+      periodStart: "2026-09-27",
+      periodEnd: "2026-10-03",
+      label: "Week of Sep 27, 2026",
     });
     expect(selectedScorecardPeriod("monthly", "2026-09-27")).toMatchObject({
       periodStart: "2026-09-01",

@@ -57,7 +57,7 @@ export function periodBounds(frequency: LegacyFrequency, reference = new Date())
   const day = dayStart(reference);
   if (frequency === "weekly") {
     const weekday = day.getUTCDay();
-    const start = addDays(day, weekday === 0 ? -6 : 1 - weekday);
+    const start = addDays(day, -weekday);
     return { start, end: addDays(start, 7) };
   }
   if (frequency === "monthly") {

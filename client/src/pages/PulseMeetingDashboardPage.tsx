@@ -14,13 +14,13 @@ import { formatEasternClockTime, formatEasternDateTime } from "@/lib/format";
 import { PulseInlineItemRow, PulseItemEditor } from "@/components/pulse/PulseItemEditor";
 import { PulseRockMilestonePanel } from "@/components/pulse/PulseRockMilestonePanel";
 import { PulseProjectRockMilestonePanel } from "@/components/pulse/PulseProjectRockMilestonePanel";
+import { PulseScorecard } from "@/components/pulse/PulseScorecard";
 import { PulseCompletedHistory } from "@/components/pulse/PulseCompletedHistory";
 import { PulseMeetingRatingSummary } from "@/components/pulse/PulseMeetingRatingSummary";
 import { PulseIssueTimeframeFilter, statusLabel, type IssueTimeframeFilterValue } from "@/components/pulse/PulseWorkItemBadges";
 import { PulseCascadeCard } from "@/components/pulse/PulseCascadeCard";
 import { PulseCascadeComposerDialog } from "@/components/pulse/PulseCascadeComposer";
 import { ALL_ROCK_OWNERS, PulseRockOwnerFilter, rockOwnerKey } from "@/components/pulse/PulseRockOwnerFilter";
-import { RecordMarker } from "@/components/roles-responsibilities/RecordMarker";
 
 const sectionMeta = {
   overview: { label: "Overview", icon: CalendarDays },
@@ -46,13 +46,6 @@ function nextMeeting(day?: string | null) {
   const target = days.indexOf(day);
   const distance = (target - new Date().getDay() + 7) % 7 || 7;
   return distance === 1 ? "Tomorrow" : `In ${distance} days`;
-}
-
-function metricValue(value: number | null | undefined, format?: string) {
-  if (value == null) return "—";
-  if (format === "percentage") return `${value}%`;
-  if (format === "currency") return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
 
 function HealthStat({ label, value, subtext }: { label: string; value: string; subtext?: string }) {
@@ -85,15 +78,10 @@ function UpdatesTab({ meetingId, sessionId, kind, items, onChanged }: { meetingI
   return <div className="space-y-4"><Card><CardHeader><CardTitle>Share a {label.toLowerCase()}</CardTitle><CardDescription>{kind === "segue" ? "Add a personal or professional win before the meeting." : "Record customer, employee, or operating news the L10 should see."}</CardDescription></CardHeader><CardContent><form className="flex flex-col gap-3 sm:flex-row" onSubmit={(event) => { event.preventDefault(); if (body.trim()) create.mutate({ meetingId, sessionId, updateType: kind, body: body.trim() }); }}><Input className="min-h-11 text-base" value={body} onChange={(event) => setBody(event.target.value)} placeholder={kind === "segue" ? "A personal or professional best…" : "The update this L10 needs…"}/><Button type="submit" className="min-h-11" disabled={!body.trim() || create.isPending}><Plus className="mr-1 h-4 w-4"/>Add</Button></form></CardContent></Card><div className="space-y-3">{items.length ? items.map((item: any) => <Card key={item.id}><CardContent className="p-4"><p className="text-sm leading-6">{item.body}</p><p className="mt-2 text-xs text-muted-foreground">{item.authorName ?? "Participant"} · {formatEasternDateTime(item.createdAt, { includeYear: false })}</p></CardContent></Card>) : <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No {label.toLowerCase()}s yet. Add one above.</CardContent></Card>}</div></div>;
 }
 
-function PeriodPerformanceBadge({ performance }: { performance?: any }) {
-  return <RecordMarker performance={performance} />;
-}
-
 function ScorecardTab({ data, onChanged }: { data: any; onChanged: () => void }) {
-  const [editing, setEditing] = useState<Record<string, string>>({});
-  const save = trpc.pulse.scorecard.saveCurrentValue.useMutation({ onSuccess: onChanged, onError: (error) => toast.error(error.message) });
   const metrics = data.sections.scorecard;
-  return <Card><CardHeader><CardTitle>Scorecard</CardTitle><CardDescription>Measurables are sourced from Roles & Responsibilities. An off-target number belongs on the Issues list, not in a sidebar discussion.</CardDescription></CardHeader><CardContent>{metrics.length ? <div className="pulse-scroll-x"><table className="min-w-[760px] w-full text-sm"><thead className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="pb-3 pr-4 font-medium">Measurable</th><th className="pb-3 pr-4 font-medium">Owner</th><th className="pb-3 pr-4 font-medium">Target</th><th className="pb-3 pr-4 font-medium">Direction</th><th className="pb-3 pr-4 font-medium">Current</th><th className="pb-3 font-medium">History</th></tr></thead><tbody>{metrics.map((metric: any) => { const draft = editing[metric.metricId] ?? (metric.current?.value == null ? "" : String(metric.current.value)); return <tr key={metric.metricId} className="border-b last:border-0"><td className="py-4 pr-4 font-medium">{metric.name}</td><td className="py-4 pr-4 text-muted-foreground">{metric.owner.name}</td><td className="py-4 pr-4">{metricValue(metric.target, metric.displayFormat)}</td><td className="py-4 pr-4 capitalize text-muted-foreground">{metric.direction}</td><td className="py-4 pr-4"><div className="flex items-center gap-2">{metric.canEnter ? <Input className="h-9 w-24" inputMode="decimal" value={draft} onChange={(event) => setEditing((values) => ({ ...values, [metric.metricId]: event.target.value }))} onBlur={() => { if (draft !== "" && Number(draft) !== metric.current?.value) save.mutate({ meetingId: data.meeting.id, metricId: metric.metricId, actualValue: Number(draft) }); }} /> : <span className={metric.onTarget === false ? "font-semibold text-amber-700" : "font-semibold"}>{metricValue(metric.current?.value, metric.displayFormat)}</span>}{metric.onTarget === false ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Off track</span> : metric.onTarget === true ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">On track</span> : null}<PeriodPerformanceBadge performance={metric.periodToDatePerformance} /></div></td><td className="py-4"><div className="flex items-end gap-1" title="Most recent values"><span className="sr-only">{metric.history.map((value: any) => value.value).join(", ")}</span>{metric.history.map((value: any) => <span key={`${value.periodEnd}-${value.value}`} className="relative block h-7 w-2 rounded-sm bg-primary/70" style={{ height: `${Math.max(5, Math.min(28, Math.abs(value.value ?? 0)))}px`, opacity: value.value == null ? 0.18 : 0.9 }}><span className="absolute -top-4 left-1/2 -translate-x-1/2"><RecordMarker performance={value.periodToDatePerformance} /></span></span>)}{Array.from({ length: Math.max(0, data.meeting.scorecardHistoryWeeks - metric.history.length) }, (_, index) => <span key={`empty-${index}`} className="block h-1.5 w-2 rounded-sm bg-muted" />)}</div></td></tr>; })}</tbody></table></div> : <p className="py-8 text-center text-sm text-muted-foreground">No measurables are assigned to this L10. A Pulse manager can add them in configuration.</p>}</CardContent></Card>;
+  const tabs = ["weekly", "monthly", "quarterly", "annually"].filter(cadence => metrics.some((metric: any) => metric.cadence === cadence));
+  return <Card><CardHeader><CardTitle>Scorecard</CardTitle><CardDescription>Compare last week, this week, year-to-date performance against target, and the trailing eight-week record. An off-target number belongs on the Issues list, not in a sidebar discussion.</CardDescription></CardHeader><CardContent><PulseScorecard section={{ items: metrics, meta: { tabs } }} meetingId={data.meeting.id} showObservations={false} emptyMessage="No measurables are assigned to this L10. A Pulse manager can add them in configuration." onChanged={onChanged} /></CardContent></Card>;
 }
 
 function RocksTab({ data, onChanged }: { data: any; onChanged: () => void }) {

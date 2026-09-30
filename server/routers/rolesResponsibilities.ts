@@ -213,8 +213,7 @@ export function periodBounds(frequency: typeof METRIC_FREQUENCIES[number], refer
   const day = startOfUtcDay(reference);
   if (frequency === "weekly") {
     const weekday = day.getUTCDay();
-    const offset = weekday === 0 ? -6 : 1 - weekday;
-    const start = addDays(day, offset);
+    const start = addDays(day, -weekday);
     return { start, end: addDays(start, 7) };
   }
   if (frequency === "monthly") {
