@@ -1103,8 +1103,8 @@ function PropertiesPage() {
 
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="mb-8 rounded-2xl border bg-gray-50 p-4 shadow-sm md:p-6">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[160px] flex-1">
+            <div className="grid grid-cols-2 items-end gap-3 sm:flex sm:flex-wrap">
+              <div className={`min-w-0 sm:min-w-[160px] sm:flex-1 ${hasMarkets ? "" : "col-span-2"}`}>
                 <label className={label} htmlFor="listing-search">
                   Search
                 </label>
@@ -1121,7 +1121,7 @@ function PropertiesPage() {
                 </div>
               </div>
               {hasMarkets ? (
-                <div className="min-w-[160px] flex-1">
+                <div className="min-w-0 sm:min-w-[160px] sm:flex-1">
                   <label className={label}>Market</label>
                   <div className="relative">
                     <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -1141,7 +1141,7 @@ function PropertiesPage() {
                   </div>
                 </div>
               ) : null}
-              <div className="min-w-[130px]">
+              <div className="min-w-0 sm:min-w-[130px]">
                 <label className={label}>Price Range</label>
                 <div className="relative">
                   <select
@@ -1158,7 +1158,7 @@ function PropertiesPage() {
                   {chevron}
                 </div>
               </div>
-              <div className="min-w-[100px]">
+              <div className="min-w-0 sm:min-w-[100px]">
                 <label className={label}>Bedrooms</label>
                 <div className="relative">
                   <select
@@ -1176,7 +1176,7 @@ function PropertiesPage() {
                   {chevron}
                 </div>
               </div>
-              <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+              <div className="col-span-2 flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setShowMore(value => !value)}

@@ -451,8 +451,9 @@ export function LivePropertyCard({ item }: { item: any }) {
           </div>
           ) : null}
 
-          {revenue != null || locked ? (
-            <div className="mt-4 space-y-2 border-t border-[#e5e5e5] pt-3">
+          {/* Always shown, so every card has the same shape. A listing whose
+              pro-forma has no revenue figures yet says so instead of leaving a gap. */}
+          <div className="mt-4 space-y-2 border-t border-[#e5e5e5] pt-3">
               {locked ? (
                 <button
                   type="button"
@@ -468,7 +469,7 @@ export function LivePropertyCard({ item }: { item: any }) {
                   <Info className="h-3 w-3 flex-shrink-0 text-[#737373]" />
                 </span>
                 <span className="flex-shrink-0 text-xs font-medium text-[#737373]">Proj. Revenue:</span>
-                {locked || revenue == null ? (
+                {locked ? (
                   <button
                     type="button"
                     onClick={goTo(signIn)}
@@ -477,6 +478,8 @@ export function LivePropertyCard({ item }: { item: any }) {
                   >
                     ••••••
                   </button>
+                ) : revenue == null ? (
+                  <span className="truncate text-xs font-medium text-[#737373]">On request</span>
                 ) : (
                   <span className="truncate text-xs font-bold text-[#05314a]">
                     {compactCurrency.format(revenue)} / year
@@ -484,7 +487,6 @@ export function LivePropertyCard({ item }: { item: any }) {
                 )}
               </div>
             </div>
-          ) : null}
         </div>
       </a>
     </div>
