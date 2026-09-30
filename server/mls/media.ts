@@ -147,9 +147,36 @@ async function refreshExpiredUrls(
   }
 }
 
+const RETRYABLE_LOCK_ERRNOS = new Set([1213, 1205]); // ER_LOCK_DEADLOCK, ER_LOCK_WAIT_TIMEOUT
+
+/** True when MySQL rolled the statement back over a lock conflict and it is safe to run again. */
+export function isRetryableLockError(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current && depth < 5; depth++) {
+    const errno = (current as { errno?: unknown }).errno;
+    const code = (current as { code?: unknown }).code;
+    if ((typeof errno === "number" && RETRYABLE_LOCK_ERRNOS.has(errno)) || code === "ER_LOCK_DEADLOCK" || code === "ER_LOCK_WAIT_TIMEOUT") {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** Runs a single statement again after a deadlock or lock wait timeout, with a short jittered backoff. */
+export async function withLockRetry<T>(run: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run();
+    } catch (error) {
+      if (attempt >= attempts || !isRetryableLockError(error)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100 * attempt + Math.floor(Math.random() * 150)));
+    }
+  }
+}
+
 async function claim(db: Db, feedIds: number[], claimToken: string, limit: number) {
   const now = new Date();
-  await db
+  await withLockRetry(() => db
     .update(mlsMedia)
     .set({ status: "expired", sourceUrl: null })
     .where(
@@ -159,8 +186,8 @@ async function claim(db: Db, feedIds: number[], claimToken: string, limit: numbe
         isNotNull(mlsMedia.sourceUrlExpiresAt),
         lt(mlsMedia.sourceUrlExpiresAt, now)
       )
-    );
-  await db.execute(sql`
+    ));
+  await withLockRetry(() => db.execute(sql`
     UPDATE ${mlsMedia}
        SET ${mlsMedia.status} = 'downloading', ${mlsMedia.claimedBy} = ${claimToken}, ${mlsMedia.attempts} = ${mlsMedia.attempts} + 1
      WHERE ${inArray(mlsMedia.feedId, feedIds)}
@@ -168,7 +195,7 @@ async function claim(db: Db, feedIds: number[], claimToken: string, limit: numbe
        AND ${mlsMedia.sourceUrl} IS NOT NULL
        AND (${mlsMedia.nextAttemptAt} IS NULL OR ${mlsMedia.nextAttemptAt} <= ${now})
      ORDER BY ${mlsMedia.priority} ASC, ${mlsMedia.id} ASC
-     LIMIT ${limit}`);
+     LIMIT ${limit}`));
   return db
     .select()
     .from(mlsMedia)
