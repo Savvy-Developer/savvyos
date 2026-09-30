@@ -378,9 +378,11 @@ function SiteFooter() {
   return (
     <footer className="mt-auto border-t bg-white">
       <div className="mx-auto max-w-7xl px-4 py-8 text-sm sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} Savvy STR Agents. All rights reserved.</p>
-          <nav className="flex flex-wrap gap-4">
+        {/* Phones: links centred in even rows, then the copyright line under
+            them. From sm up: copyright left, links right, as on the live site. */}
+        <div className="flex flex-col items-center gap-5 text-center sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:text-left">
+          <p className="order-last sm:order-none">© {new Date().getFullYear()} Savvy STR Agents. All rights reserved.</p>
+          <nav className="flex max-w-sm flex-wrap justify-center gap-x-5 gap-y-2.5 sm:max-w-none sm:justify-start sm:gap-4">
             <a className={linkClass} href={path("/properties")}>Properties</a>
             <a className={linkClass} href={path("/markets")}>Markets</a>
             <a className={linkClass} href={path("/case-studies")}>Case Studies</a>
@@ -398,7 +400,7 @@ function SiteFooter() {
             <a className={linkClass} href={AGENT_LOGIN_URL}>Agent Login</a>
           </nav>
         </div>
-        {statement && <p className="mt-3 text-xs text-gray-500">{statement}</p>}
+        {statement && <p className="mt-4 text-center text-xs text-gray-500 sm:mt-3 sm:text-left">{statement}</p>}
       </div>
     </footer>
   );
