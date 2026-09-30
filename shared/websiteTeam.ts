@@ -12,6 +12,18 @@
 
 export type TeamMemberStatus = "draft" | "published" | "archived";
 
+/**
+ * Where a person sits on the Team page. Agents are not rows here: the page
+ * lists every published agent profile on its own, so a new agent appears
+ * without a second edit.
+ */
+export const TEAM_SECTIONS = ["leadership", "staff"] as const;
+export type TeamSection = (typeof TEAM_SECTIONS)[number];
+export const TEAM_SECTION_LABELS: Record<TeamSection, string> = {
+  leadership: "Leadership",
+  staff: "Savvy Staff",
+};
+
 export type TeamMember = {
   id?: number;
   name: string;
@@ -20,6 +32,7 @@ export type TeamMember = {
   imageUrl: string | null;
   email: string | null;
   linkedinUrl: string | null;
+  section: TeamSection;
   status: TeamMemberStatus;
   sortOrder: number;
 };
@@ -75,6 +88,7 @@ export function normalizeTeamMember(row: unknown): TeamMember | null {
     imageUrl: safeImageUrl(source.imageUrl),
     email: safeEmail(source.email),
     linkedinUrl: safeWebUrl(source.linkedinUrl),
+    section: source.section === "leadership" ? "leadership" : "staff",
     status,
     sortOrder: Number.isFinite(sortOrder) ? Math.trunc(sortOrder) : 0,
   };

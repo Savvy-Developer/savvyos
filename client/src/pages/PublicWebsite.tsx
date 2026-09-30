@@ -57,6 +57,7 @@ import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
 import { captureVisitAttribution, formAttribution } from "@/lib/visitAttribution";
 import { bookingUtmParams, CONTACT_CALENDAR_FALLBACK_UTMS } from "@shared/adAttribution";
+import { marketPagePath } from "@shared/websiteMarketPages";
 import { trackWebsiteEvent, type SellPlacement } from "@/lib/websiteAnalytics";
 import {
   editableListPage,
@@ -76,7 +77,7 @@ import {
 import {
   publishedTestimonials,
 } from "@shared/websiteTestimonials";
-import { teamInitials } from "@shared/websiteTeam";
+import { TEAM_SECTIONS, TEAM_SECTION_LABELS, teamInitials } from "@shared/websiteTeam";
 import {
   SELLER_LISTED_OPTIONS,
   SELLER_TIMELINES,
@@ -4462,6 +4463,109 @@ function ContactPage() {
  * territories drawn, which is also the moment its properties become findable,
  * so the page never offers a market that opens onto nothing.
  */
+/**
+ * One market, as the old savvy-agents.com /markets/<state>/<city> page: the
+ * market's agents, then its properties for sale. An old address that differs
+ * only in the market's name ("outer-banks" for "Outer Banks, North Carolina")
+ * resolves too, and the address bar is corrected to the market's own.
+ */
+function MarketPage({ state, city }: { state: string; city: string }) {
+  const page = trpc.website.publicMarketPage.useQuery({ state, city });
+  const market = page.data?.market;
+  const listings = trpc.website.publicProperties.useQuery(
+    { marketId: market?.id ?? 0, sort: "featured" },
+    { enabled: !!market }
+  );
+  usePageTitle(market ? `${market.name} Short-Term Rentals` : "STR Markets");
+  useEffect(() => {
+    if (page.data && !page.data.canonical)
+      window.history.replaceState(null, "", `${path(page.data.market.path)}${window.location.search}`);
+  }, [page.data]);
+  if (page.isLoading) return <LoadingPage />;
+  if (!market) return <MarketNotFound />;
+  const agents: any[] = page.data?.agents ?? [];
+  const items: any[] = (listings.data as any[]) || [];
+  const stateName = market.state ? US_STATE_NAMES[market.state] || market.state : null;
+  return (
+    <Shell>
+      <div className="min-h-screen bg-white">
+        <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+          <a href={path("/markets")} className="mb-3 inline-flex items-center gap-1 text-sm text-[#05314a] hover:text-[#10c0df]">
+            <ArrowLeft className="h-4 w-4" />
+            Back to Markets
+          </a>
+          <h1 className="text-3xl font-bold text-[#05314a] md:text-4xl">
+            {market.name}
+            {market.state && !new RegExp(`\\b${market.state}\\b`, "i").test(market.name) && !(stateName && market.name.includes(stateName))
+              ? `, ${market.state}`
+              : ""}
+          </h1>
+
+          <section className="mt-10">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-xl font-semibold text-[#05314a]">Agents in {market.name}</h2>
+              <a href={path("/agents")} className="shrink-0 text-sm text-[#10c0df] hover:underline">
+                All agents &rarr;
+              </a>
+            </div>
+            {agents.length === 0 ? (
+              <p className="rounded-xl bg-gray-50 py-8 text-center">No agents listed in this market yet.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {agents.map(agent => (
+                  <LiveAgentCard key={agent.id} item={agent} />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="mt-12">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-xl font-semibold text-[#05314a]">Properties in {market.name}</h2>
+              {items.length > 6 ? (
+                <a href={`${path("/properties")}?market=${market.id}`} className="shrink-0 text-sm text-[#10c0df] hover:underline">
+                  View all &rarr;
+                </a>
+              ) : null}
+            </div>
+            {listings.isLoading ? (
+              <p className="py-8 text-center text-gray-500">Loading properties...</p>
+            ) : items.length === 0 ? (
+              <div className="rounded-xl bg-gray-50 px-6 py-8 text-center">
+                <p>No properties for sale in {market.name} right now.</p>
+                <a href={path("/contact")} className="mt-3 inline-block font-semibold text-[#05314a] underline">
+                  Ask an agent about off-market deals
+                </a>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {items.slice(0, 6).map(item => (
+                  <LivePropertyCard key={item.id} item={item} />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+function MarketNotFound() {
+  usePageTitle("Market not found");
+  return (
+    <Shell>
+      <section className="mx-auto max-w-3xl px-6 py-28 text-center">
+        <h1 className="text-4xl font-bold text-[#05314a]">We couldn't find that market.</h1>
+        <p className="mt-5 text-slate-600">It may have a new name. Every market we cover is on the markets page.</p>
+        <a className="mt-8 inline-block rounded-lg bg-[#05314a] px-5 py-3 font-semibold text-white" href={path("/markets")}>
+          See all markets
+        </a>
+      </section>
+    </Shell>
+  );
+}
+
 function MarketsPage() {
   const heading = useListHeading("markets");
   const markets = trpc.website.publicMarketDirectory.useQuery();
@@ -4470,16 +4574,15 @@ function MarketsPage() {
   if (markets.isLoading) return <LoadingPage />;
   // Agents are tied to markets by name. Most markets have agents long before
   // they have a published listing, so a card leads with whichever it has
-  // instead of saying "0 properties for sale".
+  // instead of saying "0 properties for sale". The card itself now opens the
+  // market's own page, which lists both.
   const marketKey = (name: unknown) => String(name || "").split(",")[0].trim().toLowerCase();
-  const agentMarketNames = new Map<string, string>();
   const agentCounts = new Map<string, number>();
   for (const agent of (agents.data || []) as any[]) {
     for (const name of Array.isArray(agent.markets) ? agent.markets : []) {
       const key = marketKey(name);
       if (!key) continue;
       agentCounts.set(key, (agentCounts.get(key) || 0) + 1);
-      if (!agentMarketNames.has(key)) agentMarketNames.set(key, String(name));
     }
   }
   // Grouped by state, states in alphabetical order, as on the live page.
@@ -4529,11 +4632,8 @@ function MarketsPage() {
                     {stateMarkets.map((market: any) => (
                       <a
                         key={market.id}
-                        href={
-                          market.propertyCount > 0 || !agentCounts.get(marketKey(market.name))
-                            ? `${path("/properties")}?market=${market.id}`
-                            : `${path("/agents")}?market=${encodeURIComponent(agentMarketNames.get(marketKey(market.name)) || market.name)}`
-                        }
+                        href={path(marketPagePath(market))}
+
                         className="group rounded-xl border bg-white p-6 transition-all hover:shadow-md"
                       >
                         <div className="flex items-start gap-3">
@@ -4741,8 +4841,10 @@ function TeamMemberCard({ member }: { member: any }) {
 function TeamPage() {
   usePageTitle("Meet the Team");
   const team = trpc.website.publicTeamMembers.useQuery();
+  const agentList = trpc.website.publicAgents.useQuery();
   const { data: settings } = trpc.website.publicSettings.useQuery();
   const members = team.data ?? [];
+  const agents: any[] = (agentList.data as any[]) ?? [];
   const stats: Array<{ value: string; label: string }> = Array.isArray(settings?.stats)
     ? (settings!.stats as Array<{ value: string; label: string }>).slice(0, 4)
     : [];
@@ -4801,27 +4903,75 @@ function TeamPage() {
           </div>
         </section>
 
-        {members.length > 0 && (
-          <section className="bg-white py-16 lg:py-24">
+        {TEAM_SECTIONS.map(section => {
+          const people = members.filter((member: any) => (member.section === "leadership" ? "leadership" : "staff") === section);
+          if (!people.length) return null;
+          return (
+            <section key={section} className="bg-white py-14 lg:py-20">
+              <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div className="mb-10 text-center">
+                  <h2 className="text-3xl font-bold text-[#05314a] md:text-4xl">{TEAM_SECTION_LABELS[section]}</h2>
+                  <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-600">
+                    {section === "leadership"
+                      ? "The people leading Savvy STR Agents."
+                      : "The Savvy team behind every deal, from first call to closing."}
+                  </p>
+                </div>
+                <div
+                  className={`mx-auto grid gap-8 md:grid-cols-2 lg:grid-cols-3 ${people.length === 1 ? "max-w-sm md:grid-cols-1 lg:grid-cols-1" : people.length === 2 ? "max-w-3xl lg:grid-cols-2" : "max-w-6xl"}`}
+                >
+                  {people.map((member: any) => (
+                    <TeamMemberCard key={member.id ?? member.name} member={member} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          );
+        })}
+
+        {agents.length > 0 && (
+          <section className="bg-white py-14 lg:py-20">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-              <div className="mb-12 text-center">
-                <h2 className="text-3xl font-bold text-[#05314a] md:text-4xl">Meet the Team</h2>
+              <div className="mb-10 text-center">
+                <h2 className="text-3xl font-bold text-[#05314a] md:text-4xl">Our Agents</h2>
                 <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-600">
-                  The passionate people behind Savvy, dedicated to helping you succeed in STR investing.
+                  {agents.length} short-term rental specialists, each in the market they know best.
                 </p>
               </div>
-              <div
-                className={`mx-auto grid gap-8 md:grid-cols-2 lg:grid-cols-3 ${members.length === 1 ? "max-w-sm md:grid-cols-1 lg:grid-cols-1" : members.length === 2 ? "max-w-3xl lg:grid-cols-2" : "max-w-6xl"}`}
-              >
-                {members.map((member: any) => (
-                  <TeamMemberCard key={member.id ?? member.name} member={member} />
-                ))}
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+                {agents.map((agent: any) => {
+                  const place = (Array.isArray(agent.markets) ? agent.markets : []).filter(Boolean).slice(0, 2).join(", ");
+                  return (
+                    <a
+                      key={agent.id}
+                      href={path(`/agents/${agent.slug}`)}
+                      className="group flex flex-col items-center rounded-xl border border-gray-100 bg-white p-4 text-center shadow-sm transition-shadow hover:shadow-md"
+                    >
+                      <div className="mb-3 h-24 w-24 overflow-hidden rounded-full border-2 border-gray-100 bg-gray-100">
+                        {agent.imageUrl ? (
+                          <img src={agent.imageUrl} alt={agent.name} loading="lazy" className="h-full w-full object-cover object-top" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-xl font-bold text-[#05314a]">
+                            {teamInitials(agent.name || "")}
+                          </div>
+                        )}
+                      </div>
+                      <p className="font-semibold leading-tight text-[#05314a] group-hover:text-[#10c0df]">{agent.name}</p>
+                      {place ? <p className="mt-1 line-clamp-2 text-xs text-gray-500">{place}</p> : null}
+                    </a>
+                  );
+                })}
+              </div>
+              <div className="mt-8 text-center">
+                <a href={path("/agents")} className="inline-flex items-center gap-2 font-semibold text-[#05314a] hover:text-[#10c0df]">
+                  Search agents by market <ChevronRight className="h-5 w-5" />
+                </a>
               </div>
             </div>
           </section>
         )}
 
-        <section className={`py-16 lg:py-24 ${members.length ? "bg-gray-50" : "bg-white"}`}>
+        <section className={`py-16 lg:py-24 ${members.length || agents.length ? "bg-gray-50" : "bg-white"}`}>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className={`grid items-center gap-12 ${stats.length ? "lg:grid-cols-2" : ""}`}>
               <div className={stats.length ? "" : "mx-auto max-w-3xl"}>
@@ -4868,7 +5018,7 @@ function TeamPage() {
           </div>
         </section>
 
-        <section className={`py-16 lg:py-24 ${members.length ? "bg-white" : "bg-gray-50"}`}>
+        <section className={`py-16 lg:py-24 ${members.length || agents.length ? "bg-white" : "bg-gray-50"}`}>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mb-12 text-center">
               <span className="text-sm font-semibold uppercase tracking-wider text-[#10c0df]">What Drives Us</span>
@@ -5424,6 +5574,8 @@ export default function PublicWebsite() {
   if (relative === "/contact")
     return <EditablePage slug="contact" designed={<ContactPage />} />;
   if (relative === "/markets") return <MarketsPage />;
+  if (segments[0] === "markets" && segments.length === 3)
+    return <MarketPage state={decodeURIComponent(segments[1])} city={decodeURIComponent(segments[2])} />;
   if (relative === "/team") return <TeamPage />;
   if (relative === "/sell") return <SellPage />;
   if (relative === "/join-our-team")

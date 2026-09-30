@@ -22,7 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { teamInitials, type TeamMemberStatus } from "@shared/websiteTeam";
+import { TEAM_SECTIONS, TEAM_SECTION_LABELS, teamInitials, type TeamMemberStatus, type TeamSection } from "@shared/websiteTeam";
 
 /**
  * Website Studio > Team: the people on the public Meet the Team page.
@@ -40,6 +40,7 @@ type Draft = {
   imageUrl: string;
   email: string;
   linkedinUrl: string;
+  section: TeamSection;
   status: TeamMemberStatus;
   sortOrder: string;
 };
@@ -51,6 +52,7 @@ const EMPTY: Draft = {
   imageUrl: "",
   email: "",
   linkedinUrl: "",
+  section: "staff",
   status: "draft",
   sortOrder: "0",
 };
@@ -64,6 +66,7 @@ function toDraft(row: any): Draft {
     imageUrl: row.imageUrl ?? "",
     email: row.email ?? "",
     linkedinUrl: row.linkedinUrl ?? "",
+    section: row.section === "leadership" ? "leadership" : "staff",
     status: row.status ?? "draft",
     sortOrder: String(row.sortOrder ?? 0),
   };
@@ -149,6 +152,7 @@ function MemberEditor({ initial, onClose }: { initial: Draft; onClose: () => voi
       imageUrl: draft.imageUrl || null,
       email: draft.email || null,
       linkedinUrl: draft.linkedinUrl || null,
+      section: draft.section,
       status,
       sortOrder: Number.parseInt(draft.sortOrder, 10) || 0,
     });
@@ -214,6 +218,25 @@ function MemberEditor({ initial, onClose }: { initial: Draft; onClose: () => voi
                 onChange={event => set("linkedinUrl", event.target.value)}
               />
             </div>
+          </div>
+          <div>
+            <Label>Section on the Team page</Label>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {TEAM_SECTIONS.map(section => (
+                <Button
+                  key={section}
+                  type="button"
+                  size="sm"
+                  variant={draft.section === section ? "default" : "outline"}
+                  onClick={() => set("section", section)}
+                >
+                  {TEAM_SECTION_LABELS[section]}
+                </Button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Agents are not added here: every published agent profile shows on the Team page on its own.
+            </p>
           </div>
           <div className="max-w-[160px]">
             <Label>Order</Label>
@@ -298,7 +321,9 @@ export function TeamMembersPanel({ previewUrl }: { previewUrl: string }) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold text-slate-900">{row.name}</p>
-                  <p className="truncate text-sm text-slate-500">{row.title || "No title yet"}</p>
+                  <p className="truncate text-sm text-slate-500">
+                    {TEAM_SECTION_LABELS[row.section === "leadership" ? "leadership" : "staff"]} · {row.title || "No title yet"}
+                  </p>
                 </div>
                 <StatusBadge status={row.status} />
                 <Button size="icon" variant="ghost" aria-label={`Edit ${row.name}`} onClick={() => setEditing(toDraft(row))}>

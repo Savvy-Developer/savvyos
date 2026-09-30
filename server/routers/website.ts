@@ -6,6 +6,7 @@ import {
   agentConnections,
   agentProfiles,
   contacts,
+  marketAgentAssignments,
   marketProfiles,
   marketZipCodes,
   proformas,
@@ -62,6 +63,7 @@ import {
   zipInMarket,
 } from "../publicMarketDirectory";
 import { publishedTestimonials } from "@shared/websiteTestimonials";
+import { agentListsMarket, findMarketForPath, marketPagePath } from "@shared/websiteMarketPages";
 import { readLinkForwarding, saveLinkForwarding } from "../websiteLinkForwarding";
 import { normalizeTeamMember, publishedTeam } from "@shared/websiteTeam";
 import { SELLER_LEAD_TAG } from "@shared/websiteSellerLead";
@@ -856,7 +858,7 @@ const settingsInput = z.object({
  * is what stops the page and the filter from having different ideas about what
  * a market contains.
  */
-async function loadMarketDirectory(db: any) {
+export async function loadMarketDirectory(db: any) {
   const [markets, assignments, published] = await Promise.all([
     db
       .select({
@@ -1131,6 +1133,7 @@ export const WEBSITE_PUBLIC_TRPC_PATHS = new Set([
   "website.publicPage",
   "website.publicMarkets",
   "website.publicMarketDirectory",
+  "website.publicMarketPage",
   "website.publicAgents",
   "website.publicAgent",
   "website.publicCaseStudies",
@@ -1767,6 +1770,66 @@ export const websiteRouter = router({
     if (!db) return [];
     return loadMarketDirectory(db);
   }),
+
+  /**
+   * One market's page (/newsite/markets/<state>/<city>): the market, and the
+   * published agents who work it. Its properties come from publicProperties
+   * with the market id. A market is only here when the markets page lists it
+   * (active or recruiting, with ZIP territories), so a page never exists for
+   * a market the directory hides. Null for an unknown address.
+   *
+   * An agent works a market when SavvyOS assigns them to it (Agent Markets),
+   * or their website profile names it. Published profiles only.
+   */
+  publicMarketPage: publicProcedure
+    .input(z.object({ state: z.string().trim().max(40), city: z.string().trim().max(160) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const directory = await loadMarketDirectory(db);
+      const found = findMarketForPath(directory, input.state, input.city);
+      if (!found) return null;
+      const market = found.market;
+      const [assigned, profiles] = await Promise.all([
+        db
+          .select({ agentId: marketAgentAssignments.agentId })
+          .from(marketAgentAssignments)
+          .where(eq(marketAgentAssignments.marketProfileId, market.id)),
+        db
+          .select({
+            id: websiteAgentProfiles.id,
+            userId: websiteAgentProfiles.userId,
+            slug: websiteAgentProfiles.slug,
+            headline: websiteAgentProfiles.headline,
+            shortBio: websiteAgentProfiles.shortBio,
+            markets: websiteAgentProfiles.markets,
+            specialties: websiteAgentProfiles.specialties,
+            imageUrl: websiteAgentProfiles.imageUrl,
+            publicPhone: websiteAgentProfiles.publicPhone,
+            bookingUrl: websiteAgentProfiles.bookingUrl,
+            name: users.name,
+          })
+          .from(websiteAgentProfiles)
+          .innerJoin(users, eq(websiteAgentProfiles.userId, users.id))
+          .where(eq(websiteAgentProfiles.status, "published"))
+          .orderBy(asc(websiteAgentProfiles.sortOrder), asc(users.name)),
+      ]);
+      const assignedIds = new Set(assigned.map(row => row.agentId));
+      const agents = profiles.filter(
+        profile => assignedIds.has(profile.userId) || agentListsMarket(profile.markets, market.name)
+      );
+      return {
+        market: {
+          id: market.id,
+          name: market.name,
+          state: market.state,
+          propertyCount: market.propertyCount,
+          path: marketPagePath(market),
+        },
+        canonical: found.canonical,
+        agents: agents.map(({ userId: _userId, ...agent }) => withNormalizedBooking(agent)),
+      };
+    }),
 
   publicAgents: publicProcedure
     .input(
@@ -3495,6 +3558,7 @@ export const websiteRouter = router({
         imageUrl: z.string().max(2048).nullable().optional(),
         email: z.string().max(320).nullable().optional(),
         linkedinUrl: z.string().max(512).nullable().optional(),
+        section: z.enum(["leadership", "staff"]).default("staff"),
         status: z.enum(["draft", "published", "archived"]).default("draft"),
         sortOrder: z.number().int().min(-10000).max(10000).default(0),
       })
@@ -3520,6 +3584,7 @@ export const websiteRouter = router({
         imageUrl: row.imageUrl,
         email: row.email,
         linkedinUrl: row.linkedinUrl,
+        section: row.section,
         status: row.status,
         sortOrder: row.sortOrder,
         updatedById: ctx.user.id,

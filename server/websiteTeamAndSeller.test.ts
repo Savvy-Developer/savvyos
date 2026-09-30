@@ -32,9 +32,16 @@ describe("team members", () => {
       imageUrl: null,
       email: null,
       linkedinUrl: null,
+      section: "staff",
       status: "draft",
       sortOrder: 0,
     });
+  });
+
+  it("puts a person in Leadership only when asked, otherwise Savvy Staff", () => {
+    expect(normalizeTeamMember({ name: "Tyler Coon", section: "leadership" })!.section).toBe("leadership");
+    expect(normalizeTeamMember({ name: "Dyl Renken", section: "agents" })!.section).toBe("staff");
+    expect(normalizeTeamMember({ name: "Dyl Renken" })!.section).toBe("staff");
   });
 
   it("only links to real web addresses", () => {

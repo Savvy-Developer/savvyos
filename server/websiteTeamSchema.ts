@@ -19,6 +19,7 @@ export const WEBSITE_TEAM_MEMBERS_DDL = `
     \`imageUrl\` text NULL,
     \`email\` varchar(320) NULL,
     \`linkedinUrl\` varchar(512) NULL,
+    \`section\` varchar(20) NOT NULL DEFAULT 'staff',
     \`status\` enum('draft','published','archived') NOT NULL DEFAULT 'draft',
     \`sortOrder\` int NOT NULL DEFAULT 0,
     \`updatedById\` int NULL,
@@ -28,6 +29,13 @@ export const WEBSITE_TEAM_MEMBERS_DDL = `
     KEY \`website_team_members_status_idx\` (\`status\`, \`sortOrder\`)
   )
 `;
+
+/**
+ * The Team page's sections (Leadership, Savvy Staff) came after the table.
+ * Added once, only when missing; existing people land in "staff".
+ */
+export const WEBSITE_TEAM_SECTION_COLUMN_DDL =
+  "ALTER TABLE `website_team_members` ADD COLUMN `section` varchar(20) NOT NULL DEFAULT 'staff' AFTER `linkedinUrl`";
 
 let readiness: Promise<void> | null = null;
 
@@ -39,6 +47,14 @@ async function applyWebsiteTeamSchema() {
   try {
     connection = await mysql.createConnection(databaseUrl);
     await connection.query(WEBSITE_TEAM_MEMBERS_DDL);
+    const [columns] = await connection.query(
+      `SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'website_team_members' AND COLUMN_NAME = 'section'`
+    );
+    if (Number((columns as Array<{ count: number }>)[0]?.count ?? 0) === 0) {
+      await connection.query(WEBSITE_TEAM_SECTION_COLUMN_DDL);
+      console.log("[websiteTeamSchema] added website_team_members.section");
+    }
   } catch (error) {
     console.error("[websiteTeamSchema] could not create website_team_members", error);
   } finally {

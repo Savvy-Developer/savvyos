@@ -42,7 +42,9 @@ describe("old savvy-agents.com addresses", () => {
   it("moves the old top-level and account pages", () => {
     expect(go("/legal")).toEqual({ to: "/newsite/legal", permanent: true });
     expect(go("/login/")).toEqual({ to: "/newsite/sign-in", permanent: true });
-    expect(go("/markets/nc/asheville")).toEqual({ to: "/newsite/markets", permanent: true });
+    expect(go("/markets/nc/asheville")).toEqual({ to: "/newsite/markets/nc/asheville", permanent: true });
+    expect(go("/markets/AL/Gulf-Shores")).toEqual({ to: "/newsite/markets/al/gulf-shores", permanent: true });
+    expect(go("/markets/nc/<script>")).toEqual({ to: "/newsite/markets", permanent: true });
     expect(go("/team")).toEqual({ to: "/newsite/team", permanent: true });
     expect(go("/sell")).toEqual({ to: "/newsite/sell", permanent: true });
     expect(go("/join-our-team")).toEqual({ to: "/newsite/join-our-team", permanent: true });

@@ -21,7 +21,8 @@ import {
 } from "../drizzle/schema";
 import { getDb } from "./db";
 import type { LandingMetadata } from "./landingPageHtml";
-import { RESERVED_PAGE_SLUGS } from "./routers/website";
+import { RESERVED_PAGE_SLUGS, loadMarketDirectory } from "./routers/website";
+import { findMarketForPath, marketPagePath } from "@shared/websiteMarketPages";
 import {
   STATIC_PAGES,
   absoluteImage,
@@ -78,6 +79,7 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
   const defaults = await siteDefaults(db);
 
   let found: Described | null = null;
+  let canonicalPath: string | null = null;
   switch (route.kind) {
     case "home":
       found = { title: null, description: defaults.description, image: defaults.image };
@@ -129,6 +131,21 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
     case "account":
       found = { title: null, description: defaults.description, image: defaults.image, noindex: true };
       break;
+    case "market": {
+      const hit = findMarketForPath(await loadMarketDirectory(db), route.state, route.city);
+      if (hit) {
+        const { market } = hit;
+        const place = market.state && !new RegExp(`\\b${market.state}\\b`, "i").test(market.name) ? `${market.name}, ${market.state}` : market.name;
+        found = {
+          title: `${market.name} Short-Term Rentals`,
+          description: `Short-term rental properties for sale in ${place}, and the local STR agents who work this market.`,
+          image: defaults.image,
+        };
+        // An old or short-form address describes the market's own page.
+        canonicalPath = marketPagePath(market);
+      }
+      break;
+    }
     case "property": {
       const [row] = await db
         .select({
@@ -253,7 +270,7 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
   }
   if (!found) return null;
 
-  const path = req.path.replace(/\/+$/, "").slice("/newsite".length) || "/";
+  const path = canonicalPath ?? (req.path.replace(/\/+$/, "").slice("/newsite".length) || "/");
   return {
     slug: "",
     canonicalUrl: websiteUrl(ORIGIN, path),
@@ -303,6 +320,8 @@ export async function listWebsiteSitemapEntries(): Promise<SitemapEntry[]> {
   add("/agents", agents);
   add("/case-studies", studies);
   add("/resources", posts);
+  // One page per market the markets page lists.
+  for (const market of await loadMarketDirectory(db)) entries.push({ path: marketPagePath(market) });
   // A CMS page saved at a built-in address never renders (see
   // RESERVED_PAGE_SLUGS), so it is not advertised either.
   add("", pages.filter(page => !RESERVED_PAGE_SLUGS.has(page.slug)));

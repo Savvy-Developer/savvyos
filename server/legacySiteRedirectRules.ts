@@ -75,8 +75,15 @@ export function legacyTarget(rawPath: string): LegacyTarget | null {
 
   const segments = path.split("/").filter(Boolean);
   const [section, slug, extra] = segments;
-  // /markets/<state>/<city> had its own pages; the new site has one page.
+  // /markets/<state>/<city>: the new site has the same page at the same
+  // address (shared/websiteMarketPages.ts builds it with the old site's rule).
+  // A name that changed is matched by the page itself; one that no longer
+  // exists shows a link to all markets there.
   if (section === "markets" && segments.length === 3) {
+    const [, state, city] = segments;
+    if (SLUG.test(state) && /^[A-Za-z0-9&%-]+$/.test(city)) {
+      return { kind: "fixed", to: `${BASE}/markets/${state.toLowerCase()}/${city.toLowerCase()}`, permanent: true };
+    }
     return { kind: "fixed", to: `${BASE}/markets`, permanent: true };
   }
   // /share/<id> was an unfinished feature that never showed real listings.

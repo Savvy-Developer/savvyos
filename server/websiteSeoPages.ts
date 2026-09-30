@@ -26,6 +26,7 @@ export type WebsiteRoute =
   | { kind: "about" }
   | { kind: "contact" }
   | { kind: "markets" }
+  | { kind: "market"; state: string; city: string }
   | { kind: "joinTeam" }
   | { kind: "team" }
   | { kind: "sell" }
@@ -75,6 +76,9 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
       case "sell": return { kind: "sell" };
     }
     return SLUG.test(first) ? { kind: "page", slug: first } : null;
+  }
+  if (segments.length === 3 && first === "markets" && SLUG.test(second) && SLUG.test(segments[2])) {
+    return { kind: "market", state: second, city: segments[2] };
   }
   if (segments.length === 2 && SLUG.test(second)) {
     if (first === "properties") return { kind: "property", slug: second };
