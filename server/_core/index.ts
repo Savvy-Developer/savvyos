@@ -84,6 +84,7 @@ import { websiteTagsForRequest } from "../websiteTracking";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
 import { registerLegacySiteRedirects } from "../legacySiteRedirects";
 import { registerWebsiteLinkForwarding } from "../websiteLinkForwarding";
+import { registerWebsiteMetaCatalog } from "../websiteMetaCatalog";
 import { ensureWebsiteLinkForwardingSchema } from "../websiteLinkForwardingSchema";
 import { registerReleaseNotificationRoute } from "../releaseNotificationRoute";
 import { registerMarketingEmailUnsubscribeRoutes } from "../marketingEmailUnsubscribe";
@@ -205,6 +206,10 @@ async function startServer() {
   // goes wrong. Investor accounts are allowlisted deliberately: they are a
   // separate auth system with their own cookie and table, and never accept a
   // staff session. See WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS.
+  // The Meta catalog feed, before the public host's /api guard below so the
+  // old address /api/meta-catalog is reachable there too.
+  registerWebsiteMetaCatalog(app);
+
   const landingHost = (
     process.env.PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com"
   ).toLowerCase();

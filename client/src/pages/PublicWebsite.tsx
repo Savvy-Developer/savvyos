@@ -980,12 +980,21 @@ function readPropertyFilters(): PropertyFilters {
   return filters;
 }
 
+/**
+ * With the old site's listings moved over there are hundreds of them, and a
+ * card each carries a photo carousel. The list shows this many at a time.
+ */
+const PROPERTIES_PAGE_SIZE = 24;
+
 function PropertiesPage() {
   const heading = useListHeading("properties");
   const [showMore, setShowMore] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PROPERTIES_PAGE_SIZE);
   const [filters, setFilters] = useState<PropertyFilters>(readPropertyFilters);
   const set = (key: PropertyFilterKey) => (value: string) =>
     setFilters(current => ({ ...current, [key]: value }));
+  // A new search starts from the top of its results.
+  useEffect(() => setVisibleCount(PROPERTIES_PAGE_SIZE), [filters]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1279,10 +1288,24 @@ function PropertiesPage() {
                   className={`mb-8 grid gap-6 pt-4 transition-opacity md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${updating ? "opacity-60" : ""}`}
                   aria-busy={updating}
                 >
-                  {items.map((item: any) => (
+                  {items.slice(0, visibleCount).map((item: any) => (
                     <LivePropertyCard key={item.id} item={item} />
                   ))}
                 </div>
+                {items.length > visibleCount ? (
+                  <div className="mb-12 text-center">
+                    <p className="mb-3 text-sm text-gray-500">
+                      Showing {visibleCount.toLocaleString()} of {items.length.toLocaleString()}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setVisibleCount(count => count + PROPERTIES_PAGE_SIZE)}
+                      className="inline-flex h-10 items-center rounded-xl border bg-white px-6 text-sm font-medium shadow-xs hover:bg-[#f5f5f5]"
+                    >
+                      Show more properties
+                    </button>
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="rounded-[10px] border border-[#e5e5e5] bg-white p-12 text-center shadow-sm">
