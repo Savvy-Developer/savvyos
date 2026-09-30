@@ -21,6 +21,7 @@ import { ensureMlsSchema } from "./schema";
 
 const TICK_MS = Number(process.env.MLS_WORKER_TICK_MS ?? 15_000);
 const HEARTBEAT_MS = 30_000;
+const STALE_CLAIM_SWEEP_MS = 10 * 60_000;
 
 type LaneState = { syncing: boolean; media: boolean };
 
@@ -39,6 +40,14 @@ export class MlsIngestionScheduler {
     await this.beat();
     this.timers.push(setInterval(() => void this.beat(), HEARTBEAT_MS));
     this.timers.push(setInterval(() => void this.tick(), TICK_MS));
+    // Now that a failed batch no longer restarts the process, release abandoned
+    // claims on a timer too (only rows untouched for 30+ minutes are reset).
+    this.timers.push(
+      setInterval(
+        () => void resetStaleMediaClaims().catch(error => console.error("[mls] reset stale media claims failed", error)),
+        STALE_CLAIM_SWEEP_MS
+      )
+    );
     void this.tick();
     console.log(`[mls] ingestion worker ${this.workerId} started`);
   }
@@ -145,11 +154,18 @@ export class MlsIngestionScheduler {
     const feedIds = feeds.map(ctx => ctx.feed.id);
     // Drain for up to one tick window, then yield so feed changes are picked up.
     const until = Date.now() + Math.max(TICK_MS * 4, 60_000);
-    while (Date.now() < until && !this.controller.signal.aborted) {
-      if ((await pendingMediaCount(feedIds)) === 0) return;
-      const result = await runMediaBatch(lane, feeds, this.workerId, { signal: this.controller.signal });
-      this.lastActivity[`media:${key}`] = { at: new Date().toISOString(), ...result };
-      if (result.claimed === 0 && result.deleted === 0 && result.refreshed === 0) return;
+    try {
+      while (Date.now() < until && !this.controller.signal.aborted) {
+        if ((await pendingMediaCount(feedIds)) === 0) return;
+        const result = await runMediaBatch(lane, feeds, this.workerId, { signal: this.controller.signal });
+        this.lastActivity[`media:${key}`] = { at: new Date().toISOString(), ...result };
+        if (result.claimed === 0 && result.deleted === 0 && result.refreshed === 0) return;
+      }
+    } catch (error) {
+      // A failed batch must never take the worker down. The next tick retries,
+      // and abandoned "downloading" claims are released by the stale-claim sweep.
+      console.error(`[mls] media lane ${key} batch failed`, error);
+      this.lastActivity[`media:${key}`] = { at: new Date().toISOString(), error: String(error instanceof Error ? error.message : error).slice(0, 300) };
     }
   }
 }
