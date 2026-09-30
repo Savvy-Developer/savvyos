@@ -447,7 +447,10 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     permissions: {
       canConfigure,
       canRun: meeting.label === "level_10" && canRun,
-      canRecallCompletedInRun: meeting.label === "level_10" && meeting.administratorId === user.id,
+      // A user who can run this L10 can correct a just-completed To-Do or
+      // resolved Issue in the live completion rail. The item-level reopen
+      // procedure still independently verifies active meeting visibility.
+      canRecallCompletedInRun: meeting.label === "level_10" && canRun,
       canRateParticipants,
       canViewAllHealth,
       canSendCascade,

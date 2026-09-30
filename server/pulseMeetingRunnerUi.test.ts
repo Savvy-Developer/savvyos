@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const root = process.cwd();
 const read = (file: string) => readFileSync(path.join(root, file), "utf8");
 const runner = read("client/src/pages/PulseMeetingRunPage.tsx");
+const completionRail = read("client/src/components/pulse/PulseMeetingCompletionRail.tsx");
 const styles = read("client/src/index.css");
 const l10 = read("server/pulse/l10.ts");
 
@@ -36,5 +37,15 @@ describe("Pulse Meeting Runner workspace", () => {
   it("returns the complete participant rating list to the configured meeting rater", () => {
     expect(l10).toContain("const canRateParticipants = meeting.label === \"level_10\"");
     expect(l10).toContain("canRateParticipants ? eq(pulseSessionRatings.sessionId, activeSession.id)");
+  });
+
+  it("lets the person running an L10 immediately recall completed work", () => {
+    expect(l10).toContain('canRecallCompletedInRun: meeting.label === "level_10" && canRun');
+    expect(runner).toContain('canRecall={Boolean(data.permissions.canRecallCompletedInRun)}');
+    expect(completionRail).toContain("trpc.pulse.workItems.reopen.useMutation");
+    expect(completionRail).toContain("void history.refetch()");
+    expect(completionRail).toContain("onChanged()");
+    expect(completionRail).toContain("Recall is available to the person running this L10.");
+    expect(completionRail).not.toContain("designated L10 Administrator");
   });
 });

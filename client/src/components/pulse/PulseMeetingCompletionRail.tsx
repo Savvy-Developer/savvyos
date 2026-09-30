@@ -42,6 +42,6 @@ export function PulseMeetingCompletionRail({ meetingId, type, canRecall, onChang
         </div>
       </article>) : <p className="rounded border border-dashed border-emerald-200 bg-background/60 px-2 py-4 text-center text-xs leading-4 text-muted-foreground">{type === "issue" ? "Resolved Issues" : "Completed To-Dos"} will appear here as soon as they are checked off.</p>}
     </div>
-    {!canRecall ? <p className="border-t border-emerald-200/70 px-3 py-1.5 text-[11px] text-muted-foreground">The designated L10 Administrator can recall work during the meeting.</p> : null}
+    {!canRecall ? <p className="border-t border-emerald-200/70 px-3 py-1.5 text-[11px] text-muted-foreground">Recall is available to the person running this L10.</p> : null}
   </aside>;
 }
