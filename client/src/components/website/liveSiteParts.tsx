@@ -435,7 +435,8 @@ export function LivePropertyCard({ item }: { item: any }) {
             ))}
           </div>
 
-          <div className="mt-3 flex h-[38px] flex-wrap content-start gap-1 overflow-hidden">
+          {visibleTags.length > 0 ? (
+          <div className="mt-3 flex max-h-[38px] flex-wrap content-start gap-1 overflow-hidden">
             {visibleTags.map((tag, i) => (
               <span
                 key={tag}
@@ -448,6 +449,7 @@ export function LivePropertyCard({ item }: { item: any }) {
             ))}
             {overflow > 0 ? <span className="self-center text-[10px] text-[#737373]">+{overflow}</span> : null}
           </div>
+          ) : null}
 
           {revenue != null || locked ? (
             <div className="mt-4 space-y-2 border-t border-[#e5e5e5] pt-3">
@@ -511,7 +513,7 @@ export function LiveAgentCard({ item }: { item: any }) {
             <img
               src={item.imageUrl || PLACEHOLDER_PHOTO}
               alt={item.name || "Agent"}
-              className="h-full w-full object-cover transition-transform group-hover:scale-105"
+              className="h-full w-full object-cover object-[center_20%] transition-transform group-hover:scale-105"
             />
           </div>
           <div className="flex-1">
@@ -544,7 +546,7 @@ export function LiveAgentCard({ item }: { item: any }) {
           href={`${profile}#contact`}
           className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-md border border-[#e5e5e5] bg-white px-4 text-sm font-medium text-[#05314a] shadow-xs transition-all hover:bg-gray-50"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
           Message
@@ -554,7 +556,7 @@ export function LiveAgentCard({ item }: { item: any }) {
           {...(!phone && item.bookingUrl ? { target: "_blank", rel: "noreferrer" } : {})}
           className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-md bg-[#05314a] px-4 text-sm font-medium text-white transition-all"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
           </svg>
           {phone ? "Call Now" : "Book a Call"}
@@ -577,11 +579,11 @@ export function LiveAgentListCard({ item }: { item: any }) {
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-[10px] border border-[#e5e5e5] bg-white shadow-sm transition-shadow hover:shadow-lg">
       <a href={profile} className="block flex-1">
-        <div className="relative h-44 bg-gray-100 sm:h-64">
+        <div className="relative h-72 bg-gray-100 sm:h-64">
           <img
             src={item.imageUrl || PLACEHOLDER_PHOTO}
             alt={item.name || "Agent"}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover object-top"
             loading="lazy"
           />
         </div>

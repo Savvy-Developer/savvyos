@@ -1176,7 +1176,7 @@ function PropertiesPage() {
                   {chevron}
                 </div>
               </div>
-              <div className="ml-auto flex items-center gap-2">
+              <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setShowMore(value => !value)}
@@ -1993,19 +1993,19 @@ function PropertyDetailPage({ slug }: { slug: string }) {
 
             <div className="order-1 space-y-4 lg:order-2 lg:col-span-1">
               <div className="rounded-[10px] border border-[#e5e5e5] bg-white p-5 shadow-sm">
-                <h3 className="mb-3 text-lg font-bold text-gray-900">Your Agent</h3>
+                <h3 className="mb-3 text-center text-lg font-bold text-gray-900">Your Agent</h3>
                 <a
                   href={agentProfile || path("/agents")}
-                  className="group mb-3 flex cursor-pointer items-center transition-opacity hover:opacity-80"
+                  className="group mb-3 flex cursor-pointer flex-col items-center text-center transition-opacity hover:opacity-80"
                 >
                   <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full border-2 border-[#e5e5e5] transition-colors group-hover:border-[#05314a]">
                     <img
                       src={item.assignedAgentImageUrl || "https://images.unsplash.com/photo-1560250097-0b93528c311a?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&h=150"}
                       alt={agentName}
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-cover object-[center_20%]"
                     />
                   </div>
-                  <div className="ml-4">
+                  <div className="mt-3">
                     <h4 className="font-bold text-gray-900 transition-colors group-hover:text-[#05314a]">{agentName}</h4>
                     <p className="text-sm">STR Investment Specialist</p>
                     {item.city ? <p className="text-sm text-gray-600">{[item.city, item.state].filter(Boolean).join(", ")}</p> : null}
@@ -2018,25 +2018,25 @@ function PropertyDetailPage({ slug }: { slug: string }) {
                     onClick={() => openAsk(null)}
                     className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[#171717] px-4 text-sm font-medium text-white transition-all hover:bg-[#171717]/90"
                   >
-                    <Mail className="mr-2 h-4 w-4" />
+                    <Mail className="h-4 w-4" />
                     Message Agent
                   </button>
                   {item.assignedAgentPhone ? (
                     <a className={`${outline} bg-white hover:bg-[#f5f5f5]`} href={`tel:${String(item.assignedAgentPhone).replace(/[^+\d]/g, "")}`}>
-                      <Phone className="mr-2 h-4 w-4" />
+                      <Phone className="h-4 w-4" />
                       Call Agent
                     </a>
                   ) : null}
                   <button type="button" onClick={() => openAsk("showing")} className={`${outline} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}>
-                    <CalendarCheck className="mr-2 h-4 w-4" />
+                    <CalendarCheck className="h-4 w-4" />
                     Book a Showing
                   </button>
                   <button type="button" onClick={() => openAsk("analysis")} className={`${outline} border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100`}>
-                    <LineChart className="mr-2 h-4 w-4" />
+                    <LineChart className="h-4 w-4" />
                     Request Deeper Analysis
                   </button>
                   <button type="button" onClick={() => openAsk("financing")} className={`${outline} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`}>
-                    <Landmark className="mr-2 h-4 w-4" />
+                    <Landmark className="h-4 w-4" />
                     Financing
                   </button>
                 </div>
@@ -2274,7 +2274,9 @@ function PhotoViewer({
 function AgentsPage() {
   const heading = useListHeading("agents");
   const [search, setSearch] = useState("");
-  const [market, setMarket] = useState("");
+  const [market, setMarket] = useState(
+    () => new URLSearchParams(typeof window === "undefined" ? "" : window.location.search).get("market") || ""
+  );
   const query = trpc.website.publicAgents.useQuery();
   if (query.isLoading) return <LoadingPage />;
   const all: any[] = query.data || [];
@@ -2392,12 +2394,12 @@ function AgentDetailPage({ slug }: { slug: string }) {
 
         <section className="relative overflow-hidden bg-[#05314a]">
           <div className="relative mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
-            <div className="flex flex-col items-start gap-8 md:flex-row md:items-center">
+            <div className="flex flex-col items-center gap-8 text-center md:flex-row md:items-center md:text-left">
               <div className="shrink-0">
                 <img
                   src={item.imageUrl || "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=400&q=80"}
                   alt={item.name}
-                  className="h-40 w-40 rounded-2xl object-cover ring-4 ring-white/20 md:h-56 md:w-56"
+                  className="h-40 w-40 rounded-2xl object-cover object-top ring-4 ring-white/20 md:h-56 md:w-56"
                 />
               </div>
               <div className="min-w-0 flex-1">
@@ -2406,14 +2408,14 @@ function AgentDetailPage({ slug }: { slug: string }) {
                 </p>
                 <h1 className="mb-2 text-3xl font-bold tracking-tight text-white md:text-4xl">{item.name}</h1>
                 {markets[0] ? (
-                  <div className="mb-4 flex items-center text-white/70">
+                  <div className="mb-4 flex items-center justify-center text-white/70 md:justify-start">
                     <MapPin className="mr-1.5 h-4 w-4 shrink-0" />
                     <span>{markets[0]}</span>
                   </div>
                 ) : null}
               </div>
               <div className="w-full md:w-auto md:shrink-0">
-                <div className="w-full rounded-xl border border-white/20 bg-white/10 p-5 backdrop-blur-sm sm:max-w-xs">
+                <div className="mx-auto w-full rounded-xl border border-white/20 bg-white/10 p-5 backdrop-blur-sm sm:max-w-xs md:mx-0">
                   <h3 className="mb-4 text-base font-bold text-white">Contact {item.name}</h3>
                   <div className="space-y-3">
                     <button
@@ -2421,7 +2423,7 @@ function AgentDetailPage({ slug }: { slug: string }) {
                       onClick={toContact}
                       className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-white px-4 text-sm font-medium text-[#05314a] transition-all hover:bg-white/90"
                     >
-                      <Mail className="mr-2 h-4 w-4" />
+                      <Mail className="h-4 w-4" />
                       Send Message
                     </button>
                     {phone ? (
@@ -2429,7 +2431,7 @@ function AgentDetailPage({ slug }: { slug: string }) {
                         href={`tel:${phone}`}
                         className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-white/60 bg-transparent px-4 text-sm font-medium text-white transition-all hover:bg-white/15"
                       >
-                        <Phone className="mr-2 h-4 w-4" />
+                        <Phone className="h-4 w-4" />
                         Call Agent
                       </a>
                     ) : null}
@@ -2911,23 +2913,23 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
 
               {agentName ? (
                 <div className="mb-4 rounded-xl border bg-white p-4">
-                  <a href={agentProfile || "#"} className="group flex items-center transition-opacity hover:opacity-80">
+                  <a href={agentProfile || "#"} className="group flex flex-col items-center text-center transition-opacity hover:opacity-80 lg:flex-row lg:text-left">
                     <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-gray-200 transition-colors group-hover:border-[#05314a]">
                       {item.agentImageUrl ? (
-                        <img src={item.agentImageUrl} alt={agentName} className="h-full w-full object-cover" />
+                        <img src={item.agentImageUrl} alt={agentName} className="h-full w-full object-cover object-[center_20%]" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center">
                           <UserRound className="h-5 w-5" />
                         </div>
                       )}
                     </div>
-                    <div className="ml-3 min-w-0">
+                    <div className="mt-2 min-w-0 lg:ml-3 lg:mt-0">
                       <p className="truncate font-semibold leading-tight text-[#05314a] transition-colors group-hover:text-[#10c0df]">{agentName}</p>
                       <p className="text-xs">STR Investment Specialist</p>
                     </div>
                   </a>
                   {item.agentEmail || item.agentPhone ? (
-                    <div className="mt-3 space-y-1.5 border-t pt-3">
+                    <div className="mt-3 flex flex-col items-center space-y-1.5 border-t pt-3 lg:items-stretch">
                       {item.agentEmail ? (
                         <a href={`mailto:${item.agentEmail}`} className="flex items-center gap-2 text-sm transition-colors hover:text-[#10c0df]">
                           <Mail className="h-4 w-4 shrink-0 text-[#10c0df]" />
@@ -3635,16 +3637,16 @@ function AboutPage() {
   return (
     <Shell>
       <div className="min-h-screen bg-white">
-        <section className="relative bg-black py-20 lg:py-32">
+        <section className="relative py-20 lg:py-32" style={{ background: "linear-gradient(135deg, #05314a 0%, #0b4966 55%, #10c0df 100%)" }}>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-4xl text-center">
               <h1 className="mb-6 text-4xl font-bold text-white md:text-5xl lg:text-6xl">
                 Invest Confidently in Short-Term Rentals
               </h1>
-              <p className="mb-8 text-xl text-gray-300 md:text-2xl">
+              <p className="mb-8 text-xl text-white/90 md:text-2xl">
                 You Deserve a Real Estate Agent that Actually Understands Short Term Rentals.
               </p>
-              <p className="mx-auto mb-10 max-w-3xl text-lg text-gray-400">
+              <p className="mx-auto mb-10 max-w-3xl text-lg text-white/75">
                 Not every agent understands short-term rentals. We do. We'll help you buy the right property, in the
                 right market, with the right plan — so you cash flow faster and skip the rookie mistakes.
               </p>
@@ -3664,7 +3666,7 @@ function AboutPage() {
                 ["$10M+", "In Annual Revenue Earned By Our Clients on Airbnb"],
               ].map(([value, label]) => (
                 <div key={label}>
-                  <div className="mb-2 text-5xl font-bold text-black md:text-6xl">{value}</div>
+                  <div className="mb-2 text-5xl font-bold text-[#05314a] md:text-6xl">{value}</div>
                   <p className="text-lg text-gray-600">{label}</p>
                 </div>
               ))}
@@ -3677,10 +3679,10 @@ function AboutPage() {
             <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
               {benefits.map(([icon, title, body]) => (
                 <div key={title} className="rounded-xl bg-white p-8 shadow-sm transition-shadow hover:shadow-md">
-                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-black">
+                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-[#05314a]">
                     <StrokeIcon paths={icon} className="h-6 w-6 text-white" />
                   </div>
-                  <h3 className="mb-3 text-xl font-bold text-gray-900">{title}</h3>
+                  <h3 className="mb-3 text-xl font-bold text-[#05314a]">{title}</h3>
                   <p className="text-gray-600">{body}</p>
                 </div>
               ))}
@@ -3691,7 +3693,7 @@ function AboutPage() {
         <section className="bg-white py-20">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mb-12 text-center">
-              <h2 className="mb-4 text-3xl font-bold text-gray-900 md:text-4xl">Avoid the Rookie Mistakes</h2>
+              <h2 className="mb-4 text-3xl font-bold text-[#05314a] md:text-4xl">Avoid the Rookie Mistakes</h2>
               <p className="mx-auto max-w-3xl text-xl text-gray-600">
                 Don't let common pitfalls cost you thousands. We'll help you avoid these expensive errors.
               </p>
@@ -3702,7 +3704,7 @@ function AboutPage() {
                   <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
                     <StrokeIcon paths={icon} className="h-6 w-6 text-red-600" />
                   </div>
-                  <p className="font-semibold text-gray-900">{text}</p>
+                  <p className="font-semibold text-[#05314a]">{text}</p>
                 </div>
               ))}
             </div>
@@ -3717,7 +3719,7 @@ function AboutPage() {
         <section className="bg-gray-50 py-20">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mb-12 text-center">
-              <h2 className="mb-4 text-3xl font-bold text-gray-900 md:text-4xl">We Understand the Short Term Rental Market</h2>
+              <h2 className="mb-4 text-3xl font-bold text-[#05314a] md:text-4xl">We Understand the Short Term Rental Market</h2>
               <p className="mx-auto max-w-3xl text-xl text-gray-600">
                 Short-term rental investing can feel overwhelming. We make it simple—with expert advice, a clear plan,
                 and local pros who have your back.
@@ -3741,7 +3743,7 @@ function AboutPage() {
         <section className="bg-white py-20">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mb-16 text-center">
-              <h2 className="mb-4 text-3xl font-bold text-gray-900 md:text-4xl">How It Works</h2>
+              <h2 className="mb-4 text-3xl font-bold text-[#05314a] md:text-4xl">How It Works</h2>
               <p className="text-xl text-gray-600">
                 We help you forecast returns, optimize operations, and join our private STR owner community.
               </p>
@@ -3749,10 +3751,10 @@ function AboutPage() {
             <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
               {steps.map(([title, body], index) => (
                 <div key={title} className="text-center">
-                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-black text-2xl font-bold text-white">
+                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#10c0df] text-2xl font-bold text-white">
                     {index + 1}
                   </div>
-                  <h3 className="mb-3 text-xl font-bold text-gray-900">{title}</h3>
+                  <h3 className="mb-3 text-xl font-bold text-[#05314a]">{title}</h3>
                   <p className="text-gray-600">{body}</p>
                 </div>
               ))}
@@ -3769,7 +3771,7 @@ function AboutPage() {
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mb-12 text-center">
               <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">22+ Short-Term Rental Markets</div>
-              <h2 className="mb-4 text-3xl font-bold text-gray-900 md:text-4xl">
+              <h2 className="mb-4 text-3xl font-bold text-[#05314a] md:text-4xl">
                 We Work in Top Performing Rental Markets Across the Country
               </h2>
               <p className="mx-auto mb-8 max-w-3xl text-xl text-gray-600">
@@ -3782,10 +3784,10 @@ function AboutPage() {
           </div>
         </section>
 
-        <section className="bg-black py-20 text-white">
+        <section className="bg-[#05314a] py-20 text-white">
           <div className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
             <h2 className="mb-6 text-3xl font-bold md:text-4xl">Ready to Start Your STR Journey?</h2>
-            <p className="mb-8 text-xl text-gray-300">
+            <p className="mb-8 text-xl text-white/80">
               Book a free Market Match Call and discover how we can help you build a profitable short-term rental
               portfolio.
             </p>
@@ -4452,8 +4454,23 @@ function ContactPage() {
 function MarketsPage() {
   const heading = useListHeading("markets");
   const markets = trpc.website.publicMarketDirectory.useQuery();
+  const agents = trpc.website.publicAgents.useQuery();
   const items: any[] = markets.data || [];
   if (markets.isLoading) return <LoadingPage />;
+  // Agents are tied to markets by name. Most markets have agents long before
+  // they have a published listing, so a card leads with whichever it has
+  // instead of saying "0 properties for sale".
+  const marketKey = (name: unknown) => String(name || "").split(",")[0].trim().toLowerCase();
+  const agentMarketNames = new Map<string, string>();
+  const agentCounts = new Map<string, number>();
+  for (const agent of (agents.data || []) as any[]) {
+    for (const name of Array.isArray(agent.markets) ? agent.markets : []) {
+      const key = marketKey(name);
+      if (!key) continue;
+      agentCounts.set(key, (agentCounts.get(key) || 0) + 1);
+      if (!agentMarketNames.has(key)) agentMarketNames.set(key, String(name));
+    }
+  }
   // Grouped by state, states in alphabetical order, as on the live page.
   const byState = new Map<string, any[]>();
   for (const item of items) {
@@ -4501,7 +4518,11 @@ function MarketsPage() {
                     {stateMarkets.map((market: any) => (
                       <a
                         key={market.id}
-                        href={`${path("/properties")}?market=${market.id}`}
+                        href={
+                          market.propertyCount > 0 || !agentCounts.get(marketKey(market.name))
+                            ? `${path("/properties")}?market=${market.id}`
+                            : `${path("/agents")}?market=${encodeURIComponent(agentMarketNames.get(marketKey(market.name)) || market.name)}`
+                        }
                         className="group rounded-xl border bg-white p-6 transition-all hover:shadow-md"
                       >
                         <div className="flex items-start gap-3">
@@ -4514,7 +4535,18 @@ function MarketsPage() {
                           <ArrowRight className="mt-0.5 h-5 w-5 transition-all group-hover:translate-x-1 group-hover:text-[#10c0df]" />
                         </div>
                         <p className="mt-3 line-clamp-2 text-sm">
-                          {market.propertyCount === 1 ? "1 property for sale" : `${market.propertyCount} properties for sale`}
+                          {[
+                            market.propertyCount > 0
+                              ? market.propertyCount === 1
+                                ? "1 property for sale"
+                                : `${market.propertyCount} properties for sale`
+                              : null,
+                            agentCounts.get(marketKey(market.name))
+                              ? `${agentCounts.get(marketKey(market.name))} local ${agentCounts.get(marketKey(market.name)) === 1 ? "agent" : "agents"}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "Local agents ready to help"}
                         </p>
                       </a>
                     ))}
