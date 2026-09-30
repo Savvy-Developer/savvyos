@@ -376,8 +376,8 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewCoachingHub: "/coaching",
   canViewOperationsEscalations: "/operations-escalations",
   canViewAgentRenewals: "/agent-renewals",
+  canViewOneOnOneMeetings: "/hr/one-on-ones",
   canViewCoachFeedback: "/coach-feedback",
-  canViewLeadershipDashboard: "/leadership-dashboard",
   canViewActivityLog: "/admin/activity",
   canViewUsers: "/users",
   canViewAdminApprovals: "/approvals",
@@ -531,11 +531,6 @@ function buildAdminNav(
         { icon: Star, label: "Reviews", path: "/reviews" },
         { icon: GraduationCap, label: "Coaching Hub", path: "/coaching" },
         {
-          icon: Users,
-          label: "Leadership Dashboard",
-          path: "/leadership-dashboard",
-        },
-        {
           icon: MessageSquare,
           label: "Coach Feedback",
           path: "/coach-feedback",
@@ -631,6 +626,7 @@ function buildAdminNav(
           path: "/agent-renewals",
           badge: overdueAgentRenewals > 0 ? overdueAgentRenewals : undefined,
         },
+        { icon: MessageSquarePlus, label: "1:1 Meetings", path: "/hr/one-on-ones" },
         { icon: Settings, label: "PTO Administration", path: "/pto/admin" },
         {
           icon: ClipboardList,

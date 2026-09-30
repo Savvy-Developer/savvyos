@@ -63,7 +63,8 @@ import OnboardingTemplatesPage from "./pages/OnboardingTemplatesPage";
 import OnboardingTrackerPage from "./pages/OnboardingTrackerPage";
 import MyOnboardingPage from "./pages/MyOnboardingPage";
 import OnboardingReportPage from "./pages/OnboardingReportPage";
-import LeadershipDashboardPage from "./pages/LeadershipDashboardPage";
+import OneOnOneMeetingsPage from "./pages/OneOnOneMeetingsPage";
+import OneOnOneMeetingPage from "./pages/OneOnOneMeetingPage";
 import CommissionExceptionsPage from "./pages/CommissionExceptionsPage";
 import MarketDrillDownPage from "./pages/MarketDrillDownPage";
 import AgentMarketsPage from "./pages/AgentMarketsPage";
@@ -463,6 +464,22 @@ function AgentRenewalsRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function OneOnOneMeetingsRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewOneOnOneMeetings) return <NotFound />;
+  return <>{children}</>;
+}
+
+function LegacyLeadershipDashboardRedirect() {
+  const [, navigate] = useLocation();
+  useEffect(() => { navigate("/hr/one-on-ones", { replace: true }); }, [navigate]);
+  return <div className="min-h-[40vh]" />;
+}
+
 function ReviewsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const role = (user as any)?.role;
@@ -605,7 +622,9 @@ function Router() {
           <Route path="/onboarding-templates">{() => <AdminRoute><OnboardingPage /></AdminRoute>}</Route>
           <Route path="/onboarding-tracker">{() => <AdminRoute><OnboardingPage /></AdminRoute>}</Route>
           <Route path="/onboarding-report">{() => <AdminRoute><OnboardingPage /></AdminRoute>}</Route>
-          <Route path="/leadership-dashboard">{() => <AdminRoute><LeadershipDashboardPage /></AdminRoute>}</Route>
+          <Route path="/hr/one-on-ones/:id">{() => <OneOnOneMeetingsRoute><OneOnOneMeetingPage /></OneOnOneMeetingsRoute>}</Route>
+          <Route path="/hr/one-on-ones">{() => <OneOnOneMeetingsRoute><OneOnOneMeetingsPage /></OneOnOneMeetingsRoute>}</Route>
+          <Route path="/leadership-dashboard">{() => <OneOnOneMeetingsRoute><LegacyLeadershipDashboardRedirect /></OneOnOneMeetingsRoute>}</Route>
           <Route path="/agent-renewals">{() => <AgentRenewalsRoute><AgentRenewalsPage /></AgentRenewalsRoute>}</Route>
           <Route path="/commission-exceptions">{() => <AdminRoute><CommissionExceptionsPage /></AdminRoute>}</Route>
           <Route path="/referrals">{() => <AdminOrIsaRoute><ReferralsPage /></AdminOrIsaRoute>}</Route>

@@ -35,6 +35,7 @@ import { marketsRouter } from "./routers/markets";
 import { feedbackRouter } from "./routers/feedback";
 import { onboardingRouter } from "./routers/onboarding";
 import { leadershipRouter } from "./routers/leadership";
+import { oneOnOnesRouter } from "./routers/oneOnOnes";
 import { commissionExceptionsRouter } from "./routers/commissionExceptions";
 import { agentMarketsRouter } from "./routers/agentMarkets";
 import { marketMatchRouter } from "./routers/marketMatch";
@@ -292,6 +293,7 @@ export const appRouter = router({
   feedback: feedbackRouter,
   onboarding: onboardingRouter,
   leadership: leadershipRouter,
+  oneOnOnes: oneOnOnesRouter,
   commissionExceptions: commissionExceptionsRouter,
   agentMarkets: agentMarketsRouter,
   marketMatch: marketMatchRouter,

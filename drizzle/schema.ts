@@ -3421,6 +3421,123 @@ export const leadershipFeedback = mysqlTable("leadership_feedback", {
 export type LeadershipFeedback = typeof leadershipFeedback.$inferSelect;
 export type InsertLeadershipFeedback = typeof leadershipFeedback.$inferInsert;
 
+// ─── HR 1:1 Meetings ────────────────────────────────────────────────────────
+// One employee can have a recurring 1:1 with more than one leader. The
+// relationship owns cadence; individual meetings preserve the HR history.
+export const oneOnOneRelationships = mysqlTable(
+  "one_on_one_relationships",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    employeeId: int("employeeId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    leaderId: int("leaderId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    frequencyDays: int("frequencyDays").notNull().default(30),
+    lastCompletedAt: timestamp("lastCompletedAt"),
+    nextScheduledAt: timestamp("nextScheduledAt"),
+    isActive: boolean("isActive").notNull().default(true),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("one_on_one_relationship_employee_leader_unique").on(table.employeeId, table.leaderId),
+    index("one_on_one_relationship_leader_next_idx").on(table.leaderId, table.nextScheduledAt),
+    index("one_on_one_relationship_employee_next_idx").on(table.employeeId, table.nextScheduledAt),
+  ]
+);
+export type OneOnOneRelationship = typeof oneOnOneRelationships.$inferSelect;
+export type InsertOneOnOneRelationship = typeof oneOnOneRelationships.$inferInsert;
+
+export const oneOnOneMeetings = mysqlTable(
+  "one_on_one_meetings",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    relationshipId: int("relationshipId").notNull().references(() => oneOnOneRelationships.id, { onDelete: "cascade" }),
+    employeeId: int("employeeId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    leaderId: int("leaderId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    scheduledAt: timestamp("scheduledAt"),
+    heldAt: timestamp("heldAt"),
+    startedAt: timestamp("startedAt"),
+    durationMinutes: int("durationMinutes").notNull().default(45),
+    status: mysqlEnum("status", ["Scheduled", "In Progress", "Review", "Completed", "Canceled"]).notNull().default("Scheduled"),
+    calendarEventId: varchar("calendarEventId", { length: 512 }),
+    calendarEventUrl: text("calendarEventUrl"),
+    calendarSyncStatus: mysqlEnum("calendarSyncStatus", ["Not Requested", "Synced", "Needs Attention"]).notNull().default("Not Requested"),
+    calendarSyncError: text("calendarSyncError"),
+    transcript: text("transcript"),
+    transcriptSavedAt: timestamp("transcriptSavedAt"),
+    aiProcessingStatus: mysqlEnum("aiProcessingStatus", ["None", "Processing", "Ready", "Failed"]).notNull().default("None"),
+    aiDraftJson: text("aiDraftJson"),
+    aiQuestionSuggestions: text("aiQuestionSuggestions"),
+    meetingSummary: text("meetingSummary"),
+    employeeFeedback: text("employeeFeedback"),
+    supportRequests: text("supportRequests"),
+    processIdeas: text("processIdeas"),
+    professionalDevelopment: text("professionalDevelopment"),
+    followUps: text("followUps"),
+    leadershipAttention: text("leadershipAttention"),
+    finalizedById: int("finalizedById").references(() => users.id, { onDelete: "set null" }),
+    finalizedAt: timestamp("finalizedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("one_on_one_meeting_relationship_status_idx").on(table.relationshipId, table.status, table.scheduledAt),
+    index("one_on_one_meeting_employee_status_idx").on(table.employeeId, table.status, table.heldAt),
+  ]
+);
+export type OneOnOneMeeting = typeof oneOnOneMeetings.$inferSelect;
+export type InsertOneOnOneMeeting = typeof oneOnOneMeetings.$inferInsert;
+
+export const oneOnOneCommitments = mysqlTable(
+  "one_on_one_commitments",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    meetingId: int("meetingId").notNull().references(() => oneOnOneMeetings.id, { onDelete: "cascade" }),
+    employeeId: int("employeeId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    description: text("description").notNull(),
+    ownerId: int("ownerId").references(() => users.id, { onDelete: "set null" }),
+    dueDate: timestamp("dueDate"),
+    status: mysqlEnum("status", ["Open", "In Progress", "Completed", "Dismissed"]).notNull().default("Open"),
+    isAiSuggested: boolean("isAiSuggested").notNull().default(false),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    completedAt: timestamp("completedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("one_on_one_commitment_employee_status_idx").on(table.employeeId, table.status, table.dueDate),
+    index("one_on_one_commitment_meeting_idx").on(table.meetingId),
+  ]
+);
+export type OneOnOneCommitment = typeof oneOnOneCommitments.$inferSelect;
+export type InsertOneOnOneCommitment = typeof oneOnOneCommitments.$inferInsert;
+
+export const oneOnOneIssues = mysqlTable(
+  "one_on_one_issues",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    meetingId: int("meetingId").notNull().references(() => oneOnOneMeetings.id, { onDelete: "cascade" }),
+    employeeId: int("employeeId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 500 }).notNull(),
+    details: text("details"),
+    requiresHrAttention: boolean("requiresHrAttention").notNull().default(false),
+    status: mysqlEnum("status", ["Open", "Resolved", "Dismissed"]).notNull().default("Open"),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolvedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("one_on_one_issue_employee_status_idx").on(table.employeeId, table.status, table.createdAt),
+    index("one_on_one_issue_meeting_idx").on(table.meetingId),
+  ]
+);
+export type OneOnOneIssue = typeof oneOnOneIssues.$inferSelect;
+export type InsertOneOnOneIssue = typeof oneOnOneIssues.$inferInsert;
+
 // ─── Commission Exceptions ────────────────────────────────────────────────────
 export const commissionExceptions = mysqlTable("commission_exceptions", {
   id: int("id").autoincrement().primaryKey(),
@@ -6923,6 +7040,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
     .default(false)
     .notNull(),
   canViewAgentRenewals: boolean("canViewAgentRenewals").default(true).notNull(),
+  canViewOneOnOneMeetings: boolean("canViewOneOnOneMeetings").default(true).notNull(),
   // Sensitive aggregate-only feedback area. Explicitly granted to designated leadership.
   canViewCoachFeedback: boolean("canViewCoachFeedback")
     .default(false)
