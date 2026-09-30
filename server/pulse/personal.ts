@@ -240,7 +240,7 @@ async function personalMeetingPrep(db: any, personId: number) {
     .where(and(inArray(pulseMeetings.id, ids), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt)))
     .orderBy(asc(pulseMeetings.name));
 
-  const [scorecards, drafts, submissions, history, projectRockRoutes] = await Promise.all([
+  const [scorecards, drafts, submissions, history] = await Promise.all([
     Promise.all(meetings.map(async (meeting: any) => ({ meeting, scorecard: await getMeetingScorecard(db, personId, meeting.id) }))),
     db.select().from(pulsePersonalInputs).where(and(
       eq(pulsePersonalInputs.personId, personId),
@@ -266,7 +266,6 @@ async function personalMeetingPrep(db: any, personId: number) {
       .innerJoin(pulseMeetings, eq(pulseMeetings.id, pulseWeeklySubmissions.meetingId))
       .where(and(eq(pulseWeeklySubmissions.personId, personId), inArray(pulseWeeklySubmissions.meetingId, ids)))
       .orderBy(desc(pulseWeeklySubmissions.submittedAt)).limit(20),
-    ownedProjectRockRoutes(db, personId, meetings.map((meeting: any) => meeting.id)),
   ]);
 
   const metricIds = scorecards.flatMap(({ scorecard }: any) => scorecard.items.map((item: any) => item.metricId));
@@ -277,11 +276,6 @@ async function personalMeetingPrep(db: any, personId: number) {
   const autoConfigByMetric = new Map(autoConfigs.map((config: any) => [config.metricId, config]));
   const draftByKey = new Map<string, any>(drafts.map((draft: any) => [`${draft.meetingId}:${draft.inputKey}`, draft]));
   const submittedIds = new Set(submissions.map((submission: any) => submission.meetingId));
-  const projectRocksByMeeting = new Map<string, any[]>();
-  for (const route of projectRockRoutes as any[]) {
-    if (["done", "dropped"].includes(route.status)) continue;
-    projectRocksByMeeting.set(route.meetingId, [...(projectRocksByMeeting.get(route.meetingId) ?? []), projectRockForMyEos(route)]);
-  }
   const fields: any[] = [];
 
   for (const { meeting, scorecard } of scorecards) {
@@ -342,7 +336,6 @@ async function personalMeetingPrep(db: any, personId: number) {
       metricCount: metrics.length,
       incompleteMetrics: metrics.filter((field: any) => !isFieldComplete(field)).length,
       complete: metrics.every(isFieldComplete),
-      projectRocks: projectRocksByMeeting.get(meeting.id) ?? [],
     };
   });
 

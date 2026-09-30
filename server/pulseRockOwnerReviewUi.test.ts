@@ -22,24 +22,21 @@ describe("routed Project Rock and owner-review interfaces", () => {
     expect(personal).toContain(
       "eq(pmProjects.weeklyReportingOwnerId, personId)"
     );
-    expect(personal).toContain("projectRockForMyEos(route)");
-    expect(personal).toContain(
-      "projectRocks: projectRocksByMeeting.get(meeting.id) ?? []"
-    );
+    expect(personal).toContain("const projectRockItems = (routedProjectRockRoutes as any[])");
     expect(personal).toContain(
       "const projectRocks = (projectRockRoutes as any[]).map(projectRockForMyEos)"
     );
   });
 
-  it("shows routed Project Rocks during the selected L10 weekly preparation", () => {
-    expect(weeklyPreparation).toContain("function ProjectRockPreparation");
-    expect(weeklyPreparation).toContain("My Project Rocks in this L10");
-    expect(weeklyPreparation).toContain("projectId: rock.projectId");
-    expect(weeklyPreparation).toContain(
-      "<ProjectRockPreparation rocks={meeting.projectRocks ?? []}"
+  it("shows routed Project Rocks in the selected L10's dedicated My Rocks section", () => {
+    expect(myEos).toContain('title="My Rocks"');
+    expect(myEos).toContain('aria-label="My Rocks"');
+    expect(myEos).toContain(
+      'description="Review and update this L10’s longer-term priorities, milestones, and current status."'
     );
     expect(myEos).toContain("function ProjectRockWorkRow");
     expect(myEos).toContain('if (item.sourceType === "project")');
+    expect(weeklyPreparation).not.toContain("ProjectRockPreparation");
   });
 
   it("filters each L10 Rock review by owner in both workspace and runner", () => {

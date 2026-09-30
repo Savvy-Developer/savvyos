@@ -23,6 +23,7 @@ describe("My EOS unified L10 workspace", () => {
     expect(dashboard).toContain('title="Weekly Preparation"');
     expect(dashboard).toContain('title="My Work"');
     expect(dashboard).toContain('title="My Measurables"');
+    expect(dashboard).toContain('title="My Rocks"');
     expect(dashboard).not.toContain('Weekly Preparation · ${selectedMeeting.name}');
     expect(dashboard).not.toContain('My Work · ${selectedMeeting.name}');
     expect(dashboard).not.toContain('My Measurables · ${selectedMeeting.name}');
@@ -32,6 +33,8 @@ describe("My EOS unified L10 workspace", () => {
 
   it("puts the single confirmation after the selected L10's measurable and Rock review", () => {
     expect(dashboard.indexOf('<PulseMyMeasurables embedded meetingId={selectedMeeting.id} />')).toBeLessThan(dashboard.indexOf('<PulseWeeklyPreparationReview meetingId={selectedMeeting.id} rocks={data.items.rocks} />'));
+    expect(dashboard.indexOf('title="My Rocks"')).toBeGreaterThan(dashboard.indexOf('<PulseMyMeasurables embedded meetingId={selectedMeeting.id} />'));
+    expect(dashboard.indexOf('title="My Rocks"')).toBeLessThan(dashboard.indexOf('<PulseWeeklyPreparationReview meetingId={selectedMeeting.id} rocks={data.items.rocks} />'));
     expect(preparation).toContain('Review your measurables and Rocks below, then confirm one complete recap for this L10.');
     expect(preparation).toContain('Confirm weekly preparation');
     expect(preparation).toContain('Review what will be saved and emailed to you for this L10.');
@@ -43,6 +46,7 @@ describe("My EOS unified L10 workspace", () => {
   it("keeps meeting updates separate while reviewing measurable values and notes in one flow", () => {
     expect(preparation).toContain('hideMeetingName ? "Meeting updates" : meeting.name');
     expect(preparation).not.toContain('Confirm preparation');
+    expect(preparation).not.toContain('ProjectRockPreparation');
     expect(measurables).toContain('Review pulled and manual values, then add an optional note for each measurable.');
     expect(measurables).toContain('id={`measurable-note-${field.key}`}');
     expect(measurables).toContain('placeholder="Add context for this result…"');
