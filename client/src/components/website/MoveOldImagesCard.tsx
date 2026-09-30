@@ -38,7 +38,7 @@ export function MoveOldImagesCard() {
       <CardHeader>
         <CardTitle>Images from the old site</CardTitle>
         <CardDescription>
-          Photos on the imported agents, case studies and blog posts still load
+          Photos on the imported agents, case studies, blog posts and listings still load
           from the old site's storage. Move them into SavvyOS before the old
           site is shut down, or they will stop showing.
         </CardDescription>
@@ -77,7 +77,7 @@ export function MoveOldImagesCard() {
               <p>
                 <span className="font-semibold">{report.toMove.total}</span> images to move:{" "}
                 {report.toMove.agentPhotos} agent photos, {report.toMove.caseStudyImages} case
-                study images, {report.toMove.postImages} blog images.
+                study images, {report.toMove.postImages} blog images, {report.toMove.listingPhotos ?? 0} listing photos.
               </p>
             ) : (
               <p>

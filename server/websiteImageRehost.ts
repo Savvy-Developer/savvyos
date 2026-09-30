@@ -4,6 +4,7 @@ import {
   websiteAgentProfiles,
   websiteBlogPosts,
   websiteCaseStudies,
+  websiteProperties,
 } from "../drizzle/schema";
 import { getDb } from "./db";
 import { storagePut } from "./storage";
@@ -30,15 +31,17 @@ const MAX_BYTES = 15 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
 
 type Row = {
-  table: "agent" | "caseStudy" | "post";
+  table: "agent" | "caseStudy" | "post" | "listing";
   id: number;
   label: string;
   photo: string | null;
   body: string | null;
+  /** Listings only: the photo gallery. */
+  gallery?: string[];
 };
 
 async function loadRows(db: any): Promise<Row[]> {
-  const [agents, studies, posts] = await Promise.all([
+  const [agents, studies, posts, listings] = await Promise.all([
     db
       .select({ id: websiteAgentProfiles.id, name: websiteAgentProfiles.slug, photo: websiteAgentProfiles.imageUrl })
       .from(websiteAgentProfiles),
@@ -58,30 +61,46 @@ async function loadRows(db: any): Promise<Row[]> {
         body: websiteBlogPosts.body,
       })
       .from(websiteBlogPosts),
+    db
+      .select({
+        id: websiteProperties.id,
+        name: websiteProperties.slug,
+        photo: websiteProperties.heroImageUrl,
+        gallery: websiteProperties.galleryImageUrls,
+      })
+      .from(websiteProperties),
   ]);
   return [
     ...agents.map((row: any) => ({ table: "agent" as const, id: row.id, label: row.name, photo: row.photo, body: null })),
     ...studies.map((row: any) => ({ table: "caseStudy" as const, id: row.id, label: row.name, photo: row.photo, body: row.body })),
     ...posts.map((row: any) => ({ table: "post" as const, id: row.id, label: row.name, photo: row.photo, body: row.body })),
+    ...listings.map((row: any) => ({
+      table: "listing" as const,
+      id: row.id,
+      label: row.name,
+      photo: row.photo,
+      body: null,
+      gallery: Array.isArray(row.gallery) ? row.gallery.filter((url: unknown): url is string => typeof url === "string") : [],
+    })),
   ];
 }
 
 function sourcesIn(row: Row): string[] {
-  return [row.photo, ...markdownImageUrls(row.body)].filter(
+  return [row.photo, ...(row.gallery ?? []), ...markdownImageUrls(row.body)].filter(
     (url): url is string => !!url && shouldMoveImage(url)
   );
 }
 
 export type ImageMoveReport = {
   dryRun: boolean;
-  toMove: { agentPhotos: number; caseStudyImages: number; postImages: number; total: number };
+  toMove: { agentPhotos: number; caseStudyImages: number; postImages: number; listingPhotos: number; total: number };
   moved: number;
   recordsUpdated: number;
   failed: Array<{ record: string; source: string; reason: string }>;
   brokenRefs: Array<{ record: string; value: string }>;
 };
 
-async function download(source: string): Promise<{ bytes: Buffer; contentType: string }> {
+export async function downloadImage(source: string): Promise<{ bytes: Buffer; contentType: string }> {
   if (source.startsWith("data:")) {
     const decoded = decodeDataImage(source);
     if (!decoded) throw new Error("not a readable embedded image");
@@ -102,7 +121,7 @@ export async function moveWebsiteImages(params: { dryRun: boolean }): Promise<Im
   if (!db) throw new Error("Database unavailable");
   const rows = await loadRows(db);
 
-  const counts = { agentPhotos: 0, caseStudyImages: 0, postImages: 0, total: 0 };
+  const counts = { agentPhotos: 0, caseStudyImages: 0, postImages: 0, listingPhotos: 0, total: 0 };
   const unique = new Map<string, string>(); // source -> first record label, for reporting
   const brokenRefs: ImageMoveReport["brokenRefs"] = [];
   for (const row of rows) {
@@ -110,12 +129,13 @@ export async function moveWebsiteImages(params: { dryRun: boolean }): Promise<Im
     if (row.table === "agent") counts.agentPhotos += sources.length;
     if (row.table === "caseStudy") counts.caseStudyImages += sources.length;
     if (row.table === "post") counts.postImages += sources.length;
+    if (row.table === "listing") counts.listingPhotos += sources.length;
     for (const source of sources) if (!unique.has(source)) unique.set(source, row.label);
     for (const value of brokenImageRefs(row.body)) {
       brokenRefs.push({ record: row.label, value: value.slice(0, 120) });
     }
   }
-  counts.total = counts.agentPhotos + counts.caseStudyImages + counts.postImages;
+  counts.total = counts.agentPhotos + counts.caseStudyImages + counts.postImages + counts.listingPhotos;
 
   const report: ImageMoveReport = {
     dryRun: params.dryRun,
@@ -134,7 +154,7 @@ export async function moveWebsiteImages(params: { dryRun: boolean }): Promise<Im
     for (let next = queue.shift(); next; next = queue.shift()) {
       const [source, record] = next;
       try {
-        const { bytes, contentType } = await download(source);
+        const { bytes, contentType } = await downloadImage(source);
         const { url } = await storagePut(movedImageKey(source, contentType), bytes, contentType);
         movedTo.set(source, url);
       } catch (error) {
@@ -154,8 +174,15 @@ export async function moveWebsiteImages(params: { dryRun: boolean }): Promise<Im
     const photo = row.photo && movedTo.get(row.photo);
     const body = row.body ? replaceImageUrls(row.body, movedTo) : row.body;
     const bodyChanged = row.body !== null && body !== row.body;
-    if (!photo && !bodyChanged) continue;
-    if (row.table === "agent") {
+    const gallery = (row.gallery ?? []).map(url => movedTo.get(url) ?? url);
+    const galleryChanged = (row.gallery ?? []).some(url => movedTo.has(url));
+    if (!photo && !bodyChanged && !galleryChanged) continue;
+    if (row.table === "listing") {
+      await db
+        .update(websiteProperties)
+        .set({ ...(photo ? { heroImageUrl: photo } : {}), ...(galleryChanged ? { galleryImageUrls: gallery } : {}) })
+        .where(eq(websiteProperties.id, row.id));
+    } else if (row.table === "agent") {
       await db.update(websiteAgentProfiles).set({ imageUrl: photo }).where(eq(websiteAgentProfiles.id, row.id));
     } else if (row.table === "caseStudy") {
       await db

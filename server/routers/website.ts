@@ -85,6 +85,7 @@ import {
 import { listResendSegments } from "../_core/resendMarketingBroadcast";
 import { moveWebsiteImages } from "../websiteImageRehost";
 import { ZillowLookupInputError, extractZillowPhotoUrls, fetchZillowListing } from "../externalApis";
+import { importOldSiteListings, importedListingCounts, publishReadyImportedListings } from "../oldSiteListingImport";
 
 /** A zillow.com listing link, normalised, or null for anything else. */
 function zillowLinkOf(value: unknown): string | null {
@@ -3817,6 +3818,61 @@ export const websiteRouter = router({
       }).catch(() => undefined);
       return saved;
     }),
+
+  /**
+   * Move the old savvy-agents.com live listings into SavvyOS (Website Studio
+   * > CMS). dryRun only reads the old site and reports. The real run creates
+   * the properties and website listings as drafts, or publishes the ones that
+   * pass the publish checklist when publishReady is set. Safe to run again.
+   */
+  importOldSiteListings: protectedProcedure
+    .input(z.object({ dryRun: z.boolean(), publishReady: z.boolean().default(false) }))
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteProperties");
+      let report: Awaited<ReturnType<typeof importOldSiteListings>>;
+      try {
+        report = await importOldSiteListings({ dryRun: input.dryRun, publishReady: input.publishReady, userId: ctx.user.id });
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message: `Could not read the old site's listings: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+      if (!input.dryRun) {
+        await logActivity({
+          userId: ctx.user.id,
+          action: "website_old_listings_imported",
+          entityType: "website",
+          entityId: null,
+          details: {
+            found: report.found,
+            created: report.created,
+            attached: report.attached,
+            published: report.published,
+            failed: report.failed.length,
+          },
+        }).catch(() => undefined);
+      }
+      return report;
+    }),
+
+  importedOldSiteListingCounts: protectedProcedure.query(async ({ ctx }) => {
+    await requireWebsitePermission(ctx, "canManageWebsiteProperties");
+    return importedListingCounts();
+  }),
+
+  publishReadyImportedListings: protectedProcedure.mutation(async ({ ctx }) => {
+    await requireWebsitePermission(ctx, "canManageWebsiteProperties");
+    const result = await publishReadyImportedListings();
+    await logActivity({
+      userId: ctx.user.id,
+      action: "website_old_listings_published",
+      entityType: "website",
+      entityId: null,
+      details: result,
+    }).catch(() => undefined);
+    return result;
+  }),
 
   /**
    * Copy website images off the old site's storage into SavvyOS. dryRun
