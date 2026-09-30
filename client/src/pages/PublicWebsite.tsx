@@ -4451,6 +4451,149 @@ function ContactPage() {
  * territories drawn, which is also the moment its properties become findable,
  * so the page never offers a market that opens onto nothing.
  */
+/** A market's page address: /markets/<state>/<city>, like the old site. */
+function marketCityKey(name: unknown) {
+  return String(name || "").split(",")[0].trim().toLowerCase();
+}
+function marketSlug(name: unknown) {
+  return marketCityKey(name)
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+function marketPath(market: { name: string; state?: string | null }) {
+  const state = String(market.state || "us").toLowerCase();
+  return path(`/markets/${encodeURIComponent(state)}/${marketSlug(market.name)}`);
+}
+
+/**
+ * One market: its agents and the properties for sale in it, laid out like the
+ * old site's /markets/<state>/<city> pages. Agents are matched to the market
+ * by name, properties by the market's ZIP territories (the same rule as the
+ * properties filter and the daily email).
+ */
+function MarketDetailPage({ state, city }: { state: string; city: string }) {
+  const directory = trpc.website.publicMarketDirectory.useQuery();
+  const agentsQuery = trpc.website.publicAgents.useQuery();
+  const market = (directory.data || []).find(
+    (item: any) =>
+      marketSlug(item.name) === city.toLowerCase() &&
+      String(item.state || "us").toLowerCase() === state.toLowerCase()
+  ) as any;
+  const properties = trpc.website.publicProperties.useQuery(
+    { marketId: market?.id },
+    { enabled: !!market?.id }
+  );
+  const place = market ? [String(market.name).split(",")[0].trim(), market.state].filter(Boolean).join(", ") : "";
+  usePageTitle(market ? `${place} Short-Term Rentals for Sale` : "Market");
+
+  if (directory.isLoading || agentsQuery.isLoading) return <LoadingPage />;
+  if (!market) {
+    return (
+      <Shell>
+        <div className="mx-auto max-w-3xl px-4 py-20 text-center">
+          <h1 className="text-3xl font-bold text-[#05314a]">We couldn't find that market</h1>
+          <p className="mt-3 text-gray-600">It may have moved. Every market we cover is on the markets page.</p>
+          <a href={path("/markets")} className="mt-6 inline-flex items-center gap-2 rounded-lg bg-[#05314a] px-5 py-3 font-semibold text-white">
+            See all markets <ArrowRight className="h-4 w-4" />
+          </a>
+        </div>
+      </Shell>
+    );
+  }
+
+  const cityName = String(market.name).split(",")[0].trim();
+  const key = marketCityKey(market.name);
+  const agents = ((agentsQuery.data || []) as any[]).filter(agent =>
+    (Array.isArray(agent.markets) ? agent.markets : []).some((name: unknown) => marketCityKey(name) === key)
+  );
+  const agentMarketName =
+    agents
+      .flatMap((agent: any) => agent.markets || [])
+      .find((name: unknown) => marketCityKey(name) === key) || market.name;
+  const listings: any[] = properties.data || [];
+
+  return (
+    <Shell>
+      <div className="min-h-screen bg-white">
+        <section
+          className="px-4 py-14 text-center text-white sm:py-20"
+          style={{ background: "linear-gradient(135deg, #05314a 0%, #0b4966 55%, #10c0df 100%)" }}
+        >
+          <a href={path("/markets")} className="mb-4 inline-flex items-center gap-2 text-sm text-white/80 hover:text-white">
+            <ArrowLeft className="h-4 w-4" /> All markets
+          </a>
+          <h1 className="text-3xl font-bold tracking-tight md:text-5xl">{place}</h1>
+          <p className="mx-auto mt-3 max-w-2xl text-lg text-white/85">
+            Short-term rental investing in {cityName}: local specialist agents and the properties for sale.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3 text-sm">
+            <span className="rounded-full bg-white/15 px-4 py-1.5">
+              {agents.length} {agents.length === 1 ? "local agent" : "local agents"}
+            </span>
+            <span className="rounded-full bg-white/15 px-4 py-1.5">
+              {properties.isLoading ? "…" : listings.length} {listings.length === 1 ? "property" : "properties"} for sale
+            </span>
+          </div>
+        </section>
+
+        <div className="mx-auto max-w-6xl space-y-14 px-4 py-12 sm:px-6 lg:px-8">
+          <section>
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <h2 className="text-2xl font-bold text-[#05314a]">Agents in {cityName}</h2>
+              {agents.length > 3 ? (
+                <a href={`${path("/agents")}?market=${encodeURIComponent(String(agentMarketName))}`} className="text-sm font-semibold text-[#10c0df] hover:text-[#05314a]">
+                  View all →
+                </a>
+              ) : null}
+            </div>
+            {agents.length ? (
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {agents.slice(0, 6).map((agent: any) => (
+                  <LiveAgentCard key={agent.id} item={agent} />
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-xl bg-gray-50 px-6 py-8 text-center text-gray-600">
+                We're adding agents in {cityName}. <a className="font-semibold text-[#10c0df]" href={path("/contact")}>Talk to our team</a> and we'll connect you.
+              </p>
+            )}
+          </section>
+
+          <section id="market-properties">
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <h2 className="text-2xl font-bold text-[#05314a]">Properties in {cityName}</h2>
+              {listings.length > 6 ? (
+                <a href={`${path("/properties")}?market=${market.id}`} className="text-sm font-semibold text-[#10c0df] hover:text-[#05314a]">
+                  View all →
+                </a>
+              ) : null}
+            </div>
+            {properties.isLoading ? (
+              <p className="py-8 text-center text-gray-500">Loading properties…</p>
+            ) : listings.length ? (
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {listings.slice(0, 6).map((item: any) => (
+                  <LivePropertyCard key={item.id} item={item} />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl bg-gray-50 px-6 py-10 text-center">
+                <p className="text-gray-700">No listings in {cityName} on the site right now.</p>
+                <p className="mt-1 text-sm text-gray-500">Our local agents often know about properties before they list.</p>
+                <a href={path("/contact")} className="mt-5 inline-block rounded-lg bg-[#10c0df] px-6 py-3 font-semibold text-white hover:bg-[#43e8ff]">
+                  Get matched with a {cityName} agent
+                </a>
+              </div>
+            )}
+          </section>
+        </div>
+        <FinancialDisclaimer />
+      </div>
+    </Shell>
+  );
+}
+
 function MarketsPage() {
   const heading = useListHeading("markets");
   const markets = trpc.website.publicMarketDirectory.useQuery();
@@ -4461,14 +4604,12 @@ function MarketsPage() {
   // they have a published listing, so a card leads with whichever it has
   // instead of saying "0 properties for sale".
   const marketKey = (name: unknown) => String(name || "").split(",")[0].trim().toLowerCase();
-  const agentMarketNames = new Map<string, string>();
   const agentCounts = new Map<string, number>();
   for (const agent of (agents.data || []) as any[]) {
     for (const name of Array.isArray(agent.markets) ? agent.markets : []) {
       const key = marketKey(name);
       if (!key) continue;
       agentCounts.set(key, (agentCounts.get(key) || 0) + 1);
-      if (!agentMarketNames.has(key)) agentMarketNames.set(key, String(name));
     }
   }
   // Grouped by state, states in alphabetical order, as on the live page.
@@ -4518,11 +4659,7 @@ function MarketsPage() {
                     {stateMarkets.map((market: any) => (
                       <a
                         key={market.id}
-                        href={
-                          market.propertyCount > 0 || !agentCounts.get(marketKey(market.name))
-                            ? `${path("/properties")}?market=${market.id}`
-                            : `${path("/agents")}?market=${encodeURIComponent(agentMarketNames.get(marketKey(market.name)) || market.name)}`
-                        }
+                        href={marketPath(market)}
                         className="group rounded-xl border bg-white p-6 transition-all hover:shadow-md"
                       >
                         <div className="flex items-start gap-3">
@@ -5413,6 +5550,8 @@ export default function PublicWebsite() {
   if (relative === "/contact")
     return <EditablePage slug="contact" designed={<ContactPage />} />;
   if (relative === "/markets") return <MarketsPage />;
+  if (segments[0] === "markets" && segments.length === 3)
+    return <MarketDetailPage state={decodeURIComponent(segments[1])} city={decodeURIComponent(segments[2])} />;
   if (relative === "/team") return <TeamPage />;
   if (relative === "/sell") return <SellPage />;
   if (relative === "/join-our-team")

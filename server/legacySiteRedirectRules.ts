@@ -75,8 +75,14 @@ export function legacyTarget(rawPath: string): LegacyTarget | null {
 
   const segments = path.split("/").filter(Boolean);
   const [section, slug, extra] = segments;
-  // /markets/<state>/<city> had its own pages; the new site has one page.
+  // /markets/<state>/<city>: the new site has the same pages at the same
+  // addresses under the base path. An unknown market shows a "couldn't find
+  // that market" page that links to the full list.
   if (section === "markets" && segments.length === 3) {
+    const [, state, city] = segments;
+    if (/^[a-z]{2}$/i.test(state) && SLUG.test(city)) {
+      return { kind: "fixed", to: `${BASE}/markets/${state.toLowerCase()}/${city.toLowerCase()}`, permanent: true };
+    }
     return { kind: "fixed", to: `${BASE}/markets`, permanent: true };
   }
   // /share/<id> was an unfinished feature that never showed real listings.
