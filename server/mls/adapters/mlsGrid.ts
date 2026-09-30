@@ -22,7 +22,9 @@ import {
  * - Records with MlgCanView=false leave the feed after 7 days, so a longer
  *   replication gap forces a full reload.
  * - $top max 1000 with $expand. Follow @odata.nextLink. Sequential only.
- * - Limits: 2 req/s, 7,200 req/h, 40,000 req/day, 4 GB/h downloads.
+ * - Limits are per token and cover API pages AND photo downloads. See
+ *   MLS_GRID_LIMITS: we stay under the lower of the published caps and the
+ *   warning thresholds from MLS Grid's Sept 30, 2026 notice.
  * - Media URLs are single use and expire in an hour; downloads must send
  *   User-Agent set to the access token. Never hotlink.
  * - Keys and MLS numbers carry the MLS prefix (e.g. CAR); strip it for display.
@@ -58,6 +60,20 @@ function prefix(ctx: FeedContext) {
   return ctx.feed.keyPrefix ?? ctx.source.keyPrefix ?? null;
 }
 
+/**
+ * Per token. `published` is docs.mlsgrid.com; `warning` and `suspension` are
+ * from MLS Grid's notice to Savvy (Sept 30, 2026). Exceeding warning sends an
+ * email; exceeding suspension blocks the token with 429s until usage falls.
+ */
+export const MLS_GRID_LIMITS = {
+  published: { requestsPerSecond: 2, requestsPerHour: 7_200, requestsPerDay: 40_000, bytesPerHour: 4_000_000_000 },
+  warning: { requestsPerSecond: 4, requestsPerHour: 7_200, requestsPerDay: 40_000, bytesPerHour: 3_072_000_000, bytesPerDay: 40_000_000_000 },
+  suspension: { requestsPerSecond: 6, requestsPerHour: 18_000, requestsPerDay: 60_000, bytesPerHour: 4_096_000_000, bytesPerDay: 60_000_000_000 },
+} as const;
+
+/** Share of the lowest limit we allow ourselves. options.rateSafety can lower it, never raise it past 0.9. */
+const DEFAULT_SAFETY = 0.8;
+
 export const mlsGridAdapter: MlsAdapter = {
   provider: "mls_grid",
   defaultBaseUrl: "https://api.mlsgrid.com/v2",
@@ -71,15 +87,30 @@ export const mlsGridAdapter: MlsAdapter = {
     initialOrderedByTimestamp: true,
   },
   limits(feed: MlsFeed) {
-    const safety = readOption(feed, "rateSafety", 0.9);
+    const requested = Number(readOption(feed, "rateSafety", DEFAULT_SAFETY));
+    const safety = Math.min(0.9, Math.max(0.1, Number.isFinite(requested) ? requested : DEFAULT_SAFETY));
+    const { published, warning } = MLS_GRID_LIMITS;
+    const lowest = {
+      requestsPerSecond: Math.min(published.requestsPerSecond, warning.requestsPerSecond),
+      requestsPerHour: Math.min(published.requestsPerHour, warning.requestsPerHour),
+      requestsPerDay: Math.min(published.requestsPerDay, warning.requestsPerDay),
+      bytesPerHour: Math.min(published.bytesPerHour, warning.bytesPerHour),
+      bytesPerDay: warning.bytesPerDay,
+    };
+    const requestedShare = Number(readOption(feed, "mediaShare", 0.75));
     return {
-      requestsPerSecond: 2 * safety,
-      requestsPerHour: Math.floor(7200 * safety),
-      requestsPerDay: Math.floor(40000 * safety),
+      requestsPerSecond: lowest.requestsPerSecond * safety,
+      requestsPerHour: Math.floor(lowest.requestsPerHour * safety),
+      requestsPerDay: Math.floor(lowest.requestsPerDay * safety),
       requestsPerFiveMinutes: null,
-      mediaBytesPerHour: Math.floor(4 * 1024 ** 3 * safety),
+      mediaBytesPerHour: null,
       mediaRequestsPerHour: null,
-      mediaConcurrency: readOption(feed, "mediaConcurrency", 4),
+      tokenBudget: {
+        bytesPerHour: Math.floor(lowest.bytesPerHour * safety),
+        bytesPerDay: Math.floor(lowest.bytesPerDay * safety),
+        mediaShare: Math.min(0.9, Math.max(0.1, Number.isFinite(requestedShare) ? requestedShare : 0.75)),
+      },
+      mediaConcurrency: Math.min(4, Math.max(1, Number(readOption(feed, "mediaConcurrency", 2)) || 2)),
       sequentialOnly: true,
     };
   },

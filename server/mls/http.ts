@@ -1,17 +1,27 @@
-import { sql } from "drizzle-orm";
+import { and, asc, eq, gte, sql } from "drizzle-orm";
 import type { MlsProvider } from "../../drizzle/mlsSchema";
 import { mlsProviderUsage } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import type { ProviderLimits } from "./adapters/types";
 
 /**
- * One lane per credential. MLS Grid limits (2 req/s, 7,200/h, 40,000/day,
- * 4 GB/h) apply to the token, not to one MLS, so every feed that shares a
- * credential shares one lane, one limiter, and one sequential replication
- * queue. Media has its own limiter because providers meter it separately.
+ * One lane per credential. Provider limits apply to the token, not to one MLS,
+ * so every feed that shares a credential shares one lane, one limiter, and one
+ * sequential replication queue.
+ *
+ * MLS Grid meters the token as a whole: photo downloads count toward the same
+ * request and byte caps as API pages. For providers with a tokenBudget, the
+ * media limiter is chained onto the API limiter, so both draw from one budget,
+ * and media alone may use at most `mediaShare` of it. Other providers meter
+ * media separately and keep separate limiters.
+ *
+ * Budgets are seeded from mls_provider_usage when a lane starts, so a restart
+ * or deploy never resets the rolling hour and 24-hour windows.
  */
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
 
 export class RetryableHttpError extends Error {
   constructor(
@@ -32,42 +42,80 @@ export class FatalHttpError extends Error {
   }
 }
 
+type LimitSpec = { limit: number | null; windowMs: number };
 type WindowSpec = { limit: number; windowMs: number; events: number[] };
+type ByteWindowSpec = { limit: number; windowMs: number };
 
-class SlidingLimiter {
+const validLimit = (window: LimitSpec): window is { limit: number; windowMs: number } =>
+  typeof window.limit === "number" && Number.isFinite(window.limit) && window.limit > 0;
+
+export type LimiterSnapshot = {
+  windows: Array<{ windowMs: number; limit: number; used: number }>;
+  byteWindows: Array<{ windowMs: number; limit: number; used: number }>;
+  bytesLastHour: number;
+  bytesPerHour: number | null;
+  pausedForMs: number;
+};
+
+export interface Limiter {
+  acquire(signal?: AbortSignal): Promise<number>;
+  pause(ms: number): void;
+  recordBytes(bytes: number): void;
+  /** Adds usage that happened before this process started. */
+  seed(at: number, requests: number, bytes: number): void;
+  /** Milliseconds until one more request is allowed (0 = now). */
+  nextWaitMs(now?: number): number;
+  snapshot(): LimiterSnapshot;
+}
+
+export class SlidingLimiter implements Limiter {
   private lastAt = 0;
   private windows: WindowSpec[];
+  private byteWindows: ByteWindowSpec[];
   private bytes: Array<{ at: number; bytes: number }> = [];
   private pausedUntil = 0;
+  private byteHorizonMs: number;
 
   constructor(
     private minIntervalMs: number,
-    windows: Array<{ limit: number | null; windowMs: number }>,
-    private bytesPerHour: number | null
+    windows: LimitSpec[],
+    byteWindows: LimitSpec[] = []
   ) {
-    this.windows = windows
-      .filter((window): window is { limit: number; windowMs: number } => !!window.limit && window.limit > 0)
-      .map(window => ({ ...window, events: [] }));
+    this.windows = windows.filter(validLimit).map(window => ({ ...window, events: [] }));
+    this.byteWindows = byteWindows.filter(validLimit);
+    this.byteHorizonMs = Math.max(0, ...this.byteWindows.map(window => window.windowMs));
   }
 
   pause(ms: number) {
     this.pausedUntil = Math.max(this.pausedUntil, Date.now() + ms);
   }
 
-  /** Milliseconds until one more request is allowed. */
-  private waitMs(now: number): number {
+  nextWaitMs(now = Date.now()): number {
     let wait = Math.max(0, this.pausedUntil - now, this.lastAt + this.minIntervalMs - now);
     for (const window of this.windows) {
       while (window.events.length && window.events[0] <= now - window.windowMs) window.events.shift();
       if (window.events.length >= window.limit) {
-        wait = Math.max(wait, window.events[0] + window.windowMs - now + 5);
+        // Wait until enough old requests age out to leave one free slot.
+        const freeing = window.events[window.events.length - window.limit];
+        wait = Math.max(wait, freeing + window.windowMs - now + 5);
       }
     }
-    if (this.bytesPerHour) {
-      while (this.bytes.length && this.bytes[0].at <= now - 3_600_000) this.bytes.shift();
-      const used = this.bytes.reduce((sum, item) => sum + item.bytes, 0);
-      if (used >= this.bytesPerHour && this.bytes.length) {
-        wait = Math.max(wait, this.bytes[0].at + 3_600_000 - now + 5);
+    if (this.byteWindows.length) {
+      while (this.bytes.length && this.bytes[0].at <= now - this.byteHorizonMs) this.bytes.shift();
+      for (const window of this.byteWindows) {
+        const start = now - window.windowMs;
+        let used = 0;
+        for (const item of this.bytes) if (item.at > start) used += item.bytes;
+        if (used < window.limit) continue;
+        let excess = used - window.limit;
+        for (const item of this.bytes) {
+          if (item.at <= start) continue;
+          excess -= item.bytes;
+          if (excess < 0) {
+            wait = Math.max(wait, item.at + window.windowMs - now + 5);
+            break;
+          }
+        }
       }
     }
     return wait;
@@ -78,7 +126,7 @@ class SlidingLimiter {
     for (;;) {
       if (signal?.aborted) throw new Error("aborted");
       const now = Date.now();
-      const wait = this.waitMs(now);
+      const wait = this.nextWaitMs(now);
       if (wait <= 0) {
         this.lastAt = now;
         for (const window of this.windows) window.events.push(now);
@@ -91,30 +139,84 @@ class SlidingLimiter {
   }
 
   recordBytes(bytes: number) {
-    if (this.bytesPerHour) this.bytes.push({ at: Date.now(), bytes });
+    if (this.byteWindows.length && bytes > 0) this.bytes.push({ at: Date.now(), bytes });
   }
 
-  snapshot() {
+  seed(at: number, requests: number, bytes: number) {
+    for (const window of this.windows) {
+      const count = Math.min(Math.max(0, Math.floor(requests)), window.limit * 2);
+      for (let i = 0; i < count; i++) window.events.push(at);
+      window.events.sort((a, b) => a - b);
+    }
+    if (this.byteWindows.length && bytes > 0) {
+      this.bytes.push({ at, bytes });
+      this.bytes.sort((a, b) => a.at - b.at);
+    }
+  }
+
+  snapshot(): LimiterSnapshot {
     const now = Date.now();
+    const bytesSince = (windowMs: number) => this.bytes.filter(item => item.at > now - windowMs).reduce((sum, item) => sum + item.bytes, 0);
+    const hourly = this.byteWindows.find(window => window.windowMs === HOUR_MS);
     return {
       windows: this.windows.map(window => ({
         windowMs: window.windowMs,
         limit: window.limit,
         used: window.events.filter(at => at > now - window.windowMs).length,
       })),
-      bytesLastHour: this.bytes.filter(item => item.at > now - 3_600_000).reduce((sum, item) => sum + item.bytes, 0),
-      bytesPerHour: this.bytesPerHour,
+      byteWindows: this.byteWindows.map(window => ({ windowMs: window.windowMs, limit: window.limit, used: bytesSince(window.windowMs) })),
+      bytesLastHour: bytesSince(HOUR_MS),
+      bytesPerHour: hourly?.limit ?? null,
       pausedForMs: Math.max(0, this.pausedUntil - now),
     };
   }
 }
 
+/** Media under a token-wide budget: its own share cap first, then the shared token budget. */
+class ChainedLimiter implements Limiter {
+  constructor(
+    private own: SlidingLimiter,
+    private shared: SlidingLimiter
+  ) {}
+
+  async acquire(signal?: AbortSignal) {
+    const ownWait = await this.own.acquire(signal);
+    return ownWait + (await this.shared.acquire(signal));
+  }
+
+  pause(ms: number) {
+    // A 429 on a photo means the whole token is throttled.
+    this.own.pause(ms);
+    this.shared.pause(ms);
+  }
+
+  recordBytes(bytes: number) {
+    this.own.recordBytes(bytes);
+    this.shared.recordBytes(bytes);
+  }
+
+  seed(at: number, requests: number, bytes: number) {
+    this.own.seed(at, requests, bytes); // The shared limiter is seeded with the token's full usage.
+  }
+
+  nextWaitMs(now = Date.now()) {
+    return Math.max(this.own.nextWaitMs(now), this.shared.nextWaitMs(now));
+  }
+
+  snapshot() {
+    return this.own.snapshot();
+  }
+}
+
 type UsageBucket = { requests: number; bytes: number; mediaRequests: number; mediaBytes: number; throttled: number };
+
+const intervalMs = (perSecond: number) => Math.ceil(1000 / Math.max(0.01, perSecond));
 
 export class ProviderLane {
   readonly api: SlidingLimiter;
-  readonly media: SlidingLimiter;
+  readonly media: Limiter;
   private usage = new Map<string, UsageBucket>();
+  private seeded: Promise<void> | null = null;
 
   constructor(
     readonly key: string,
@@ -122,20 +224,79 @@ export class ProviderLane {
     readonly credentialRef: string,
     readonly limits: ProviderLimits
   ) {
+    const budget = limits.tokenBudget ?? null;
     this.api = new SlidingLimiter(
-      Math.ceil(1000 / Math.max(0.01, limits.requestsPerSecond)),
+      intervalMs(limits.requestsPerSecond),
       [
-        { limit: limits.requestsPerHour, windowMs: 3_600_000 },
-        { limit: limits.requestsPerDay, windowMs: 86_400_000 },
+        { limit: limits.requestsPerHour, windowMs: HOUR_MS },
+        { limit: limits.requestsPerDay, windowMs: DAY_MS },
         { limit: limits.requestsPerFiveMinutes, windowMs: 300_000 },
       ],
-      null
+      budget
+        ? [
+            { limit: budget.bytesPerHour, windowMs: HOUR_MS },
+            { limit: budget.bytesPerDay, windowMs: DAY_MS },
+          ]
+        : []
     );
-    this.media = new SlidingLimiter(
-      Math.ceil(1000 / Math.max(1, Number(process.env.MLS_MEDIA_REQUESTS_PER_SECOND ?? 10))),
-      [{ limit: limits.mediaRequestsPerHour, windowMs: 3_600_000 }],
-      limits.mediaBytesPerHour
-    );
+    const mediaInterval = intervalMs(Math.max(1, Number(process.env.MLS_MEDIA_REQUESTS_PER_SECOND ?? 10)));
+    if (budget) {
+      const share = Math.min(1, Math.max(0.1, budget.mediaShare));
+      const part = (value: number | null) => (value ? Math.floor(value * share) : null);
+      const own = new SlidingLimiter(
+        mediaInterval,
+        [
+          { limit: part(limits.requestsPerHour), windowMs: HOUR_MS },
+          { limit: part(limits.requestsPerDay), windowMs: DAY_MS },
+        ],
+        [
+          { limit: part(budget.bytesPerHour), windowMs: HOUR_MS },
+          { limit: part(budget.bytesPerDay), windowMs: DAY_MS },
+        ]
+      );
+      this.media = new ChainedLimiter(own, this.api);
+    } else {
+      this.media = new SlidingLimiter(
+        mediaInterval,
+        [{ limit: limits.mediaRequestsPerHour, windowMs: HOUR_MS }],
+        [{ limit: limits.mediaBytesPerHour, windowMs: HOUR_MS }]
+      );
+    }
+  }
+
+  /** Loads the last 24 hours of recorded usage once, before the lane's first request. */
+  ready() {
+    this.seeded ??= this.seedFromUsage().catch(error => {
+      console.warn(`[mls] could not load recent usage for ${this.key}; starting from zero`, error);
+    });
+    return this.seeded;
+  }
+
+  private async seedFromUsage() {
+    if (!this.limits.tokenBudget) return;
+    const db = await getDb();
+    if (!db) return;
+    const now = Date.now();
+    const rows = await db
+      .select()
+      .from(mlsProviderUsage)
+      .where(
+        and(
+          eq(mlsProviderUsage.credentialRef, this.credentialRef),
+          eq(mlsProviderUsage.provider, this.provider),
+          gte(mlsProviderUsage.windowStart, new Date(now - DAY_MS - HOUR_MS))
+        )
+      )
+      .orderBy(asc(mlsProviderUsage.windowStart));
+    for (const row of rows) {
+      // Hourly buckets: place usage at the end of its hour (never in the future),
+      // the conservative choice for when it ages out of each window.
+      const at = Math.min(new Date(row.windowStart).getTime() + HOUR_MS - 1, now);
+      const requests = Number(row.requests ?? 0) + Number(row.mediaRequests ?? 0);
+      const bytes = Number(row.bytes ?? 0) + Number(row.mediaBytes ?? 0);
+      this.api.seed(at, requests, bytes);
+      this.media.seed(at, Number(row.mediaRequests ?? 0), Number(row.mediaBytes ?? 0));
+    }
   }
 
   private bucket() {
@@ -154,6 +315,7 @@ export class ProviderLane {
     const bucket = this.bucket();
     bucket.requests += 1;
     bucket.bytes += bytes;
+    this.api.recordBytes(bytes);
   }
 
   countMedia(bytes: number) {
@@ -248,13 +410,14 @@ export type HttpOptions = {
 
 async function withRetries<T>(
   lane: ProviderLane,
-  limiter: SlidingLimiter,
+  limiter: Limiter,
   url: string,
   run: () => Promise<T>,
   options: HttpOptions
 ): Promise<T> {
   const maxAttempts = options.maxAttempts ?? 5;
   let lastError: unknown = null;
+  await lane.ready();
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     await limiter.acquire(options.signal);
     try {
@@ -313,6 +476,12 @@ async function send(url: string, headers: Record<string, string>, options: HttpO
   }
 }
 
+/** Bytes as the provider meters them: Content-Length (compressed) when sent, else the decoded size. */
+export function wireBytes(response: Pick<Response, "headers">, text: string) {
+  const header = Number(response.headers.get("content-length"));
+  return Number.isFinite(header) && header > 0 ? header : Buffer.byteLength(text);
+}
+
 export async function requestJson(
   lane: ProviderLane,
   url: string,
@@ -326,9 +495,10 @@ export async function requestJson(
     async () => {
       const response = await send(url, { Accept: "application/json", ...(await headers()) }, options);
       const text = await response.text();
-      lane.countApi(text.length);
+      const bytes = wireBytes(response, text);
+      lane.countApi(bytes);
       try {
-        return { body: JSON.parse(text), bytes: text.length };
+        return { body: JSON.parse(text), bytes };
       } catch {
         throw new FatalHttpError(`Invalid JSON from ${redactUrl(url)}`, response.status);
       }
@@ -350,7 +520,7 @@ export async function requestText(
     async () => {
       const response = await send(url, { Accept: "application/xml,text/xml,*/*", ...(await headers()) }, options);
       const text = await response.text();
-      lane.countApi(text.length);
+      lane.countApi(wireBytes(response, text));
       return text;
     },
     options

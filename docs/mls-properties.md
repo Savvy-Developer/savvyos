@@ -127,3 +127,19 @@ MLS_E2E_DATABASE_URL=mysql://root@127.0.0.1:3307/savvyos_mls_e2e \
 There is deliberately no Canopy IDX feed. It would duplicate every Canopy listing. When the public site is built, show only listings whose `permittedUses` includes `IDX`.
 
 Until a token variable is set, that feed shows "Credentials not configured" and the worker skips it.
+
+## MLS Grid usage budget
+
+MLS Grid meters each access token as a whole: API pages, single-listing photo-link refreshes, and photo downloads from media.mlsgrid.com all count toward the same request and byte caps. `server/mls/adapters/mlsGrid.ts` (`MLS_GRID_LIMITS`) records the published limits and the warning and suspension thresholds from MLS Grid's Sept 30, 2026 notice. The adapter caps each token at `rateSafety` (default 0.8, never above 0.9) of the lower of published and warning:
+
+| Per token | Cap at 0.8 |
+|---|---|
+| Requests per second | 1.6 |
+| Requests per hour | 5,760 |
+| Requests per 24 hours | 32,000 |
+| Bytes per hour | 2.458 GB |
+| Bytes per 24 hours | 32 GB |
+
+`server/mls/http.ts` enforces this with one limiter per token. The media limiter is chained onto it, so photos draw from the same budget, and photos alone may use at most `mediaShare` (default 0.75, max 0.9) so replication keeps room. Bytes are counted from `Content-Length` when sent (compressed size), otherwise the decoded size. On start, each lane reloads the last 25 hours from `mls_provider_usage`, so a restart or deploy cannot reset the rolling windows. Tests: `MLS Grid token budget` in `mls.test.ts` and the restart test in `mls.e2e.test.ts`.
+
+Photo backfill is bound by the daily request cap (one request per photo). Faster options need MLS Grid: CDN media access with non-expiring links, or a temporary limit increase for the first load (contact support@mlsgrid.com in advance).

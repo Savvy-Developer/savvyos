@@ -367,4 +367,24 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       await pool.end();
     }
   }, 60_000);
+  it("loads the last day's recorded usage, so a restart cannot reset MLS Grid budgets", async () => {
+    const hour = new Date();
+    hour.setUTCMinutes(0, 0, 0);
+    // Production writes this column through Drizzle as UTC; match it.
+    const windowStart = hour.toISOString().slice(0, 19).replace("T", " ");
+    await q(
+      `INSERT INTO mls_provider_usage (credentialRef, provider, windowStart, requests, bytes, mediaRequests, mediaBytes, throttled)
+       VALUES ('RESTARTTEST', 'mls_grid', ?, 3000, 1000, 3000, 2000000000, 0)`,
+      [windowStart]
+    );
+    const limits = modules.adapters.adapterFor("mls_grid").limits({ options: null } as any);
+    const lane = modules.http.getLane("mls_grid", "RESTARTTEST", limits);
+    await lane.ready();
+    // 6,000 requests this hour is over our 5,760 cap: both data and photos must wait.
+    expect(lane.api.nextWaitMs()).toBeGreaterThan(0);
+    expect(lane.media.nextWaitMs()).toBeGreaterThan(0);
+    const untouched = modules.http.getLane("mls_grid", "OTHERTOKEN", limits);
+    await untouched.ready();
+    expect(untouched.api.nextWaitMs()).toBe(0);
+  }, 60_000);
 });
