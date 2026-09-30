@@ -54,12 +54,14 @@ describe("Pulse dashboard consolidation", () => {
     expect(myWorkPage.slice(myWorkIndex, measurableIndex)).toContain('className="min-w-0"');
   });
 
-  it("keeps Incoming Cascades compact beside the My EOS title", () => {
+  it("keeps Incoming Cascades compact but informative beside the My EOS title", () => {
     const headerIndex = myWorkPage.indexOf('<header className="border-b border-border pb-4">');
     const weeklyPreparationIndex = myWorkPage.indexOf('title="Weekly Preparation"');
     expect(myWorkPage).toContain("function HeaderCascadePanel");
     expect(myWorkPage).toContain('aria-label="Incoming Cascades"');
-    expect(myWorkPage).toContain('className="h-20 min-w-0 flex-1 rounded-lg border border-border bg-muted/20 p-2 sm:w-72 sm:flex-none"');
+    expect(myWorkPage).toContain('className="h-24 min-w-0 flex-1 rounded-lg border border-border bg-muted/20 p-2.5 sm:w-80 sm:flex-none"');
+    expect(myWorkPage).toContain("firstMessage.routing.source");
+    expect(myWorkPage).toContain('className="mt-1 h-11 w-full justify-start gap-2 px-2 text-left hover:bg-background"');
     expect(myWorkPage).toContain("max-h-[calc(100dvh-2rem)]");
     expect(myWorkPage).toContain("<PulseCascadeCard");
     expect(myWorkPage).toContain("<HeaderCascadePanel messages={data.actionCenter.cascades}");
