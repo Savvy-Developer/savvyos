@@ -31,4 +31,11 @@ describe("draft preview for case studies and blog posts", () => {
     expect(helper).toContain("staffFromRequest");
     expect(helper).toContain("return false");
   });
+
+  it("property evidence (revenue range, comps) follows the same preview rule and still needs a Final pro-forma", () => {
+    const evidence = slice("publicPropertyEvidence: publicProcedure", "// ─── Article reads");
+    expect(evidence).toContain("visitorIsStaff(ctx.req)");
+    expect(evidence).toMatch(/isStaff\s*\?\s*inArray\(websiteProperties\.status, \["published", "draft"\]\)\s*:\s*eq\(websiteProperties\.status, "published"\)/);
+    expect(evidence).toContain('eq(proformas.status, "final")');
+  });
 });

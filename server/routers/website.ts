@@ -1438,6 +1438,10 @@ export const websiteRouter = router({
       const db = await getDb();
       if (!db) return empty;
       const signedIn = await visitorIsSignedIn(ctx.req);
+      // The team's Draft preview shows the full page, evidence included, so a
+      // listing can be checked before it goes live. The pro-forma must still
+      // be Final: half-entered numbers never show, even in a preview.
+      const isStaff = await visitorIsStaff(ctx.req);
 
       const [listing] = await db
         .select({
@@ -1448,7 +1452,9 @@ export const websiteRouter = router({
         .where(
           and(
             eq(websiteProperties.slug, input.slug),
-            eq(websiteProperties.status, "published")
+            isStaff
+              ? inArray(websiteProperties.status, ["published", "draft"])
+              : eq(websiteProperties.status, "published")
           )
         )
         .limit(1);
