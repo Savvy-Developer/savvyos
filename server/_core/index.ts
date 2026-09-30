@@ -100,6 +100,7 @@ import { ensureWebinarRequestSchema } from "../webinarRequestSchema";
 import { ensureContactLeadSourceTrigger } from "../contactLeadSourceTrigger";
 import { ensureRrMeasurableSchema } from "../rrMeasurableSchema";
 import { ensureCoachingWorkflowSchema } from "../coachingWorkflowSchema";
+import { ensureOneOnOneSchema } from "../oneOnOneSchema";
 import { ensureEventProjectLinkSchema } from "../eventProjectLinkSchema";
 import { ensureSponsorContactLogSchema } from "../sponsorContactLogSchema";
 import { ensureChatUserAccessSchema } from "../chatUserAccessSchema";
@@ -144,6 +145,7 @@ async function startServer() {
   await ensureContactLeadSourceTrigger();
   await ensureRrMeasurableSchema();
   await ensureCoachingWorkflowSchema();
+  await ensureOneOnOneSchema();
   await ensureEventProjectLinkSchema();
   await ensureSponsorContactLogSchema();
   await ensureChatUserAccessSchema();
