@@ -5,6 +5,8 @@ import {
   pulseActivityLog,
   pmProjectRockMeetings,
   pmProjects,
+  pmTasks,
+  pmTodoSections,
   pulseMeetingRocks,
   pulseMeetingScorecardMetrics,
   pulseMeetingUpdates,
@@ -163,6 +165,35 @@ async function ownedProjectRockRoutes(db: any, personId: number, meetingIds: str
     .orderBy(asc(pmProjectRockMeetings.sortOrder), asc(pmProjects.title));
 }
 
+/** Builds the Project-backed milestone and to-do view used in My EOS. */
+async function projectRockMilestones(db: any, projectIds: number[]) {
+  if (!projectIds.length) return new Map<number, any[]>();
+  const [sections, tasks] = await Promise.all([
+    db.select({ id: pmTodoSections.id, projectId: pmTodoSections.projectId, title: pmTodoSections.title, description: pmTodoSections.description, dueDate: pmTodoSections.dueDate, sortOrder: pmTodoSections.sortOrder })
+      .from(pmTodoSections)
+      .where(inArray(pmTodoSections.projectId, projectIds))
+      .orderBy(asc(pmTodoSections.sortOrder), asc(pmTodoSections.id)),
+    db.select({ id: pmTasks.id, projectId: pmTasks.projectId, sectionId: pmTasks.sectionId, parentTaskId: pmTasks.parentTaskId, title: pmTasks.title, completed: pmTasks.completed, dueDate: pmTasks.dueDate, ownerName: users.name, sortOrder: pmTasks.sortOrder })
+      .from(pmTasks)
+      .leftJoin(users, eq(users.id, pmTasks.ownerId))
+      .where(inArray(pmTasks.projectId, projectIds))
+      .orderBy(asc(pmTasks.sortOrder), asc(pmTasks.id)),
+  ]);
+  const tasksBySection = new Map<string, any[]>();
+  for (const task of tasks as any[]) {
+    if (!task.sectionId) continue;
+    const key = `${task.projectId}:${task.sectionId}`;
+    tasksBySection.set(key, [...(tasksBySection.get(key) ?? []), task]);
+  }
+  const milestonesByProject = new Map<number, any[]>();
+  for (const section of sections as any[]) {
+    const todos = tasksBySection.get(`${section.projectId}:${section.id}`) ?? [];
+    const milestone = { ...section, total: todos.length, completed: todos.filter((todo: any) => todo.completed).length, todos };
+    milestonesByProject.set(section.projectId, [...(milestonesByProject.get(section.projectId) ?? []), milestone]);
+  }
+  return milestonesByProject;
+}
+
 export function projectRockForMyEos(row: any) {
   return {
     id: `project-rock:${row.projectId}:${row.meetingId}`,
@@ -182,6 +213,8 @@ export function projectRockForMyEos(row: any) {
     meetingId: row.meetingId,
     meetingName: row.meetingName,
     updatedAt: row.updatedAt,
+    percentComplete: row.percentComplete ?? null,
+    milestones: row.milestones ?? [],
     sourceHref: `/projects/${row.projectId}`,
   };
 }
@@ -724,9 +757,15 @@ export const pulsePersonalRouter = router({
     ]);
 
     const itemsWithRoutedPersonalRocks = projectRoutedPersonalRocks(allItems, routedPersonalRockMeetings as Array<{ workItemId: string; meetingId: string; meetingName: string }>, ctx.user.id);
+    const milestonesByProject = await projectRockMilestones(db, (routedProjectRockRoutes as any[]).map((route: any) => route.projectId));
     const projectRockItems = (routedProjectRockRoutes as any[])
       .filter((route: any) => !["done", "dropped"].includes(route.status))
-      .map(projectRockForMyEos);
+      .map((route: any) => {
+        const milestones = milestonesByProject.get(route.projectId) ?? [];
+        const total = milestones.reduce((sum, milestone) => sum + Number(milestone.total ?? 0), 0);
+        const completed = milestones.reduce((sum, milestone) => sum + Number(milestone.completed ?? 0), 0);
+        return projectRockForMyEos({ ...route, milestones, percentComplete: total ? Math.round((completed / total) * 100) : 0 });
+      });
     const ownedItems = [...itemsWithRoutedPersonalRocks, ...projectRockItems]
       .filter((item: any) => (item.assigneeId === ctx.user.id || item.ownerPersonId === ctx.user.id) && Boolean(item.meetingId))
       .map((item: any) => ({ ...item, source: item.meetingName ?? "L10", sourceHref: item.sourceHref ?? `/pulse/meetings/${item.meetingId}` }));

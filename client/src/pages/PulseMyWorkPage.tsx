@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CalendarCheck2, ChevronDown, ClipboardList, History, ListChecks } from "lucide-react";
+import { CalendarCheck2, ChevronDown, ChevronRight, ClipboardList, History, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -19,9 +19,11 @@ import { PulseNotificationsPopover } from "@/components/pulse/PulseNotifications
 import { PulseMasterScorecard } from "@/components/pulse/PulseMasterScorecard";
 import { PulseIssueTimeframeFilter, type IssueTimeframeFilterValue } from "@/components/pulse/PulseWorkItemBadges";
 import { PulseCascadeCard } from "@/components/pulse/PulseCascadeCard";
+import { PulseProjectRockMilestonePanel } from "@/components/pulse/PulseProjectRockMilestonePanel";
 
 function ProjectRockWorkRow({ item, onChanged }: { item: any; onChanged: () => void }) {
   const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
   const update = trpc.pulse.l10.setRockStatus.useMutation({
     onSuccess: () => {
       void utils.pulse.personal.dashboard.invalidate();
@@ -30,7 +32,10 @@ function ProjectRockWorkRow({ item, onChanged }: { item: any; onChanged: () => v
     },
     onError: (error) => toast.error(error.message),
   });
-  return <div className="rounded-md border border-primary/20 bg-primary/[0.025] p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="font-medium">{item.title}</p><p className="mt-0.5 text-xs text-muted-foreground">Project Rock · {item.quarter ?? "Current quarter"}{item.dueDate ? ` · Due ${new Date(`${item.dueDate}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}</p></div><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.status === "on_track" ? "bg-emerald-100 text-emerald-800" : item.status === "at_risk" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"}`}>{item.status.replaceAll("_", " ")}</span></div><div className="mt-2 flex flex-wrap gap-1.5">{["on_track", "at_risk", "off_track", "done"].map((status) => <Button key={status} type="button" size="sm" variant={item.status === status ? "default" : "outline"} className="h-7 px-2 text-xs capitalize" disabled={update.isPending} onClick={() => update.mutate({ meetingId: item.meetingId, projectId: item.projectId, status: status as any })}>{status.replaceAll("_", " ")}</Button>)}<Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild><a href={item.sourceHref}>Open Project</a></Button></div></div>;
+  return <Collapsible open={open} onOpenChange={setOpen} className="overflow-hidden rounded-md border border-primary/20 bg-primary/[0.025]">
+    <CollapsibleTrigger asChild><button type="button" className="flex w-full items-start justify-between gap-3 p-3 text-left hover:bg-primary/[0.035]" aria-label={`${open ? "Collapse" : "Expand"} ${item.title} Rock`}><div className="flex min-w-0 items-start gap-2"><ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-primary transition-transform ${open ? "rotate-90" : ""}`} /><div className="min-w-0"><p className="truncate font-medium">{item.title}</p><p className="mt-0.5 text-xs text-muted-foreground">Project Rock · {item.quarter ?? "Current quarter"}{item.dueDate ? ` · Due ${new Date(`${item.dueDate}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}{item.percentComplete == null ? "" : ` · ${item.percentComplete}% complete`}</p></div></div><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${item.status === "on_track" ? "bg-emerald-100 text-emerald-800" : item.status === "at_risk" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"}`}>{item.status.replaceAll("_", " ")}</span></button></CollapsibleTrigger>
+    <CollapsibleContent><div className="border-t border-primary/15 p-3"><div className="flex items-center gap-3"><div className="h-2 flex-1 overflow-hidden rounded-full bg-primary/10"><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${item.percentComplete ?? 0}%` }} /></div><span className="text-xs font-semibold text-muted-foreground">{item.percentComplete ?? 0}%</span></div>{item.description ? <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">{item.description}</p> : null}{item.definitionOfDone ? <p className="mt-2 text-sm text-muted-foreground"><span className="font-medium text-foreground">Done means:</span> {item.definitionOfDone}</p> : null}<div className="mt-3 flex flex-wrap gap-1.5">{["on_track", "at_risk", "off_track", "done"].map((status) => <Button key={status} type="button" size="sm" variant={item.status === status ? "default" : "outline"} className="h-7 px-2 text-xs capitalize" disabled={update.isPending} onClick={() => update.mutate({ meetingId: item.meetingId, projectId: item.projectId, status: status as any })}>{status.replaceAll("_", " ")}</Button>)}<Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild><a href={item.sourceHref}>Open full Project</a></Button></div><PulseProjectRockMilestonePanel meetingId={item.meetingId} projectId={item.projectId} milestones={item.milestones ?? []} onChanged={onChanged} /></div></CollapsibleContent>
+  </Collapsible>;
 }
 
 function WorkRow({ item, onChanged, showDestination = false }: { item: any; onChanged: () => void; showDestination?: boolean }) {

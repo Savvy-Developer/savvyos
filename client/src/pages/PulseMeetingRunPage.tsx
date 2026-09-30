@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, ArrowRight, Clock3, Pause, Play, Timer } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronRight, Clock3, Pause, Play, Timer } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,9 +56,19 @@ function ScorecardStep({ data }: { data: any }) {
 function RocksStep({ data, onChanged }: { data: any; onChanged: () => void }) {
   const update = trpc.pulse.l10.setRockStatus.useMutation({ onSuccess: onChanged, onError: (error) => toast.error(error.message) });
   const [ownerFilter, setOwnerFilter] = useState(ALL_ROCK_OWNERS);
+  const [expandedRockIds, setExpandedRockIds] = useState<Set<string>>(() => new Set());
   const rocks = data.sections.rocks;
   const filteredRocks = ownerFilter === ALL_ROCK_OWNERS ? rocks : rocks.filter((rock: any) => rockOwnerKey(rock) === ownerFilter);
-  return <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/[0.025] p-3"><div><p className="font-medium">Review one owner at a time</p><p className="mt-0.5 text-sm text-muted-foreground">Finish this person’s Rocks, then select the next owner.</p></div><PulseRockOwnerFilter rocks={rocks} value={ownerFilter} onValueChange={setOwnerFilter} /></div>{rocks.length ? filteredRocks.length ? filteredRocks.map((rock: any) => <div key={rock.id} className="rounded-lg border border-border p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{rock.title}</p><p className="mt-1 text-sm text-muted-foreground">{rock.ownerName} · {rock.percentComplete}% complete</p></div><div className="flex flex-wrap gap-2">{["on_track", "at_risk", "off_track"].map((status) => <Button key={status} size="sm" variant={rock.status === status ? "default" : "outline"} disabled={update.isPending} onClick={() => update.mutate(rock.projectId ? { meetingId: data.meeting.id, projectId: rock.projectId, status: status as any } : { meetingId: data.meeting.id, workItemId: rock.id, status: status as any })}>{status.replaceAll("_", " ")}</Button>)}</div></div></div>) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No active Rocks are assigned to this owner.</p> : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No Rocks are configured for review.</p>}</div>;
+  const toggleRock = (rockId: string) => setExpandedRockIds(current => {
+    const next = new Set(current);
+    if (next.has(rockId)) next.delete(rockId);
+    else next.add(rockId);
+    return next;
+  });
+  return <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/[0.025] p-3"><div><p className="font-medium">Review one owner at a time</p><p className="mt-0.5 text-sm text-muted-foreground">Finish this person’s Rocks, then select the next owner.</p></div><PulseRockOwnerFilter rocks={rocks} value={ownerFilter} onValueChange={setOwnerFilter} /></div>{rocks.length ? filteredRocks.length ? filteredRocks.map((rock: any) => {
+    const open = expandedRockIds.has(rock.id);
+    return <div key={rock.id} className="overflow-hidden rounded-lg border border-border"><button type="button" className="flex w-full items-start justify-between gap-3 p-4 text-left hover:bg-muted/35" onClick={() => toggleRock(rock.id)} aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${rock.title} Rock`}><div className="flex min-w-0 items-start gap-2"><ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} /><div className="min-w-0"><p className="truncate font-semibold">{rock.title}</p><p className="mt-1 truncate text-sm text-muted-foreground">{rock.ownerName} · {rock.percentComplete}% complete</p></div></div><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${rock.status === "on_track" || rock.status === "done" ? "bg-emerald-100 text-emerald-800" : rock.status === "at_risk" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>{rock.status.replaceAll("_", " ")}</span></button>{open ? <div className="border-t border-border p-4">{rock.description ? <p className="whitespace-pre-wrap text-sm text-muted-foreground">{rock.description}</p> : null}{rock.definitionOfDone ? <p className="mt-2 text-sm text-muted-foreground">Done means: {rock.definitionOfDone}</p> : null}<div className="mt-3 flex flex-wrap gap-2">{["on_track", "at_risk", "off_track", "done"].map((status) => <Button key={status} size="sm" variant={rock.status === status ? "default" : "outline"} disabled={update.isPending} onClick={() => update.mutate(rock.projectId ? { meetingId: data.meeting.id, projectId: rock.projectId, status: status as any } : { meetingId: data.meeting.id, workItemId: rock.id, status: status as any })}>{status.replaceAll("_", " ")}</Button>)}</div></div> : null}</div>;
+  }) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No active Rocks are assigned to this owner.</p> : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No Rocks are configured for review.</p>}</div>;
 }
 
 function HeadlinesStep({ data, sessionId, onChanged }: { data: any; sessionId: string; onChanged: () => void }) {

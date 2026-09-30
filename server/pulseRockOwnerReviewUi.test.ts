@@ -14,6 +14,9 @@ const runner = read("client/src/pages/PulseMeetingRunPage.tsx");
 const ownerFilter = read(
   "client/src/components/pulse/PulseRockOwnerFilter.tsx"
 );
+const projectRockMilestonePanel = read(
+  "client/src/components/pulse/PulseProjectRockMilestonePanel.tsx"
+);
 
 describe("routed Project Rock and owner-review interfaces", () => {
   it("projects active Project Rocks to the owning person’s routed My EOS L10", () => {
@@ -23,6 +26,8 @@ describe("routed Project Rock and owner-review interfaces", () => {
       "eq(pmProjects.weeklyReportingOwnerId, personId)"
     );
     expect(personal).toContain("const projectRockItems = (routedProjectRockRoutes as any[])");
+    expect(personal).toContain("async function projectRockMilestones");
+    expect(personal).toContain("milestones: row.milestones ?? []");
     expect(personal).toContain(
       "const projectRocks = (projectRockRoutes as any[]).map(projectRockForMyEos)"
     );
@@ -36,7 +41,23 @@ describe("routed Project Rock and owner-review interfaces", () => {
     );
     expect(myEos).toContain("function ProjectRockWorkRow");
     expect(myEos).toContain('if (item.sourceType === "project")');
+    expect(myEos).toContain("PulseProjectRockMilestonePanel");
+    expect(myEos).toContain("milestones={item.milestones ?? []}");
+    expect(projectRockMilestonePanel).toContain(
+      "setProjectRockTodoCompletion"
+    );
+    expect(projectRockMilestonePanel).toContain(
+      "authoritative\n * Project task record"
+    );
     expect(weeklyPreparation).not.toContain("ProjectRockPreparation");
+  });
+
+  it("keeps L10 Rock cards compact until a person expands one", () => {
+    expect(meetingDashboard).toContain("expandedRockIds");
+    expect(meetingDashboard).toContain("aria-expanded={open}");
+    expect(meetingDashboard).toContain("PulseProjectRockMilestonePanel");
+    expect(runner).toContain("expandedRockIds");
+    expect(runner).toContain("aria-expanded={open}");
   });
 
   it("filters each L10 Rock review by owner in both workspace and runner", () => {
