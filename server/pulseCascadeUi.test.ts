@@ -47,8 +47,10 @@ describe("Pulse cascading-message workflow", () => {
     expect(payloads).toContain("visibleIds.includes(message.fromMeetingId)");
   });
 
-  it("keeps acknowledgments available from My Work and the original meeting", () => {
+  it("keeps acknowledgments available from the compact My Work header and the original meeting", () => {
     expect(myWork).toContain("Incoming Cascades");
+    expect(myWork).toContain("HeaderCascadePanel");
+    expect(myWork).toContain("PulseCascadeCard");
     expect(myWork).toContain("pulse.cascades.acknowledge");
     expect(dashboard).toContain("Cascading messages");
     expect(dashboard).toContain("Send cascade");

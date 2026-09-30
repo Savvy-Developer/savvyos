@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -71,6 +72,14 @@ function CompactWorkQueue({
   </Tabs>;
 }
 
+function HeaderCascadePanel({ messages, isAcknowledging, onAcknowledge }: { messages: any[]; isAcknowledging: boolean; onAcknowledge: (messageId: string) => void }) {
+  const firstMessage = messages[0];
+  return <aside aria-label="Incoming Cascades" className="h-20 min-w-0 flex-1 rounded-lg border border-border bg-muted/20 p-2 sm:w-72 sm:flex-none">
+    <div className="flex items-center justify-between gap-2"><div className="flex min-w-0 items-center gap-1.5"><p className="truncate text-sm font-semibold">Incoming Cascades</p>{messages.length ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">{messages.length}</span> : null}</div></div>
+    {firstMessage ? <Popover><PopoverTrigger asChild><Button type="button" variant="ghost" className="mt-1 h-8 w-full justify-start gap-2 px-2 text-left text-xs hover:bg-background" aria-label={`Open ${messages.length} incoming cascade${messages.length === 1 ? "" : "s"}`}><span className="min-w-0 flex-1 truncate font-medium">{firstMessage.subject}</span>{messages.length > 1 ? <span className="shrink-0 text-[10px] text-muted-foreground">+{messages.length - 1} more</span> : null}<ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /></Button></PopoverTrigger><PopoverContent align="end" className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-md overflow-y-auto p-2"><div className="mb-2 px-1"><p className="text-sm font-semibold">Incoming Cascades</p><p className="text-xs text-muted-foreground">Review the message details and acknowledge each cascade.</p></div><div className="space-y-2">{messages.map((message: any) => <PulseCascadeCard key={message.id} message={message} isAcknowledging={isAcknowledging} onAcknowledge={onAcknowledge} />)}</div></PopoverContent></Popover> : <p className="mt-2 text-xs text-muted-foreground">No incoming cascades.</p>}
+  </aside>;
+}
+
 function DashboardSection({
   title,
   description,
@@ -133,7 +142,7 @@ export default function PulseMyWorkPage() {
   return <main className="pulse-page pulse-page-stack">
     <Tabs value={activeTab} onValueChange={setActiveTab}>
       <header className="border-b border-border pb-4">
-        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-medium text-primary">Pulse</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">My EOS Dashboard</h1><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Weekly preparation leads your dashboard, with work and scorecards kept compact below.</p></div><PulseNotificationsPopover meetingId={workspaceId === "all" ? undefined : workspaceId} /></div>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><p className="text-sm font-medium text-primary">Pulse</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">My EOS Dashboard</h1><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Weekly preparation leads your dashboard, with work and scorecards kept compact below.</p></div><div className="flex w-full items-start gap-2 sm:w-auto"><HeaderCascadePanel messages={data.actionCenter.cascades} isAcknowledging={acknowledgeCascade.isPending} onAcknowledge={(messageId) => acknowledgeCascade.mutate({ messageId, from: "my_work" })} /><PulseNotificationsPopover meetingId={workspaceId === "all" ? undefined : workspaceId} /></div></div>
         <nav className="mt-3 max-w-full overflow-x-auto pb-1" aria-label="My EOS sections"><TabsList className="h-auto min-w-max justify-start"><TabsTrigger value="work" className="min-h-9"><ListChecks className="h-4 w-4" />My Work</TabsTrigger><TabsTrigger value="scorecard" className="min-h-9"><ClipboardList className="h-4 w-4" />Master Scorecard</TabsTrigger></TabsList></nav>
       </header>
 
@@ -150,7 +159,6 @@ export default function PulseMyWorkPage() {
           </DashboardSection>
           <DashboardSection className="min-w-0" title="My Measurables" description="Submit every active measurable you own for the current reporting week."><PulseMyMeasurables embedded /></DashboardSection>
         </section>
-        <DashboardSection title="Incoming Cascades" description="Messages from authorized Pulse meetings stay here until you acknowledge them.">{data.actionCenter.cascades.length ? <div className="space-y-2">{data.actionCenter.cascades.map((cascade: any) => <PulseCascadeCard key={cascade.id} message={cascade} isAcknowledging={acknowledgeCascade.isPending} onAcknowledge={(messageId) => acknowledgeCascade.mutate({ messageId, from: "my_work" })} />)}</div> : <p className="text-sm text-muted-foreground">No cascading messages need your acknowledgment.</p>}</DashboardSection>
         <DashboardSection title="At a Glance" description="A compact view of your current workload and preparation." defaultOpen={false}><div aria-label="At a glance" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5"><Card className={data.counts.overdue ? "border-rose-200 bg-rose-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Overdue</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.overdue}</p><p className="text-xs text-muted-foreground">Past deadline</p></CardContent></Card><Card className={data.counts.unacknowledged ? "border-amber-200 bg-amber-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Unacknowledged</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.unacknowledged}</p><p className="text-xs text-muted-foreground">Cascades</p></CardContent></Card><Card><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Due this week</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.dueSoon}</p><p className="text-xs text-muted-foreground">Open To-Dos</p></CardContent></Card><Card className={data.counts.missingMeasurables ? "border-sky-200 bg-sky-50/50" : ""}><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Prep needed</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.missingMeasurables}</p><p className="text-xs text-muted-foreground">Measurables</p></CardContent></Card><Card><CardContent className="p-2.5"><p className="text-xs text-muted-foreground">Rocks off track</p><p className="mt-0.5 text-2xl font-semibold">{data.counts.offTrackRocks}</p><p className="text-xs text-muted-foreground">Need a next action</p></CardContent></Card></div></DashboardSection>
         <section className="grid items-stretch gap-2 xl:grid-cols-2"><PulseCompletedHistory className="h-full min-h-36 min-w-0 overflow-hidden" contextId={workspaceId === "all" ? undefined : workspaceId} title={workspaceId === "all" ? "Completed & Resolved work" : "Completed & Resolved in this meeting"} description={workspaceId === "all" ? "Search work you completed or resolved across authorized Pulse forums." : "Search completed or resolved work from this exact meeting."} onlyMine onChanged={changed} compact /><ActivitySummary activity={data.activity ?? []} /></section>
       </TabsContent>
