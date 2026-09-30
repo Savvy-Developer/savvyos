@@ -50,7 +50,6 @@ interface Project {
   status: Status;
   taskTotal: number;
   taskCompleted: number;
-  taskOpen: number;
   isRock: boolean;
   rockQuarter: string | null;
   definitionOfDone: string | null;
@@ -840,13 +839,6 @@ function ProjectListRow({ project, onArchive }: { project: Project; onArchive: (
           <span className="min-w-0 basis-full text-sm font-medium text-foreground transition-colors group-hover:text-primary sm:basis-auto sm:flex-1">{project.title}</span>
           {project.isRock ? <span className="inline-flex shrink-0 items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary"><Flag className="h-3 w-3" />Rock{project.rockQuarter ? ` · ${project.rockQuarter}` : ""}</span> : null}
           <span className="max-w-full shrink-0 truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{project.department}</span>
-          <span
-            className="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
-            title={`${project.taskOpen} open To-Do${project.taskOpen === 1 ? "" : "s"}`}
-          >
-            <ClipboardList className="h-3 w-3" />
-            {project.taskOpen} open
-          </span>
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">{project.description}</p>
       </div>
