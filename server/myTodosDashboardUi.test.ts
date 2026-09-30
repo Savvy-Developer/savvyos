@@ -51,6 +51,17 @@ describe("actionable My To-Dos dashboard", () => {
     expect(dashboard).toContain("Comments");
   });
 
+  it("organizes Assigned to Me records by Project and L10 source", () => {
+    expect(projectsPage).toContain("Assigned to Me");
+    expect(dashboard).toContain("Assigned to Me");
+    expect(dashboard).toContain("My Project To-Dos");
+    expect(dashboard).toContain("My L10 To-Dos");
+    expect(dashboard).toContain("groupTodosBySource");
+    expect(dashboard).toContain("TodoSourceGroupCard");
+    expect(dashboard).toContain("todo.projectId ?? todo.sourceId");
+    expect(dashboard).toContain("todo.meetingId ?? todo.sourceId");
+  });
+
   it("uses a compact month-day picker to preserve room for Project to-do titles", () => {
     expect(dashboard).toContain("w-[7rem] shrink-0");
     expect(dashboard).toContain("w-[5.5rem] shrink-0");
@@ -62,7 +73,9 @@ describe("actionable My To-Dos dashboard", () => {
 
   it("reveals the existing title in an expanded Project to-do without another row", () => {
     expect(dashboard).toContain('aria-label="Full To-Do title"');
-    expect(dashboard).toContain('"mt-2 whitespace-pre-wrap break-words text-sm font-medium"');
+    expect(dashboard).toContain(
+      '"mt-2 whitespace-pre-wrap break-words text-sm font-medium"'
+    );
     expect(dashboard).toContain("{todo.title}");
   });
 

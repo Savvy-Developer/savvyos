@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { format, isPast, isToday } from "date-fns";
 import {
   Check,
@@ -61,6 +61,14 @@ type Todo = {
   attachmentCount?: number | null;
   linkedSubTodoCount?: number | null;
   subTodoCount?: number | null;
+};
+
+type TodoSourceGroup = {
+  id: string;
+  source: Todo["source"];
+  title: string;
+  detail: string;
+  todos: Todo[];
 };
 
 type ProjectTodoForm = {
@@ -133,6 +141,70 @@ function sourceText(todo: Todo) {
   }`;
 }
 
+function groupTodosBySource(
+  todos: Todo[],
+  source: Todo["source"]
+): TodoSourceGroup[] {
+  const groups = new Map<string, TodoSourceGroup>();
+
+  for (const todo of todos) {
+    if (todo.source !== source) continue;
+    const sourceId =
+      source === "project"
+        ? (todo.projectId ?? todo.sourceId)
+        : (todo.meetingId ?? todo.sourceId);
+    const id = `${source}-${sourceId}`;
+    const existing = groups.get(id);
+
+    if (existing) {
+      existing.todos.push(todo);
+      continue;
+    }
+
+    groups.set(id, {
+      id,
+      source,
+      title:
+        source === "project" ? todo.sourceLabel : `L10 · ${todo.sourceLabel}`,
+      detail: source === "project" ? "Project" : "L10 meeting",
+      todos: [todo],
+    });
+  }
+
+  return Array.from(groups.values());
+}
+
+function TodoSourceGroupCard({
+  group,
+  children,
+}: {
+  group: TodoSourceGroup;
+  children: ReactNode;
+}) {
+  const isProject = group.source === "project";
+  const Icon = isProject ? FolderKanban : ClipboardList;
+
+  return (
+    <section className="overflow-hidden rounded-md border border-border bg-background">
+      <header className="flex min-w-0 items-center gap-2 border-b border-border/70 bg-muted/25 px-2.5 py-2">
+        <Icon
+          className={cn(
+            "h-4 w-4 shrink-0",
+            isProject ? "text-primary" : "text-violet-700"
+          )}
+        />
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold">{group.title}</h3>
+          <p className="truncate text-xs text-muted-foreground">
+            {group.detail}
+          </p>
+        </div>
+      </header>
+      <div className="space-y-1.5 p-1.5">{children}</div>
+    </section>
+  );
+}
+
 function projectForm(todo: Todo): ProjectTodoForm {
   return {
     title: todo.title,
@@ -191,7 +263,10 @@ function ProjectTodoWorkspace({
   const [commentText, setCommentText] = useState("");
   const [form, setForm] = useState<ProjectTodoForm>(() => projectForm(todo));
   const [completionOpen, setCompletionOpen] = useState(false);
-  const [pendingCompletionUpdate, setPendingCompletionUpdate] = useState<Record<string, unknown> | null>(null);
+  const [pendingCompletionUpdate, setPendingCompletionUpdate] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const taskId = Number(todo.sourceId);
   const status = todo.status ?? "not_started";
   const due = duePresentation(todo.dueDate);
@@ -861,6 +936,11 @@ export default function MyTodosDashboard() {
   const { data: moveProjects = [] } =
     trpc.pm.projects.moveDestinations.useQuery();
   const items = todos as Todo[];
+  const projectGroups = useMemo(
+    () => groupTodosBySource(items, "project"),
+    [items]
+  );
+  const l10Groups = useMemo(() => groupTodosBySource(items, "l10"), [items]);
 
   const refreshEverywhere = () => {
     void utils.pm.myTodos.invalidate();
@@ -892,9 +972,9 @@ export default function MyTodosDashboard() {
         <div className="flex min-w-0 items-center gap-2">
           <ClipboardList className="h-4 w-4 shrink-0 text-primary" />
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold">My To-Dos</h2>
+            <h2 className="text-sm font-semibold">Assigned to Me</h2>
             <p className="truncate text-xs text-muted-foreground">
-              Work the original Project and L10 records from one place.
+              Work your original Project and L10 records from one place.
             </p>
           </div>
         </div>
@@ -902,7 +982,7 @@ export default function MyTodosDashboard() {
           {items.length} open
         </span>
       </div>
-      <div className="space-y-1.5 p-1.5">
+      <div className="space-y-3 p-1.5">
         {isLoading ? (
           <p className="px-2 py-3 text-sm text-muted-foreground">
             Loading your To-Dos…
@@ -914,27 +994,80 @@ export default function MyTodosDashboard() {
             You have no open L10 or Project To-Dos.
           </div>
         ) : null}
-        {items.map(todo =>
-          todo.source === "l10" ? (
-            <L10TodoWorkspace
-              key={todo.id}
-              todo={todo}
-              onChanged={refreshEverywhere}
-            />
-          ) : (
-            <ProjectTodoWorkspace
-              key={todo.id}
-              todo={todo}
-              adminUsers={adminUsers as any[]}
-              moveProjects={moveProjects as ProjectMoveOption[]}
-              moveProjectPending={moveProjectTodo.isPending}
-              onMoveProject={(id, destinationProjectId) =>
-                moveProjectTodo.mutate({ id, destinationProjectId })
-              }
-              onChanged={refreshEverywhere}
-            />
-          )
-        )}
+        {!isLoading && items.length > 0 ? (
+          <section aria-labelledby="my-project-todos-heading">
+            <div className="mb-2 flex items-center gap-2 px-1">
+              <FolderKanban className="h-4 w-4 text-primary" />
+              <h2
+                id="my-project-todos-heading"
+                className="text-sm font-semibold"
+              >
+                My Project To-Dos
+              </h2>
+              <span className="text-xs text-muted-foreground">
+                {projectGroups.length} project
+                {projectGroups.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            {projectGroups.length ? (
+              <div className="space-y-2">
+                {projectGroups.map(group => (
+                  <TodoSourceGroupCard key={group.id} group={group}>
+                    {group.todos.map(todo => (
+                      <ProjectTodoWorkspace
+                        key={todo.id}
+                        todo={todo}
+                        adminUsers={adminUsers as any[]}
+                        moveProjects={moveProjects as ProjectMoveOption[]}
+                        moveProjectPending={moveProjectTodo.isPending}
+                        onMoveProject={(id, destinationProjectId) =>
+                          moveProjectTodo.mutate({ id, destinationProjectId })
+                        }
+                        onChanged={refreshEverywhere}
+                      />
+                    ))}
+                  </TodoSourceGroupCard>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed bg-background/70 px-3 py-2 text-sm text-muted-foreground">
+                No open Project To-Dos assigned to you.
+              </p>
+            )}
+          </section>
+        ) : null}
+        {!isLoading && items.length > 0 ? (
+          <section aria-labelledby="my-l10-todos-heading">
+            <div className="mb-2 flex items-center gap-2 px-1">
+              <ClipboardList className="h-4 w-4 text-violet-700" />
+              <h2 id="my-l10-todos-heading" className="text-sm font-semibold">
+                My L10 To-Dos
+              </h2>
+              <span className="text-xs text-muted-foreground">
+                {l10Groups.length} L10{l10Groups.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            {l10Groups.length ? (
+              <div className="space-y-2">
+                {l10Groups.map(group => (
+                  <TodoSourceGroupCard key={group.id} group={group}>
+                    {group.todos.map(todo => (
+                      <L10TodoWorkspace
+                        key={todo.id}
+                        todo={todo}
+                        onChanged={refreshEverywhere}
+                      />
+                    ))}
+                  </TodoSourceGroupCard>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed bg-background/70 px-3 py-2 text-sm text-muted-foreground">
+                No open L10 To-Dos assigned to you.
+              </p>
+            )}
+          </section>
+        ) : null}
       </div>
     </section>
   );

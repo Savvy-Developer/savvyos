@@ -520,7 +520,7 @@ export default function ProjectsPage() {
           <Layers className="mr-1.5 h-4 w-4" /> Projects
         </Button>
         <Button className="min-w-0 whitespace-normal" type="button" size="sm" variant={workspace === "my-todos" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "my-todos"} onClick={() => { setWorkspace("my-todos"); setIsArranging(false); }}>
-          <ClipboardList className="mr-1.5 h-4 w-4" /> My To-Dos
+          <ClipboardList className="mr-1.5 h-4 w-4" /> Assigned to Me
         </Button>
         {canViewWorkload ? <Button className="min-w-0 whitespace-normal" type="button" size="sm" variant={workspace === "workload" ? "secondary" : "ghost"} role="tab" aria-selected={workspace === "workload"} onClick={() => { setWorkspace("workload"); setIsArranging(false); }}>
           <User className="mr-1.5 h-4 w-4" /> Workload
