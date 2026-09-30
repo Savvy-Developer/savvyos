@@ -185,6 +185,11 @@ describe("project todo section UI", () => {
     expect(projectDetailPage).toContain("function startEditing()");
   });
 
+  it("shows a sub-To-Do draft beneath its selected parent", () => {
+    expect(projectDetailPage).toMatch(/subTodoDraft=\{\s*showAddTask && parentTodo\?\.id === task\.id \? renderTodoForm\(\) : null\s*\}/);
+    expect(projectDetailPage).toContain("{showAddTask && !parentTodo ? renderTodoForm() : null}");
+    expect(projectDetailPage).toContain("{hasSubtodoContent && (subtasksExpanded || subTodoDraft) ?");
+  });
   it("reveals the one authoritative title in the expanded Project to-do area", () => {
     expect(projectDetailPage).toContain('aria-label="Full To-Do title"');
     expect(projectDetailPage).toContain('"whitespace-pre-wrap break-words text-sm font-medium"');

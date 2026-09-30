@@ -174,6 +174,7 @@ function TaskItem({
   onSetDependencies,
   dependenciesPending,
   completionPending = false,
+  subTodoDraft,
   children,
 }: {
   task: any;
@@ -199,6 +200,7 @@ function TaskItem({
   onSetDependencies?: (id: number, predecessorTaskIds: number[]) => void;
   dependenciesPending?: boolean;
   completionPending?: boolean;
+  subTodoDraft?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -214,6 +216,10 @@ function TaskItem({
   const [pendingCompletionUpdate, setPendingCompletionUpdate] = useState<Record<string, unknown> | null>(null);
   const subTodoCount = Children.count(children);
   const hasSubtodos = subTodoCount > 0;
+  const hasSubtodoContent = hasSubtodos || Boolean(subTodoDraft);
+  useEffect(() => {
+    if (subTodoDraft) setSubtasksExpanded(true);
+  }, [subTodoDraft]);
   function taskEditForm() {
     return {
       title: task.title,
@@ -444,7 +450,7 @@ function TaskItem({
       {!editing ? <section className="mt-2 rounded-md border bg-background p-2 sm:p-2.5"><h4 className="text-sm font-semibold">Details</h4>{task.notes ? <ProjectTodoDetailsContent value={task.notes} className="mt-1 text-foreground" /> : <p className="mt-1 text-sm text-muted-foreground">No details added.</p>}</section> : null}
       {!editing && projectId ? <div className="mt-2"><ProjectTodoAttachments projectId={projectId} taskId={task.id} onChanged={onChanged} /></div> : null}
       {!editing && task.predecessors?.length ? <section className="mt-2 rounded-md border border-primary/20 bg-primary/[0.025] p-2 sm:p-2.5"><h4 className="flex items-center gap-1.5 text-sm font-semibold"><GitBranch className="h-4 w-4 text-primary" />Blocked by</h4><div className="mt-1.5 flex flex-wrap gap-1.5">{task.predecessors.map((predecessor: any) => <span key={predecessor.id} className="rounded-full border border-primary/20 bg-background px-2 py-1 text-xs font-medium text-primary">{predecessor.title}</span>)}</div></section> : null}
-      {hasSubtodos && subtasksExpanded ? <section className="mt-2 ml-2 border-l-4 border-primary/30 pl-3"><div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-primary"><CornerDownRight className="h-3.5 w-3.5" strokeWidth={2.75} />Sub-To-Dos</div><div className="space-y-1.5">{children}</div></section> : null}
+      {hasSubtodoContent && (subtasksExpanded || subTodoDraft) ? <section className="mt-2 ml-2 border-l-4 border-primary/30 pl-3"><div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-primary"><CornerDownRight className="h-3.5 w-3.5" strokeWidth={2.75} />Sub-To-Dos</div><div className="space-y-1.5">{children}{subTodoDraft}</div></section> : null}
       <section id={`todo-${task.id}-comments`} className="mt-2 overflow-hidden rounded-md border bg-background">
         <button type="button" className="flex w-full items-center justify-between gap-2 px-2 py-2 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => setCommentsExpanded(current => !current)} aria-expanded={commentsExpanded}>
           <span className="flex items-center gap-1.5 text-sm font-semibold"><MessageCircle className="h-4 w-4 text-primary" />Comments<span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">{commentCount}</span></span>
@@ -849,8 +855,96 @@ export default function ProjectDetailPage({
     setShowAddTask(true);
   }
 
+  function renderTodoForm() {
+    return (
+            <form onSubmit={handleAddTask} className="bg-card border border-primary/30 rounded-lg p-4 space-y-3">
+              {parentTodo && <div className="rounded-md bg-primary/5 px-3 py-2 text-xs text-primary">Adding a sub-todo under <strong>{parentTodo.title}</strong>. It will stay in the same section as its parent.</div>}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <Label className="text-xs">Todo Title *</Label>
+                  <Input
+                    value={taskForm.title}
+                    onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))}
+                    placeholder="What needs to be done?"
+                    autoFocus
+                  />
+                </div>
+                {!parentTodo && todoSections.length > 0 && <div>
+                  <Label className="text-xs">Section (optional)</Label>
+                  <Select value={taskForm.sectionId} onValueChange={value => setTaskForm(form => ({ ...form, sectionId: value }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_SECTION_VALUE}>No section</SelectItem>
+                      {(todoSections as any[]).map((section: any) => <SelectItem key={section.id} value={String(section.id)}>{section.title}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>}
+                <div>
+                  <Label className="text-xs">Owner *</Label>
+                  <SearchableSelect
+                    className="w-full"
+                    options={(adminUsers as any[]).map((u: any) => ({ value: String(u.id), label: u.name ?? `User #${u.id}` }))}
+                    value={taskForm.ownerId}
+                    onValueChange={v => setTaskForm(f => ({ ...f, ownerId: v }))}
+                    placeholder="Assign to…"
+                    searchPlaceholder="Search users…"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Start Date</Label>
+                  <Input type="date" value={taskForm.startDate} onChange={e => setTaskForm(f => ({ ...f, startDate: e.target.value }))} />
+                </div>
+                <div>
+                  <Label className="text-xs">Due Date (optional)</Label>
+                  <Input type="date" value={taskForm.dueDate} onChange={e => setTaskForm(f => ({ ...f, dueDate: e.target.value }))} />
+                </div>
+                <div>
+                  <Label className="text-xs">Repeats</Label>
+                  <Select value={taskForm.recurrence} onValueChange={v => setTaskForm(f => ({ ...f, recurrence: v as Recurrence }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{Object.entries(RECURRENCE_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Priority</Label>
+                  <Select value={taskForm.priority} onValueChange={v => setTaskForm(f => ({ ...f, priority: v as Priority }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="low">Low</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Details (optional)</Label>
+                <div className="mt-1">
+                  <ProjectTodoDetailsEditor
+                    value={taskForm.notes}
+                    onChange={notes => setTaskForm(form => ({ ...form, notes }))}
+                  />
+                </div>
+              </div>
+              <ProjectTodoAttachments
+                projectId={projectId}
+                pendingUploads={taskAttachmentUploads}
+                onPendingUploadsChange={setTaskAttachmentUploads}
+              />
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" disabled={createTask.isPending}>
+                  {createTask.isPending ? "Adding..." : parentTodo ? "Add Sub-todo" : "Add Todo"}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { discardPendingTaskAttachments(); setShowAddTask(false); setParentTodo(null); }}>Cancel</Button>
+              </div>
+            </form>
+    );
+  }
+
   function renderTodo(task: any, dragHandle?: any) {
-    return <TaskItem key={task.id} task={task} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} onToggle={(id, completed, completionNote) => toggleTask.mutate({ id, completed, completionNote })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} dragHandle={dragHandle} highlightedCommentId={highlightedTodoId === task.id ? highlightedCommentId : null} onAddSubtask={parent => openAddTodo(parent.sectionId ?? null, parent)} onMoveSection={(id, sectionId) => updateTask.mutate({ id, sectionId })} moveSectionPending={updateTask.isPending} completionPending={toggleTask.isPending || updateTask.isPending} projectId={projectId} projectTitle={project?.title} moveProjects={moveProjects as any[]} onMoveProject={(id, destinationProjectId) => moveTaskToProject.mutate({ id, destinationProjectId })} moveProjectPending={moveTaskToProject.isPending} projectTasks={tasks as any[]} onSetDependencies={(id, predecessorTaskIds) => setTaskDependencies.mutate({ taskId: id, predecessorTaskIds })} dependenciesPending={setTaskDependencies.isPending}>
+    return <TaskItem key={task.id} task={task} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} onToggle={(id, completed, completionNote) => toggleTask.mutate({ id, completed, completionNote })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} dragHandle={dragHandle} highlightedCommentId={highlightedTodoId === task.id ? highlightedCommentId : null} onAddSubtask={parent => openAddTodo(parent.sectionId ?? null, parent)} onMoveSection={(id, sectionId) => updateTask.mutate({ id, sectionId })} moveSectionPending={updateTask.isPending} completionPending={toggleTask.isPending || updateTask.isPending} projectId={projectId} projectTitle={project?.title} moveProjects={moveProjects as any[]} onMoveProject={(id, destinationProjectId) => moveTaskToProject.mutate({ id, destinationProjectId })} moveProjectPending={moveTaskToProject.isPending} projectTasks={tasks as any[]} onSetDependencies={(id, predecessorTaskIds) => setTaskDependencies.mutate({ taskId: id, predecessorTaskIds })} dependenciesPending={setTaskDependencies.isPending}
+      subTodoDraft={showAddTask && parentTodo?.id === task.id ? renderTodoForm() : null}
+    >
       {(subTodosByParent.get(task.id) ?? []).map(subTodo => <TaskItem key={subTodo.id} task={subTodo} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed, completionNote) => toggleTask.mutate({ id, completed, completionNote })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} completionPending={toggleTask.isPending || updateTask.isPending} projectId={projectId} projectTitle={project?.title} projectTasks={tasks as any[]} onSetDependencies={(id, predecessorTaskIds) => setTaskDependencies.mutate({ taskId: id, predecessorTaskIds })} dependenciesPending={setTaskDependencies.isPending} />)}
     </TaskItem>;
   }
@@ -1170,89 +1264,7 @@ export default function ProjectDetailPage({
           )}
 
           {/* Add todo form */}
-          {showAddTask && (
-            <form onSubmit={handleAddTask} className="bg-card border border-primary/30 rounded-lg p-4 space-y-3">
-              {parentTodo && <div className="rounded-md bg-primary/5 px-3 py-2 text-xs text-primary">Adding a sub-todo under <strong>{parentTodo.title}</strong>. It will stay in the same section as its parent.</div>}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="sm:col-span-2 lg:col-span-3">
-                  <Label className="text-xs">Todo Title *</Label>
-                  <Input
-                    value={taskForm.title}
-                    onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))}
-                    placeholder="What needs to be done?"
-                    autoFocus
-                  />
-                </div>
-                {!parentTodo && todoSections.length > 0 && <div>
-                  <Label className="text-xs">Section (optional)</Label>
-                  <Select value={taskForm.sectionId} onValueChange={value => setTaskForm(form => ({ ...form, sectionId: value }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NO_SECTION_VALUE}>No section</SelectItem>
-                      {(todoSections as any[]).map((section: any) => <SelectItem key={section.id} value={String(section.id)}>{section.title}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>}
-                <div>
-                  <Label className="text-xs">Owner *</Label>
-                  <SearchableSelect
-                    className="w-full"
-                    options={(adminUsers as any[]).map((u: any) => ({ value: String(u.id), label: u.name ?? `User #${u.id}` }))}
-                    value={taskForm.ownerId}
-                    onValueChange={v => setTaskForm(f => ({ ...f, ownerId: v }))}
-                    placeholder="Assign to…"
-                    searchPlaceholder="Search users…"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Start Date</Label>
-                  <Input type="date" value={taskForm.startDate} onChange={e => setTaskForm(f => ({ ...f, startDate: e.target.value }))} />
-                </div>
-                <div>
-                  <Label className="text-xs">Due Date (optional)</Label>
-                  <Input type="date" value={taskForm.dueDate} onChange={e => setTaskForm(f => ({ ...f, dueDate: e.target.value }))} />
-                </div>
-                <div>
-                  <Label className="text-xs">Repeats</Label>
-                  <Select value={taskForm.recurrence} onValueChange={v => setTaskForm(f => ({ ...f, recurrence: v as Recurrence }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{Object.entries(RECURRENCE_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs">Priority</Label>
-                  <Select value={taskForm.priority} onValueChange={v => setTaskForm(f => ({ ...f, priority: v as Priority }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="low">Low</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div>
-                <Label className="text-xs">Details (optional)</Label>
-                <div className="mt-1">
-                  <ProjectTodoDetailsEditor
-                    value={taskForm.notes}
-                    onChange={notes => setTaskForm(form => ({ ...form, notes }))}
-                  />
-                </div>
-              </div>
-              <ProjectTodoAttachments
-                projectId={projectId}
-                pendingUploads={taskAttachmentUploads}
-                onPendingUploadsChange={setTaskAttachmentUploads}
-              />
-              <div className="flex gap-2">
-                <Button type="submit" size="sm" disabled={createTask.isPending}>
-                  {createTask.isPending ? "Adding..." : parentTodo ? "Add Sub-todo" : "Add Todo"}
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => { discardPendingTaskAttachments(); setShowAddTask(false); setParentTodo(null); }}>Cancel</Button>
-              </div>
-            </form>
-          )}
+          {showAddTask && !parentTodo ? renderTodoForm() : null}
 
           {tasks.length === 0 && todoSections.length === 0 && !showAddTask ? (
             <div className="text-center py-10 text-muted-foreground">
