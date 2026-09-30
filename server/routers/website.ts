@@ -63,6 +63,7 @@ import {
   zipInMarket,
 } from "../publicMarketDirectory";
 import { publishedTestimonials } from "@shared/websiteTestimonials";
+import { readLinkForwarding, saveLinkForwarding } from "../websiteLinkForwarding";
 import { normalizeTeamMember, publishedTeam } from "@shared/websiteTeam";
 import { SELLER_LEAD_TAG } from "@shared/websiteSellerLead";
 import { missingForPublish, publishBlockedMessage } from "@shared/websitePublishChecklist";
@@ -3665,6 +3666,51 @@ export const websiteRouter = router({
     .mutation(async ({ input, ctx }) => {
       await requireWebsitePermission(ctx, "canManageWebsiteSettings");
       return sendPriceDropTest(input.recipients);
+    }),
+
+  /**
+   * Forwarding for links to home.savvy-agents.com/newsite once the site
+   * moves (Website Studio > CMS). Off until switched on; switching on is
+   * refused unless the new address already serves the site.
+   */
+  linkForwarding: protectedProcedure.query(async ({ ctx }) => {
+    await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    try {
+      return { ...(await readLinkForwarding(db)), ready: true as const };
+    } catch {
+      // Table not created yet (first start after this release on a non-production box).
+      return { enabled: false, targetOrigin: null, keepBasePath: false, ready: false as const };
+    }
+  }),
+
+  saveLinkForwarding: protectedProcedure
+    .input(
+      z.object({
+        enabled: z.boolean(),
+        targetOrigin: z.string().max(255).nullable(),
+        keepBasePath: z.boolean(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      let saved: Awaited<ReturnType<typeof saveLinkForwarding>>;
+      try {
+        saved = await saveLinkForwarding(db, input, ctx.user.id);
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not save." });
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: "website_link_forwarding_saved",
+        entityType: "website",
+        entityId: null,
+        details: saved,
+      }).catch(() => undefined);
+      return saved;
     }),
 
   /**

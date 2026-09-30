@@ -29,6 +29,7 @@ import { ContentViewsPanel } from "@/components/website/ContentViewsPanel";
 import { AgentProfilesPanel } from "@/components/website/AgentProfilesPanel";
 import { DailyEmailPanel } from "@/components/website/DailyEmailPanel";
 import { MoveOldImagesCard } from "@/components/website/MoveOldImagesCard";
+import { LinkForwardingCard } from "@/components/website/LinkForwardingCard";
 import { TeamMembersPanel } from "@/components/website/TeamMembersPanel";
 import { ContentEditor } from "@/components/website/ContentEditor";
 import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
@@ -651,6 +652,7 @@ export default function WebsitePage() {
         <div className="space-y-6">
           <CmsPagesEditor />
           <MoveOldImagesCard />
+          {can("canManageWebsiteSettings") && <LinkForwardingCard />}
           <SettingsEditor settings={data?.settings} />
         </div>
       )}
