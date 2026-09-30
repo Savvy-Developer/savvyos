@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import type { MlsFeed, MlsSource } from "../../drizzle/mlsSchema";
-import { mlsGridAdapter } from "./adapters/mlsGrid";
+import { MLS_GRID_LIMITS, mlsGridAdapter } from "./adapters/mlsGrid";
+import type { ProviderLimits } from "./adapters/types";
+import { ProviderLane, wireBytes } from "./http";
 import { sparkAdapter } from "./adapters/spark";
 import { keysetFilter, trestleAdapter } from "./adapters/trestle";
 import { buildComplianceProfile, feedFreshness, fillComplianceTemplate } from "./compliance";
@@ -377,5 +379,76 @@ describe("MLS schema status", () => {
     expect(summarize({ tables: 0, permissionColumns: 2, sources: 0 }, now).status).toBe("incomplete");
     expect(summarize({ tables: full.tables.expected, permissionColumns: 1, sources: full.sources.expected }, now).status).toBe("incomplete");
     expect(Object.keys(full).sort()).toEqual(["checkedAt", "permissionColumns", "sources", "status", "tables"]);
+  });
+});
+
+describe("MLS Grid token budget", () => {
+  const gridFeed = (options: Record<string, unknown> | null) => ({ ...feed, options }) as unknown as MlsFeed;
+  // Leave room for the 1 ms spacing between requests in these tiny test budgets.
+  const soon = () => Date.now() + 50;
+  const tiny = (): ProviderLimits => ({
+    requestsPerSecond: 1000,
+    requestsPerHour: 4,
+    requestsPerDay: 100,
+    requestsPerFiveMinutes: null,
+    mediaBytesPerHour: null,
+    mediaRequestsPerHour: null,
+    mediaConcurrency: 1,
+    sequentialOnly: true,
+    tokenBudget: { bytesPerHour: 1000, bytesPerDay: 5000, mediaShare: 0.5 },
+  });
+
+  it("stays under every MLS Grid warning and published limit, even if a feed asks for more", () => {
+    const { warning, published } = MLS_GRID_LIMITS;
+    for (const options of [null, { rateSafety: 10, mediaShare: 5, mediaConcurrency: 50 }, { rateSafety: "fast" }]) {
+      const limits = mlsGridAdapter.limits(gridFeed(options));
+      expect(limits.requestsPerSecond).toBeLessThan(Math.min(warning.requestsPerSecond, published.requestsPerSecond));
+      expect(limits.requestsPerHour!).toBeLessThan(warning.requestsPerHour);
+      expect(limits.requestsPerDay!).toBeLessThan(warning.requestsPerDay);
+      expect(limits.tokenBudget!.bytesPerHour).toBeLessThan(Math.min(warning.bytesPerHour, published.bytesPerHour));
+      expect(limits.tokenBudget!.bytesPerDay).toBeLessThan(warning.bytesPerDay);
+      expect(limits.tokenBudget!.mediaShare).toBeLessThanOrEqual(0.9);
+      expect(limits.mediaConcurrency).toBeLessThanOrEqual(4);
+    }
+    const defaults = mlsGridAdapter.limits(gridFeed(null));
+    expect([defaults.requestsPerHour, defaults.requestsPerDay]).toEqual([5760, 32000]);
+  });
+
+  it("counts photo downloads against the same request budget as API pages", async () => {
+    const lane = new ProviderLane("mls_grid:T1", "mls_grid", "T1", tiny());
+    await lane.media.acquire();
+    await lane.media.acquire();
+    expect(lane.media.nextWaitMs(soon())).toBeGreaterThan(0); // photos used their half
+    expect(lane.api.nextWaitMs(soon())).toBe(0); // replication still has room
+    await lane.api.acquire();
+    await lane.api.acquire();
+    expect(lane.api.nextWaitMs(soon())).toBeGreaterThan(30 * 60_000); // 2 photos + 2 pages = the token's 4/hour
+  });
+
+  it("counts API page bytes and photo bytes in one hourly byte cap", () => {
+    const lane = new ProviderLane("mls_grid:T2", "mls_grid", "T2", tiny());
+    lane.countApi(600);
+    expect(lane.api.nextWaitMs(soon())).toBe(0);
+    lane.countMedia(500);
+    expect(lane.api.nextWaitMs(soon())).toBeGreaterThan(30 * 60_000);
+    expect(lane.media.nextWaitMs(soon())).toBeGreaterThan(30 * 60_000);
+  });
+
+  it("honors usage recorded before a restart, and lets day-old usage age out", () => {
+    const recent = new ProviderLane("mls_grid:T3", "mls_grid", "T3", tiny());
+    recent.api.seed(Date.now() - 10 * 60_000, 4, 0);
+    expect(recent.api.nextWaitMs(soon())).toBeGreaterThan(40 * 60_000);
+    const old = new ProviderLane("mls_grid:T4", "mls_grid", "T4", tiny());
+    old.api.seed(Date.now() - 25 * 3_600_000, 1000, 100_000);
+    expect(old.api.nextWaitMs(soon())).toBe(0);
+  });
+
+  it("meters bytes on the wire, not decoded characters", () => {
+    expect(wireBytes({ headers: new Headers({ "content-length": "1234" }) }, "x".repeat(9999))).toBe(1234);
+    expect(wireBytes({ headers: new Headers() }, "h\u00e9llo")).toBe(6);
+  });
+
+  it("keeps separate media metering for providers that meter it separately", () => {
+    expect(trestleAdapter.limits({ ...feed, provider: "trestle" } as unknown as MlsFeed).tokenBudget ?? null).toBeNull();
   });
 });

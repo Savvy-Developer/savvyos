@@ -43,6 +43,12 @@ export type ProviderLimits = {
   mediaConcurrency: number;
   /** Replication must be strictly sequential per credential (MLS Grid). */
   sequentialOnly: boolean;
+  /**
+   * The provider meters the token as a whole (MLS Grid): photo downloads count
+   * toward the same request limits above and these byte caps, and media alone
+   * may use at most `mediaShare` of the budget so replication keeps room.
+   */
+  tokenBudget?: { bytesPerHour: number; bytesPerDay: number; mediaShare: number } | null;
 };
 
 export type ProviderCapabilities = {
