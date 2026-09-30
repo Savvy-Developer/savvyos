@@ -380,7 +380,7 @@ function ProjectTodoWorkspace({
           <SelectTrigger
             aria-label="Project To-Do status"
             className={cn(
-              "h-7 w-[7.8rem] px-2 text-xs",
+              "h-7 w-[7rem] shrink-0 px-2 text-xs",
               statusConfig[status].className
             )}
           >
@@ -406,7 +406,7 @@ function ProjectTodoWorkspace({
             });
           }}
           disabled={update.isPending}
-          className="h-7 w-[8.25rem] bg-background px-1.5 text-xs"
+          className="h-7 w-[7.75rem] shrink-0 bg-background px-1.5 text-xs"
         />
         <Select
           value={(todo.priority as ProjectPriority) ?? "medium"}
@@ -417,7 +417,7 @@ function ProjectTodoWorkspace({
         >
           <SelectTrigger
             aria-label="Project To-Do priority"
-            className="h-7 w-[6.25rem] px-2 text-xs"
+            className="h-7 w-[5.5rem] shrink-0 px-2 text-xs"
           >
             <SelectValue />
           </SelectTrigger>
@@ -434,7 +434,7 @@ function ProjectTodoWorkspace({
         >
           <SelectTrigger
             aria-label="Project To-Do assignee"
-            className="h-7 w-[8.25rem] bg-background px-2 text-xs"
+            className="h-7 w-[7rem] shrink-0 bg-background px-2 text-xs"
           >
             <SelectValue placeholder="Assignee" />
           </SelectTrigger>

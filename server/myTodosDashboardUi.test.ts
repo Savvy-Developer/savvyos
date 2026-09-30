@@ -47,6 +47,13 @@ describe("actionable My To-Dos dashboard", () => {
     expect(dashboard).toContain("Comments");
   });
 
+  it("uses narrower non-shrinking controls to preserve room for Project to-do titles", () => {
+    expect(dashboard).toContain("w-[7rem] shrink-0");
+    expect(dashboard).toContain("w-[7.75rem] shrink-0");
+    expect(dashboard).toContain("w-[5.5rem] shrink-0");
+    expect(dashboard).not.toContain('className="h-7 w-[8.25rem] bg-background px-2 text-xs"');
+  });
+
   it("keeps all source views fresh after a dashboard update", () => {
     expect(dashboard).toContain("refetchInterval: 1500");
     expect(dashboard).toContain("utils.pm.projects.invalidate()");

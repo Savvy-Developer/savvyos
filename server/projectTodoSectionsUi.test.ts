@@ -159,6 +159,13 @@ describe("project todo section UI", () => {
     expect(projectRouter).toContain("completionUpdate");
   });
 
+  it("keeps Project to-do metadata compact without letting controls shrink into their labels", () => {
+    expect(projectDetailPage).toContain("w-[7rem] shrink-0");
+    expect(projectDetailPage).toContain("w-[7.75rem] shrink-0");
+    expect(projectDetailPage).toContain("w-[5.5rem] shrink-0");
+    expect(projectDetailPage).not.toContain("w-[8.5rem] bg-background px-2 text-xs");
+  });
+
   it("uses one expanded todo card as the direct edit surface", () => {
     expect(projectDetailPage).toContain('{editing ? <Input aria-label="To-Do title"');
     expect(projectDetailPage).toContain('{editing ? (\n        <div className="mt-2 rounded-md border bg-muted/20 p-2">');
