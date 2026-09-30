@@ -377,6 +377,7 @@ function TaskItem({
       <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button>{editing ? null : <ProjectQuickWorkControls task={task} adminUsers={adminUsers} onUpdate={(_id, data) => requestStatusUpdate(data)} />}
     </div>
     {expanded ? <div className="border-t border-primary/20 bg-primary/[0.025] p-2">
+      {!editing ? <p aria-label="Full To-Do title" className={cn("whitespace-pre-wrap break-words text-sm font-medium", task.completed && "text-muted-foreground line-through")}>{task.title}</p> : null}
       {editing ? (
         <div className="mt-2 rounded-md border bg-muted/20 p-2">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">

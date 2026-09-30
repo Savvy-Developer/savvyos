@@ -453,6 +453,17 @@ function ProjectTodoWorkspace({
               ) : null}
             </div>
           </div>
+          {!editing ? (
+            <p
+              aria-label="Full To-Do title"
+              className={cn(
+                "mt-2 whitespace-pre-wrap break-words text-sm font-medium",
+                status === "completed" && "text-muted-foreground line-through"
+              )}
+            >
+              {todo.title}
+            </p>
+          ) : null}
           <section className="mt-2 rounded border bg-background px-2 py-1.5">
             <p className="text-xs font-semibold">Details</p>
             {todo.notes ? (

@@ -185,6 +185,12 @@ describe("project todo section UI", () => {
     expect(projectDetailPage).toContain("function startEditing()");
   });
 
+  it("reveals the one authoritative title in the expanded Project to-do area", () => {
+    expect(projectDetailPage).toContain('aria-label="Full To-Do title"');
+    expect(projectDetailPage).toContain('"whitespace-pre-wrap break-words text-sm font-medium"');
+    expect(projectDetailPage).toContain("{task.title}</p> : null}");
+  });
+
   it("makes the production schema ready before serving the new workflow", () => {
     expect(serverEntry).toContain("ensureProjectTodoWorkflowSchema");
     expect(serverEntry).toContain("await ensureProjectTodoWorkflowSchema()");

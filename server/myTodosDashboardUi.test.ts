@@ -60,6 +60,12 @@ describe("actionable My To-Dos dashboard", () => {
     expect(dueDateControl).not.toContain('type="date"');
   });
 
+  it("reveals the existing title in an expanded Project to-do without another row", () => {
+    expect(dashboard).toContain('aria-label="Full To-Do title"');
+    expect(dashboard).toContain('"mt-2 whitespace-pre-wrap break-words text-sm font-medium"');
+    expect(dashboard).toContain("{todo.title}");
+  });
+
   it("keeps all source views fresh after a dashboard update", () => {
     expect(dashboard).toContain("refetchInterval: 1500");
     expect(dashboard).toContain("utils.pm.projects.invalidate()");
