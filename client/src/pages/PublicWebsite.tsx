@@ -503,6 +503,16 @@ function LeadForm({
     message,
     website: "",
   });
+  // The property page reuses one form for Message Agent, Book a Showing,
+  // Deeper Analysis and Financing. Switching between them swaps in the new
+  // starting message, unless the visitor has already written their own.
+  const startingMessage = useRef(message);
+  useEffect(() => {
+    if (startingMessage.current === message) return;
+    const previous = startingMessage.current;
+    startingMessage.current = message;
+    setForm(prior => (prior.message === previous || !prior.message.trim() ? { ...prior, message } : prior));
+  }, [message]);
   const submit = trpc.website.submitLead.useMutation({
     onSuccess: () => {
       trackWebsiteEvent({ event: "website_lead_submitted", intent: intent ?? "general", requestType });
@@ -1177,6 +1187,7 @@ function PropertiesPage() {
                 </div>
               </div>
               <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+
                 <button
                   type="button"
                   onClick={() => setShowMore(value => !value)}
