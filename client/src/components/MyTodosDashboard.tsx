@@ -30,6 +30,11 @@ import ProjectTodoMoveProjectDialog, {
 } from "@/components/ProjectTodoMoveProjectDialog";
 import { ProjectTodoDueDateControl } from "@/components/ProjectTodoDueDateControl";
 import ProjectTodoCompletionDialog from "@/components/ProjectTodoCompletionDialog";
+import ProjectTodoAttachments from "@/components/ProjectTodoAttachments";
+import {
+  ProjectTodoDetailsContent,
+  ProjectTodoDetailsEditor,
+} from "@/components/ProjectTodoDetails";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -542,13 +547,22 @@ function ProjectTodoWorkspace({
           <section className="mt-2 rounded border bg-background px-2 py-1.5">
             <p className="text-xs font-semibold">Details</p>
             {todo.notes ? (
-              <p className="mt-1 whitespace-pre-wrap text-sm">{todo.notes}</p>
+              <ProjectTodoDetailsContent value={todo.notes} className="mt-1" />
             ) : (
               <p className="mt-1 text-sm text-muted-foreground">
                 No details added.
               </p>
             )}
           </section>
+          {todo.projectId ? (
+            <div className="mt-2">
+              <ProjectTodoAttachments
+                projectId={todo.projectId}
+                taskId={taskId}
+                onChanged={onChanged}
+              />
+            </div>
+          ) : null}
           {editing ? (
             <section className="mt-2 rounded border bg-background p-2">
               <div className="flex items-center justify-between gap-2">
@@ -692,17 +706,17 @@ function ProjectTodoWorkspace({
               </div>
               <div className="mt-2">
                 <Label className="text-xs">Details</Label>
-                <Textarea
-                  className="mt-1 min-h-16 text-sm"
-                  rows={2}
-                  value={form.notes}
-                  onChange={event =>
-                    setForm(current => ({
-                      ...current,
-                      notes: event.target.value,
-                    }))
-                  }
-                />
+                <div className="mt-1">
+                  <ProjectTodoDetailsEditor
+                    value={form.notes}
+                    onChange={notes =>
+                      setForm(current => ({
+                        ...current,
+                        notes,
+                      }))
+                    }
+                  />
+                </div>
               </div>
               <div className="mt-2 flex justify-end">
                 <Button

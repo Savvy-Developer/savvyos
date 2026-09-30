@@ -5465,6 +5465,45 @@ export const pmTaskDependencies = mysqlTable(
 );
 export type PmTaskDependency = typeof pmTaskDependencies.$inferSelect;
 
+/**
+ * Project-only document metadata. New uploads are staged with a null taskId
+ * until the Project To-Do save mutation attaches them atomically.
+ */
+export const pmTaskAttachments = mysqlTable(
+  "pm_task_attachments",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    projectId: int("projectId")
+      .notNull()
+      .references(() => pmProjects.id, { onDelete: "cascade" }),
+    taskId: int("taskId").references(() => pmTasks.id, {
+      onDelete: "cascade",
+    }),
+    fileName: varchar("fileName", { length: 500 }).notNull(),
+    fileKey: varchar("fileKey", { length: 1024 }).notNull(),
+    mimeType: varchar("mimeType", { length: 128 }),
+    fileSize: bigint("fileSize", { mode: "number" }),
+    uploadedById: int("uploadedById")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    deletedAt: timestamp("deletedAt"),
+  },
+  table => [
+    index("pm_task_attachments_task_idx").on(table.taskId, table.deletedAt),
+    index("pm_task_attachments_project_stage_idx").on(
+      table.projectId,
+      table.taskId,
+      table.deletedAt
+    ),
+    index("pm_task_attachments_uploader_idx").on(
+      table.uploadedById,
+      table.createdAt
+    ),
+  ]
+);
+export type PmTaskAttachment = typeof pmTaskAttachments.$inferSelect;
+
 // Personal todos live outside of a project. Recurring items roll their due date
 // forward when completed so users keep one current, actionable record.
 export const pmPersonalTodos = mysqlTable(

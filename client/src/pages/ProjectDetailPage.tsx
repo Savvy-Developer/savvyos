@@ -34,6 +34,13 @@ import ProjectTodoCompletionDialog from "@/components/ProjectTodoCompletionDialo
 import { ProjectTodoDueDateControl } from "@/components/ProjectTodoDueDateControl";
 import ProjectTodoMoveProjectDialog from "@/components/ProjectTodoMoveProjectDialog";
 import ProjectTodoDependencyDialog from "@/components/ProjectTodoDependencyDialog";
+import ProjectTodoAttachments, {
+  type ProjectTodoAttachmentUpload,
+} from "@/components/ProjectTodoAttachments";
+import {
+  ProjectTodoDetailsContent,
+  ProjectTodoDetailsEditor,
+} from "@/components/ProjectTodoDetails";
 import ProjectWeeklyUpdateForm from "@/components/ProjectWeeklyUpdateForm";
 import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelector";
 import { currentProjectRockQuarter, ProjectRockQuarterSelect } from "@/components/ProjectRockQuarterSelect";
@@ -103,6 +110,8 @@ const ACTION_LABELS: Record<string, string> = {
   task_deleted: "deleted a task",
   task_moved: "moved a task",
   task_dependencies_updated: "updated task dependencies",
+  task_attachment_added: "added a document",
+  task_attachment_removed: "removed a document",
   section_created: "created a todo section",
   section_updated: "renamed a todo section",
   section_moved: "reordered a todo section",
@@ -417,7 +426,14 @@ function TaskItem({
           </div>
           <div className="mt-2">
             <Label className="text-xs">Details</Label>
-            <Textarea value={editForm.notes} onChange={event => setEditForm((form) => ({ ...form, notes: event.target.value }))} rows={2} className="mt-1 text-sm" />
+            <div className="mt-1">
+              <ProjectTodoDetailsEditor
+                value={editForm.notes}
+                onChange={notes =>
+                  setEditForm(form => ({ ...form, notes }))
+                }
+              />
+            </div>
           </div>
           <div className="mt-2 flex justify-end gap-1.5">
             <Button type="button" size="sm" className="h-8" onClick={handleSaveEdit}><Save className="mr-1.5 h-3.5 w-3.5" />Save</Button>
@@ -425,7 +441,8 @@ function TaskItem({
           </div>
         </div>
       ) : null}
-      {!editing ? <section className="mt-2 rounded-md border bg-background p-2 sm:p-2.5"><h4 className="text-sm font-semibold">Details</h4>{task.notes ? <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{task.notes}</p> : <p className="mt-1 text-sm text-muted-foreground">No details added.</p>}</section> : null}
+      {!editing ? <section className="mt-2 rounded-md border bg-background p-2 sm:p-2.5"><h4 className="text-sm font-semibold">Details</h4>{task.notes ? <ProjectTodoDetailsContent value={task.notes} className="mt-1 text-foreground" /> : <p className="mt-1 text-sm text-muted-foreground">No details added.</p>}</section> : null}
+      {!editing && projectId ? <div className="mt-2"><ProjectTodoAttachments projectId={projectId} taskId={task.id} onChanged={onChanged} /></div> : null}
       {!editing && task.predecessors?.length ? <section className="mt-2 rounded-md border border-primary/20 bg-primary/[0.025] p-2 sm:p-2.5"><h4 className="flex items-center gap-1.5 text-sm font-semibold"><GitBranch className="h-4 w-4 text-primary" />Blocked by</h4><div className="mt-1.5 flex flex-wrap gap-1.5">{task.predecessors.map((predecessor: any) => <span key={predecessor.id} className="rounded-full border border-primary/20 bg-background px-2 py-1 text-xs font-medium text-primary">{predecessor.title}</span>)}</div></section> : null}
       {hasSubtodos && subtasksExpanded ? <section className="mt-2 ml-2 border-l-4 border-primary/30 pl-3"><div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-primary"><CornerDownRight className="h-3.5 w-3.5" strokeWidth={2.75} />Sub-To-Dos</div><div className="space-y-1.5">{children}</div></section> : null}
       <section id={`todo-${task.id}-comments`} className="mt-2 overflow-hidden rounded-md border bg-background">
@@ -481,6 +498,7 @@ export default function ProjectDetailPage({
   const [sectionDueDate, setSectionDueDate] = useState("");
   const [parentTodo, setParentTodo] = useState<any>(null);
   const [taskForm, setTaskForm] = useState({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", startDate: "", dueDate: "", recurrence: "none" as Recurrence, priority: "medium" as Priority, notes: "" });
+  const [taskAttachmentUploads, setTaskAttachmentUploads] = useState<ProjectTodoAttachmentUpload[]>([]);
   const [editingProject, setEditingProject] = useState(false);
   const [editForm, setEditForm] = useState<any>(null);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -501,9 +519,20 @@ export default function ProjectDetailPage({
   const [selectedMentions, setSelectedMentions] = useState<{ id: number; name: string }[]>([]);
 
   const createTask = trpc.pm.tasks.create.useMutation({
-    onSuccess: () => { toast.success(parentTodo ? "Sub-todo added" : "Todo added"); refetch(); setShowAddTask(false); setParentTodo(null); setTaskForm({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", startDate: "", dueDate: "", recurrence: "none", priority: "medium", notes: "" }); },
+    onSuccess: () => { toast.success(parentTodo ? "Sub-todo added" : "Todo added"); refetch(); setShowAddTask(false); setParentTodo(null); setTaskAttachmentUploads([]); setTaskForm({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", startDate: "", dueDate: "", recurrence: "none", priority: "medium", notes: "" }); },
     onError: (e) => toast.error(e.message),
   });
+  const discardTaskAttachmentUpload = trpc.pm.tasks.discardAttachmentUpload.useMutation({
+    onError: error => toast.error(error.message),
+  });
+
+  function discardPendingTaskAttachments() {
+    const uploads = taskAttachmentUploads;
+    setTaskAttachmentUploads([]);
+    for (const attachment of uploads) {
+      discardTaskAttachmentUpload.mutate({ attachmentId: attachment.id });
+    }
+  }
 
   const createSection = trpc.pm.sections.create.useMutation({
     onSuccess: () => { toast.success("Section added"); refetch(); setShowAddSection(false); setSectionTitle(""); setSectionDescription(""); setSectionDueDate(""); },
@@ -749,6 +778,7 @@ export default function ProjectDetailPage({
       recurrence: taskForm.recurrence,
       priority: taskForm.priority,
       notes: taskForm.notes || undefined,
+      attachmentUploadIds: taskAttachmentUploads.map(attachment => attachment.id),
     });
   }
 
@@ -804,6 +834,7 @@ export default function ProjectDetailPage({
   const progress = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
 
   function openAddTodo(sectionId: number | null, parent: any | null = null) {
+    discardPendingTaskAttachments();
     setParentTodo(parent);
     setTaskForm({
       title: "",
@@ -820,7 +851,7 @@ export default function ProjectDetailPage({
 
   function renderTodo(task: any, dragHandle?: any) {
     return <TaskItem key={task.id} task={task} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} onToggle={(id, completed, completionNote) => toggleTask.mutate({ id, completed, completionNote })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} dragHandle={dragHandle} highlightedCommentId={highlightedTodoId === task.id ? highlightedCommentId : null} onAddSubtask={parent => openAddTodo(parent.sectionId ?? null, parent)} onMoveSection={(id, sectionId) => updateTask.mutate({ id, sectionId })} moveSectionPending={updateTask.isPending} completionPending={toggleTask.isPending || updateTask.isPending} projectId={projectId} projectTitle={project?.title} moveProjects={moveProjects as any[]} onMoveProject={(id, destinationProjectId) => moveTaskToProject.mutate({ id, destinationProjectId })} moveProjectPending={moveTaskToProject.isPending} projectTasks={tasks as any[]} onSetDependencies={(id, predecessorTaskIds) => setTaskDependencies.mutate({ taskId: id, predecessorTaskIds })} dependenciesPending={setTaskDependencies.isPending}>
-      {(subTodosByParent.get(task.id) ?? []).map(subTodo => <TaskItem key={subTodo.id} task={subTodo} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed, completionNote) => toggleTask.mutate({ id, completed, completionNote })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} completionPending={toggleTask.isPending || updateTask.isPending} projectTasks={tasks as any[]} onSetDependencies={(id, predecessorTaskIds) => setTaskDependencies.mutate({ taskId: id, predecessorTaskIds })} dependenciesPending={setTaskDependencies.isPending} />)}
+      {(subTodosByParent.get(task.id) ?? []).map(subTodo => <TaskItem key={subTodo.id} task={subTodo} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed, completionNote) => toggleTask.mutate({ id, completed, completionNote })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} completionPending={toggleTask.isPending || updateTask.isPending} projectId={projectId} projectTitle={project?.title} projectTasks={tasks as any[]} onSetDependencies={(id, predecessorTaskIds) => setTaskDependencies.mutate({ taskId: id, predecessorTaskIds })} dependenciesPending={setTaskDependencies.isPending} />)}
     </TaskItem>;
   }
 
@@ -1199,16 +1230,26 @@ export default function ProjectDetailPage({
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label className="text-xs">Notes</Label>
-                  <Input value={taskForm.notes} onChange={e => setTaskForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional notes" />
+              </div>
+              <div>
+                <Label className="text-xs">Details (optional)</Label>
+                <div className="mt-1">
+                  <ProjectTodoDetailsEditor
+                    value={taskForm.notes}
+                    onChange={notes => setTaskForm(form => ({ ...form, notes }))}
+                  />
                 </div>
               </div>
+              <ProjectTodoAttachments
+                projectId={projectId}
+                pendingUploads={taskAttachmentUploads}
+                onPendingUploadsChange={setTaskAttachmentUploads}
+              />
               <div className="flex gap-2">
                 <Button type="submit" size="sm" disabled={createTask.isPending}>
                   {createTask.isPending ? "Adding..." : parentTodo ? "Add Sub-todo" : "Add Todo"}
                 </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddTask(false); setParentTodo(null); }}>Cancel</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { discardPendingTaskAttachments(); setShowAddTask(false); setParentTodo(null); }}>Cancel</Button>
               </div>
             </form>
           )}

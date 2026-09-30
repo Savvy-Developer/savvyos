@@ -10,6 +10,7 @@ import {
   pmMilestoneDependencies,
   pmTasks,
   pmTaskDependencies,
+  pmTaskAttachments,
   pmTaskComments,
   pmTaskCommentMentions,
   pmWeeklyUpdates,
@@ -49,6 +50,8 @@ import { hasPulseCapability } from "../pulse/authorization";
 import { hasDatedProjectRockMilestone } from "@shared/projectRockMilestones";
 import { getProjectWeeklyUpdatePeriod } from "../projectWeeklyUpdateCadence";
 import { buildProjectWeeklyUpdateSnapshot } from "../projectWeeklyUpdateSnapshot";
+import { sanitizeProjectTodoDetails } from "../projectTodoDetails";
+import { storageDelete, storageGetSignedUrl } from "../storage";
 import {
   canViewPmWeeklyUpdateHub,
   canViewPmWorkload,
@@ -57,6 +60,7 @@ import {
 
 const OWNER_EMAIL = "tyler@savvy.realty";
 const ROCK_MILESTONE_LIMIT = 20;
+const PROJECT_TODO_ATTACHMENT_LIMIT = 10;
 const rockMilestoneSchema = z.object({
   title: z.string().trim().min(1, "A milestone needs a title.").max(128, "Milestone titles can be at most 128 characters."),
   dueDate: z.coerce.date(),
@@ -438,6 +442,7 @@ export const pmRouter = router({
             sortOrder: pmTasks.sortOrder,
             createdAt: pmTasks.createdAt,
             commentCount: sql<number>`(select count(*) from ${pmTaskComments} where ${pmTaskComments.taskId} = ${pmTasks.id})`.as("commentCount"),
+            attachmentCount: sql<number>`(select count(*) from ${pmTaskAttachments} where ${pmTaskAttachments.taskId} = ${pmTasks.id} and ${pmTaskAttachments.deletedAt} is null)`.as("attachmentCount"),
           })
           .from(pmTasks)
           .leftJoin(users, eq(pmTasks.ownerId, users.id))
@@ -466,6 +471,7 @@ export const pmRouter = router({
         }
         const tasksWithDependencies = tasks.map(task => ({
           ...task,
+          notes: sanitizeProjectTodoDetails(task.notes),
           predecessorTaskIds: (predecessorsByTaskId.get(task.id) ?? []).map(
             predecessor => predecessor.id,
           ),
@@ -1185,6 +1191,7 @@ export const pmRouter = router({
             notes: pmTasks.notes,
             createdAt: pmTasks.createdAt,
             commentCount: sql<number>`(select count(*) from ${pmTaskComments} where ${pmTaskComments.taskId} = ${pmTasks.id})`.as("commentCount"),
+            attachmentCount: sql<number>`(select count(*) from ${pmTaskAttachments} where ${pmTaskAttachments.taskId} = ${pmTasks.id} and ${pmTaskAttachments.deletedAt} is null)`.as("attachmentCount"),
             subTodoCount: sql<number>`(select count(*) from pm_tasks child where child.parentTaskId = ${pmTasks.id})`.as("subTodoCount"),
           })
           .from(pmTasks)
@@ -1232,13 +1239,14 @@ export const pmRouter = router({
             priority: todo.priority,
             status: todo.status,
             recurrence: todo.recurrence,
-            notes: todo.notes,
+            notes: sanitizeProjectTodoDetails(todo.notes),
             assigneeId: todo.ownerId,
             assigneeName: todo.ownerName,
             parentTaskId: todo.parentTaskId,
             sectionName: todo.sectionName,
             createdAt: todo.createdAt,
             commentCount: todo.commentCount,
+            attachmentCount: todo.attachmentCount,
             subTodoCount: todo.subTodoCount,
           })),
       ];
@@ -1842,6 +1850,7 @@ export const pmRouter = router({
         recurrence: z.enum(TODO_RECURRENCES).default("none"),
         priority: z.enum(["high", "medium", "low"]).default("medium"),
         notes: z.string().optional(),
+        attachmentUploadIds: z.array(z.number().int().positive()).max(PROJECT_TODO_ATTACHMENT_LIMIT).optional().default([]),
       }).superRefine((input, refinement) => {
         if (input.recurrence !== "none" && !input.dueDate) {
           refinement.addIssue({ code: "custom", path: ["dueDate"], message: "A recurring To-Do needs a first due date." });
@@ -1899,18 +1908,46 @@ export const pmRouter = router({
           ]);
           sortOrder = Math.max(Number(sectionOrder?.maxSortOrder ?? -1), Number(taskOrder?.maxSortOrder ?? -1)) + 1;
         }
-        const [result] = await db.insert(pmTasks).values({
-          projectId: input.projectId,
-          parentTaskId: input.parentTaskId ?? null,
-          sectionId,
-          title: input.title,
-          ownerId: input.ownerId,
-          startDate,
-          dueDate: input.dueDate ?? null,
-          recurrence: input.recurrence,
-          priority: input.priority,
-          notes: input.notes ?? null,
-          sortOrder,
+        const attachmentUploadIds = Array.from(new Set(input.attachmentUploadIds));
+        const result = await db.transaction(async transaction => {
+          const [created] = await transaction.insert(pmTasks).values({
+            projectId: input.projectId,
+            parentTaskId: input.parentTaskId ?? null,
+            sectionId,
+            title: input.title,
+            ownerId: input.ownerId,
+            startDate,
+            dueDate: input.dueDate ?? null,
+            recurrence: input.recurrence,
+            priority: input.priority,
+            notes: sanitizeProjectTodoDetails(input.notes),
+            sortOrder,
+          });
+          if (attachmentUploadIds.length) {
+            const stagedAttachments = await transaction
+              .select({ id: pmTaskAttachments.id })
+              .from(pmTaskAttachments)
+              .where(
+                and(
+                  inArray(pmTaskAttachments.id, attachmentUploadIds),
+                  eq(pmTaskAttachments.projectId, input.projectId),
+                  eq(pmTaskAttachments.uploadedById, ctx.user.id),
+                  isNull(pmTaskAttachments.taskId),
+                  isNull(pmTaskAttachments.deletedAt)
+                )
+              );
+            if (stagedAttachments.length !== attachmentUploadIds.length) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "One or more selected documents are no longer available.",
+              });
+            }
+            await transaction
+              .update(pmTaskAttachments)
+              .set({ taskId: Number(created.insertId) })
+              .where(inArray(pmTaskAttachments.id, attachmentUploadIds));
+          }
+          return created;
         });
         await logActivity(input.projectId, ctx.user.id, "task_created", `Added todo "${input.title}"`, result.insertId);
         return { id: result.insertId };
@@ -1966,6 +2003,9 @@ export const pmRouter = router({
         const updates = {
           ...fields,
           dueDate: fields.dueDate === null ? sql`NULL` : fields.dueDate,
+          ...(fields.notes === undefined
+            ? {}
+            : { notes: sanitizeProjectTodoDetails(fields.notes) }),
         };
         let familyIds: number[] | null = null;
         let destinationSortOrder: number | null = null;
@@ -2273,6 +2313,250 @@ export const pmRouter = router({
         await logActivity(task.projectId, ctx.user.id, "task_deleted", `Deleted todo "${task.title}"`);
         await db.delete(pmTaskComments).where(eq(pmTaskComments.taskId, input.id));
         await db.delete(pmTasks).where(eq(pmTasks.id, input.id));
+        return { success: true };
+      }),
+
+    getAttachments: protectedProcedure
+      .input(z.object({ taskId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) return [];
+        const [task] = await db
+          .select({ projectId: pmTasks.projectId })
+          .from(pmTasks)
+          .where(eq(pmTasks.id, input.taskId))
+          .limit(1);
+        if (!task) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "This Project To-Do no longer exists.",
+          });
+        }
+        await assertProjectAccess(db, task.projectId, ctx.user);
+        return db
+          .select({
+            id: pmTaskAttachments.id,
+            fileName: pmTaskAttachments.fileName,
+            mimeType: pmTaskAttachments.mimeType,
+            fileSize: pmTaskAttachments.fileSize,
+            uploadedById: pmTaskAttachments.uploadedById,
+            uploadedByName: users.name,
+            createdAt: pmTaskAttachments.createdAt,
+          })
+          .from(pmTaskAttachments)
+          .leftJoin(users, eq(pmTaskAttachments.uploadedById, users.id))
+          .where(
+            and(
+              eq(pmTaskAttachments.taskId, input.taskId),
+              isNull(pmTaskAttachments.deletedAt)
+            )
+          )
+          .orderBy(asc(pmTaskAttachments.createdAt), asc(pmTaskAttachments.id));
+      }),
+
+    addAttachments: protectedProcedure
+      .input(
+        z.object({
+          taskId: z.number().int().positive(),
+          attachmentUploadIds: z
+            .array(z.number().int().positive())
+            .min(1)
+            .max(PROJECT_TODO_ATTACHMENT_LIMIT),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [task] = await db
+          .select({ projectId: pmTasks.projectId, title: pmTasks.title })
+          .from(pmTasks)
+          .where(eq(pmTasks.id, input.taskId))
+          .limit(1);
+        if (!task) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "This Project To-Do no longer exists.",
+          });
+        }
+        await assertProjectAccess(db, task.projectId, ctx.user);
+
+        const attachmentUploadIds = Array.from(
+          new Set(input.attachmentUploadIds)
+        );
+        const [existing, staged] = await Promise.all([
+          db
+            .select({ count: sql<number>`count(*)` })
+            .from(pmTaskAttachments)
+            .where(
+              and(
+                eq(pmTaskAttachments.taskId, input.taskId),
+                isNull(pmTaskAttachments.deletedAt)
+              )
+            ),
+          db
+            .select({ id: pmTaskAttachments.id })
+            .from(pmTaskAttachments)
+            .where(
+              and(
+                inArray(pmTaskAttachments.id, attachmentUploadIds),
+                eq(pmTaskAttachments.projectId, task.projectId),
+                eq(pmTaskAttachments.uploadedById, ctx.user.id),
+                isNull(pmTaskAttachments.taskId),
+                isNull(pmTaskAttachments.deletedAt)
+              )
+            ),
+        ]);
+        if (staged.length !== attachmentUploadIds.length) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "One or more selected documents are no longer available.",
+          });
+        }
+        if (
+          Number(existing[0]?.count ?? 0) + attachmentUploadIds.length >
+          PROJECT_TODO_ATTACHMENT_LIMIT
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Attach up to 10 documents to one Project To-Do.",
+          });
+        }
+
+        await db
+          .update(pmTaskAttachments)
+          .set({ taskId: input.taskId })
+          .where(inArray(pmTaskAttachments.id, attachmentUploadIds));
+        await logActivity(
+          task.projectId,
+          ctx.user.id,
+          "task_attachment_added",
+          `Attached ${attachmentUploadIds.length === 1 ? "a document" : `${attachmentUploadIds.length} documents`} to To-Do "${task.title}"`,
+          input.taskId
+        );
+        return { success: true, attachmentIds: attachmentUploadIds };
+      }),
+
+    discardAttachmentUpload: protectedProcedure
+      .input(z.object({ attachmentId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [attachment] = await db
+          .select({
+            id: pmTaskAttachments.id,
+            projectId: pmTaskAttachments.projectId,
+            taskId: pmTaskAttachments.taskId,
+            uploadedById: pmTaskAttachments.uploadedById,
+            fileKey: pmTaskAttachments.fileKey,
+          })
+          .from(pmTaskAttachments)
+          .where(
+            and(
+              eq(pmTaskAttachments.id, input.attachmentId),
+              isNull(pmTaskAttachments.deletedAt)
+            )
+          )
+          .limit(1);
+        if (!attachment || attachment.taskId !== null) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "This staged document is no longer available.",
+          });
+        }
+        await assertProjectAccess(db, attachment.projectId, ctx.user);
+        if (attachment.uploadedById !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only the uploader can remove a staged document.",
+          });
+        }
+        await db
+          .update(pmTaskAttachments)
+          .set({ deletedAt: new Date() })
+          .where(eq(pmTaskAttachments.id, attachment.id));
+        await storageDelete(attachment.fileKey).catch(() => undefined);
+        return { success: true };
+      }),
+
+    getAttachmentDownloadUrl: protectedProcedure
+      .input(z.object({ attachmentId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [attachment] = await db
+          .select({
+            id: pmTaskAttachments.id,
+            projectId: pmTaskAttachments.projectId,
+            taskId: pmTaskAttachments.taskId,
+            fileKey: pmTaskAttachments.fileKey,
+            fileName: pmTaskAttachments.fileName,
+          })
+          .from(pmTaskAttachments)
+          .where(
+            and(
+              eq(pmTaskAttachments.id, input.attachmentId),
+              isNull(pmTaskAttachments.deletedAt)
+            )
+          )
+          .limit(1);
+        if (!attachment || attachment.taskId === null) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "This document is unavailable.",
+          });
+        }
+        await assertProjectAccess(db, attachment.projectId, ctx.user);
+        const url = await storageGetSignedUrl(attachment.fileKey);
+        return { url, fileName: attachment.fileName };
+      }),
+
+    removeAttachment: protectedProcedure
+      .input(z.object({ attachmentId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [attachment] = await db
+          .select({
+            id: pmTaskAttachments.id,
+            projectId: pmTaskAttachments.projectId,
+            taskId: pmTaskAttachments.taskId,
+            fileName: pmTaskAttachments.fileName,
+            fileKey: pmTaskAttachments.fileKey,
+            taskTitle: pmTasks.title,
+          })
+          .from(pmTaskAttachments)
+          .leftJoin(pmTasks, eq(pmTaskAttachments.taskId, pmTasks.id))
+          .where(
+            and(
+              eq(pmTaskAttachments.id, input.attachmentId),
+              isNull(pmTaskAttachments.deletedAt)
+            )
+          )
+          .limit(1);
+        if (!attachment || attachment.taskId === null) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "This document is unavailable.",
+          });
+        }
+        await assertProjectAccess(db, attachment.projectId, ctx.user);
+        await db
+          .update(pmTaskAttachments)
+          .set({ deletedAt: new Date() })
+          .where(eq(pmTaskAttachments.id, attachment.id));
+        await storageDelete(attachment.fileKey).catch(() => undefined);
+        await logActivity(
+          attachment.projectId,
+          ctx.user.id,
+          "task_attachment_removed",
+          `Removed document "${attachment.fileName}" from To-Do "${attachment.taskTitle ?? ""}"`,
+          attachment.taskId
+        );
         return { success: true };
       }),
 
@@ -2688,7 +2972,7 @@ export const pmRouter = router({
             status: "not_started",
             completed: false,
             completedAt: null,
-            notes: todo.notes,
+            notes: sanitizeProjectTodoDetails(todo.notes),
             sortOrder,
           });
           taskId = Number(result.insertId);

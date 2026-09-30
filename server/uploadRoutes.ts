@@ -1,9 +1,17 @@
 import express from "express";
 import multer from "multer";
 import { nanoid } from "nanoid";
-import { storagePut } from "./storage";
+import { storagePut, storagePutPrivate } from "./storage";
 import { getDb } from "./db";
-import { chatMessageAttachments, documents, eventExpenses, eventPortfolio, userProfiles } from "../drizzle/schema";
+import {
+  chatMessageAttachments,
+  documents,
+  eventExpenses,
+  eventPortfolio,
+  pmProjects,
+  pmTaskAttachments,
+  userProfiles,
+} from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { invokeLLM } from "./_core/llm";
@@ -13,8 +21,38 @@ import { authorizeChatAttachmentUpload } from "./routers/chat";
 import pdfParse from "./lib/pdf-parse-safe";
 import { categorizeExpenseInvoice } from "./eventsExpenseIntake";
 import { recalculateEventCommittedExpense } from "./eventsFinancials";
+import { assertProjectAccess } from "./routers/pm";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
+
+const projectTodoAttachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 16 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-powerpoint",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "text/plain",
+      "text/csv",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+    ];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else
+      cb(
+        new Error(
+          "Project To-Dos accept PDFs, Office files, CSV or text files, and JPG, PNG, WEBP, or GIF images."
+        )
+      );
+  },
+});
 
 const eventInvoiceUpload = multer({
   storage: multer.memoryStorage(),
@@ -101,6 +139,75 @@ async function canUploadWebsiteImage(user: any, rawPropertyId: unknown): Promise
 }
 
 export function registerUploadRoutes(app: express.Application) {
+  // POST /api/projects/todos/attachments/upload — stage one document for a
+  // Project To-Do. The task save mutation consumes this staging row atomically.
+  app.post(
+    "/api/projects/todos/attachments/upload",
+    projectTodoAttachmentUpload.single("file"),
+    async (req: any, res: any) => {
+      try {
+        let user: any = null;
+        try {
+          user = await sdk.authenticateRequest(req);
+        } catch {
+          user = null;
+        }
+        if (!user) return res.status(401).json({ error: "Unauthorized" });
+        if (!req.file) return res.status(400).json({ error: "No file provided" });
+        const projectId = Number(req.body?.projectId);
+        if (!Number.isInteger(projectId) || projectId <= 0) {
+          return res.status(400).json({ error: "A valid Project is required" });
+        }
+
+        const db = await getDb();
+        if (!db) return res.status(500).json({ error: "Database unavailable" });
+        const [project] = await db
+          .select({ id: pmProjects.id, archivedAt: pmProjects.archivedAt })
+          .from(pmProjects)
+          .where(eq(pmProjects.id, projectId))
+          .limit(1);
+        if (!project || project.archivedAt) {
+          return res.status(404).json({ error: "This Project is unavailable" });
+        }
+        await assertProjectAccess(db, projectId, user);
+
+        const safeName =
+          req.file.originalname
+            .replace(/[^a-zA-Z0-9._ -]/g, "_")
+            .slice(0, 180) || "attachment";
+        const fileKey = `project-todo-attachments/${projectId}/${user.id}/${nanoid(14)}-${safeName}`;
+        const { key } = await storagePutPrivate(
+          fileKey,
+          req.file.buffer,
+          req.file.mimetype
+        );
+        const [result] = await db.insert(pmTaskAttachments).values({
+          projectId,
+          taskId: null,
+          fileName: req.file.originalname.slice(0, 500),
+          fileKey: key,
+          mimeType: req.file.mimetype || null,
+          fileSize: req.file.size,
+          uploadedById: user.id,
+        });
+        return res.json({
+          id: Number(result.insertId),
+          fileName: req.file.originalname.slice(0, 500),
+          mimeType: req.file.mimetype || null,
+          fileSize: req.file.size,
+        });
+      } catch (err: any) {
+        const status =
+          err?.code === "FORBIDDEN" ? 403 : err?.code === "NOT_FOUND" ? 404 : 500;
+        console.error(
+          "[ProjectTodoAttachmentUpload] Error:",
+          err?.message ?? err
+        );
+        return res.status(status).json({ error: err?.message ?? "Upload failed" });
+      }
+    }
+  );
+
   // POST /api/chat/attachments/upload — staged attachment for an authorized
   // participant. The tRPC send mutation links the staged record atomically to
   // the eventual message, so a user cannot attach a file to another channel.

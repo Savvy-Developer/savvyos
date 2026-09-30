@@ -1,4 +1,10 @@
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // Configure AWS S3 Client using credentials from process.env
 const s3Client = new S3Client({
@@ -49,14 +55,58 @@ export async function storagePut(
 }
 
 /**
- * Returns the file key and public S3 URL for a given relative key.
+ * Stores a private application document. Callers must return it only through
+ * an authorized signed URL or an authenticated download endpoint.
  */
+export async function storagePutPrivate(
+  relKey: string,
+  data: Buffer | Uint8Array | string,
+  contentType = "application/octet-stream"
+): Promise<{ key: string }> {
+  const key = normalizeKey(relKey);
+  const bucketName = process.env.AWS_BUCKET_NAME || "savvyos";
+  const body =
+    typeof data === "string"
+      ? Buffer.from(data)
+      : data instanceof Uint8Array
+        ? Buffer.from(data)
+        : data;
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      ACL: "private",
+    })
+  );
+  return { key };
+}
+
+/** Returns the file key and public S3 URL for a given relative key. */
 export async function storageGet(relKey: string): Promise<{ key: string; url: string; }> {
   const key = normalizeKey(relKey);
   const bucketName = process.env.AWS_BUCKET_NAME || "savvyos";
   const region = process.env.AWS_REGION || "us-east-2";
   const url = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
   return { key, url };
+}
+
+/**
+ * Creates a short-lived private read URL after the caller has performed its
+ * own record-level authorization. Do not use this for public site media.
+ */
+export async function storageGetSignedUrl(
+  relKey: string,
+  expiresIn = 300
+): Promise<string> {
+  const key = normalizeKey(relKey);
+  const bucketName = process.env.AWS_BUCKET_NAME || "savvyos";
+  return getSignedUrl(
+    s3Client,
+    new GetObjectCommand({ Bucket: bucketName, Key: key }),
+    { expiresIn }
+  );
 }
 
 /** Deletes one application-owned object from S3. */

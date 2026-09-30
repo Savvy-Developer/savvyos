@@ -44,7 +44,9 @@ describe("Personal To-Do Project routing", () => {
     expect(routeProcedure).toContain("transaction.insert(pmTasks).values");
     expect(routeProcedure).toContain("ownerId: todo.userId");
     expect(routeProcedure).toContain("recurrence: todo.recurrence");
-    expect(routeProcedure).toContain("notes: todo.notes");
+    expect(routeProcedure).toContain(
+      "notes: sanitizeProjectTodoDetails(todo.notes)"
+    );
     expect(routeProcedure).toContain(
       "transaction\n            .delete(pmPersonalTodos)"
     );
