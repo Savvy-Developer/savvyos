@@ -1176,11 +1176,11 @@ function PropertiesPage() {
                   {chevron}
                 </div>
               </div>
-              <div className="col-span-2 flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+              <div className="col-span-2 grid w-full grid-cols-2 items-center gap-3 sm:ml-auto sm:flex sm:w-auto sm:gap-2">
                 <button
                   type="button"
                   onClick={() => setShowMore(value => !value)}
-                  className="inline-flex h-10 flex-1 items-center justify-center whitespace-nowrap rounded-xl border bg-white px-3 text-sm font-medium shadow-xs transition-all hover:bg-[#f5f5f5] sm:flex-initial"
+                  className="inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-xl border bg-white px-3 text-sm font-medium shadow-xs transition-all hover:bg-[#f5f5f5] sm:w-auto"
                 >
                   <SlidersHorizontal className="mr-2 h-4 w-4" />
                   More Filters
@@ -1193,7 +1193,7 @@ function PropertiesPage() {
                       clearFilters();
                       set("search")("");
                     }}
-                    className="inline-flex h-10 items-center whitespace-nowrap rounded-xl px-3 text-sm font-medium text-gray-500 transition-all hover:bg-[#f5f5f5]"
+                    className="order-last col-span-2 inline-flex h-10 items-center justify-center whitespace-nowrap rounded-xl px-3 text-sm font-medium text-gray-500 transition-all hover:bg-[#f5f5f5] sm:order-none sm:col-auto"
                   >
                     <X className="mr-1 h-4 w-4" />
                     Clear
@@ -1205,7 +1205,7 @@ function PropertiesPage() {
                     setDebouncedSearch(filters.search.trim());
                     document.getElementById("property-results")?.scrollIntoView({ behavior: "smooth" });
                   }}
-                  className="inline-flex h-10 flex-1 items-center justify-center whitespace-nowrap rounded-xl bg-[#171717] px-5 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#171717]/90 sm:flex-initial"
+                  className="inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-xl bg-[#171717] px-5 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#171717]/90 sm:w-auto"
                 >
                   <Search className="mr-2 h-4 w-4" />
                   {updating ? "Search" : `Search ${items.length}`}
