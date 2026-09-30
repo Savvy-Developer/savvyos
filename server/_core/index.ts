@@ -5,6 +5,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerMagicLinkRoutes } from "./magicLink";
+import { registerStaffWebsiteHandoffRoute } from "../staffWebsiteHandoff";
 import { registerUploadRoutes } from "../uploadRoutes";
 import { registerMlsMediaRoute } from "../mls/privateMedia";
 import { registerAuditRoutes } from "../auditRoutes";
@@ -330,6 +331,8 @@ async function startServer() {
   registerCalendarOAuthRoutes(app);
   // Magic link auth — auto-login from email links
   registerMagicLinkRoutes(app);
+  // One-time SavvyOS sign-in for staff who used the public website's Sign in.
+  registerStaffWebsiteHandoffRoute(app);
   // File upload routes
   registerUploadRoutes(app);
   registerMlsMediaRoute(app);
