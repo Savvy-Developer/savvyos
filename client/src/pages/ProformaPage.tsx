@@ -439,6 +439,19 @@ export default function ProformaPage() {
     setAutoLoadDone(true);
   }, [autoLoadProforma, loadIdFromUrl, autoLoadDone]);
 
+  // A new pro-forma gets a numbered default name ("STR Investment Analysis 3")
+  // when the property already has some, so the list never shows five
+  // identical names. Only while the name is still the untouched default.
+  const { data: siblingProformas } = trpc.properties.listProformas.useQuery(
+    { propertyId: propertyId! },
+    { enabled: !!propertyId && !loadIdFromUrl }
+  );
+  useEffect(() => {
+    if (editingId || loadIdFromUrl || title !== "STR Investment Analysis") return;
+    const count = (siblingProformas as any[] | undefined)?.length ?? 0;
+    if (count > 0) setTitle(`STR Investment Analysis ${count + 1}`);
+  }, [siblingProformas, editingId, loadIdFromUrl, title]);
+
   // Helper: start a new proforma with user's saved defaults applied
   const startNewProforma = () => {
     // userDefaults is the parsed JSON object directly from getProformaDefaults (or null if none saved)
@@ -1070,7 +1083,14 @@ export default function ProformaPage() {
       </div>
 
       <div className="mb-4">
-        <Input className="text-lg font-semibold border-none shadow-none px-0 focus-visible:ring-0" value={title} onChange={e => setTitle(e.target.value)} placeholder="Pro-forma Title" />
+        <label htmlFor="proforma-name" className="text-xs font-medium uppercase tracking-wide text-slate-500">Pro-forma name</label>
+        <Input
+          id="proforma-name"
+          className="mt-1 max-w-xl text-lg font-semibold"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="e.g. 25% down, as-is"
+        />
         <p className="text-sm text-slate-500">{[property?.address, [property?.city, property?.state, property?.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</p>
       </div>
 

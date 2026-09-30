@@ -31,7 +31,7 @@ import {
 import {
   ArrowLeft, FileText, Home, User, DollarSign, Phone, Mail, Building2,
   History, Link2, UserCheck, TrendingUp, ClipboardList, Calendar,
-  Trash2, Search, ArrowRightLeft, AlertTriangle, Copy, Plus, ChevronDown, List, Globe2,
+  Trash2, Search, ArrowRightLeft, AlertTriangle, Copy, Plus, ChevronDown, List, Globe2, Pencil,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLocation, useParams, Link } from "wouter";
@@ -232,6 +232,13 @@ export default function PropertyDetail() {
   const [transferTargetName, setTransferTargetName] = useState("");
   const [duplicateSource, setDuplicateSource] = useState<{ id: number; title: string | null } | null>(null);
   const [duplicateTitle, setDuplicateTitle] = useState("");
+  const [renameTarget, setRenameTarget] = useState<{ id: number; title: string } | null>(null);
+  const renameProformaMutation = trpc.properties.renameProforma.useMutation({
+    onSuccess: async () => {
+      await utils.properties.listProformas.invalidate({ propertyId: propId });
+      setRenameTarget(null);
+    },
+  });
 
   const { data: transferSearchResults = [] } = trpc.properties.list.useQuery(
     { search: transferSearch, limit: 10 },
@@ -618,13 +625,25 @@ export default function PropertyDetail() {
                   {proformasList.map((pf: any) => (
                     <div key={pf.id} className="flex items-center justify-between gap-3 border rounded-lg p-3 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => navigate(`/properties/${id}/proforma?load=${pf.id}`)}>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium text-sm">{pf.title || "Untitled Pro-forma"}</span>
+                          <Badge
+                            variant="outline"
+                            className={`text-xs ${pf.status === "final" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "text-muted-foreground"}`}
+                          >
+                            {pf.status === "final" ? "Final" : pf.status === "archived" ? "Archived" : "Draft"}
+                          </Badge>
+                          {pf.onWebsite && (
+                            <Badge variant="outline" className="border-cyan-200 bg-cyan-50 text-xs text-cyan-700">
+                              <Globe2 className="mr-1 h-3 w-3" /> On website
+                            </Badge>
+                          )}
                           {pf.purchasePrice && <Badge variant="outline" className="text-xs">${Number(pf.purchasePrice).toLocaleString()}</Badge>}
                         </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1"><User className="h-3 w-3" />{pf.creatorName || "Unknown"}</span>
-                          <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{formatDate(pf.createdAt)}</span>
+                          <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Created {formatDate(pf.createdAt)}</span>
+                          {pf.updatedAt && <span>Updated {safeFormat(pf.updatedAt, "MMM d, h:mm a")}</span>}
                         </div>
                         <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
                           {pf.grossRevenue && <span className="font-medium">Rev: ${Number(pf.grossRevenue).toLocaleString(undefined, {maximumFractionDigits: 0})}</span>}
@@ -634,18 +653,30 @@ export default function PropertyDetail() {
                           {pf.capRate && <span>Cap: {(Number(pf.capRate) * 100).toFixed(1)}%</span>}
                         </div>
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0"
-                        onClick={event => {
-                          event.stopPropagation();
-                          openDuplicateDialog({ id: pf.id, title: pf.title || null });
-                        }}
-                      >
-                        <Copy className="mr-1 h-3.5 w-3.5" /> Duplicate
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={event => {
+                            event.stopPropagation();
+                            setRenameTarget({ id: pf.id, title: pf.title || "" });
+                          }}
+                        >
+                          <Pencil className="mr-1 h-3.5 w-3.5" /> Rename
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={event => {
+                            event.stopPropagation();
+                            openDuplicateDialog({ id: pf.id, title: pf.title || null });
+                          }}
+                        >
+                          <Copy className="mr-1 h-3.5 w-3.5" /> Duplicate
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -670,6 +701,43 @@ export default function PropertyDetail() {
           </TabsContent>
         )}
       </Tabs>
+
+      <Dialog open={Boolean(renameTarget)} onOpenChange={open => { if (!open && !renameProformaMutation.isPending) setRenameTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename pro-forma</DialogTitle>
+            <DialogDescription>Give it a name you'll recognise, like the scenario or who it's for.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="rename-proforma-title" className="text-sm font-medium">Name</label>
+            <Input
+              id="rename-proforma-title"
+              value={renameTarget?.title ?? ""}
+              onChange={event => setRenameTarget(prior => (prior ? { ...prior, title: event.target.value } : prior))}
+              placeholder="e.g. 25% down, as-is"
+              autoFocus
+              onKeyDown={event => {
+                if (event.key === "Enter" && renameTarget?.title.trim() && !renameProformaMutation.isPending) {
+                  event.preventDefault();
+                  renameProformaMutation.mutate({ id: renameTarget.id, title: renameTarget.title.trim() });
+                }
+              }}
+            />
+            {renameProformaMutation.error && (
+              <p className="text-xs text-red-600">{renameProformaMutation.error.message}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTarget(null)} disabled={renameProformaMutation.isPending}>Cancel</Button>
+            <Button
+              disabled={!renameTarget?.title.trim() || renameProformaMutation.isPending}
+              onClick={() => renameTarget && renameProformaMutation.mutate({ id: renameTarget.id, title: renameTarget.title.trim() })}
+            >
+              {renameProformaMutation.isPending ? "Saving..." : "Save name"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(duplicateSource)} onOpenChange={open => { if (!open && !duplicateProformaMutation.isPending) setDuplicateSource(null); }}>
         <DialogContent className="sm:max-w-md">

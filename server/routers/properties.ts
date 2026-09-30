@@ -12,7 +12,7 @@ import {
   DuplicatePropertyError,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
-import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog, properties, proformas, documents } from "../../drizzle/schema";
+import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog, properties, proformas, documents, websiteProperties } from "../../drizzle/schema";
 import { aliasedTable, eq, desc, or, and, sql, inArray } from "drizzle-orm";
 import { syncWebsiteListingsWithProforma } from "../proformaWebsiteSync";
 import { buildNormalizedKey, capitalizeAddress, capitalizeCity, normalizeState, prepareTypedPropertyAddress } from "../addressNormalization";
@@ -726,14 +726,19 @@ export const propertiesRouter = router({
         cashFlowAnnual: proformas.cashFlowAnnual,
         cashOnCash: proformas.cashOnCash,
         capRate: proformas.capRate,
+        status: proformas.status,
         createdAt: proformas.createdAt,
         updatedAt: proformas.updatedAt,
         creatorName: users.name,
+        // Set when this pro-forma is the one linked on the property's Website
+        // tab, so the list can say which analysis the public listing uses.
+        websiteLinkId: websiteProperties.id,
       }).from(proformas)
         .leftJoin(users, eq(proformas.createdByUserId, users.id))
+        .leftJoin(websiteProperties, eq(websiteProperties.sourceProformaId, proformas.id))
         .where(and(...conditions))
         .orderBy(desc(proformas.createdAt), desc(proformas.id));
-      return rows;
+      return rows.map(({ websiteLinkId, ...row }: any) => ({ ...row, onWebsite: websiteLinkId != null }));
     }),
 
   listAllProformas: protectedProcedure
@@ -946,6 +951,32 @@ export const propertiesRouter = router({
           proformaTitle: input.title ?? existing.title,
           propertyAddress,
         },
+      });
+      return { success: true };
+    }),
+
+  /** Change only a pro-forma's name. Same access rule as editing it. */
+  renameProforma: protectedProcedure
+    .input(z.object({ id: z.number().int().positive(), title: z.string().trim().min(1).max(255) }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = await db
+        .select({ id: proformas.id, propertyId: proformas.propertyId, createdByUserId: proformas.createdByUserId, title: proformas.title })
+        .from(proformas)
+        .where(eq(proformas.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ctx.user.role === "agent" && existing.createdByUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await db.update(proformas).set({ title: input.title } as any).where(eq(proformas.id, input.id));
+      await logActivity({
+        userId: ctx.user.id,
+        action: "proforma_updated",
+        entityType: "property",
+        entityId: existing.propertyId,
+        details: { propertyId: existing.propertyId, proformaId: existing.id, proformaTitle: input.title, previousTitle: existing.title },
       });
       return { success: true };
     }),
