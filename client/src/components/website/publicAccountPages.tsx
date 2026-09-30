@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
+  BookOpen,
+  Building2,
+  Globe2,
+  LayoutDashboard,
   BedDouble,
   Check,
   CircleDot,
@@ -359,81 +363,21 @@ export function SignUpBody() {
   );
 }
 
-/**
- * Shown when the email and password were a SavvyOS staff login.
- *
- * The link is opened by the person's own click rather than by script, because
- * browsers block a new tab opened after a network round trip. It works once
- * and for two minutes; after that SavvyOS shows its own login page.
- */
-function StaffHandoffCard({ handoffUrl, onReset }: { handoffUrl: string; onReset: () => void }) {
-  const [opened, setOpened] = useState(false);
-  return (
-    <AuthCard
-      title="Welcome back"
-      subtitle="This is a Savvy team account. SavvyOS opens in a new tab, on the Properties page."
-      footer={
-        <button type="button" className="font-bold text-cyan-600" onClick={onReset}>
-          Sign in with a different account
-        </button>
-      }
-    >
-      <div className="mt-6 space-y-3">
-        {opened ? (
-          <p className="text-sm leading-6 text-slate-600">
-            SavvyOS is open in another tab. If it did not open, go to{" "}
-            <a
-              className="font-semibold text-cyan-600"
-              href="https://os.savvy-agents.com/login"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              os.savvy-agents.com
-            </a>{" "}
-            and sign in there.
-          </p>
-        ) : (
-          <a
-            href={handoffUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => setOpened(true)}
-            className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-bold text-[#03293c]"
-            style={{ backgroundColor: CYAN }}
-          >
-            Open SavvyOS <ArrowRight className="h-4 w-4" />
-          </a>
-        )}
-        <p className="text-xs text-slate-500">
-          For your security this button works once, within two minutes.
-        </p>
-      </div>
-    </AuthCard>
-  );
-}
-
 export function SignInBody() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [handoffUrl, setHandoffUrl] = useState<string | null>(null);
   const signIn = trpc.websiteAccount.signIn.useMutation({
-    onSuccess: result => {
-      if (result.kind === "staff") {
-        setPassword("");
-        setHandoffUrl(result.handoffUrl);
-        return;
-      }
+    // Investors and staff both stay on the website. Staff get their own menu
+    // in the header, with links that open SavvyOS already signed in.
+    onSuccess: () => {
       window.location.href = currentNext();
     },
     onError: error => toast.error(error.message),
   });
-  if (handoffUrl) {
-    return <StaffHandoffCard handoffUrl={handoffUrl} onReset={() => setHandoffUrl(null)} />;
-  }
   return (
     <AuthCard
       title="Sign in"
-      subtitle="Investors and Savvy team members. Team accounts are sent on to SavvyOS."
+      subtitle="Investors and Savvy team members. Team members can use their SavvyOS login."
       footer={
         <>
           New here?{" "}
@@ -611,8 +555,156 @@ export function ResetPasswordBody() {
 
 // ─── Header account control ──────────────────────────────────────────────────
 
+/** The Savvy staff member signed in on the website, or null. */
+export function useWebsiteStaff() {
+  return trpc.websiteAccount.staffMe.useQuery(undefined, {
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
+const STAFF_MENU_ICONS: Record<string, React.ElementType> = {
+  properties: Building2,
+  caseStudies: FileText,
+  blog: BookOpen,
+  profile: UserRound,
+  websiteStudio: Globe2,
+  dashboard: LayoutDashboard,
+};
+
+/**
+ * Open a SavvyOS page for the signed-in staff member, already signed in.
+ *
+ * The tab is opened inside the click, before the network call, because
+ * browsers block a tab opened after one. The one-time link is then loaded
+ * into it; if the browser refused the tab anyway, the current tab goes.
+ */
+function useOpenInSavvyOS() {
+  const open = trpc.websiteAccount.staffOpen.useMutation();
+  return (target: string) => {
+    const tab = window.open("", "_blank");
+    if (tab) {
+      try {
+        tab.opener = null;
+        tab.document.title = "Opening SavvyOS…";
+      } catch {
+        /* cross-origin once it navigates; nothing to do */
+      }
+    }
+    open
+      .mutateAsync({ target: target as any })
+      .then(({ url }) => {
+        if (tab && !tab.closed) tab.location.href = url;
+        else window.location.href = url;
+      })
+      .catch(error => {
+        if (tab && !tab.closed) tab.close();
+        toast.error(error?.message || "Could not open SavvyOS. Please sign in again.");
+      });
+  };
+}
+
+function staffInitials(name: string) {
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(part => part.charAt(0))
+      .join("")
+      .toUpperCase() || "S"
+  );
+}
+
+function StaffAvatar({ name, imageUrl, size = 32 }: { name: string; imageUrl: string | null; size?: number }) {
+  const [broken, setBroken] = useState(false);
+  const style = { width: size, height: size };
+  return imageUrl && !broken ? (
+    <img
+      src={imageUrl}
+      alt=""
+      style={style}
+      onError={() => setBroken(true)}
+      className="rounded-full object-cover object-[center_20%] ring-2 ring-[#10c0df]"
+    />
+  ) : (
+    <span
+      style={style}
+      className="flex items-center justify-center rounded-full bg-[#05314a] text-xs font-medium text-white ring-2 ring-[#10c0df]"
+    >
+      {staffInitials(name)}
+    </span>
+  );
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: "Admin",
+  agent: "Agent",
+  isa: "ISA",
+  agent_support: "Agent support",
+};
+
+function StaffMenu({ staff, onSignOut }: { staff: any; onSignOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const openInSavvyOS = useOpenInSavvyOS();
+  const itemClass =
+    "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50";
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(value => !value)}
+        aria-label="Your Savvy account"
+        className="flex items-center rounded-full p-0.5 transition-colors hover:ring-2 hover:ring-[#10c0df]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#10c0df]"
+      >
+        <StaffAvatar name={staff.name} imageUrl={staff.imageUrl} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-50 mt-2 w-64 rounded-xl border bg-white p-2 shadow-xl">
+          <div className="flex items-center gap-3 border-b px-3 pb-3 pt-2">
+            <StaffAvatar name={staff.name} imageUrl={staff.imageUrl} size={40} />
+            <div className="min-w-0">
+              <div className="truncate text-sm font-bold text-[#05314a]">{staff.name}</div>
+              <div className="text-xs text-slate-500">Savvy team · {ROLE_LABELS[staff.role] || staff.role}</div>
+            </div>
+          </div>
+          <div className="py-1">
+            {staff.profileSlug ? (
+              <a className={itemClass} href={publicPath(`/agents/${staff.profileSlug}`)}>
+                <Eye className="h-4 w-4" /> View my public profile
+              </a>
+            ) : null}
+            {(staff.menu || []).map((item: { key: string; label: string }) => {
+              const Icon = STAFF_MENU_ICONS[item.key] || ArrowRight;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={itemClass}
+                  onClick={() => {
+                    setOpen(false);
+                    openInSavvyOS(item.key);
+                  }}
+                >
+                  <Icon className="h-4 w-4" /> {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="border-t pt-1">
+            <button className={itemClass} onClick={onSignOut}>
+              <LogOut className="h-4 w-4" /> Sign out
+            </button>
+          </div>
+          <p className="px-3 pb-1 pt-2 text-[11px] leading-4 text-slate-400">SavvyOS pages open in a new tab, already signed in.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AccountMenu({ dark = false }: { dark?: boolean }) {
   const account = useWebsiteAccount();
+  const staff = useWebsiteStaff();
   const utils = trpc.useUtils();
   const signOut = trpc.websiteAccount.signOut.useMutation({
     onSuccess: async () => {
@@ -622,7 +714,8 @@ export function AccountMenu({ dark = false }: { dark?: boolean }) {
   });
   const [open, setOpen] = useState(false);
 
-  if (account.isLoading) return null;
+  if (account.isLoading || staff.isLoading) return null;
+  if (staff.data) return <StaffMenu staff={staff.data} onSignOut={() => signOut.mutate()} />;
 
   // Login and Sign Up, then an initials avatar once signed in: the same as
   // the live savvy-agents.com header.
@@ -704,6 +797,8 @@ export function AccountMenu({ dark = false }: { dark?: boolean }) {
 /** The same links as the header menu, for the mobile navigation drawer. */
 export function AccountMobileLinks({ dark = false }: { dark?: boolean }) {
   const account = useWebsiteAccount();
+  const staff = useWebsiteStaff();
+  const openInSavvyOS = useOpenInSavvyOS();
   const utils = trpc.useUtils();
   const signOut = trpc.websiteAccount.signOut.useMutation({
     onSuccess: async () => {
@@ -712,7 +807,35 @@ export function AccountMobileLinks({ dark = false }: { dark?: boolean }) {
     },
   });
   const itemClass = `block rounded-lg px-3 py-3 text-sm font-semibold ${dark ? "text-white hover:bg-white/10" : "text-[#05314a] hover:bg-slate-50"}`;
-  if (account.isLoading) return null;
+  if (account.isLoading || staff.isLoading) return null;
+  if (staff.data) {
+    return (
+      <>
+        <div className="flex items-center gap-3 px-3 py-2">
+          <StaffAvatar name={staff.data.name} imageUrl={staff.data.imageUrl} size={36} />
+          <div className="min-w-0">
+            <div className={`truncate text-sm font-bold ${dark ? "text-white" : "text-[#05314a]"}`}>{staff.data.name}</div>
+            <div className={`text-xs ${dark ? "text-white/70" : "text-slate-500"}`}>
+              Savvy team · {ROLE_LABELS[staff.data.role] || staff.data.role}
+            </div>
+          </div>
+        </div>
+        {staff.data.profileSlug ? (
+          <a className={itemClass} href={publicPath(`/agents/${staff.data.profileSlug}`)}>
+            View my public profile
+          </a>
+        ) : null}
+        {(staff.data.menu || []).map((item: { key: string; label: string }) => (
+          <button key={item.key} type="button" className={`w-full text-left ${itemClass}`} onClick={() => openInSavvyOS(item.key)}>
+            {item.label}
+          </button>
+        ))}
+        <button className={`w-full text-left ${itemClass}`} onClick={() => signOut.mutate()}>
+          Sign out
+        </button>
+      </>
+    );
+  }
   if (!account.data) {
     return (
       <>
@@ -771,6 +894,7 @@ export function SaveButton({
   pill?: boolean;
 }) {
   const account = useWebsiteAccount();
+  const staff = useWebsiteStaff();
   const utils = trpc.useUtils();
   const saved = trpc.websiteAccount.savedProperties.useQuery(undefined, {
     enabled: !!account.data,
@@ -781,7 +905,9 @@ export function SaveButton({
     onError: error => toast.error(error.message),
   });
 
-  if (!propertyId) return null;
+  // Saving is an investor feature. A signed-in team member without an
+  // investor account would only be bounced to the sign-in page.
+  if (!propertyId || (staff.data && !account.data)) return null;
   const isSaved = (saved.data || []).some(
     (row: any) => row.propertyId === propertyId
   );

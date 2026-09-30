@@ -53,6 +53,7 @@ import {
   type PublicComp,
 } from "../proformaPublicFigures";
 import { accountFromRequest } from "../_core/websiteAccountAuth";
+import { staffFromRequest } from "../staffWebsiteHandoff";
 import { gateEvidence, gateProperties, gateProperty } from "../websiteGating";
 import {
   PUBLIC_MARKET_STATUSES,
@@ -110,7 +111,11 @@ import { triggerSmartPlansForContact } from "../smartPlanScheduler";
  */
 async function visitorIsSignedIn(req: unknown): Promise<boolean> {
   try {
-    return (await accountFromRequest(req as any)) != null;
+    // Savvy staff signed in on the website see the figures too.
+    return (
+      (await accountFromRequest(req as any)) != null ||
+      (await staffFromRequest(req as any)) != null
+    );
   } catch {
     return false;
   }

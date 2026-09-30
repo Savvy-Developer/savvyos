@@ -37,7 +37,17 @@ import {
   sessionCookieFor,
   verifyPassword,
 } from "../_core/websiteAccountAuth";
-import { createStaffHandoff, findStaffForWebsiteSignIn } from "../staffWebsiteHandoff";
+import {
+  STAFF_SITE_TARGET_KEYS,
+  clearedStaffSiteCookie,
+  createStaffHandoff,
+  findStaffForWebsiteSignIn,
+  isFromWebsiteOrigin,
+  staffFromRequest,
+  staffMenuFor,
+  staffSiteCookieFor,
+  staffTargetPath,
+} from "../staffWebsiteHandoff";
 
 /**
  * Investor accounts on the public website.
@@ -99,6 +109,8 @@ export const WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS = new Set([
   "websiteAccount.recordView",
   "websiteAccount.viewHistory",
   "websiteAccount.myTransactions",
+  "websiteAccount.staffMe",
+  "websiteAccount.staffOpen",
 ]);
 
 export const websiteAccountRouter = router({
@@ -188,14 +200,17 @@ export const websiteAccountRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       // SavvyOS staff first. When the email and password are a working SavvyOS
-      // login, no investor session is created: the site gets a one-time link
-      // that signs them into SavvyOS on the Properties page. The check always
+      // login, they are signed in on the website as staff: a staff cookie, not
+      // an investor one. The header then shows their menu, and each item
+      // opens SavvyOS through a one-time link (staffOpen). The check always
       // costs one bcrypt comparison, so it does not reveal who is staff.
       // Someone with both kinds of account reaches whichever one their
-      // password matches; if it matches both, SavvyOS wins.
+      // password matches; if it matches both, staff wins.
       const staff = await findStaffForWebsiteSignIn(email, input.password);
       if (staff) {
-        return { kind: "staff" as const, handoffUrl: await createStaffHandoff(staff.id) };
+        setCookie(ctx, clearedSessionCookie(ctx.req as any));
+        setCookie(ctx, await staffSiteCookieFor(ctx.req as any, staff.id));
+        return { kind: "staff" as const };
       }
 
       const [account] = await db
@@ -232,8 +247,39 @@ export const websiteAccountRouter = router({
 
   signOut: publicProcedure.mutation(async ({ ctx }) => {
     setCookie(ctx, clearedSessionCookie(ctx.req as any));
+    setCookie(ctx, clearedStaffSiteCookie(ctx.req as any));
     return { ok: true };
   }),
+
+  /** The staff member signed in on the website, with their menu, or null. */
+  staffMe: publicProcedure.query(async ({ ctx }) => {
+    const staff = await staffFromRequest(ctx.req as any);
+    if (!staff) return null;
+    return { ...staff, menu: staffMenuFor(staff.role) };
+  }),
+
+  /**
+   * A one-time link into one of the fixed SavvyOS pages in the staff menu.
+   * Needs a live staff session on the website; the target is a key, never a
+   * path, and admin-only targets are refused for everyone else.
+   */
+  staffOpen: publicProcedure
+    .input(z.object({ target: z.enum(STAFF_SITE_TARGET_KEYS) }))
+    .mutation(async ({ input, ctx }) => {
+      // Only the website's own pages may ask for a SavvyOS link. Another site
+      // must never be able to spend a team member's website session.
+      if (!isFromWebsiteOrigin(ctx.req as any)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Please open this from the Savvy website." });
+      }
+      const staff = await staffFromRequest(ctx.req as any);
+      if (!staff) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Please sign in again." });
+      }
+      if (!staffMenuFor(staff.role).some(item => item.key === input.target)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "That page is not available on your account." });
+      }
+      return { url: await createStaffHandoff(staff.id, staffTargetPath(input.target, staff.id)) };
+    }),
 
   /**
    * Begin a password reset.

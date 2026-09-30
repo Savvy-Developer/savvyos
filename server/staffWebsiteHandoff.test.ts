@@ -8,6 +8,8 @@ const dbState = vi.hoisted(() => ({
   inserted: [] as Array<Record<string, unknown>>,
 }));
 
+vi.mock("./_core/env", () => ({ ENV: { cookieSecret: "test-secret-for-staff-site-sessions" } }));
+
 vi.mock("./db", () => ({
   logActivity: vi.fn(),
   getDb: vi.fn(async () => ({
@@ -27,6 +29,12 @@ vi.mock("./db", () => ({
 import {
   STAFF_HANDOFF_PATH,
   STAFF_HANDOFF_ROUTE,
+  createStaffSiteSession,
+  isFromWebsiteOrigin,
+  staffSiteCookieOptions,
+  readStaffSiteSession,
+  staffMenuFor,
+  staffTargetPath,
   STAFF_HANDOFF_TTL_MS,
   createStaffHandoff,
   findStaffForWebsiteSignIn,
@@ -158,7 +166,8 @@ describe("wiring", () => {
       signIn.indexOf(".from(websiteAccounts)")
     );
     expect(staffBranch).toContain('kind: "staff"');
-    expect(staffBranch).not.toContain("sessionCookieFor");
+    expect(staffBranch).toContain("staffSiteCookieFor");
+    expect(staffBranch).not.toContain("sessionCookieFor(ctx.req as any, staff");
   });
 
   it("registers the redemption route, and the public host still refuses non-tRPC /api paths", () => {
@@ -172,5 +181,98 @@ describe("wiring", () => {
     expect(source).toContain("isNull(magicLinkTokens.usedAt)");
     expect(source).toContain("gt(magicLinkTokens.expiresAt, new Date())");
     expect(source).toContain("consumed !== 1");
+  });
+});
+
+describe("staff session on the website", () => {
+  it("round-trips the user id", async () => {
+    const token = await createStaffSiteSession(504228);
+    expect(await readStaffSiteSession(token)).toBe(504228);
+  });
+
+  it("rejects an expired token and junk", async () => {
+    expect(await readStaffSiteSession(await createStaffSiteSession(1, -1000))).toBeNull();
+    expect(await readStaffSiteSession("not-a-token")).toBeNull();
+    expect(await readStaffSiteSession(null)).toBeNull();
+  });
+
+  it("is not interchangeable with an investor session", async () => {
+    const { createAccountSession, readAccountSession } = await import("./_core/websiteAccountAuth");
+    const investor = await createAccountSession(7);
+    const staff = await createStaffSiteSession(7);
+    expect(await readStaffSiteSession(investor)).toBeNull();
+    expect(await readAccountSession(staff)).toBeNull();
+  });
+});
+
+describe("staff menu", () => {
+  it("gives Website Studio to admins only", () => {
+    expect(staffMenuFor("admin").map(item => item.key)).toContain("websiteStudio");
+    for (const role of ["agent", "isa", "agent_support"]) {
+      const keys = staffMenuFor(role).map(item => item.key);
+      expect(keys).not.toContain("websiteStudio");
+      expect(keys).toEqual(expect.arrayContaining(["properties", "caseStudies", "blog", "profile", "dashboard"]));
+    }
+  });
+
+  it("sends every item to a same-site SavvyOS path", () => {
+    for (const { key } of staffMenuFor("admin")) {
+      expect(safeHandoffRedirect(staffTargetPath(key, 504228))).toBe(staffTargetPath(key, 504228));
+    }
+    expect(staffTargetPath("properties", 1)).toBe("/properties");
+    expect(staffTargetPath("profile", 504228)).toBe("/agents/504228?tab=website-profile");
+  });
+
+  it("stores the requested landing page on the one-time link", async () => {
+    await createStaffHandoff(504228, "/my-website/blog");
+    expect(dbState.inserted.at(-1)?.redirectPath).toBe("/my-website/blog");
+  });
+
+  it("checks the staff session, and the role, before issuing a link", () => {
+    const source = readSource("routers/websiteAccount.ts");
+    const open = source.slice(source.indexOf("staffOpen: publicProcedure"));
+    expect(open.indexOf("staffFromRequest")).toBeGreaterThan(-1);
+    expect(open.indexOf("staffMenuFor(staff.role)")).toBeGreaterThan(open.indexOf("staffFromRequest"));
+    expect(open.indexOf("createStaffHandoff")).toBeGreaterThan(open.indexOf("staffMenuFor(staff.role)"));
+  });
+});
+
+describe("staffOpen cannot be used from another site", () => {
+  const req = (headers: Record<string, string>) => ({ headers }) as any;
+
+  it("keeps the staff cookie off cross-site requests (SameSite=Lax)", () => {
+    const options = staffSiteCookieOptions({ protocol: "https", headers: {} } as any);
+    expect(options.sameSite).toBe("lax");
+    expect(options.httpOnly).toBe(true);
+    expect(options.secure).toBe(true);
+  });
+
+  it("accepts the website's own origin", () => {
+    expect(isFromWebsiteOrigin(req({ origin: "https://home.savvy-agents.com" }))).toBe(true);
+    expect(isFromWebsiteOrigin(req({ origin: "https://www.home.savvy-agents.com" }))).toBe(true);
+  });
+
+  it("refuses any other origin, including look-alikes", () => {
+    for (const origin of [
+      "https://evil.example",
+      "https://home.savvy-agents.com.evil.example",
+      "https://os.savvy-agents.com",
+      "null",
+    ]) {
+      expect(isFromWebsiteOrigin(req({ origin }))).toBe(false);
+    }
+  });
+
+  it("without an Origin, accepts only what the browser marks same-origin", () => {
+    expect(isFromWebsiteOrigin(req({ "sec-fetch-site": "same-origin" }))).toBe(true);
+    expect(isFromWebsiteOrigin(req({ "sec-fetch-site": "cross-site" }))).toBe(false);
+    expect(isFromWebsiteOrigin(req({}))).toBe(false);
+  });
+
+  it("checks the origin before anything else in staffOpen", () => {
+    const source = readSource("routers/websiteAccount.ts");
+    const open = source.slice(source.indexOf("staffOpen: publicProcedure"));
+    expect(open.indexOf("isFromWebsiteOrigin")).toBeGreaterThan(-1);
+    expect(open.indexOf("isFromWebsiteOrigin")).toBeLessThan(open.indexOf("staffFromRequest"));
   });
 });
