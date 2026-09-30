@@ -46,6 +46,7 @@ const inputTypeSchema = z.enum(["segue", "headline", "brief"]);
 
 type DraftMetadata = {
   tone?: "green" | "amber" | "red";
+  note?: string | null;
   approvedAt?: string;
   approvedValue?: number;
   autoSource?: string | null;
@@ -232,6 +233,7 @@ async function personalMeetingPrep(db: any, personId: number) {
         meetingName: meeting.name,
         target: metric.target,
         value: value == null ? null : Number(value),
+        note: metadata.note ?? metric.current.note ?? "",
         draftValue: draft?.numericValue == null ? null : Number(draft.numericValue),
         required: true,
         source: metric.metricType,
@@ -285,17 +287,40 @@ async function personalMeetingPrep(db: any, personId: number) {
   };
 }
 
+async function weeklyPreparationRocks(db: any, personId: number, meetingId: string) {
+  const [items, routes] = await Promise.all([
+    listAccessibleItems(db, personId, {}),
+    db.select({
+      workItemId: pulseMeetingRocks.workItemId,
+      meetingId: pulseMeetingRocks.meetingId,
+      meetingName: pulseMeetings.name,
+    }).from(pulseMeetingRocks)
+      .innerJoin(pulseWorkItems, eq(pulseWorkItems.id, pulseMeetingRocks.workItemId))
+      .innerJoin(pulseMeetings, eq(pulseMeetings.id, pulseMeetingRocks.meetingId))
+      .where(and(
+        eq(pulseMeetingRocks.meetingId, meetingId),
+        eq(pulseWorkItems.type, "rock"),
+        isNull(pulseWorkItems.meetingId),
+        isNull(pulseWorkItems.deletedAt),
+      )),
+  ]);
+  return projectRoutedPersonalRocks(items, routes, personId)
+    .filter((item: any) => item.type === "rock" && item.meetingId === meetingId && (item.ownerPersonId === personId || item.assigneeId === personId) && !["done", "dropped"].includes(item.status))
+    .map((item: any) => ({ title: item.title, status: item.status, percentComplete: item.percentComplete, dueDate: item.dueDate }));
+}
+
 async function applyReviewedAutomaticValue(db: any, personId: number, field: any) {
   const metricId = Number(field.key.slice(7));
   const scorecard = await getMeetingScorecard(db, personId, field.meetingId);
   const metric = scorecard.items.find((item: any) => item.metricId === metricId && item.owner?.id === personId);
   if (!metric || metric.metricType !== "automatic") throw new TRPCError({ code: "NOT_FOUND", message: "That automatic measurable is no longer assigned to you." });
   if (!isUsableNumber(field.value) || !field.approved) throw new TRPCError({ code: "BAD_REQUEST", message: `Approve ${field.label} before submitting.` });
-  const [existing] = await db.select({ id: rrMetricValues.id, calculationMetadata: rrMetricValues.calculationMetadata })
+  const [existing] = await db.select({ id: rrMetricValues.id, calculationMetadata: rrMetricValues.calculationMetadata, note: rrMetricValues.note })
     .from(rrMetricValues).where(and(eq(rrMetricValues.metricId, metricId), eq(rrMetricValues.periodStart, field.periodStart), eq(rrMetricValues.periodEnd, field.periodEnd))).limit(1);
   const review = { reviewedInWeeklyPrepAt: new Date().toISOString(), reviewedById: personId, approvedValue: Number(field.value) };
   const values = {
     actualValue: String(field.value),
+    note: field.note ?? existing?.note ?? null,
     valueSource: "automatic" as const,
     calculationMetadata: { ...((existing?.calculationMetadata ?? {}) as Record<string, unknown>), weeklyPrepReview: review },
     enteredById: personId,
@@ -310,13 +335,14 @@ async function saveDraft(db: any, personId: number, input: {
   key: string;
   value: string | number | null;
   tone?: "green" | "amber" | "red";
+  note?: string | null;
   approved?: boolean;
 }) {
   const ids = await myMeetingIds(db, personId);
   if (!ids.includes(input.meetingId)) throw new TRPCError({ code: "NOT_FOUND", message: "That meeting is not available." });
   const weekOf = week();
   const metricMatch = /^metric:(\d+)$/.exec(input.key);
-  let metadata: DraftMetadata = { tone: input.tone };
+  let metadata: DraftMetadata = { tone: input.tone, ...(input.note !== undefined ? { note: input.note?.trim() || null } : {}) };
 
   if (metricMatch) {
     const metricId = Number(metricMatch[1]);
@@ -328,6 +354,7 @@ async function saveDraft(db: any, personId: number, input: {
       const [autoConfig] = await db.select({ dataSource: rrMetricAutoConfigs.dataSource, lastRefreshedAt: rrMetricAutoConfigs.lastRefreshedAt })
         .from(rrMetricAutoConfigs).where(eq(rrMetricAutoConfigs.metricId, metricId)).limit(1);
       metadata = {
+        ...(input.note !== undefined ? { note: input.note?.trim() || null } : {}),
         autoSource: autoConfig?.dataSource ?? null,
         periodLabel: metric.current.label,
         lastRefreshedAt: autoConfig?.lastRefreshedAt?.toISOString?.() ?? autoConfig?.lastRefreshedAt ?? null,
@@ -510,6 +537,7 @@ export const pulsePersonalRouter = router({
     value: z.union([z.number().finite(), z.string().max(8000), z.null()]),
     meetingId: z.string().uuid(),
     tone: z.enum(["green", "amber", "red"]).optional(),
+    note: z.string().trim().max(5_000).nullable().optional(),
     approved: z.boolean().optional(),
   })).mutation(async ({ ctx, input }) => saveDraft(await dbOrThrow(), ctx.user.id, input)),
 
@@ -521,11 +549,12 @@ export const pulsePersonalRouter = router({
     const fields = prep.fields.filter((field: any) => field.meetingId === input.meetingId);
     const incomplete = fields.filter((field: any) => field.required && !isFieldComplete(field));
     if (incomplete.length) throw new TRPCError({ code: "BAD_REQUEST", message: `Review ${incomplete.map((field: any) => field.label).join(", ")} before submitting.` });
+    const rocks = await weeklyPreparationRocks(db, ctx.user.id, input.meetingId);
 
     const manualFields = fields.filter((field: any) => field.kind === "number" && field.source === "manual");
     const automaticFields = fields.filter((field: any) => field.kind === "number" && field.source === "automatic");
     for (const field of manualFields) {
-      await saveCurrentScorecardValue(db, ctx.user.id, { meetingId: input.meetingId, metricId: Number(field.key.slice(7)), actualValue: Number(field.value) });
+      await saveCurrentScorecardValue(db, ctx.user.id, { meetingId: input.meetingId, metricId: Number(field.key.slice(7)), actualValue: Number(field.value), note: field.note || null });
     }
     for (const field of automaticFields) await applyReviewedAutomaticValue(db, ctx.user.id, field);
 
@@ -551,10 +580,12 @@ export const pulsePersonalRouter = router({
         fields: fields.map((field: any) => ({
           label: field.label,
           value: field.value,
+          note: field.note || undefined,
           source: field.source,
           approved: field.source === "automatic" ? field.approved : undefined,
           reportingPeriod: field.periodLabel ?? undefined,
         })),
+        rocks,
       };
       await tx.insert(pulseWeeklySubmissions).values({ id: uuid(), meetingId: input.meetingId, personId: ctx.user.id, weekOf: prep.weekOf, confirmationSummary: summary })
         .onDuplicateKeyUpdate({ set: { submittedAt: new Date(), confirmationSummary: summary, withdrawnAt: null } });
@@ -566,8 +597,13 @@ export const pulsePersonalRouter = router({
         recipientEmail: person.email,
         recipientName: person.name ?? undefined,
         pulseMeetingName: meeting.name,
-        pulseSubmissionSummary: `${fields.filter((field: any) => field.kind === "number").length} measurable${fields.filter((field: any) => field.kind === "number").length === 1 ? "" : "s"} and ${textFields.length} update${textFields.length === 1 ? "" : "s"} saved to ${meeting.name}.`,
-        pulseActionUrl: "https://os.savvy-agents.com/pulse/weekly-prep",
+        pulseSubmissionSummary: `${fields.filter((field: any) => field.kind === "number").length} measurable${fields.filter((field: any) => field.kind === "number").length === 1 ? "" : "s"}, ${textFields.length} update${textFields.length === 1 ? "" : "s"}, and ${rocks.length} Rock${rocks.length === 1 ? "" : "s"} reviewed.`,
+        pulseSubmissionDetails: [
+          ...fields.filter((field: any) => field.kind === "number").map((field: any) => `Measurable · ${field.label}: ${field.value}${field.note ? ` — ${field.note}` : ""}`),
+          ...textFields.map((field: any) => `${field.label}: ${field.value}`),
+          ...rocks.map((rock: any) => `Rock · ${rock.title}: ${rock.status.replaceAll("_", " ")}${rock.percentComplete == null ? "" : ` (${rock.percentComplete}% complete)`}`),
+        ],
+        pulseActionUrl: "https://os.savvy-agents.com/pulse/dashboard#weekly-preparation",
       }, { idempotencyKey: `pulse-weekly-prep:${input.meetingId}:${ctx.user.id}:${dateOnly(prep.weekOf)}` });
       if (delivery.sent || delivery.skipped) await db.update(pulseWeeklySubmissions).set({ emailSentAt: new Date() }).where(and(
         eq(pulseWeeklySubmissions.meetingId, input.meetingId),

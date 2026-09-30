@@ -170,6 +170,7 @@ interface EmailContext {
   pulseCascadeBody?: string;
   pulseActionUrl?: string;
   pulseSubmissionSummary?: string;
+  pulseSubmissionDetails?: string[];
   measurableReportingWeek?: string;
   pulseRecapHtml?: string;
   // PM mention-specific
@@ -1251,7 +1252,7 @@ const TEMPLATES: Record<
       ${subheading(ctx.pulseMeetingName ?? "Pulse L10")}
       ${greeting(ctx.recipientName)}
       ${bodyText("Your current weekly preparation has been recorded. You can return to Pulse to revise it until the meeting starts.")}
-      ${ctx.pulseSubmissionSummary ? infoCard([ctx.pulseSubmissionSummary]) : ""}
+      ${ctx.pulseSubmissionDetails?.length ? infoCard(ctx.pulseSubmissionDetails.map(escapeHtml)) : ctx.pulseSubmissionSummary ? infoCard([escapeHtml(ctx.pulseSubmissionSummary)]) : ""}
       ${ctaButton("Open Weekly Prep", ctx.pulseActionUrl ?? APP_URL + "/pulse/weekly-prep")}`,
       `Weekly prep confirmed for ${ctx.pulseMeetingName ?? "your L10"}`
     ),
