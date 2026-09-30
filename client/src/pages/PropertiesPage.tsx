@@ -143,6 +143,11 @@ export default function PropertiesPage() {
             <Button variant="outline" size="sm" onClick={() => navigate("/proformas")}>
               <FileText className="h-4 w-4 mr-1" /> My Pro-formas
             </Button>
+            {!!(adminPermissions as Record<string, boolean> | undefined)?.canManageWebsiteProperties && (
+              <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => navigate("/website?tab=listings")}>
+                <Globe2 className="h-4 w-4 mr-1" /> Website listings
+              </Button>
+            )}
             {user?.role === "admin" && (
               <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
                 <Upload className="h-4 w-4 mr-1" /> Bulk Upload
