@@ -2808,6 +2808,16 @@ function useRecordArticleView(
   }, [kind, contentId, mutate]);
 }
 
+function DraftPreviewBanner({ status, what }: { status?: string | null; what: string }) {
+  if (!status || status === "published") return null;
+  return (
+    <div className="bg-amber-100 px-4 py-2.5 text-center text-sm font-medium text-amber-900">
+      Draft preview. Only signed-in Savvy team members can see this {what}. Set it to Published in
+      SavvyOS to make it live.
+    </div>
+  );
+}
+
 function CaseStudyDetailPage({ slug }: { slug: string }) {
   const query = trpc.website.publicCaseStudy.useQuery({ slug });
   // "More from" the agent: their live listings, from the (small) public list.
@@ -2831,6 +2841,7 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
   // Laid out like the live case study page.
   return (
     <Shell>
+      <DraftPreviewBanner status={item.contentStatus} what="case study" />
       <div className="min-h-screen bg-white">
         <div className="border-b bg-white">
           <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -3357,6 +3368,7 @@ function ResourceDetailPage({ slug }: { slug: string }) {
   // Laid out like the live article page.
   return (
     <Shell>
+      <DraftPreviewBanner status={item.contentStatus} what="post" />
       <div className="min-h-screen bg-white">
         <div className="border-b border-gray-200">
           <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8">

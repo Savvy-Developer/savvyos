@@ -126,6 +126,19 @@ import { triggerSmartPlansForContact } from "../smartPlanScheduler";
  * it. Returns false on any failure, so a broken session shows the public view
  * rather than an error page.
  */
+/**
+ * Whether a Savvy team member is signed in on the website (staff session).
+ * Lets the team open Draft listings, case studies and posts at their future
+ * address before publishing. False on any failure, so the public view wins.
+ */
+async function visitorIsStaff(req: unknown): Promise<boolean> {
+  try {
+    return (await staffFromRequest(req as any)) != null;
+  } catch {
+    return false;
+  }
+}
+
 async function visitorIsSignedIn(req: unknown): Promise<boolean> {
   try {
     // Savvy staff signed in on the website see the figures too.
@@ -1927,12 +1940,15 @@ export const websiteRouter = router({
 
   publicCaseStudy: publicProcedure
     .input(z.object({ slug: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return null;
+      // Drafts open for signed-in Savvy staff only, as a preview.
+      const isStaff = await visitorIsStaff(ctx.req);
       const rows = await db
         .select({
           id: websiteCaseStudies.id,
+          contentStatus: websiteCaseStudies.status,
           slug: websiteCaseStudies.slug,
           title: websiteCaseStudies.title,
           eyebrow: websiteCaseStudies.eyebrow,
@@ -1965,7 +1981,9 @@ export const websiteRouter = router({
         .where(
           and(
             eq(websiteCaseStudies.slug, input.slug),
-            eq(websiteCaseStudies.status, "published")
+            isStaff
+              ? inArray(websiteCaseStudies.status, ["published", "draft"])
+              : eq(websiteCaseStudies.status, "published")
           )
         )
         .limit(1);
@@ -2004,12 +2022,15 @@ export const websiteRouter = router({
 
   publicPost: publicProcedure
     .input(z.object({ slug: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return null;
+      // Drafts open for signed-in Savvy staff only, as a preview.
+      const isStaff = await visitorIsStaff(ctx.req);
       const rows = await db
         .select({
           id: websiteBlogPosts.id,
+          contentStatus: websiteBlogPosts.status,
           slug: websiteBlogPosts.slug,
           title: websiteBlogPosts.title,
           excerpt: websiteBlogPosts.excerpt,
@@ -2027,7 +2048,9 @@ export const websiteRouter = router({
         .where(
           and(
             eq(websiteBlogPosts.slug, input.slug),
-            eq(websiteBlogPosts.status, "published")
+            isStaff
+              ? inArray(websiteBlogPosts.status, ["published", "draft"])
+              : eq(websiteBlogPosts.status, "published")
           )
         )
         .limit(1);

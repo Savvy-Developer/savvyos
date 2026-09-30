@@ -115,9 +115,18 @@ export default function MyWebsiteContentPage({ kind }: { kind: Kind }) {
                     </p>
                   </div>
                   <StatusBadge status={row.status} />
-                  {row.status === "published" && (
-                    <a href={publicPath(row.slug)} target="_blank" rel="noreferrer" title="Open on the website">
-                      <Button variant="ghost" size="icon" aria-label="Open on the website">
+                  {(row.status === "published" || row.status === "draft") && (
+                    <a
+                      href={publicPath(row.slug)}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={
+                        row.status === "draft"
+                          ? "Preview the draft. Only Savvy team members signed in on the website see drafts."
+                          : "Open on the website"
+                      }
+                    >
+                      <Button variant="ghost" size="icon" aria-label={row.status === "draft" ? "Preview draft" : "Open on the website"}>
                         <ArrowUpRight className="h-4 w-4" />
                       </Button>
                     </a>
