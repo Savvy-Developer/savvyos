@@ -7,6 +7,10 @@ const dashboard = readFileSync(
   path.join(root, "client/src/components/MyTodosDashboard.tsx"),
   "utf8"
 );
+const dueDateControl = readFileSync(
+  path.join(root, "client/src/components/ProjectTodoDueDateControl.tsx"),
+  "utf8"
+);
 const projectsPage = readFileSync(
   path.join(root, "client/src/pages/ProjectsPage.tsx"),
   "utf8"
@@ -47,11 +51,12 @@ describe("actionable My To-Dos dashboard", () => {
     expect(dashboard).toContain("Comments");
   });
 
-  it("uses narrower non-shrinking controls to preserve room for Project to-do titles", () => {
+  it("uses a compact month-day picker to preserve room for Project to-do titles", () => {
     expect(dashboard).toContain("w-[7rem] shrink-0");
-    expect(dashboard).toContain("w-[7.75rem] shrink-0");
     expect(dashboard).toContain("w-[5.5rem] shrink-0");
-    expect(dashboard).not.toContain('className="h-7 w-[8.25rem] bg-background px-2 text-xs"');
+    expect(dashboard).toContain("<ProjectTodoDueDateControl");
+    expect(dueDateControl).toContain("The year is inferred");
+    expect(dueDateControl).not.toContain('type="date"');
   });
 
   it("keeps all source views fresh after a dashboard update", () => {

@@ -28,6 +28,7 @@ import { PulseInlineItemRow } from "@/components/pulse/PulseItemEditor";
 import ProjectTodoMoveProjectDialog, {
   type ProjectMoveOption,
 } from "@/components/ProjectTodoMoveProjectDialog";
+import { ProjectTodoDueDateControl } from "@/components/ProjectTodoDueDateControl";
 import ProjectTodoCompletionDialog from "@/components/ProjectTodoCompletionDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -188,7 +189,6 @@ function ProjectTodoWorkspace({
   const [editing, setEditing] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
-  const [dueDate, setDueDate] = useState(dateValue(todo.dueDate));
   const [form, setForm] = useState<ProjectTodoForm>(() => projectForm(todo));
   const [completionOpen, setCompletionOpen] = useState(false);
   const [pendingCompletionUpdate, setPendingCompletionUpdate] = useState<Record<string, unknown> | null>(null);
@@ -197,7 +197,6 @@ function ProjectTodoWorkspace({
   const due = duePresentation(todo.dueDate);
 
   useEffect(() => {
-    setDueDate(dateValue(todo.dueDate));
     setForm(projectForm(todo));
   }, [todo]);
 
@@ -394,19 +393,10 @@ function ProjectTodoWorkspace({
             ))}
           </SelectContent>
         </Select>
-        <Input
-          aria-label="Project To-Do due date"
-          type="date"
-          value={dueDate}
-          onChange={event => {
-            const value = event.target.value;
-            setDueDate(value);
-            quickUpdate({
-              dueDate: value ? new Date(`${value}T12:00:00`) : null,
-            });
-          }}
+        <ProjectTodoDueDateControl
+          value={todo.dueDate}
+          onChange={dueDate => quickUpdate({ dueDate })}
           disabled={update.isPending}
-          className="h-7 w-[7.75rem] shrink-0 bg-background px-1.5 text-xs"
         />
         <Select
           value={(todo.priority as ProjectPriority) ?? "medium"}

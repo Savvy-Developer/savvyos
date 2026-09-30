@@ -15,6 +15,10 @@ const todoBoard = readFileSync(
   path.join(root, "client/src/components/ProjectTodoBoard.tsx"),
   "utf8"
 );
+const dueDateControl = readFileSync(
+  path.join(root, "client/src/components/ProjectTodoDueDateControl.tsx"),
+  "utf8"
+);
 const projectBoard = readFileSync(
   path.join(root, "client/src/components/ProjectTodoKanbanBoard.tsx"),
   "utf8"
@@ -159,11 +163,14 @@ describe("project todo section UI", () => {
     expect(projectRouter).toContain("completionUpdate");
   });
 
-  it("keeps Project to-do metadata compact without letting controls shrink into their labels", () => {
+  it("uses a compact month-day picker for inline Project to-do due dates", () => {
     expect(projectDetailPage).toContain("w-[7rem] shrink-0");
-    expect(projectDetailPage).toContain("w-[7.75rem] shrink-0");
     expect(projectDetailPage).toContain("w-[5.5rem] shrink-0");
-    expect(projectDetailPage).not.toContain("w-[8.5rem] bg-background px-2 text-xs");
+    expect(projectDetailPage).toContain("<ProjectTodoDueDateControl");
+    expect(projectDetailPage).not.toContain('<Input aria-label="To-Do due date" type="date"');
+    expect(dueDateControl).toContain('formatTodoDueMonthDay(currentDate)');
+    expect(dueDateControl).toContain("inferTodoDueDate(selectedMonth, selectedDay)");
+    expect(dueDateControl).toContain('w-[5.75rem] shrink-0');
   });
 
   it("uses one expanded todo card as the direct edit surface", () => {
