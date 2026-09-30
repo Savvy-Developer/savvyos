@@ -291,20 +291,35 @@ export const mlsPropertiesRouter = router({
         .where(and(eq(mlsListings.propertyId, listing.propertyId), ne(mlsListings.id, listing.id), sql.raw(approvedFeedSql())))
         .orderBy(desc(mlsListings.originalEntryAt)),
     ]);
+    // Older MLS history (Canopy before ~2013) carries only the agent and office
+    // MLS numbers, not their keys or names. Fall back to the MLS number so the
+    // listing brokerage, which display rules require, is still shown.
     const [listAgent] = listing.listAgentKey
       ? await db
           .select()
           .from(mlsMembers)
           .where(and(eq(mlsMembers.feedId, listing.feedId), eq(mlsMembers.memberKey, listing.listAgentKey)))
           .limit(1)
-      : [];
+      : listing.listAgentMlsId
+        ? await db
+            .select()
+            .from(mlsMembers)
+            .where(and(eq(mlsMembers.sourceId, listing.sourceId), eq(mlsMembers.memberMlsId, listing.listAgentMlsId)))
+            .limit(1)
+        : [];
     const [listOffice] = listing.listOfficeKey
       ? await db
           .select()
           .from(mlsOffices)
           .where(and(eq(mlsOffices.feedId, listing.feedId), eq(mlsOffices.officeKey, listing.listOfficeKey)))
           .limit(1)
-      : [];
+      : listing.listOfficeMlsId
+        ? await db
+            .select()
+            .from(mlsOffices)
+            .where(and(eq(mlsOffices.sourceId, listing.sourceId), eq(mlsOffices.officeMlsId, listing.listOfficeMlsId)))
+            .limit(1)
+        : [];
 
     const compliance = source ? sourceCompliance(source) : null;
     const confidential = new Set(compliance?.confidentialFields ?? []);

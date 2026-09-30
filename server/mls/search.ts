@@ -163,7 +163,9 @@ export const listingCardColumns = {
   daysOnMarket: mlsListings.daysOnMarket,
   primaryPhotoUrl: mlsListings.primaryPhotoUrl,
   photosCount: mlsListings.photosCount,
-  listOfficeName: mlsListings.listOfficeName,
+  // Fall back to the office roster by MLS number for older history rows that
+  // carry no brokerage name. Uses mls_offices_source_mlsid_idx; one lookup per row on the page.
+  listOfficeName: sql<string | null>`COALESCE(${mlsListings.listOfficeName}, (SELECT o.officeName FROM mls_offices AS o WHERE o.sourceId = ${mlsListings.sourceId} AND o.officeMlsId = ${mlsListings.listOfficeMlsId} AND o.officeName IS NOT NULL LIMIT 1))`,
   listAgentFullName: mlsListings.listAgentFullName,
   originalEntryAt: mlsListings.originalEntryAt,
   sourceModifiedAt: mlsListings.sourceModifiedAt,
