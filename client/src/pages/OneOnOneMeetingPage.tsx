@@ -132,6 +132,14 @@ export default function OneOnOneMeetingPage() {
   });
   const updateCommitmentStatus = trpc.oneOnOnes.updateCommitmentStatus.useMutation({ onSuccess: () => void refetch(), onError: error => toast.error(error.message) });
   const updateIssueStatus = trpc.oneOnOnes.updateIssueStatus.useMutation({ onSuccess: () => void refetch(), onError: error => toast.error(error.message) });
+  const retryCalendarSync = trpc.oneOnOnes.retryCalendarSync.useMutation({
+    onSuccess: async result => {
+      if (result.calendarSyncStatus === "Synced") toast.success("Google Calendar event created.");
+      else toast.warning(result.calendarSyncError || "Google Calendar is not ready for this 1:1 yet.");
+      await refetch();
+    },
+    onError: error => toast.error(error.message),
+  });
 
   const people = useMemo(() => detail ? [
     { id: detail.meeting.employeeId, name: detail.employee?.name ?? "Employee" },
@@ -201,7 +209,7 @@ export default function OneOnOneMeetingPage() {
       <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{detail.meeting.status}</Badge>{detail.meeting.scheduledAt && <Badge variant="secondary"><CalendarDays className="mr-1 h-3 w-3" />{safeFormatET(detail.meeting.scheduledAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</Badge>}{detail.meeting.calendarEventUrl && <Button asChild variant="outline" size="sm"><a href={detail.meeting.calendarEventUrl} target="_blank" rel="noreferrer">Calendar <ExternalLink className="ml-1 h-3.5 w-3.5" /></a></Button>}</div>
     </div>
 
-    {detail.meeting.calendarSyncStatus === "Needs Attention" && <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><div><p className="font-medium">Calendar event needs attention</p><p className="mt-1 text-xs">{detail.meeting.calendarSyncError || "Connect the leader’s Google Calendar, then schedule this conversation again."}</p></div></div>}
+    {detail.meeting.calendarSyncStatus !== "Synced" && <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><div className="min-w-0"><p className="font-medium">Google Calendar event was not created</p><p className="mt-1 text-xs">{detail.meeting.calendarSyncError || "This 1:1 is not connected to Google Calendar yet."}</p><p className="mt-2 text-xs">This event belongs on {detail.leader?.name ?? "the leader"}’s connected calendar. After they connect it, return here and retry the sync.</p><div className="mt-3 flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><a href="/profile">Connect Google Calendar</a></Button><Button size="sm" onClick={() => retryCalendarSync.mutate({ meetingId })} disabled={retryCalendarSync.isPending}>{retryCalendarSync.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}Retry calendar sync</Button></div></div></div>}
 
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="space-y-6">

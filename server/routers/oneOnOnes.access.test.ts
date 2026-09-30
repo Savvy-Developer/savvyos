@@ -41,4 +41,12 @@ describe("HR 1:1 Meetings access", () => {
       counts: { upcoming: 0, dueSoon: 0, overdue: 0, noSchedule: 0 },
     });
   });
+
+  it("requires the HR 1:1 permission before a calendar retry", async () => {
+    vi.mocked(canAdminUsePermission).mockResolvedValue(false);
+    const caller = oneOnOnesRouter.createCaller({ user: admin } as any);
+
+    await expect(caller.retryCalendarSync({ meetingId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(getDb).not.toHaveBeenCalled();
+  });
 });

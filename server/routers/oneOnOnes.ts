@@ -514,6 +514,57 @@ export const oneOnOnesRouter = router({
       return { meetingId };
     }),
 
+  retryCalendarSync: protectedProcedure
+    .input(z.object({ meetingId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      await requireOneOnOneAccess(ctx.user);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const [meeting] = await db
+        .select()
+        .from(oneOnOneMeetings)
+        .where(eq(oneOnOneMeetings.id, input.meetingId))
+        .limit(1);
+      if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "1:1 meeting not found." });
+      if (meeting.calendarSyncStatus === "Synced" && meeting.calendarEventId) {
+        return {
+          calendarSyncStatus: meeting.calendarSyncStatus,
+          calendarEventId: meeting.calendarEventId,
+          calendarEventUrl: meeting.calendarEventUrl,
+          calendarSyncError: meeting.calendarSyncError,
+        };
+      }
+      if (!meeting.scheduledAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Schedule this 1:1 before syncing it to Google Calendar." });
+      }
+      const relationship = await relationshipOrThrow(db, meeting.relationshipId);
+      const employee = await activeUserOrThrow(db, meeting.employeeId, "employee");
+      const calendar = await provisionCalendarEvent({
+        meetingId: meeting.id,
+        scheduledAt: meeting.scheduledAt,
+        durationMinutes: meeting.durationMinutes,
+        leaderId: relationship.leaderId,
+        employeeName: employee.name,
+        employeeEmail: employee.email,
+      });
+      await db
+        .update(oneOnOneMeetings)
+        .set(calendar)
+        .where(eq(oneOnOneMeetings.id, meeting.id));
+      await logActivity({
+        userId: ctx.user.id,
+        action: "one_on_one_calendar_sync_retried",
+        entityType: "one_on_one_meeting",
+        entityId: meeting.id,
+        details: {
+          relationshipId: relationship.id,
+          leaderId: relationship.leaderId,
+          calendarSyncStatus: calendar.calendarSyncStatus,
+        },
+      });
+      return calendar;
+    }),
+
   detail: protectedProcedure
     .input(z.object({ meetingId: z.number().int().positive() }))
     .query(async ({ input, ctx }) => {

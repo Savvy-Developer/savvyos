@@ -52,8 +52,8 @@ export default function OneOnOneMeetingsPage() {
       await utils.oneOnOnes.dashboard.invalidate();
       setSetupOpen(false);
       setSetup(blankSetup());
-      if (result.meeting?.calendar?.calendarSyncStatus === "Needs Attention") {
-        toast.warning("1:1 saved. Google Calendar needs attention for this leader.");
+      if (result.meeting?.calendar && result.meeting.calendar.calendarSyncStatus !== "Synced") {
+        toast.warning("1:1 saved, but no Google Calendar event was created. Connect the leader’s calendar, then retry the sync from the meeting.");
       } else {
         toast.success(result.meeting ? "1:1 set up and scheduled" : "1:1 relationship saved");
       }
@@ -166,7 +166,7 @@ export default function OneOnOneMeetingsPage() {
             <div className="grid gap-2"><Label>Employee</Label><Select value={setup.employeeId} disabled={Boolean(setup.relationshipId)} onValueChange={employeeId => setSetup(current => ({ ...current, employeeId }))}><SelectTrigger><SelectValue placeholder="Choose employee" /></SelectTrigger><SelectContent>{people.map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{person.name ?? person.email ?? `User ${person.id}`}{person.title ? ` · ${person.title}` : ""}</SelectItem>)}</SelectContent></Select></div>
             <div className="grid gap-2"><Label>Leader</Label><Select value={setup.leaderId} disabled={Boolean(setup.relationshipId)} onValueChange={leaderId => setSetup(current => ({ ...current, leaderId }))}><SelectTrigger><SelectValue placeholder="Choose leader" /></SelectTrigger><SelectContent>{people.map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{person.name ?? person.email ?? `User ${person.id}`}{person.title ? ` · ${person.title}` : ""}</SelectItem>)}</SelectContent></Select></div>
             <div className="grid gap-4 sm:grid-cols-2"><div className="grid gap-2"><Label>Cadence (days)</Label><Input type="number" min="7" max="365" value={setup.frequencyDays} onChange={event => setSetup(current => ({ ...current, frequencyDays: event.target.value }))} /></div><div className="grid gap-2"><Label>Meeting duration</Label><Select value={setup.durationMinutes} onValueChange={durationMinutes => setSetup(current => ({ ...current, durationMinutes }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="30">30 minutes</SelectItem><SelectItem value="45">45 minutes</SelectItem><SelectItem value="60">60 minutes</SelectItem></SelectContent></Select></div></div>
-            <div className="grid gap-2"><Label>Schedule the next 1:1 <span className="font-normal text-muted-foreground">(optional)</span></Label><Input type="datetime-local" value={setup.nextScheduledAt} onChange={event => setSetup(current => ({ ...current, nextScheduledAt: event.target.value }))} /><p className="text-xs text-muted-foreground">When a time is set, SavvyOS creates a Google Calendar event on the leader’s connected calendar when available.</p></div>
+            <div className="grid gap-2"><Label>Schedule the next 1:1 <span className="font-normal text-muted-foreground">(optional)</span></Label><Input type="datetime-local" value={setup.nextScheduledAt} onChange={event => setSetup(current => ({ ...current, nextScheduledAt: event.target.value }))} /><p className="text-xs text-muted-foreground">When a time is set, SavvyOS creates a Google Calendar event on the leader’s connected calendar. The leader can <a href="/profile" className="font-medium text-primary underline underline-offset-2">connect Google Calendar in Profile</a> before you schedule.</p></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setSetupOpen(false)}>Cancel</Button><Button onClick={submitSetup} disabled={upsertRelationship.isPending}>{upsertRelationship.isPending ? "Saving…" : setup.nextScheduledAt ? "Save and schedule" : "Save 1:1"}</Button></DialogFooter>
         </DialogContent>
