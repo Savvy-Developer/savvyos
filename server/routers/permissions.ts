@@ -74,6 +74,8 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewTransactionExports",     label: "Transaction Exports",        group: "Transactions" },
   { key: "canViewListings",               label: "Listings",                   group: "Transactions" },
   { key: "canViewProperties",             label: "Properties",                 group: "Transactions" },
+  { key: "canViewMlsProperties",          label: "MLS Properties",             group: "Transactions" },
+  { key: "canManageMlsFeeds",             label: "MLS Feeds and Mappings",     group: "Transactions" },
   { key: "canViewCommission",             label: "Commissions and Payouts",    group: "Transactions" },
   { key: "canViewReferrals",              label: "View Referrals",             group: "Transactions" },
   { key: "canCreateReferrals",            label: "Create Referrals",           group: "Transactions" },
@@ -188,6 +190,8 @@ const DEFAULT_OFF_PERMISSIONS = new Set<PermissionKey>([
   "canManageWebsiteBlog",
   "canManageWebsiteSettings",
   "canViewWebsiteLeads",
+  "canViewMlsProperties",
+  "canManageMlsFeeds",
 ]);
 
 function readPermission(row: unknown, permission: PermissionKey): boolean {

@@ -91,7 +91,8 @@ async function availableTables(): Promise<string[]> {
         AND table_type = 'BASE TABLE'
       ORDER BY table_name ASC`
   );
-  return rows.map(row => row.tableName);
+  // MLS licenses and this module explicitly exclude general AI/MCP access.
+  return rows.map(row => row.tableName).filter(name => !name.toLowerCase().startsWith("mls_"));
 }
 
 function assertSafeTableName(value: string, available: string[]): string {
@@ -137,6 +138,9 @@ export function validateReadOnlySql(input: string): string {
     throw new Error(
       "The query includes a blocked write, administration, or system-schema operation."
     );
+  }
+  if (/\bmls_[a-z0-9_]+\b/i.test(sql)) {
+    throw new Error("MLS Properties data is isolated and unavailable through the SavvyOS MCP connection.");
   }
   if (SENSITIVE_FIELD_PATTERN.test(sql)) {
     throw new Error(

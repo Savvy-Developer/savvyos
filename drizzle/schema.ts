@@ -6970,6 +6970,10 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canManageWebsiteBlog: boolean("canManageWebsiteBlog").default(false).notNull(),
   canManageWebsiteSettings: boolean("canManageWebsiteSettings").default(false).notNull(),
   canViewWebsiteLeads: boolean("canViewWebsiteLeads").default(false).notNull(),
+  // MLS Properties is licensed MLS data under construction: opt-in only.
+  // Columns are added at startup by server/mls/schema.ts.
+  canViewMlsProperties: boolean("canViewMlsProperties").default(false).notNull(),
+  canManageMlsFeeds: boolean("canManageMlsFeeds").default(false).notNull(),
   // Short Links send public traffic through the Savvy-owned redirect domain.
   canViewShortLinks: boolean("canViewShortLinks").default(false).notNull(),
   // Dev Tools
@@ -11349,3 +11353,6 @@ export const mobileDevices = mysqlTable(
 );
 export type MobileDevice = typeof mobileDevices.$inferSelect;
 export type InsertMobileDevice = typeof mobileDevices.$inferInsert;
+
+// MLS Properties module (separate from the legacy properties table).
+export * from "./mlsSchema";

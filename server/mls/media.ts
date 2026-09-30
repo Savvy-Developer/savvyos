@@ -1,0 +1,301 @@
+import { and, eq, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
+import { mlsListings, mlsMedia } from "../../drizzle/mlsSchema";
+import { getDb } from "../db";
+import { privateMlsStorage, privateMlsStorageError } from "./privateMedia";
+import { loadOverrides, loadMetadataLocalFields } from "./engine";
+import { adapterFor } from "./adapters";
+import { parseODataPage, type FeedContext } from "./adapters/types";
+import { downloadMedia, FatalHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
+import { processRecords } from "./store";
+
+/**
+ * Media pipeline. Listing photos are copied to our S3 bucket and served from
+ * there; provider URLs are never shown to users (MLS Grid forbids hotlinking,
+ * and its URLs are single use and expire in an hour).
+ *
+ * Queue order: primary photo of market listings first, then their gallery,
+ * then off-market primaries. Removed photos are deleted from S3 as well.
+ */
+
+type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+export type MediaStorage = {
+  put(key: string, data: Buffer, contentType: string): Promise<{ url: string }>;
+  remove(key: string): Promise<void>;
+};
+
+let storage: MediaStorage = privateMlsStorage;
+
+/** Tests and local runs swap S3 for an in-memory store. */
+export function setMediaStorage(next: MediaStorage) {
+  storage = next;
+}
+
+const MAX_ATTEMPTS = 5;
+const MAX_BYTES = 25 * 1024 * 1024;
+
+function safeSegment(value: string) {
+  return value.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 120) || "x";
+}
+
+function extension(contentType: string) {
+  const type = contentType.split(";")[0].trim().toLowerCase();
+  if (type === "image/jpeg" || type === "image/jpg") return "jpg";
+  if (type === "image/png") return "png";
+  if (type === "image/webp") return "webp";
+  if (type === "image/gif") return "gif";
+  if (type === "image/avif") return "avif";
+  return null;
+}
+
+export type MediaBatchResult = {
+  claimed: number;
+  stored: number;
+  failed: number;
+  expired: number;
+  skipped: number;
+  deleted: number;
+  refreshed: number;
+};
+
+async function requireDb(): Promise<Db> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not configured");
+  return db;
+}
+
+/** Downloads interrupted by a crash or deploy go back in the queue. */
+export async function resetStaleMediaClaims() {
+  const db = await requireDb();
+  const cutoff = new Date(Date.now() - 30 * 60_000);
+  await db
+    .update(mlsMedia)
+    .set({ status: "pending", claimedBy: null })
+    .where(and(eq(mlsMedia.status, "downloading"), lt(mlsMedia.updatedAt, cutoff)));
+}
+
+async function deleteRemovedMedia(db: Db, feedIds: number[], result: MediaBatchResult) {
+  const rows = await db
+    .select()
+    .from(mlsMedia)
+    .where(and(inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "delete_pending")))
+    .limit(200);
+  for (const row of rows) {
+    try {
+      if (row.s3Key) await storage.remove(row.s3Key);
+    } catch (error) {
+      await db
+        .update(mlsMedia)
+        .set({ lastError: String(error instanceof Error ? error.message : error).slice(0, 512) })
+        .where(eq(mlsMedia.id, row.id));
+      continue;
+    }
+    if (row.url && row.listingId) {
+      await db
+        .update(mlsListings)
+        .set({ primaryPhotoUrl: null })
+        .where(and(eq(mlsListings.id, row.listingId), eq(mlsListings.primaryPhotoUrl, row.url)));
+    }
+    await db.delete(mlsMedia).where(eq(mlsMedia.id, row.id));
+    result.deleted += 1;
+  }
+}
+
+/**
+ * MLS Grid only: listings whose photo URLs expired before download are
+ * re-requested one by one to get fresh URLs. Costs one API request each, so
+ * it is capped per batch and shares the lane's request budget.
+ */
+async function refreshExpiredUrls(
+  db: Db,
+  lane: ProviderLane,
+  feeds: Map<number, FeedContext>,
+  result: MediaBatchResult,
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; limit: number }
+) {
+  const feedIds = Array.from(feeds.keys()).filter(id => adapterFor(feeds.get(id)!.feed.provider).capabilities.mediaUrlsExpire);
+  if (!feedIds.length) return;
+  const rows = await db
+    .selectDistinct({ feedId: mlsMedia.feedId, resourceKey: mlsMedia.resourceKey })
+    .from(mlsMedia)
+    .where(and(inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS)))
+    .limit(options.limit);
+  for (const row of rows) {
+    const ctx = feeds.get(row.feedId)!;
+    const adapter = adapterFor(ctx.feed.provider);
+    try {
+      const { body } = await requestJson(lane, adapter.singleRecordUrl(ctx, "Property", row.resourceKey), () => adapter.authHeaders(ctx), {
+        signal: options.signal,
+        fetchImpl: options.fetchImpl,
+      });
+      const page = parseODataPage(body);
+      if (!page.value.length) {
+        await db
+          .update(mlsMedia)
+          .set({ status: "failed", lastError: "Listing no longer returned by provider" })
+          .where(and(eq(mlsMedia.feedId, row.feedId), eq(mlsMedia.resourceKey, row.resourceKey), eq(mlsMedia.status, "expired")));
+        continue;
+      }
+      await processRecords(ctx, adapter, "Property", page.value, { overrides: await loadOverrides(db, ctx), metadataLocalFields: await loadMetadataLocalFields(db, ctx.feed.id), force: true });
+      result.refreshed += 1;
+    } catch (error) {
+      await db
+        .update(mlsMedia)
+        .set({ attempts: sql`${mlsMedia.attempts} + 1`, lastError: String(error instanceof Error ? error.message : error).slice(0, 512) })
+        .where(and(eq(mlsMedia.feedId, row.feedId), eq(mlsMedia.resourceKey, row.resourceKey), eq(mlsMedia.status, "expired")));
+    }
+  }
+}
+
+async function claim(db: Db, feedIds: number[], claimToken: string, limit: number) {
+  const now = new Date();
+  await db
+    .update(mlsMedia)
+    .set({ status: "expired", sourceUrl: null })
+    .where(
+      and(
+        inArray(mlsMedia.feedId, feedIds),
+        eq(mlsMedia.status, "pending"),
+        isNotNull(mlsMedia.sourceUrlExpiresAt),
+        lt(mlsMedia.sourceUrlExpiresAt, now)
+      )
+    );
+  await db.execute(sql`
+    UPDATE ${mlsMedia}
+       SET ${mlsMedia.status} = 'downloading', ${mlsMedia.claimedBy} = ${claimToken}, ${mlsMedia.attempts} = ${mlsMedia.attempts} + 1
+     WHERE ${inArray(mlsMedia.feedId, feedIds)}
+       AND ${mlsMedia.status} = 'pending'
+       AND ${mlsMedia.sourceUrl} IS NOT NULL
+       AND (${mlsMedia.nextAttemptAt} IS NULL OR ${mlsMedia.nextAttemptAt} <= ${now})
+     ORDER BY ${mlsMedia.priority} ASC, ${mlsMedia.id} ASC
+     LIMIT ${limit}`);
+  return db
+    .select()
+    .from(mlsMedia)
+    .where(and(eq(mlsMedia.claimedBy, claimToken), eq(mlsMedia.status, "downloading")));
+}
+
+async function pool<T>(items: T[], concurrency: number, run: (item: T) => Promise<void>) {
+  let index = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, async () => {
+    while (index < items.length) {
+      const item = items[index++];
+      await run(item);
+    }
+  });
+  await Promise.all(workers);
+}
+
+export async function runMediaBatch(
+  lane: ProviderLane,
+  feedContexts: FeedContext[],
+  workerId: string,
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; batchSize?: number; refreshLimit?: number } = {}
+): Promise<MediaBatchResult> {
+  const db = await requireDb();
+  const result: MediaBatchResult = { claimed: 0, stored: 0, failed: 0, expired: 0, skipped: 0, deleted: 0, refreshed: 0 };
+  const feeds = new Map(feedContexts.map(ctx => [ctx.feed.id, ctx]));
+  const feedIds = Array.from(feeds.keys());
+  if (!feedIds.length) return result;
+  // Photos wait (without using retries) until a dedicated private bucket exists.
+  if (storage === privateMlsStorage && privateMlsStorageError()) return result;
+
+  await deleteRemovedMedia(db, feedIds, result);
+  await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20 });
+
+  const claimToken = `${workerId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`.slice(0, 160);
+  const rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50);
+  result.claimed = rows.length;
+
+  await pool(rows, lane.limits.mediaConcurrency, async row => {
+    if (options.signal?.aborted) {
+      await db.update(mlsMedia).set({ status: "pending", claimedBy: null }).where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken)));
+      return;
+    }
+    const ctx = feeds.get(row.feedId)!;
+    const adapter = adapterFor(ctx.feed.provider);
+    const singleUse = adapter.capabilities.mediaUrlsExpire;
+    try {
+      const { data, contentType } = await downloadMedia(lane, row.sourceUrl!, await adapter.mediaHeaders(ctx), {
+        signal: options.signal,
+        fetchImpl: options.fetchImpl,
+      });
+      const ext = extension(contentType);
+      if (!ext || data.length === 0 || data.length > MAX_BYTES) {
+        await db
+          .update(mlsMedia)
+          .set({ status: "skipped", sourceUrl: null, claimedBy: null, lastError: `Not stored: ${contentType}, ${data.length} bytes` })
+          .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken)));
+        result.skipped += 1;
+        return;
+      }
+      const key = `mls/${safeSegment(ctx.source.code)}/${ctx.feed.id}/${safeSegment(row.resourceKey)}/${safeSegment(row.mediaKey)}-${safeSegment(claimToken)}.${ext}`;
+      const { url } = await storage.put(key, data, contentType.split(";")[0]);
+      const stored = await db
+        .update(mlsMedia)
+        .set({
+          status: "stored",
+          s3Key: key,
+          url,
+          bytes: data.length,
+          mimeType: contentType.split(";")[0].slice(0, 64),
+          storedAt: new Date(),
+          sourceUrl: null,
+          sourceUrlExpiresAt: null,
+          claimedBy: null,
+          lastError: null,
+          nextAttemptAt: null,
+        })
+        .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken)));
+      if (!Number((stored as any)[0]?.affectedRows)) {
+        await storage.remove(key);
+        return; // A removal/update won the race. Never resurrect its image.
+      }
+      if (row.s3Key && row.s3Key !== key) await storage.remove(row.s3Key);
+      if (row.isPrimary && row.listingId) {
+        await db.update(mlsListings).set({ primaryPhotoUrl: url }).where(eq(mlsListings.id, row.listingId));
+      }
+      result.stored += 1;
+    } catch (error) {
+      const message = redactUrl(String(error instanceof Error ? error.message : error)).slice(0, 512);
+      const gone = error instanceof FatalHttpError && [403, 404, 410].includes(error.status);
+      if (singleUse) {
+        // The URL is spent either way; a fresh one comes from a record refresh.
+        await db
+          .update(mlsMedia)
+          .set({ status: row.attempts >= MAX_ATTEMPTS ? "failed" : "expired", sourceUrl: null, claimedBy: null, lastError: message })
+          .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken)));
+        if (row.attempts >= MAX_ATTEMPTS) result.failed += 1;
+        else result.expired += 1;
+        return;
+      }
+      const final = gone || row.attempts >= MAX_ATTEMPTS;
+      await db
+        .update(mlsMedia)
+        .set({
+          status: final ? "failed" : "pending",
+          claimedBy: null,
+          lastError: message,
+          nextAttemptAt: final ? null : new Date(Date.now() + Math.min(6 * 60, 2 ** row.attempts) * 60_000),
+        })
+        .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken)));
+      if (final) result.failed += 1;
+    }
+  });
+  return result;
+}
+
+export async function pendingMediaCount(feedIds: number[]) {
+  if (!feedIds.length) return 0;
+  const db = await requireDb();
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(mlsMedia)
+    .where(
+      and(
+        inArray(mlsMedia.feedId, feedIds),
+        or(eq(mlsMedia.status, "pending"), eq(mlsMedia.status, "delete_pending"), and(eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS)))
+      )
+    );
+  return Number(count);
+}

@@ -24,6 +24,7 @@ export const PAGE_PERMISSION_DEPENDENCIES: Record<string, readonly string[]> = {
     "canEditHistoricalReferrals",
   ],
   canViewChat: ["canManageChat"],
+  canViewMlsProperties: ["canManageMlsFeeds"],
   canViewPulse: ["canViewPulseSettings"],
   canViewLandingPages: [
     "canCreateLandingPages",
