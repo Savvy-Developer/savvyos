@@ -457,6 +457,7 @@ export default function CoachingSessionPage() {
   const { id } = useParams<{ id: string }>();
   const sessionId = Number(id);
   const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
   const { data, isLoading, error, refetch } = trpc.coaching.getSession.useQuery(
     { sessionId }
   );
@@ -891,6 +892,7 @@ export default function CoachingSessionPage() {
         "Operations Escalation submitted for administrative review."
       );
       void operationsEscalationsQuery.refetch();
+      void utils.operationsEscalations.openCount.invalidate();
     } catch (err: any) {
       toast.error(err.message ?? "Unable to submit the Operations Escalation");
     }

@@ -35,6 +35,7 @@ export default function OperationsEscalationsPage({ embedded = false }: { embedd
   const [resolution, setResolution] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState({ agentId: "", issueRequest: "", context: "" });
+  const utils = trpc.useUtils();
   const { data, isLoading, refetch } = trpc.operationsEscalations.list.useQuery({ status: filter });
   const { data: agents = [] } = trpc.users.list.useQuery({ role: "agent" });
   const create = trpc.operationsEscalations.create.useMutation({
@@ -42,6 +43,7 @@ export default function OperationsEscalationsPage({ embedded = false }: { embedd
       setCreateOpen(false);
       setCreateForm({ agentId: "", issueRequest: "", context: "" });
       void refetch();
+      void utils.operationsEscalations.openCount.invalidate();
       toast.success("Operations Escalation submitted. Operations now owns the next step.");
     },
     onError: error => toast.error(error.message),
@@ -51,6 +53,7 @@ export default function OperationsEscalationsPage({ embedded = false }: { embedd
       setSelected(null);
       setResolution("");
       void refetch();
+      void utils.operationsEscalations.openCount.invalidate();
       toast.success(result.emailSent
         ? "Operations Escalation resolved and the submitting coach was notified."
         : "Operations Escalation resolved. The submitting coach could not be emailed.");

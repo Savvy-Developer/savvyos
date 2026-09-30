@@ -448,6 +448,7 @@ function buildAdminNav(
   marketingTextInboxUnread: number = 0,
   pendingPtoApprovals: number = 0,
   overdueAgentRenewals: number = 0,
+  openOperationsEscalations: number = 0,
   canManageSuperPermissions: boolean = false
 ): NavGroup[] {
   return [
@@ -554,6 +555,7 @@ function buildAdminNav(
           icon: Shield,
           label: "Operations Escalations",
           path: "/operations-escalations",
+          badge: openOperationsEscalations > 0 ? openOperationsEscalations : undefined,
         },
         { icon: BookOpen, label: "Knowledgebase", path: "/kb" },
       ],
@@ -1094,6 +1096,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     undefined,
     { enabled: role === "admin", staleTime: 30000 }
   );
+  const canViewOperationsEscalations =
+    isAdmin && !!adminPerms?.canViewOperationsEscalations;
+  const { data: openOperationsEscalationsData } =
+    trpc.operationsEscalations.openCount.useQuery(undefined, {
+      enabled: canViewOperationsEscalations,
+      refetchInterval: 30000,
+    });
   const canViewAgentRenewals =
     role === "admin" &&
     !!(adminPerms as Record<string, boolean> | undefined)?.canViewAgentRenewals;
@@ -1167,6 +1176,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pendingPtoApprovalsCount = (pendingPtoApprovalsData as any)?.count ?? 0;
   const overdueAgentRenewalsCount =
     (overdueAgentRenewalsData as any)?.count ?? 0;
+  const openOperationsEscalationsCount = openOperationsEscalationsData?.count ?? 0;
   const hasActiveOnboarding = onboardingStatus?.active ?? false;
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
   const resendInboxUnreadCount = (resendInboxUnreadData as any)?.count ?? 0;
@@ -1197,6 +1207,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           marketingTextInboxUnreadCount,
           pendingPtoApprovalsCount,
           overdueAgentRenewalsCount,
+          openOperationsEscalationsCount,
           !!canManageSuperPermissions
         )
       : role === "isa"

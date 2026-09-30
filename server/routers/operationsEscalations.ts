@@ -128,6 +128,19 @@ export const operationsEscalationsRouter = router({
       .orderBy(desc(operationsEscalations.createdAt));
   }),
 
+  /** Lightweight sidebar badge count, subject to the same access rule as the queue. */
+  openCount: protectedProcedure.query(async ({ ctx }) => {
+    await requireOperationsEscalationAccess(ctx.user);
+    const db = await getDb();
+    if (!db) return { count: 0 };
+
+    const [row] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(operationsEscalations)
+      .where(eq(operationsEscalations.status, "Open"));
+    return { count: Number(row?.count ?? 0) };
+  }),
+
   /** Full operations queue for authorized administrators. */
   list: protectedProcedure
     .input(z.object({ status: z.enum(["open", "resolved", "all"]).default("open") }).optional())
