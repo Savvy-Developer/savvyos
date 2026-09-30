@@ -154,7 +154,7 @@ export default function PulseMyWorkPage() {
           <div className="space-y-3">
             <PulseL10WorkCreator meetings={data.meetings} onCreated={changed} workspaceControls={workspaceControls} />
             <CompactWorkQueue todos={todos} issues={issues} issueTimeframe={issueTimeframe} onIssueTimeframeChange={setIssueTimeframe} onChanged={changed} showDestination={workspaceId === "all"} />
-            <Card className="pulse-card-compact"><CardHeader className="pb-2"><CardTitle>Rocks</CardTitle><CardDescription>Longer-term priorities, their milestones, and current status.</CardDescription></CardHeader><CardContent>{data.items.rocks.length ? data.items.rocks.map((item: any) => <WorkRow key={item.id} item={item} onChanged={changed} />) : <p className="text-sm text-muted-foreground">No active Rocks in this workspace.</p>}</CardContent></Card>
+            <Card className="pulse-card-compact"><CardHeader className="pb-2"><CardTitle>Rocks</CardTitle><CardDescription>Longer-term priorities, their milestones, and current status.</CardDescription></CardHeader><CardContent>{data.items.rocks.length ? data.items.rocks.map((item: any) => <WorkRow key={item.id} item={item} onChanged={changed} showDestination={workspaceId === "all"} />) : <p className="text-sm text-muted-foreground">No active Rocks in this workspace.</p>}</CardContent></Card>
           </div>
           </DashboardSection>
           <DashboardSection className="min-w-0" title="My Measurables" description="Submit every active measurable you own for the current reporting week."><PulseMyMeasurables embedded /></DashboardSection>

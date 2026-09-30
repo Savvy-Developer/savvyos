@@ -3,10 +3,12 @@ import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import {
   pulseActivityLog,
+  pulseMeetingRocks,
   pulseMeetingUpdates,
   pulseMeetings,
   pulseNotifications,
   pulsePersonalInputs,
+  pulseWorkItems,
   pulseWeeklySubmissions,
   rrMetricAutoConfigs,
   rrMetricChangeHistory,
@@ -23,6 +25,7 @@ import { visible_meeting_ids } from "./access";
 import { getPendingCascadePayloads } from "./cascadePayload";
 import { getMeetingScorecard, saveCurrentScorecardValue } from "./scorecard";
 import { listAccessibleItems } from "./workItems";
+import { projectRoutedPersonalRocks } from "./myEosRocks";
 import { isEventMetric } from "../rrScorecard";
 import { refreshAutomaticMetric } from "../routers/rolesResponsibilities";
 
@@ -580,7 +583,7 @@ export const pulsePersonalRouter = router({
       throw new TRPCError({ code: "NOT_FOUND", message: "That workspace is not available." });
     }
 
-    const [allItems, meetings, prep, pendingCascades, canRun] = await Promise.all([
+    const [allItems, meetings, prep, pendingCascades, canRun, routedPersonalRockMeetings] = await Promise.all([
       listAccessibleItems(db, ctx.user.id, {}),
       ids.length ? db.select({
         id: pulseMeetings.id, name: pulseMeetings.name, label: pulseMeetings.label, dayOfWeek: pulseMeetings.dayOfWeek,
@@ -589,9 +592,23 @@ export const pulsePersonalRouter = router({
       personalMeetingPrep(db, ctx.user.id),
       getPendingCascadePayloads(db, ctx.user.id),
       hasPulseCapability(db, ctx.user, "run_l10s"),
+      ids.length ? db.select({
+        workItemId: pulseMeetingRocks.workItemId,
+        meetingId: pulseMeetingRocks.meetingId,
+        meetingName: pulseMeetings.name,
+      }).from(pulseMeetingRocks)
+        .innerJoin(pulseWorkItems, eq(pulseWorkItems.id, pulseMeetingRocks.workItemId))
+        .innerJoin(pulseMeetings, eq(pulseMeetings.id, pulseMeetingRocks.meetingId))
+        .where(and(
+          inArray(pulseMeetingRocks.meetingId, ids),
+          eq(pulseWorkItems.type, "rock"),
+          isNull(pulseWorkItems.meetingId),
+          isNull(pulseWorkItems.deletedAt),
+        )) : Promise.resolve([]),
     ]);
 
-    const ownedItems = allItems.filter((item: any) => (item.assigneeId === ctx.user.id || item.ownerPersonId === ctx.user.id) && Boolean(item.meetingId))
+    const itemsWithRoutedPersonalRocks = projectRoutedPersonalRocks(allItems, routedPersonalRockMeetings as Array<{ workItemId: string; meetingId: string; meetingName: string }>, ctx.user.id);
+    const ownedItems = itemsWithRoutedPersonalRocks.filter((item: any) => (item.assigneeId === ctx.user.id || item.ownerPersonId === ctx.user.id) && Boolean(item.meetingId))
       .map((item: any) => ({ ...item, source: item.meetingName ?? "L10", sourceHref: `/pulse/meetings/${item.meetingId}` }));
     const inWorkspace = (item: any) => workspaceId === "all" || item.meetingId === workspaceId;
     const items = ownedItems.filter(inWorkspace);

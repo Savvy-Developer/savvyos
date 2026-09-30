@@ -54,6 +54,10 @@ describe("Pulse dashboard consolidation", () => {
     expect(myWorkPage.slice(myWorkIndex, measurableIndex)).toContain('className="min-w-0"');
   });
 
+  it("shows each My EOS Rock's routed L10 destination", () => {
+    expect(myWorkPage).toContain('data.items.rocks.map((item: any) => <WorkRow key={item.id} item={item} onChanged={changed} showDestination={workspaceId === "all"} />)');
+  });
+
   it("keeps Incoming Cascades compact but informative beside the My EOS title", () => {
     const headerIndex = myWorkPage.indexOf('<header className="border-b border-border pb-4">');
     const weeklyPreparationIndex = myWorkPage.indexOf('title="Weekly Preparation"');
