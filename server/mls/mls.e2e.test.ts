@@ -328,6 +328,25 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(clusters.clusters.reduce((sum, cluster) => sum + cluster.count, 0)).toBe(2);
   }, 60_000);
 
+  it("names the listing brokerage from the office roster when older history omits it", async () => {
+    const db = (await modules.db.getDb())!;
+    const pool = mysql.createPool(DATABASE_URL!);
+    const [[original]]: any = await pool.query("SELECT listOfficeName, listOfficeKey, listOfficeMlsId FROM mls_listings WHERE listingNumber = '100'");
+    try {
+      const [[office]]: any = await pool.query("SELECT officeMlsId, officeName FROM mls_offices LIMIT 1");
+      expect(office.officeName).toBe("Savvy STR Agents");
+      await pool.query("UPDATE mls_listings SET listOfficeName = NULL, listOfficeKey = NULL, listOfficeMlsId = ? WHERE listingNumber = '100'", [office.officeMlsId]);
+      const result = await modules.search.searchListings(db as any, { filters: { statuses: ["active"] }, sort: "newest", page: 1, pageSize: 10 });
+      expect(result.items[0].listOfficeName).toBe("Savvy STR Agents");
+      await pool.query("UPDATE mls_listings SET listOfficeMlsId = 'NO_SUCH_OFFICE' WHERE listingNumber = '100'");
+      const missing = await modules.search.searchListings(db as any, { filters: { statuses: ["active"] }, sort: "newest", page: 1, pageSize: 10 });
+      expect(missing.items[0].listOfficeName).toBeNull();
+    } finally {
+      await pool.query("UPDATE mls_listings SET listOfficeName = ?, listOfficeKey = ?, listOfficeMlsId = ? WHERE listingNumber = '100'", [original.listOfficeName, original.listOfficeKey, original.listOfficeMlsId]);
+      await pool.end();
+    }
+  }, 60_000);
+
   it("hides every listing once a feed license expires or is removed", async () => {
     const db = (await modules.db.getDb())!;
     const pool = mysql.createPool(DATABASE_URL!);
