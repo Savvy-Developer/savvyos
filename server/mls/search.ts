@@ -191,7 +191,7 @@ export type ListingCard = ReturnType<typeof toCard>;
 
 export async function searchListings(
   db: Db,
-  input: { filters: SearchFilters; sort: (typeof SEARCH_SORTS)[number]; page: number; pageSize: number }
+  input: { filters: SearchFilters; sort: (typeof SEARCH_SORTS)[number]; page: number; pageSize: number; countMode?: "exact" | "none" }
 ) {
   const where = searchConditions(input.filters);
   const offset = (input.page - 1) * input.pageSize;
@@ -201,10 +201,13 @@ export async function searchListings(
     .innerJoin(mlsSources, eq(mlsSources.id, mlsListings.sourceId))
     .where(where)
     .orderBy(...sortOrder(input.sort))
-    .limit(input.pageSize)
+    .limit(input.pageSize + (input.countMode === "none" ? 1 : 0))
     .offset(offset);
+  if (input.countMode === "none") {
+    return { items: rows.slice(0, input.pageSize).map(toCard), total: null, hasMore: rows.length > input.pageSize, page: input.page, pageSize: input.pageSize };
+  }
   const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings).where(where);
-  return { items: rows.map(toCard), total: Number(total), page: input.page, pageSize: input.pageSize };
+  return { items: rows.map(toCard), total: Number(total), hasMore: offset + rows.length < Number(total), page: input.page, pageSize: input.pageSize };
 }
 
 /**
@@ -218,24 +221,22 @@ export async function mapPoints(
 ) {
   const pinLimit = input.pinLimit ?? 500;
   const where = searchConditions({ ...input.filters, bounds: input.bounds });
-  const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings).where(where);
-  const count = Number(total);
-  if (count <= pinLimit) {
-    const pins = await db
-      .select({
-        id: mlsListings.id,
-        latitude: mlsListings.latitude,
-        longitude: mlsListings.longitude,
-        listPrice: mlsListings.listPrice,
-        closePrice: mlsListings.closePrice,
-        standardStatus: mlsListings.standardStatus,
-      })
-      .from(mlsListings)
-      .where(where)
-      .limit(pinLimit);
+  const pins = await db
+    .select({
+      id: mlsListings.id,
+      latitude: mlsListings.latitude,
+      longitude: mlsListings.longitude,
+      listPrice: mlsListings.listPrice,
+      closePrice: mlsListings.closePrice,
+      standardStatus: mlsListings.standardStatus,
+    })
+    .from(mlsListings)
+    .where(where)
+    .limit(pinLimit + 1);
+  if (pins.length <= pinLimit) {
     return {
       mode: "pins" as const,
-      total: count,
+      total: pins.length,
       pins: pins.map(pin => ({
         id: pin.id,
         lat: Number(pin.latitude),
@@ -246,6 +247,8 @@ export async function mapPoints(
       clusters: [],
     };
   }
+  const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings).where(where);
+  const count = Number(total);
   // About 64 screen pixels per cell: a 256px tile spans 360 / 2^zoom degrees.
   const zoom = Math.max(1, Math.min(20, Math.round(input.zoom)));
   const cell = 360 / 2 ** zoom / 4;
