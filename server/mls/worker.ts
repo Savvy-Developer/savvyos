@@ -9,6 +9,7 @@ import { runFeedCycle, syncDue } from "./engine";
 import { allLanes, getLane, laneKey } from "./http";
 import { licenseError } from "./license";
 import { pendingMediaCount, resetStaleMediaClaims, runMediaBatch } from "./media";
+import { privateMlsStorageError } from "./privateMedia";
 import { ensureMlsSchema } from "./schema";
 
 /**
@@ -72,7 +73,9 @@ export class MlsIngestionScheduler {
     const db = await getDb();
     if (!db) return;
     const now = new Date();
+    const photoStorageIssue = privateMlsStorageError();
     const detail = JSON.stringify({
+      photoStorage: { configurationValid: !photoStorageIssue, issue: photoStorageIssue },
       lanes: allLanes().map(lane => ({
         key: lane.key,
         provider: lane.provider,
