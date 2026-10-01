@@ -30,6 +30,7 @@ import { AgentProfilesPanel } from "@/components/website/AgentProfilesPanel";
 import { DailyEmailPanel } from "@/components/website/DailyEmailPanel";
 import { MoveOldImagesCard } from "@/components/website/MoveOldImagesCard";
 import { OldSiteListingsCard } from "@/components/website/OldSiteListingsCard";
+import { WebsiteListingsPanel, type ListingFilter } from "@/components/website/WebsiteListingsPanel";
 import { LinkForwardingCard } from "@/components/website/LinkForwardingCard";
 import { TeamMembersPanel } from "@/components/website/TeamMembersPanel";
 import { ContentEditor } from "@/components/website/ContentEditor";
@@ -66,6 +67,7 @@ import { parseTagText } from "@shared/websiteContentFilters";
 const PUBLIC_PREVIEW_URL = "https://home.savvy-agents.com/newsite/";
 type TabKey =
   | "overview"
+  | "listings"
   | "case-studies"
   | "blog"
   | "agents"
@@ -77,6 +79,7 @@ type Status = "draft" | "published" | "archived";
 
 const tabs: Array<{ key: TabKey; label: string; icon: React.ElementType }> = [
   { key: "overview", label: "Overview", icon: Globe2 },
+  { key: "listings", label: "Listings", icon: Building2 },
   { key: "case-studies", label: "Case Studies", icon: Sparkles },
   { key: "blog", label: "Blog", icon: BookOpen },
   { key: "agents", label: "Agents", icon: UserRound },
@@ -370,6 +373,7 @@ function SettingsEditor({ settings }: { settings: any }) {
 
 export default function WebsitePage() {
   const [tab, setTab] = useState<TabKey>("overview");
+  const [listingFilter, setListingFilter] = useState<ListingFilter>("all");
   const [editor, setEditor] = useState<{
     type: "case" | "post";
     initial?: any;
@@ -393,6 +397,7 @@ export default function WebsitePage() {
   const visibleTabs = tabs.filter(
     item =>
       item.key !== "leads" &&
+      (item.key !== "listings" || can("canManageWebsiteProperties")) &&
       (item.key !== "daily-email" || can("canManageWebsiteSettings")) &&
       (item.key !== "team" || can("canManageWebsiteSettings"))
   );
@@ -401,6 +406,9 @@ export default function WebsitePage() {
     () => ({
       liveProperties:
         data?.properties.filter((item: any) => item.status === "published")
+          .length || 0,
+      draftProperties:
+        data?.properties.filter((item: any) => item.status === "draft")
           .length || 0,
       liveAgents:
         data?.agents.filter((item: any) => item.status === "published")
@@ -444,6 +452,10 @@ export default function WebsitePage() {
     );
   if (overview.error) return <EmptyState>{overview.error.message}</EmptyState>;
   const sourceAgents = data?.sourceAgents || [];
+  const openListings = (filter: ListingFilter) => {
+    setListingFilter(filter);
+    setTab("listings");
+  };
   const actionForTab =
     tab === "case-studies" && can("canManageWebsiteCaseStudies")
       ? () => setEditor({ type: "case" })
@@ -501,9 +513,10 @@ export default function WebsitePage() {
       )}
       {tab === "overview" && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             {[
-              ["Live properties", counts.liveProperties, Building2, "/properties"],
+              ["Live properties", counts.liveProperties, Building2, can("canManageWebsiteProperties") ? () => openListings("published") : "/properties"],
+              ["Draft properties", counts.draftProperties, Building2, can("canManageWebsiteProperties") ? () => openListings("draft") : "/properties"],
               ["Live agents", counts.liveAgents, UserRound, "/agents"],
               ["Case studies", counts.liveStories, Sparkles, null],
               ["Blog posts", counts.livePosts, BookOpen, null],
@@ -512,7 +525,7 @@ export default function WebsitePage() {
               <Card
                 key={label}
                 className={href ? "cursor-pointer transition hover:border-cyan-400" : undefined}
-                onClick={href ? () => navigate(href) : undefined}
+                onClick={href ? () => (typeof href === "function" ? href() : navigate(href)) : undefined}
               >
                 <CardContent className="flex items-center gap-4 p-5">
                   <div className="rounded-xl bg-cyan-50 p-3 text-cyan-700">
@@ -564,6 +577,14 @@ export default function WebsitePage() {
             </CardContent>
           </Card>
         </>
+      )}
+      {tab === "listings" && can("canManageWebsiteProperties") && (
+        <WebsiteListingsPanel
+          key={listingFilter}
+          listings={data?.properties || []}
+          previewBase={PUBLIC_PREVIEW_URL}
+          initialFilter={listingFilter}
+        />
       )}
       {tab === "case-studies" && <ContentViewsPanel />}
       {tab === "case-studies" && (
