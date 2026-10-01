@@ -265,6 +265,7 @@ export const mlsPropertiesRouter = router({
       db
         .select({
           id: mlsMedia.id,
+          mediaKey: mlsMedia.mediaKey,
           url: mlsMedia.url,
           caption: mlsMedia.caption,
           category: mlsMedia.category,

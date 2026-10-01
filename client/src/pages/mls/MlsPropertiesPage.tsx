@@ -166,7 +166,7 @@ export default function MlsPropertiesPage() {
   const canManage = !!(permissions.data as any)?.canManageMlsFeeds;
   const results = trpc.mlsProperties.search.useQuery(
     { filters: listFilters as any, sort: sort as any, page, pageSize: PAGE_SIZE },
-    { enabled: view !== "map", placeholderData: previous => previous }
+    { enabled: view !== "map" }
   );
 
   const update = (patch: Partial<Filters>) => {
@@ -183,6 +183,14 @@ export default function MlsPropertiesPage() {
   const total = results.data?.total;
   const pages = total == null ? null : Math.max(1, Math.ceil(total / PAGE_SIZE));
   const hasMore = results.data?.hasMore ?? false;
+  // Never show listings for a previous ZIP/address while the input is debouncing.
+  const searchTextPending = (queryText.trim() || undefined) !== (filters.q?.trim() || undefined);
+  const searching = searchTextPending || results.isPending;
+  const resultLabel = searching ? "Searching" : results.isError ? "Search is temporarily unavailable" : results.data
+    ? total == null
+      ? results.data.items.length === 0 ? "No results" : `Showing ${(page - 1) * PAGE_SIZE + 1}–${(page - 1) * PAGE_SIZE + results.data.items.length}${hasMore ? " · more available" : ""}`
+      : `${total.toLocaleString()} results`
+    : "Searching";
 
   return (
     <div className="flex flex-col lg:h-full">
@@ -235,8 +243,8 @@ export default function MlsPropertiesPage() {
           placeholder="Any type"
           maxDisplay={1}
         />
-        <Input className="w-[110px]" placeholder="Min price" defaultValue={filters.minPrice ?? ""} onBlur={event => update({ minPrice: numberOrUndefined(event.target.value) })} />
-        <Input className="w-[110px]" placeholder="Max price" defaultValue={filters.maxPrice ?? ""} onBlur={event => update({ maxPrice: numberOrUndefined(event.target.value) })} />
+        <Input key={`min-price-${filters.minPrice ?? ""}`} className="w-[110px]" placeholder="Min price" defaultValue={filters.minPrice ?? ""} onBlur={event => update({ minPrice: numberOrUndefined(event.target.value) })} />
+        <Input key={`max-price-${filters.maxPrice ?? ""}`} className="w-[110px]" placeholder="Max price" defaultValue={filters.maxPrice ?? ""} onBlur={event => update({ maxPrice: numberOrUndefined(event.target.value) })} />
         <Select value={String(filters.minBeds ?? "any")} onValueChange={value => update({ minBeds: value === "any" ? undefined : Number(value) })}>
           <SelectTrigger className="w-[100px]"><SelectValue placeholder="Beds" /></SelectTrigger>
           <SelectContent>
@@ -253,11 +261,11 @@ export default function MlsPropertiesPage() {
           </PopoverTrigger>
           <PopoverContent className="w-[320px] space-y-3" align="end">
             <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs">Min baths</Label><Input defaultValue={filters.minBaths ?? ""} onBlur={event => update({ minBaths: numberOrUndefined(event.target.value) })} /></div>
-              <div><Label className="text-xs">Min year built</Label><Input defaultValue={filters.minYearBuilt ?? ""} onBlur={event => update({ minYearBuilt: numberOrUndefined(event.target.value) })} /></div>
-              <div><Label className="text-xs">Min sqft</Label><Input defaultValue={filters.minSqft ?? ""} onBlur={event => update({ minSqft: numberOrUndefined(event.target.value) })} /></div>
-              <div><Label className="text-xs">Max sqft</Label><Input defaultValue={filters.maxSqft ?? ""} onBlur={event => update({ maxSqft: numberOrUndefined(event.target.value) })} /></div>
-              <div><Label className="text-xs">Min acres</Label><Input defaultValue={filters.minAcres ?? ""} onBlur={event => update({ minAcres: numberOrUndefined(event.target.value) })} /></div>
+              <div><Label className="text-xs">Min baths</Label><Input key={`min-baths-${filters.minBaths ?? ""}`} defaultValue={filters.minBaths ?? ""} onBlur={event => update({ minBaths: numberOrUndefined(event.target.value) })} /></div>
+              <div><Label className="text-xs">Min year built</Label><Input key={`min-year-${filters.minYearBuilt ?? ""}`} defaultValue={filters.minYearBuilt ?? ""} onBlur={event => update({ minYearBuilt: numberOrUndefined(event.target.value) })} /></div>
+              <div><Label className="text-xs">Min sqft</Label><Input key={`min-sqft-${filters.minSqft ?? ""}`} defaultValue={filters.minSqft ?? ""} onBlur={event => update({ minSqft: numberOrUndefined(event.target.value) })} /></div>
+              <div><Label className="text-xs">Max sqft</Label><Input key={`max-sqft-${filters.maxSqft ?? ""}`} defaultValue={filters.maxSqft ?? ""} onBlur={event => update({ maxSqft: numberOrUndefined(event.target.value) })} /></div>
+              <div><Label className="text-xs">Min acres</Label><Input key={`min-acres-${filters.minAcres ?? ""}`} defaultValue={filters.minAcres ?? ""} onBlur={event => update({ minAcres: numberOrUndefined(event.target.value) })} /></div>
               <div>
                 <Label className="text-xs">Sold within</Label>
                 <Select value={String(filters.closedWithinDays ?? "any")} onValueChange={value => update({ closedWithinDays: value === "any" ? undefined : Number(value), statuses: value === "any" ? filters.statuses : ["closed"] })}>
@@ -285,19 +293,19 @@ export default function MlsPropertiesPage() {
           </SelectContent>
         </Select>
         <div className="flex rounded-md border">
-          <Button variant={view === "split" ? "secondary" : "ghost"} size="sm" onClick={() => setView("split")} className="rounded-r-none">Split</Button>
-          <Button variant={view === "list" ? "secondary" : "ghost"} size="sm" onClick={() => setView("list")} className="rounded-none"><List className="h-4 w-4" /></Button>
-          <Button variant={view === "map" ? "secondary" : "ghost"} size="sm" onClick={() => setView("map")} className="rounded-l-none"><MapIcon className="h-4 w-4" /></Button>
+          <Button variant={view === "split" ? "secondary" : "ghost"} size="sm" aria-pressed={view === "split"} onClick={() => setView("split")} className="rounded-r-none">Split</Button>
+          <Button variant={view === "list" ? "secondary" : "ghost"} size="sm" aria-label="List view" title="List view" aria-pressed={view === "list"} onClick={() => setView("list")} className="rounded-none"><List className="h-4 w-4" /></Button>
+          <Button variant={view === "map" ? "secondary" : "ghost"} size="sm" aria-label="Map view" title="Map view" aria-pressed={view === "map"} onClick={() => setView("map")} className="rounded-l-none"><MapIcon className="h-4 w-4" /></Button>
         </div>
       </div>
 
       {(
         <div className={`grid min-h-0 flex-1 gap-3 ${view === "split" ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]" : "grid-cols-1"}`}>
           {view !== "map" ? (
-            <div className="flex min-h-0 flex-col">
+            <div className="order-last flex min-h-0 flex-col lg:order-first">
               <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
                 <span>
-                  {results.isError ? "Search is temporarily unavailable" : results.data ? total == null ? `${((page - 1) * PAGE_SIZE + results.data.items.length).toLocaleString()}+ results` : `${total.toLocaleString()} results` : "Searching"}
+                  {resultLabel}
                   {view === "split" && searchInMap && debouncedViewport ? " in map area" : ""}
                 </span>
                 {view === "split" ? (
@@ -305,24 +313,24 @@ export default function MlsPropertiesPage() {
                 ) : null}
               </div>
               <div className={`grid gap-3 pb-2 ${view === "list" ? "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "sm:grid-cols-2 lg:max-h-[calc(100vh-250px)] lg:overflow-y-auto"}`}>
-                {results.isLoading
+                {searching
                   ? Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-[280px] w-full rounded-lg" />)
-                  : results.data?.items.map(listing => (
+                  : !results.isError ? results.data?.items.map(listing => (
                       <ListingCard key={listing.id} listing={listing} selected={listing.id === selectedId} onHover={setHoveredId} onOpen={openListing} />
-                    ))}
-                {results.data && results.data.items.length === 0 ? (
+                    )) : null}
+                {!searching && !results.isError && results.data && results.data.items.length === 0 ? (
                   <div className="col-span-full flex flex-col items-center gap-2 rounded-lg border border-dashed p-8 text-sm text-muted-foreground">
                     <Building2 className="h-6 w-6" />
                     No listings match. Widen the filters or move the map.
                   </div>
                 ) : null}
-                {results.isError ? (
+                {!searching && results.isError ? (
                   <div className="col-span-full rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
                     The listing search did not respond. <Button variant="outline" size="sm" onClick={() => void results.refetch()}>Try again</Button>
                   </div>
                 ) : null}
               </div>
-              {results.data && (page > 1 || hasMore) ? (
+              {!searching && !results.isError && results.data && (page > 1 || hasMore) ? (
                 <div className="flex items-center justify-between border-t pt-2 text-sm">
                   <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft className="mr-1 h-4 w-4" />Prev</Button>
                   <span className="text-muted-foreground">Page {page}{pages ? ` of ${pages.toLocaleString()}` : ""}</span>
@@ -333,7 +341,7 @@ export default function MlsPropertiesPage() {
           ) : null}
           {view !== "list" ? (
             <MlsSearchMap
-              className={view === "map" ? "h-[70vh] lg:h-[calc(100vh-220px)]" : "h-[360px] lg:h-[calc(100vh-250px)] lg:min-h-[420px]"}
+              className={view === "map" ? "h-[70vh] lg:h-[calc(100vh-220px)]" : "order-first h-[360px] lg:order-last lg:h-[calc(100vh-250px)] lg:min-h-[420px]"}
               filters={cleaned}
               selectedId={selectedId}
               hoveredId={hoveredId}
