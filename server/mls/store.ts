@@ -1,7 +1,8 @@
 import { createHash } from "crypto";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { gzipSync } from "zlib";
+import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { gunzipSync, gzipSync } from "zlib";
 import {
+  mlsImportExceptions,
   mlsListingHistory,
   mlsListings,
   mlsMedia,
@@ -37,6 +38,8 @@ export type PageCounts = {
   unchanged: number;
   deleted: number;
   mediaQueued: number;
+  quarantined: number;
+  unpersisted: number;
   errors: Array<{ key: string; message: string }>;
   /** Greatest ModificationTimestamp on the page, verbatim. */
   maxModified: string | null;
@@ -44,7 +47,7 @@ export type PageCounts = {
 };
 
 export function emptyCounts(): PageCounts {
-  return { received: 0, upserted: 0, unchanged: 0, deleted: 0, mediaQueued: 0, errors: [], maxModified: null, keys: [] };
+  return { received: 0, upserted: 0, unchanged: 0, deleted: 0, mediaQueued: 0, quarantined: 0, unpersisted: 0, errors: [], maxModified: null, keys: [] };
 }
 
 const VOLATILE_FIELDS = new Set(["MediaURL", "MediaUrl", "@odata.etag"]);
@@ -82,6 +85,69 @@ async function loadRawHashes(db: Db, feedId: number, resource: MlsResource, keys
     for (const row of rows) hashes.set(row.key, { hash: row.hash, modifiedAt: row.modifiedAt });
   }
   return hashes;
+}
+
+/** Only SQL error codes and column identifiers are kept in the admin run log.
+ * Driver error messages can include provider data or SQL parameter values. */
+export function importErrorInfo(error: unknown) {
+  let current: any = error;
+  for (let depth = 0; depth < 4 && current; depth++, current = current.cause) {
+    const rawCode = String(current.code ?? "");
+    if (/^[A-Z][A-Z0-9_]{2,63}$/.test(rawCode)) {
+      const column = String(current.sqlMessage ?? "").match(/(?:for column|column)\s+['`]?([A-Za-z0-9_]{1,64})['`]?/i)?.[1] ?? null;
+      return { code: rawCode, column, transient: /^(ER_LOCK_|ER_CON_COUNT_ERROR|ER_TOO_MANY_USER_CONNECTIONS|ER_QUERY_INTERRUPTED|ER_DISK_FULL|ER_TABLE_FULL|ECONNRESET|ETIMEDOUT|EPIPE|PROTOCOL_CONNECTION_LOST)/.test(rawCode) };
+    }
+  }
+  return { code: error instanceof RangeError ? "INVALID_RANGE" : "INVALID_RECORD", column: null, transient: false };
+}
+
+async function loadExceptionKeys(db: Db, feedId: number, resource: MlsResource, keys: string[]) {
+  const known = new Set<string>();
+  for (let i = 0; i < keys.length; i += 500) {
+    const chunk = keys.slice(i, i + 500);
+    if (!chunk.length) continue;
+    const rows = await db.select({ key: mlsImportExceptions.providerKey }).from(mlsImportExceptions)
+      .where(and(eq(mlsImportExceptions.feedId, feedId), eq(mlsImportExceptions.resource, resource), inArray(mlsImportExceptions.providerKey, chunk)));
+    for (const row of rows) known.add(row.key);
+  }
+  return known;
+}
+
+async function quarantineRecord(db: Db, ctx: FeedContext, resource: MlsResource, key: string, record: unknown, info: ReturnType<typeof importErrorInfo>, now: Date) {
+  const payloadGzip = gzipSync(JSON.stringify(record));
+  const timestamp = (record as any)?.ModificationTimestamp;
+  const parsed = timestamp ? Date.parse(String(timestamp)) : NaN;
+  const values = {
+    feedId: ctx.feed.id, resource, providerKey: key.slice(0, 160), payloadGzip,
+    sourceModifiedAt: Number.isFinite(parsed) ? new Date(parsed) : null,
+    errorCode: info.code, errorColumn: info.column, firstSeenAt: now, lastSeenAt: now,
+    nextRetryAt: new Date(now.getTime() + 30 * 60_000),
+  };
+  await db.insert(mlsImportExceptions).values(values).onDuplicateKeyUpdate({ set: {
+    payloadGzip, sourceModifiedAt: values.sourceModifiedAt, errorCode: info.code, errorColumn: info.column,
+    lastSeenAt: now, nextRetryAt: values.nextRetryAt, attempts: sql`${mlsImportExceptions.attempts} + 1`,
+  } });
+}
+
+/** Retry a small number of durably saved records each cycle, without touching the provider budget. */
+export async function retryImportExceptions(ctx: FeedContext, adapter: MlsAdapter, options: Pick<ProcessOptions, "overrides" | "metadataLocalFields">, limit = 20) {
+  const db = await requireDb();
+  const rows = await db.select().from(mlsImportExceptions)
+    .where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), lte(mlsImportExceptions.nextRetryAt, new Date())))
+    .orderBy(mlsImportExceptions.nextRetryAt).limit(limit);
+  let recovered = 0;
+  for (const row of rows) {
+    try {
+      const record = JSON.parse(gunzipSync(row.payloadGzip).toString("utf8"));
+      const counts = await processRecords(ctx, adapter, row.resource as MlsResource, [record], { ...options, force: true });
+      if (counts.unpersisted) throw new Error("Exception could not be durably saved again");
+      if (!counts.quarantined) recovered++;
+    } catch (error) {
+      // Corrupt quarantine payloads remain visible for manual repair, not retried hot.
+      await db.update(mlsImportExceptions).set({ nextRetryAt: new Date(Date.now() + 6 * 60 * 60_000), errorCode: "REPLAY_FAILED" }).where(eq(mlsImportExceptions.id, row.id));
+    }
+  }
+  return { attempted: rows.length, recovered };
 }
 
 async function saveRaw(
@@ -492,6 +558,7 @@ export async function upsertNormalizedListing(
 export async function removeListing(db: Db, ctx: FeedContext, providerListingKey: string, reason: string) {
   return db.transaction(async tx => {
     const t = tx as unknown as Db;
+    await t.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, "Property"), eq(mlsImportExceptions.providerKey, providerListingKey)));
     const [listing] = await t
       .select()
       .from(mlsListings)
@@ -535,6 +602,7 @@ export async function removeListing(db: Db, ctx: FeedContext, providerListingKey
 
 export async function removeRecord(db: Db, ctx: FeedContext, resource: MlsResource, key: string, reason: string) {
   if (resource === "Property") return removeListing(db, ctx, key, reason);
+  await db.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, resource), eq(mlsImportExceptions.providerKey, key)));
   if (resource === "Member") await db.delete(mlsMembers).where(and(eq(mlsMembers.feedId, ctx.feed.id), eq(mlsMembers.memberKey, key)));
   if (resource === "Office") await db.delete(mlsOffices).where(and(eq(mlsOffices.feedId, ctx.feed.id), eq(mlsOffices.officeKey, key)));
   if (resource === "OpenHouse") await db.delete(mlsOpenHouses).where(and(eq(mlsOpenHouses.feedId, ctx.feed.id), eq(mlsOpenHouses.openHouseKey, key)));
@@ -564,6 +632,7 @@ export async function processRecords(
   const keyField = adapter.keyField(resource);
   const keys = records.map(record => String(record[keyField] ?? "")).filter(Boolean);
   const hashes = await loadRawHashes(db, ctx.feed.id, resource, keys);
+  const exceptionKeys = await loadExceptionKeys(db, ctx.feed.id, resource, keys);
 
   for (const record of records) {
     counts.received += 1;
@@ -571,7 +640,14 @@ export async function processRecords(
     const modified = record.ModificationTimestamp ? String(record.ModificationTimestamp) : null;
     counts.maxModified = laterTimestamp(counts.maxModified, modified);
     if (!key) {
-      counts.errors.push({ key: "(missing)", message: `Record without ${keyField}` });
+      const missingKey = `missing:${payloadHash(record).slice(0, 64)}`;
+      try {
+        await quarantineRecord(db, ctx, resource, missingKey, record, { code: "MISSING_KEY", column: keyField, transient: false }, receivedAt);
+        counts.quarantined += 1;
+      } catch {
+        counts.unpersisted += 1;
+      }
+      if (counts.errors.length < 25) counts.errors.push({ key: missingKey, message: `MISSING_KEY (${keyField})` });
       continue;
     }
     counts.keys.push(key);
@@ -586,11 +662,13 @@ export async function processRecords(
       // Never let an older history page roll a price or status backwards.
       if (previous?.modifiedAt && modified && Date.parse(modified) < previous.modifiedAt.getTime()) {
         await db.update(mlsRawRecords).set({ receivedAt }).where(and(eq(mlsRawRecords.feedId, ctx.feed.id), eq(mlsRawRecords.resource, resource), eq(mlsRawRecords.providerKey, key)));
+        if (exceptionKeys.has(key)) await db.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, resource), eq(mlsImportExceptions.providerKey, key)));
         counts.unchanged += 1;
         continue;
       }
       if (!options.force && previous?.hash === hash) {
         await db.update(mlsRawRecords).set({ receivedAt }).where(and(eq(mlsRawRecords.feedId, ctx.feed.id), eq(mlsRawRecords.resource, resource), eq(mlsRawRecords.providerKey, key)));
+        if (exceptionKeys.has(key)) await db.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, resource), eq(mlsImportExceptions.providerKey, key)));
         counts.unchanged += 1;
         continue;
       }
@@ -625,10 +703,21 @@ export async function processRecords(
         await db.insert(mlsOpenHouses).values(values).onDuplicateKeyUpdate({ set: values });
       }
       await saveRaw(db, ctx.feed.id, resource, key, record, hash, modifiedAt, receivedAt);
+      if (exceptionKeys.has(key)) await db.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, resource), eq(mlsImportExceptions.providerKey, key)));
       counts.upserted += 1;
     } catch (error) {
+      const info = importErrorInfo(error);
+      if (info.transient) counts.unpersisted += 1;
+      else {
+        try {
+          await quarantineRecord(db, ctx, resource, key, record, info, receivedAt);
+          counts.quarantined += 1;
+        } catch {
+          counts.unpersisted += 1;
+        }
+      }
       if (counts.errors.length < 25) {
-        counts.errors.push({ key, message: "Record could not be persisted; retry after checking mapping, schema, and database health" });
+        counts.errors.push({ key, message: `${info.code}${info.column ? ` (${info.column})` : ""}` });
       }
     }
   }

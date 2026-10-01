@@ -11,6 +11,7 @@ import {
   MLS_RETENTION_POLICIES,
   mlsFeeds,
   mlsFieldMappings,
+  mlsImportExceptions,
   mlsListingHistory,
   mlsListings,
   mlsMedia,
@@ -647,11 +648,14 @@ export const mlsPropertiesRouter = router({
     .input(z.object({ feedId: z.number().int(), limit: z.number().int().min(1).max(200).default(50) }))
     .query(async ({ input }) => {
       const db = await requireDb();
-      const [runs, cursors] = await Promise.all([
+      const [runs, cursors, [exceptionCount], exceptions] = await Promise.all([
         db.select().from(mlsSyncRuns).where(eq(mlsSyncRuns.feedId, input.feedId)).orderBy(desc(mlsSyncRuns.startedAt)).limit(input.limit),
         db.select().from(mlsSyncCursors).where(eq(mlsSyncCursors.feedId, input.feedId)),
+        db.select({ count: sql<number>`count(*)` }).from(mlsImportExceptions).where(eq(mlsImportExceptions.feedId, input.feedId)),
+        db.select({ providerKey: mlsImportExceptions.providerKey, resource: mlsImportExceptions.resource, errorCode: mlsImportExceptions.errorCode, errorColumn: mlsImportExceptions.errorColumn, attempts: mlsImportExceptions.attempts, lastSeenAt: mlsImportExceptions.lastSeenAt })
+          .from(mlsImportExceptions).where(eq(mlsImportExceptions.feedId, input.feedId)).orderBy(desc(mlsImportExceptions.lastSeenAt)).limit(20),
       ]);
-      return { runs, cursors };
+      return { runs, cursors, quarantinedCount: Number(exceptionCount?.count ?? 0), exceptions };
     }),
 
   usage: manageProcedure.input(z.object({ hours: z.number().int().min(1).max(24 * 14).default(48) })).query(async ({ input }) => {

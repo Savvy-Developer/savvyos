@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import type { MlsFeed, MlsSource } from "../../drizzle/mlsSchema";
-import { MLS_GRID_LIMITS, mlsGridAdapter } from "./adapters/mlsGrid";
+import { MLS_GRID_GRACE_UNTIL_MS, MLS_GRID_LIMITS, mlsGridAdapter } from "./adapters/mlsGrid";
 import type { ProviderLimits } from "./adapters/types";
 import { ProviderLane, wireBytes } from "./http";
 import { sparkAdapter } from "./adapters/spark";
@@ -20,7 +20,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { parseODataPage } from "./adapters/types";
 import { __testables__ as mcpTestables } from "../readOnlyMcp";
 import { MLS_SOURCE_SEEDS, seedCompliance } from "./sources";
-import { mediaWanted, payloadHash } from "./store";
+import { importErrorInfo, mediaWanted, payloadHash } from "./store";
 
 const source = {
   id: 1,
@@ -334,6 +334,12 @@ describe("license and isolation guards", () => {
   it("keeps MLS tables out of the general read-only MCP endpoint", () => {
     expect(() => mcpTestables.validateReadOnlySql("SELECT id FROM mls_listings LIMIT 5")).toThrow(/isolated/);
     expect(() => mcpTestables.validateReadOnlySql("SELECT id FROM contacts WHERE id IN (SELECT id FROM MLS_MEDIA) LIMIT 5")).toThrow(/isolated/);
+    expect(() => mcpTestables.validateReadOnlySql("SELECT id FROM mls_import_exceptions LIMIT 5")).toThrow(/isolated/);
+  });
+  it("reports an error code and column but never records the provider value or SQL statement", () => {
+    const wrapped = Object.assign(new Error("query failed"), { cause: Object.assign(new Error("bad value"), { code: "ER_DATA_TOO_LONG", sqlMessage: "Data too long for column 'postalCode' at row 1: 123 private address" }) });
+    expect(importErrorInfo(wrapped)).toEqual({ code: "ER_DATA_TOO_LONG", column: "postalCode", transient: false });
+    expect(importErrorInfo(Object.assign(new Error("deadlock"), { code: "ER_LOCK_DEADLOCK" })).transient).toBe(true);
   });
 
   it("rejects malformed OData pages instead of treating them as an empty feed", () => {
@@ -400,6 +406,8 @@ describe("MLS Grid token budget", () => {
 
   it("stays under every MLS Grid warning and published limit, even if a feed asks for more", () => {
     const { warning, published } = MLS_GRID_LIMITS;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(MLS_GRID_GRACE_UNTIL_MS + 1);
+    try {
     for (const options of [null, { rateSafety: 10, mediaShare: 5, mediaConcurrency: 50 }, { rateSafety: "fast" }]) {
       const limits = mlsGridAdapter.limits(gridFeed(options));
       expect(limits.requestsPerSecond).toBeLessThan(Math.min(warning.requestsPerSecond, published.requestsPerSecond));
@@ -412,6 +420,23 @@ describe("MLS Grid token budget", () => {
     }
     const defaults = mlsGridAdapter.limits(gridFeed(null));
     expect([defaults.requestsPerHour, defaults.requestsPerDay]).toEqual([5760, 32000]);
+    } finally { clock.mockRestore(); }
+  });
+
+  it("uses the time-boxed allowance, then restores baseline limits on a still-running lane", () => {
+    const before = MLS_GRID_GRACE_UNTIL_MS - 60_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(before);
+    try {
+      const limits = mlsGridAdapter.limits(gridFeed(null));
+      expect(limits.temporary?.untilMs).toBe(MLS_GRID_GRACE_UNTIL_MS);
+      expect(limits.requestsPerDay).toBe(250_000);
+      const lane = new ProviderLane("mls_grid:grace", "mls_grid", "grace", limits);
+      lane.api.seed(before - 10 * 60_000, 8_000, 4_000_000_000);
+      expect(lane.api.nextWaitMs(before)).toBe(0);
+      expect(lane.api.nextWaitMs(MLS_GRID_GRACE_UNTIL_MS + 1)).toBeGreaterThan(0);
+      clock.mockReturnValue(MLS_GRID_GRACE_UNTIL_MS + 1);
+      expect(mlsGridAdapter.limits(gridFeed(null)).temporary).toBeUndefined();
+    } finally { clock.mockRestore(); }
   });
 
   it("counts photo downloads against the same request budget as API pages", async () => {
