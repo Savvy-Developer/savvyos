@@ -3450,6 +3450,11 @@ export async function getMyGoalsAndProduction(agentId: number, year: number, mon
       closings: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' THEN ${transactions.id} END)`,
       volume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
       activePipeline: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'under_contract' THEN ${transactions.id} END)`,
+      // Under-contract deals scheduled to close in the same period. The goal card
+      // shows these alongside closed production so agents with a large pending
+      // book aren't reported as "behind" (agent bug report, Oct 2026).
+      pendingGci: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'under_contract' THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      pendingVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'under_contract' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
     })
     .from(users)
     .leftJoin(transactions, and(eq(transactions.agentId, users.id), dateFilter))
@@ -3478,6 +3483,9 @@ export async function getMyGoalsAndProduction(agentId: number, year: number, mon
     closings,
     volume,
     activePipeline: Number(production.activePipeline),
+    pendingGci: Number(production.pendingGci),
+    pendingClosings: Number(production.activePipeline),
+    pendingVolume: Number(production.pendingVolume),
     gciTarget,
     closingsTarget,
     volumeTarget,
