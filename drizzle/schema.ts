@@ -1908,6 +1908,33 @@ export const transactionExports = mysqlTable(
 export type TransactionExport = typeof transactionExports.$inferSelect;
 export type InsertTransactionExport = typeof transactionExports.$inferInsert;
 
+// Agent-private transaction fields. A field belongs to its creator, not to the
+// transaction; an admin may inspect values even after a deal is reassigned.
+export const transactionCustomFields = mysqlTable("transaction_custom_fields", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 100 }).notNull(),
+  type: mysqlEnum("type", ["date", "money", "number", "percent", "checkbox", "select"]).notNull(),
+  options: json("options").$type<string[] | null>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [index("transaction_custom_fields_agent_idx").on(table.agentId)]);
+
+export const transactionCustomFieldValues = mysqlTable("transaction_custom_field_values", {
+  id: int("id").autoincrement().primaryKey(),
+  fieldId: int("fieldId").notNull().references(() => transactionCustomFields.id, { onDelete: "cascade" }),
+  transactionId: int("transactionId").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  value: varchar("value", { length: 255 }).notNull(),
+}, table => [
+  uniqueIndex("transaction_custom_values_unique").on(table.fieldId, table.transactionId),
+  index("transaction_custom_values_tx_idx").on(table.transactionId),
+]);
+
+export const transactionAgentViews = mysqlTable("transaction_agent_views", {
+  agentId: int("agentId").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  settings: json("settings").$type<Record<string, unknown>>().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 // ─── Transaction Payout Items ─────────────────────────────────────────────────
 export const transactionPayoutItems = mysqlTable(
   "transaction_payout_items",

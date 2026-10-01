@@ -20,6 +20,11 @@ import { safeFormat } from "@/lib/safeFormat";
 import { formatPhone as _formatPhone, parseCurrencyInput as _parseCurrencyInput, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { unwrapPropertyListRows } from "@/lib/propertyList";
+import { CustomFieldInput, formatCustomFieldValue, type CustomField } from "@/components/transactions/CustomFieldInput";
+import { CustomFieldManager } from "@/components/transactions/CustomFieldManager";
+
+type CustomFilter = { fieldId: number; operator: "eq" | "gte" | "lte" | "empty" | "not_empty"; value?: string };
+const DEFAULT_COLUMNS = ["contact", "property", "agent", "type", "price", "gci", "savvy_net", "status", "closing_date", "date_added"];
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 const formatCurrency = (val: string | null | undefined) => {
@@ -631,8 +636,15 @@ export default function TransactionsPage() {
   const [sortColumn, setSortColumn] = usePersistentState<string>("transactions.sortColumn", "closing_date");
   const [aggregateMode, setAggregateMode] = usePersistentState<"sum" | "avg" | "median" | "count">("transactions.aggregateMode", "sum");
   const [txLimit, setTxLimit] = usePersistentState<number>("transactions.limit", 25);
-  const [visibleColumns, setVisibleColumns] = usePersistentState<string[]>("transactions.visibleColumns", ["contact", "property", "agent", "type", "price", "gci", "savvy_net", "status", "closing_date", "date_added"]);
+  const [visibleColumns, setVisibleColumns] = usePersistentState<string[]>("transactions.visibleColumns", DEFAULT_COLUMNS);
   const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
+  const isAgent = user?.role === "agent";
+  const [customFilters, setCustomFilters] = usePersistentState<CustomFilter[]>("transactions.customFilters", []);
+  const [draftCustomFilters, setDraftCustomFilters] = useState<CustomFilter[]>([]);
+  const [customFilterOpen, setCustomFilterOpen] = useState(false);
+  const [manageFieldsOpen, setManageFieldsOpen] = useState(false);
+  const [readyAgentId, setReadyAgentId] = useState<number | null>(null);
+  const viewReady = !!user?.id && readyAgentId === user.id;
   const [flagNoClosingDate, setFlagNoClosingDate] = useState(false);
   const [flagPastClosingDate, setFlagPastClosingDate] = useState(false);
   const [flagPayoutIntegrity, setFlagPayoutIntegrity] = useState(false);
@@ -686,6 +698,7 @@ export default function TransactionsPage() {
     setAgentFilter(identifier("agentId"));
     setLeadSourceFilter(identifier("leadSourceId"));
     setTypeFilter(permittedTypes.includes(nextType) ? nextType : "all");
+    setCustomFilters([]);
     setFlagNoClosingDate(flag("flagNoClosingDate"));
     setFlagPastClosingDate(flag("flagPastClosingDate"));
     setFlagPayoutIntegrity(flag("flagPayoutIntegrity"));
@@ -698,7 +711,7 @@ export default function TransactionsPage() {
     setShowDateFilters(Boolean(nextClosingFrom || nextClosingTo || nextContractFrom || nextContractTo));
     setTxPage(1);
     appliedAnalyticsLink.current = query;
-  }, [analyticsQuery, location, setAgentFilter, setClosingDateFrom, setClosingDateTo, setContractDateFrom, setContractDateTo, setLeadSourceFilter, setMarketFilter, setShowDateFilters, setStatusFilter, setTxPage, setTypeFilter]);
+  }, [analyticsQuery, location, setAgentFilter, setClosingDateFrom, setClosingDateTo, setContractDateFrom, setContractDateTo, setCustomFilters, setLeadSourceFilter, setMarketFilter, setShowDateFilters, setStatusFilter, setTxPage, setTypeFilter]);
 
   function handleColumnSort(col: string) {
     if (sortColumn === col) {
@@ -753,6 +766,54 @@ export default function TransactionsPage() {
   const agentIdParam = agentFilter === "all" ? undefined : Number(agentFilter);
   const leadSourceIdParam = leadSourceFilter === "all" ? undefined : Number(leadSourceFilter);
   const typeParam = typeFilter === "all" ? undefined : typeFilter as "buyer" | "seller" | "dual";
+  const { data: customFieldsData = [], refetch: refetchCustomFields, isFetched: fieldsFetched } = trpc.transactions.customFields.definitions.useQuery(
+    { agentId: isAdmin ? agentIdParam : user?.id },
+    { enabled: !!isAgent || (isAdmin && !!agentIdParam) }
+  );
+  const customFields = customFieldsData as CustomField[];
+  const { data: savedView, isFetched: viewFetched } = trpc.transactions.customFields.myView.useQuery({ viewerId: user?.id }, { enabled: !!isAgent && !!user?.id });
+  const saveView = trpc.transactions.customFields.saveView.useMutation({
+    onSuccess: () => toast.success("Default Transactions view saved"),
+    onError: e => toast.error(e.message),
+  });
+  useEffect(() => {
+    if (!isAgent || !user?.id || !viewFetched || !fieldsFetched) return;
+    let activeViewOwner: string | null = null;
+    try { activeViewOwner = sessionStorage.getItem("transactions.activeViewOwner"); } catch { /* private browsing */ }
+    if (activeViewOwner !== String(user.id)) {
+      const owned = new Set(customFields.map(field => field.id));
+      const view = savedView;
+      setVisibleColumns(view ? view.visibleColumns.filter(c => !c.startsWith("custom:") || owned.has(Number(c.slice(7)))) : DEFAULT_COLUMNS);
+      const analyticsLink = new URLSearchParams(window.location.search).get("analytics") === "1";
+      setCustomFilters(!analyticsLink && view ? view.customFilters.filter(f => owned.has(f.fieldId)) : []);
+      if (!analyticsLink) {
+        setStatusFilter(view?.statusFilter ?? "all"); setTypeFilter(view?.typeFilter ?? "all");
+        setMarketFilter(view?.marketFilter ?? "all"); setAgentFilter("all");
+        setLeadSourceFilter(view?.leadSourceFilter ?? "all"); setTxSearch(view?.txSearch ?? "");
+        setClosingDateFrom(view?.closingDateFrom ?? ""); setClosingDateTo(view?.closingDateTo ?? "");
+        setContractDateFrom(view?.contractDateFrom ?? ""); setContractDateTo(view?.contractDateTo ?? "");
+        setSortColumn(view?.sortColumn ?? "closing_date"); setSortOrder(view?.sortOrder ?? "desc");
+        setTxLimit(view?.txLimit ?? 25); setTxPage(1);
+        setFlagNoClosingDate(view?.flagNoClosingDate ?? false);
+        setFlagPastClosingDate(view?.flagPastClosingDate ?? false);
+        setFlagPayoutIntegrity(view?.flagPayoutIntegrity ?? false);
+        setGroupLeaderId(view?.groupLeaderId); setIncludeLeaderStats(view?.includeLeaderStats ?? false);
+        setShowDateFilters(!!(view?.closingDateFrom || view?.closingDateTo || view?.contractDateFrom || view?.contractDateTo));
+      }
+      try { sessionStorage.setItem("transactions.activeViewOwner", String(user.id)); } catch { /* saved server view still works */ }
+    }
+    setReadyAgentId(user.id);
+  // Initialization happens only once per signed-in agent per tab. Later navigation
+  // retains in-session filters; the saved view is restored on a fresh session.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, isAgent, viewFetched, fieldsFetched, savedView, customFieldsData]);
+  useEffect(() => {
+    if (!isAgent || !fieldsFetched || !viewReady) return;
+    const owned = new Set(customFields.map(field => field.id));
+    setCustomFilters(previous => previous.filter(f => owned.has(f.fieldId)));
+    setVisibleColumns(previous => previous.filter(c => !c.startsWith("custom:") || owned.has(Number(c.slice(7)))));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customFieldsData, fieldsFetched, isAgent, viewReady]);
   const { data: transactionsData, refetch } = trpc.transactions.list.useQuery({
     page: txPage, limit: txLimit, marketId: marketIdParam, search: txSearch || undefined, status: statusParam,
     agentId: agentIdParam,
@@ -769,7 +830,10 @@ export default function TransactionsPage() {
     transactionType: typeParam,
     sortOrder,
     sortBy: sortColumn,
-  });
+    customFilters: isAgent ? customFilters : undefined,
+    includeCustomValues: !!isAgent || (isAdmin && !!agentIdParam),
+    viewerId: user?.id,
+  }, { enabled: !isAgent || viewReady });
   const { data: markets = [] } = trpc.markets.list.useQuery();
   const { data: leadSourcesData } = trpc.leadSources.list.useQuery();
   const leadSourcesList = (leadSourcesData ?? []) as any[];
@@ -822,6 +886,42 @@ export default function TransactionsPage() {
 
   // Status filtering is now done server-side
   const filtered = transactions;
+  const displayedColumnCount = 1 + visibleColumns.filter(column => column.startsWith("custom:")
+    ? customFields.some(field => `custom:${field.id}` === column)
+    : column !== "savvy_net" || isAdmin).length;
+
+  function saveDefaultView() {
+    saveView.mutate({
+      visibleColumns: visibleColumns.filter(c => !c.startsWith("custom:") || customFields.some(field => `custom:${field.id}` === c)),
+      statusFilter, typeFilter, marketFilter, agentFilter: "all", leadSourceFilter,
+      txSearch, closingDateFrom, closingDateTo, contractDateFrom, contractDateTo,
+      sortColumn, sortOrder, txLimit: txLimit as 25 | 50 | 75 | 100, customFilters,
+      flagNoClosingDate, flagPastClosingDate, flagPayoutIntegrity, groupLeaderId, includeLeaderStats,
+    });
+  }
+
+  function applyCustomFilters() {
+    if (draftCustomFilters.some(f => f.operator !== "empty" && f.operator !== "not_empty" && !f.value?.trim())) {
+      toast.error("Enter a value for each custom filter or choose Is empty.");
+      return;
+    }
+    for (const filter of draftCustomFilters) {
+      if (filter.operator === "empty" || filter.operator === "not_empty") continue;
+      const field = customFields.find(f => f.id === filter.fieldId);
+      const value = filter.value?.trim() ?? "";
+      if (!field || ((field.type === "checkbox" || field.type === "select") && filter.operator !== "eq") ||
+        (field.type === "select" && !field.options?.includes(value)) ||
+        (field.type === "checkbox" && !["true", "false"].includes(value)) ||
+        (field.type === "date" && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`)))) ||
+        (["number", "money", "percent"].includes(field.type) && (!new RegExp(`^-?\\d{1,12}(?:\\.\\d{1,${field.type === "number" ? 4 : 2}})?$`).test(value) || (field.type === "percent" && (Number(value) < 0 || Number(value) > 100))))) {
+        toast.error(`Enter a valid value for ${field?.name ?? "the custom field"}.`);
+        return;
+      }
+    }
+    setCustomFilters(draftCustomFilters);
+    setTxPage(1);
+    setCustomFilterOpen(false);
+  }
 
   function updateForm(field: keyof CreateForm, value: string | boolean) {
     setForm(prev => {
@@ -1019,7 +1119,7 @@ export default function TransactionsPage() {
             className="pl-9"
           />
         </div>
-        {(statusFilter !== "all" || typeFilter !== "all" || agentFilter !== "all" || marketFilter !== "all" || leadSourceFilter !== "all" || groupLeaderId || flagNoClosingDate || flagPastClosingDate || flagPayoutIntegrity || txSearch || closingDateFrom || closingDateTo || contractDateFrom || contractDateTo) && (
+        {(statusFilter !== "all" || typeFilter !== "all" || agentFilter !== "all" || marketFilter !== "all" || leadSourceFilter !== "all" || groupLeaderId || flagNoClosingDate || flagPastClosingDate || flagPayoutIntegrity || txSearch || closingDateFrom || closingDateTo || contractDateFrom || contractDateTo || customFilters.length > 0) && (
           <Button
             variant="outline"
             size="sm"
@@ -1030,7 +1130,7 @@ export default function TransactionsPage() {
               setClosingDateFrom(""); setClosingDateTo(""); setContractDateFrom(""); setContractDateTo("");
               setFlagNoClosingDate(false); setFlagPastClosingDate(false); setFlagPayoutIntegrity(false);
               setGroupLeaderId(undefined); setIncludeLeaderStats(false);
-              setShowDateFilters(false); setTxPage(1);
+              setShowDateFilters(false); setCustomFilters([]); setDraftCustomFilters([]); setTxPage(1);
             }}
           >
             Clear filters
@@ -1078,7 +1178,38 @@ export default function TransactionsPage() {
         >
           Date Filters
         </button>
+        {isAgent && customFields.length > 0 && <button
+          onClick={() => { setDraftCustomFilters(customFilters); setCustomFilterOpen(open => !open); }}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${customFilters.length ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+        >Custom Filter{customFilters.length ? ` (${customFilters.length})` : ""}</button>}
       </div>
+
+      {isAgent && customFilterOpen && customFields.length > 0 && <div className="mb-4 rounded-lg border bg-muted/30 p-3 space-y-3">
+        <p className="text-sm font-medium">Filter by my custom fields</p>
+        {draftCustomFilters.map((filter, index) => {
+          const field = customFields.find(f => f.id === filter.fieldId) ?? customFields[0];
+          return <div key={index} className="grid gap-2 sm:grid-cols-[1fr_140px_1fr_auto] items-center">
+            <Select value={String(field.id)} onValueChange={v => setDraftCustomFilters(previous => previous.map((f, i) => i === index ? { fieldId: Number(v), operator: "eq", value: "" } : f))}>
+              <SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{customFields.map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={filter.operator} onValueChange={v => setDraftCustomFilters(previous => previous.map((f, i) => i === index ? { ...f, operator: v as CustomFilter["operator"] } : f))}>
+              <SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
+                <SelectItem value="eq">Equals</SelectItem>
+                {!["select", "checkbox"].includes(field.type) && <><SelectItem value="gte">At least / from</SelectItem><SelectItem value="lte">At most / through</SelectItem></>}
+                <SelectItem value="empty">Is empty</SelectItem><SelectItem value="not_empty">Is not empty</SelectItem>
+              </SelectContent>
+            </Select>
+            {filter.operator === "empty" || filter.operator === "not_empty" ? <span className="text-xs text-muted-foreground">No value needed</span> :
+              <CustomFieldInput field={field} value={filter.value ?? ""} onChange={value => setDraftCustomFilters(previous => previous.map((f, i) => i === index ? { ...f, value } : f))} allowEmpty={false} />}
+            <Button size="sm" variant="ghost" onClick={() => setDraftCustomFilters(previous => previous.filter((_, i) => i !== index))}>Remove</Button>
+          </div>;
+        })}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" disabled={draftCustomFilters.length >= 10} onClick={() => setDraftCustomFilters(previous => [...previous, { fieldId: customFields[0].id, operator: "eq", value: "" }])}>Add condition</Button>
+          <Button size="sm" onClick={applyCustomFilters}>Apply filters</Button>
+          <Button variant="ghost" size="sm" onClick={() => { setCustomFilters([]); setDraftCustomFilters([]); setTxPage(1); setCustomFilterOpen(false); }}>Clear custom filters</Button>
+        </div>
+      </div>}
 
       {/* Agent + Market filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-3">
@@ -1340,10 +1471,14 @@ export default function TransactionsPage() {
       )}
 
       {/* Column configuration */}
-      <div className="flex justify-end mb-2">
+      <div className="flex justify-end flex-wrap gap-2 mb-2">
+        {isAgent && <>
+          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setManageFieldsOpen(true)}>Manage custom fields</Button>
+          <Button variant="outline" size="sm" className="h-8 text-xs" disabled={saveView.isPending || !viewReady} onClick={saveDefaultView}>Save as default view</Button>
+        </>}
         <div className="relative">
           <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setColumnsMenuOpen(!columnsMenuOpen)}>
-            <Settings2 className="h-3.5 w-3.5" />Columns
+            <Settings2 className="h-3.5 w-3.5" />Display Columns
           </Button>
           {columnsMenuOpen && (
             <div className="absolute right-0 top-9 z-50 w-64 rounded-lg border bg-background p-3 shadow-lg">
@@ -1371,16 +1506,22 @@ export default function TransactionsPage() {
                     {col.label}
                   </label>
                 ))}
+                {customFields.length > 0 && <p className="text-xs font-semibold text-muted-foreground pt-2 border-t">{isAdmin ? "Selected agent's custom fields" : "My custom fields"}</p>}
+                {customFields.map(field => <label key={field.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-muted/50 rounded px-1.5 py-1">
+                  <input type="checkbox" checked={visibleColumns.includes(`custom:${field.id}`)} onChange={e => setVisibleColumns(previous => e.target.checked ? [...previous, `custom:${field.id}`] : previous.filter(c => c !== `custom:${field.id}`))} />
+                  {field.name}
+                </label>)}
               </div>
               <div className="mt-2 pt-2 border-t flex gap-2">
-                <Button variant="ghost" size="sm" className="h-7 text-xs flex-1" onClick={() => setVisibleColumns(["contact", "property", "agent", "type", "price", "gci", "savvy_net", "status", "closing_date", "date_added"])}>Reset</Button>
-                <Button variant="ghost" size="sm" className="h-7 text-xs flex-1" onClick={() => setVisibleColumns(["contact", "property", "agent", "lead_source", "type", "price", "gci", "savvy_net", "commission_rate", "status", "closing_date", "contract_date", "date_added", "transaction_number", "memo_number"])}>All</Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs flex-1" onClick={() => setVisibleColumns(DEFAULT_COLUMNS)}>Reset</Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs flex-1" onClick={() => setVisibleColumns(["contact", "property", "agent", "lead_source", "type", "price", "gci", "savvy_net", "commission_rate", "status", "closing_date", "contract_date", "date_added", "transaction_number", "memo_number", ...customFields.map(field => `custom:${field.id}`)])}>All</Button>
                 <Button size="sm" className="h-7 text-xs flex-1" onClick={() => setColumnsMenuOpen(false)}>Done</Button>
               </div>
             </div>
           )}
         </div>
       </div>
+      {isAgent && <CustomFieldManager fields={customFields} open={manageFieldsOpen} onOpenChange={setManageFieldsOpen} onChanged={() => { refetchCustomFields(); refetch(); }} />}
 
       <Card>
         <CardContent className="p-0 overflow-x-auto">
@@ -1403,19 +1544,20 @@ export default function TransactionsPage() {
                   {visibleColumns.includes("date_added") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("date_added")}>Date Added<SortIcon col="date_added" /></th>}
                   {visibleColumns.includes("transaction_number") && <th className="text-left py-3 px-4 text-muted-foreground font-medium select-none">Txn #</th>}
                   {visibleColumns.includes("memo_number") && <th className="text-left py-3 px-4 text-muted-foreground font-medium select-none">Memo #</th>}
+                  {customFields.filter(field => visibleColumns.includes(`custom:${field.id}`)).map(field => <th key={field.id} className="text-left py-3 px-4 text-muted-foreground font-medium whitespace-nowrap">{field.name}</th>)}
                   <th className="py-3 px-4"></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={visibleColumns.length + 1} className="text-center py-12 text-muted-foreground">
+                    <td colSpan={displayedColumnCount} className="text-center py-12 text-muted-foreground">
                       <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
                       <p>No transactions found</p>
                     </td>
                   </tr>
                 ) : (
-                  filtered.map(({ transaction, contact, agent, property, savvyNet, expMemoNumbers, leadSource, parentLeadSource }: any) => {
+                  filtered.map(({ transaction, contact, agent, property, savvyNet, expMemoNumbers, leadSource, parentLeadSource, customValues }: any) => {
                     const lsLabel = leadSource?.name ? (parentLeadSource?.name ? `${parentLeadSource.name} \u203A ${leadSource.name}` : leadSource.name) : null;
                     return (
                     <tr key={transaction.id} className="border-b last:border-0 hover:bg-muted/20 cursor-pointer" onClick={() => navigate(`/transactions/${transaction.id}`)}>
@@ -1434,6 +1576,7 @@ export default function TransactionsPage() {
                       {visibleColumns.includes("date_added") && <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.createdAt ? safeFormat(transaction.createdAt, "MMM d, yyyy") : "\u2014"}</td>}
                       {visibleColumns.includes("transaction_number") && <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.transactionNumber ?? "\u2014"}</td>}
                       {visibleColumns.includes("memo_number") && <td className="py-3 px-4 font-mono text-xs text-muted-foreground whitespace-nowrap">{expMemoNumbers ?? "—"}</td>}
+                      {customFields.filter(field => visibleColumns.includes(`custom:${field.id}`)).map(field => <td key={field.id} className="py-3 px-4 text-muted-foreground text-xs whitespace-nowrap">{formatCustomFieldValue(field, customValues?.[field.id])}</td>)}
                       <td className="py-3 px-4"><Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/transactions/${transaction.id}`); }}>View</Button></td>
                     </tr>
                     );
@@ -1444,8 +1587,8 @@ export default function TransactionsPage() {
               {filtered.length > 0 && (
                 <tfoot className="border-t bg-muted/50">
                   <tr>
-                    <td colSpan={4} className="py-2 px-4">
-                      <div className="flex items-center gap-2">
+                    <td colSpan={displayedColumnCount} className="py-2 px-4">
+                      <div className="flex items-center flex-wrap gap-x-5 gap-y-2">
                         <span className="text-xs text-muted-foreground font-medium">Page {aggregateMode === "count" ? "count" : aggregateMode}:</span>
                         <div className="flex gap-1">
                           {(["sum", "avg", "median", "count"] as const).map((m) => (
@@ -1460,53 +1603,26 @@ export default function TransactionsPage() {
                             </button>
                           ))}
                         </div>
+                        <span className="text-xs font-semibold">Price: {calcAggregate(filtered.map(({ transaction }: any) => parseFloat(transaction.purchasePrice ?? "0")), aggregateMode)}</span>
+                        <span className="text-xs font-semibold text-emerald-600">GCI: {calcAggregate(filtered.map(({ transaction }: any) => parseFloat(transaction.grossCommissionIncome ?? "0")), aggregateMode)}</span>
+                        {isAdmin && <span className="text-xs font-semibold text-blue-600">Savvy Net: {calcAggregate(filtered.map(({ savvyNet }: any) => parseFloat(savvyNet ?? "0")), aggregateMode)}</span>}
+                        <span className="text-xs text-muted-foreground">{filtered.length} row{filtered.length !== 1 ? "s" : ""} (this page)</span>
                       </div>
-                    </td>
-                    <td className="py-2 px-4 text-right font-semibold text-sm">
-                      {calcAggregate(
-                        filtered.map(({ transaction }: any) => parseFloat(transaction.purchasePrice ?? "0")),
-                        aggregateMode
-                      )}
-                    </td>
-                    <td className="py-2 px-4 text-right font-semibold text-sm text-emerald-600">
-                      {calcAggregate(
-                        filtered.map(({ transaction }: any) => parseFloat(transaction.grossCommissionIncome ?? "0")),
-                        aggregateMode
-                      )}
-                    </td>
-                    {isAdmin && (
-                      <td className="py-2 px-4 text-right font-semibold text-sm text-blue-600">
-                        {calcAggregate(
-                          filtered.map(({ savvyNet }: any) => parseFloat(savvyNet ?? "0")),
-                          aggregateMode
-                        )}
-                      </td>
-                    )}
-                    <td colSpan={3} className="py-2 px-4 text-xs text-muted-foreground">
-                      {filtered.length} row{filtered.length !== 1 ? "s" : ""} (this page)
                     </td>
                   </tr>
                   {/* All-records totals row — only shown when there are more records than the current page */}
                   {isAdmin && isPaginated && txStats && (
                     <tr className="border-t-2 border-primary/20 bg-primary/5">
-                      <td colSpan={4} className="py-2 px-4">
-                        <div className="flex items-center gap-1.5">
+                      <td colSpan={displayedColumnCount} className="py-2 px-4">
+                        <div className="flex items-center flex-wrap gap-x-5 gap-y-1.5">
                           <TrendingUp className="h-3.5 w-3.5 text-primary" />
                           <span className="text-xs font-semibold text-primary">All {txStats.total.toLocaleString()} matching transactions</span>
                           {statsFetching && <span className="text-xs text-muted-foreground animate-pulse">Refreshing…</span>}
+                          <span className="text-xs font-semibold text-primary">Price: ${Math.round(txStats.totalVolume).toLocaleString()}</span>
+                          <span className="text-xs font-semibold text-emerald-700">GCI: ${Math.round(txStats.totalGci).toLocaleString()}</span>
+                          <span className="text-xs font-semibold text-blue-700">Savvy Net: {txStats.totalSavvyNet > 0 ? `$${Math.round(txStats.totalSavvyNet).toLocaleString()}` : "—"}</span>
+                          <span className="text-xs text-primary/70">{txStats.closedCount.toLocaleString()} closed · {txStats.underContractCount.toLocaleString()} UC</span>
                         </div>
-                      </td>
-                      <td className="py-2 px-4 text-right font-semibold text-sm text-primary">
-                        ${Math.round(txStats.totalVolume).toLocaleString()}
-                      </td>
-                      <td className="py-2 px-4 text-right font-semibold text-sm text-emerald-700">
-                        ${Math.round(txStats.totalGci).toLocaleString()}
-                      </td>
-                      <td className="py-2 px-4 text-right font-semibold text-sm text-blue-700">
-                        {txStats.totalSavvyNet > 0 ? `$${Math.round(txStats.totalSavvyNet).toLocaleString()}` : "—"}
-                      </td>
-                      <td colSpan={3} className="py-2 px-4 text-xs text-primary/70">
-                        {txStats.closedCount.toLocaleString()} closed · {txStats.underContractCount.toLocaleString()} UC
                       </td>
                     </tr>
                   )}

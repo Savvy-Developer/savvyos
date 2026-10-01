@@ -30,6 +30,7 @@ import { useAppBack } from "@/lib/navigationHistory";
 import { unwrapPropertyListRows } from "@/lib/propertyList";
 import ChecklistPanel from "@/components/checklists/ChecklistPanel";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
+import { TransactionCustomFieldsCard } from "@/components/transactions/TransactionCustomFieldsCard";
 
 // ─── Transaction History Timeline ─────────────────────────────────────────────────────────
 const TX_HISTORY_OUTCOME_COLORS: Record<string, string> = {
@@ -940,6 +941,8 @@ export default function TransactionDetail() {
           </div>
         </div>
       )}
+
+      {(isAgent || isAdmin) && user?.id && <TransactionCustomFieldsCard transactionId={txId} isAgent={isAgent} viewerId={user.id} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Combined Summary */}

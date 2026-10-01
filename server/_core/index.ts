@@ -113,6 +113,7 @@ import { ensureWebsiteListingExpirySchema } from "../websiteListingExpirySchema"
 import { ensureWebsiteFeaturedSchema } from "../websiteFeaturedSchema";
 import { ensureVendorListsMultiSchema } from "../vendorListsMultiSchema";
 import { ensureTransactionTerminationTextSchema } from "../transactionTerminationTextSchema";
+import { ensureTransactionCustomFieldsSchema } from "../transactionCustomFieldsSchema";
 import { ensureOrganicSocialLeadSources } from "../organicSocialLeadSources";
 import { ensureWebsiteLeadSources } from "../websiteLeadSources";
 import { ensureMarketStateFix } from "../marketStateFix";
@@ -163,6 +164,7 @@ async function startServer() {
   await ensureWebsiteFeaturedSchema();
   await ensureVendorListsMultiSchema();
   await ensureTransactionTerminationTextSchema();
+  await ensureTransactionCustomFieldsSchema();
   await ensurePulseRunnerIssueSourceSchema();
   // Organic Social lead sources exist before the first organic lead arrives
   // (a lead source locks at creation), and the legacy Facebook/Instagram
