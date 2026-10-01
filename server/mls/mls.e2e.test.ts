@@ -324,6 +324,14 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const db = (await modules.db.getDb())!;
     const all = await modules.search.searchListings(db as any, { filters: {}, sort: "price_desc", page: 1, pageSize: 10 });
     expect(all.total).toBe(2);
+    const firstFast = await modules.search.searchListings(db as any, { filters: {}, sort: "updated", page: 1, pageSize: 1, countMode: "none" });
+    expect(firstFast.total).toBeNull();
+    expect(firstFast.items).toHaveLength(1);
+    expect(firstFast.hasMore).toBe(true);
+    const lastFast = await modules.search.searchListings(db as any, { filters: {}, sort: "updated", page: 2, pageSize: 1, countMode: "none" });
+    expect(lastFast.total).toBeNull();
+    expect(lastFast.items).toHaveLength(1);
+    expect(lastFast.hasMore).toBe(false);
     const active = await modules.search.searchListings(db as any, { filters: { statuses: ["active"] }, sort: "newest", page: 1, pageSize: 10 });
     expect(active.items.map(item => item.listingNumber)).toEqual(["100"]);
     expect(active.items[0].sourceShortName).toBe("Canopy");

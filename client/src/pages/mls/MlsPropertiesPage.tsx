@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Bath, BedDouble, Building2, ChevronLeft, ChevronRight, Database, ImageOff, List, Map as MapIcon, Ruler, Search, Settings2, SlidersHorizontal, X } from "lucide-react";
+import { Bath, BedDouble, Building2, ChevronLeft, ChevronRight, ImageOff, List, Map as MapIcon, Ruler, Search, Settings2, SlidersHorizontal, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -138,9 +138,11 @@ export default function MlsPropertiesPage() {
   const [, navigate] = useLocation();
   const [view, setView] = usePersistentState<"split" | "list" | "map">("mls.search.view", "split");
   const [filters, setFilters] = usePersistentState<Filters>("mls.search.filters", { statuses: ["active", "coming_soon", "active_under_contract"] });
-  const [sort, setSort] = usePersistentState<string>("mls.search.sort", "newest");
+  // Recently updated has a dedicated index; sorting the entire historical
+  // import by original entry date can block an admin search for minutes.
+  const [sort, setSort] = usePersistentState<string>("mls.search.sort.v2", "updated");
   const [page, setPage] = usePersistentState<number>("mls.search.page", 1);
-  const [searchInMap, setSearchInMap] = usePersistentState<boolean>("mls.search.inMap", true);
+  const [searchInMap, setSearchInMap] = usePersistentState<boolean>("mls.search.inMap.v2", false);
   const [queryText, setQueryText] = useState(filters.q ?? "");
   const [viewport, setViewport] = useState<MapViewport | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
@@ -164,7 +166,7 @@ export default function MlsPropertiesPage() {
   const canManage = !!(permissions.data as any)?.canManageMlsFeeds;
   const results = trpc.mlsProperties.search.useQuery(
     { filters: listFilters as any, sort: sort as any, page, pageSize: PAGE_SIZE },
-    { placeholderData: previous => previous }
+    { enabled: view !== "map", placeholderData: previous => previous }
   );
 
   const update = (patch: Partial<Filters>) => {
@@ -178,15 +180,15 @@ export default function MlsPropertiesPage() {
   };
 
   const activeCount = Object.keys(cleaned).filter(key => !["q", "statuses", "sourceIds", "propertyTypes"].includes(key)).length;
-  const total = results.data?.total ?? 0;
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const noData = options.data && options.data.totalListings === 0;
+  const total = results.data?.total;
+  const pages = total == null ? null : Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const hasMore = results.data?.hasMore ?? false;
 
   return (
     <div className="flex flex-col lg:h-full">
       <PageHeader
         title="MLS Properties"
-        subtitle={options.data ? `${options.data.totalListings.toLocaleString()} listings across ${options.data.sources.filter(source => source.listingCount > 0).length} MLS sources` : "Normalized listings from every connected MLS"}
+        subtitle="Search listings from licensed MLS feeds as they arrive"
         actions={
           canManage ? (
             <Button variant="outline" size="sm" asChild>
@@ -219,7 +221,7 @@ export default function MlsPropertiesPage() {
         />
         <MultiSelect
           className="w-[180px]"
-          options={(options.data?.sources ?? []).map(source => ({ value: String(source.id), label: source.shortName, description: `${source.listingCount.toLocaleString()} listings` }))}
+          options={(options.data?.sources ?? []).map(source => ({ value: String(source.id), label: source.shortName, description: source.name }))}
           value={(filters.sourceIds ?? []).map(String)}
           onValueChange={value => update({ sourceIds: value.map(Number) })}
           placeholder="All MLSs"
@@ -289,23 +291,13 @@ export default function MlsPropertiesPage() {
         </div>
       </div>
 
-      {noData ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-10 text-center">
-          <Database className="h-8 w-8 text-muted-foreground" />
-          <div className="text-base font-semibold">No MLS listings yet</div>
-          <p className="max-w-lg text-sm text-muted-foreground">
-            Listings appear here once a feed is enabled and its first import runs. Canopy through MLS Grid is first in line.
-            {canManage ? " Set up credentials and enable a feed from Feeds and mappings." : " Ask an MLS feed manager to enable a feed."}
-          </p>
-          {canManage ? <Button asChild size="sm"><Link href="/mls-properties/feeds">Open feeds and mappings</Link></Button> : null}
-        </div>
-      ) : (
+      {(
         <div className={`grid min-h-0 flex-1 gap-3 ${view === "split" ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]" : "grid-cols-1"}`}>
           {view !== "map" ? (
             <div className="flex min-h-0 flex-col">
               <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
                 <span>
-                  {results.data ? `${total.toLocaleString()} results` : "Searching"}
+                  {results.isError ? "Search is temporarily unavailable" : results.data ? total == null ? `${((page - 1) * PAGE_SIZE + results.data.items.length).toLocaleString()}+ results` : `${total.toLocaleString()} results` : "Searching"}
                   {view === "split" && searchInMap && debouncedViewport ? " in map area" : ""}
                 </span>
                 {view === "split" ? (
@@ -324,12 +316,17 @@ export default function MlsPropertiesPage() {
                     No listings match. Widen the filters or move the map.
                   </div>
                 ) : null}
+                {results.isError ? (
+                  <div className="col-span-full rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                    The listing search did not respond. <Button variant="outline" size="sm" onClick={() => void results.refetch()}>Try again</Button>
+                  </div>
+                ) : null}
               </div>
-              {total > PAGE_SIZE ? (
+              {results.data && (page > 1 || hasMore) ? (
                 <div className="flex items-center justify-between border-t pt-2 text-sm">
                   <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft className="mr-1 h-4 w-4" />Prev</Button>
-                  <span className="text-muted-foreground">Page {page} of {pages.toLocaleString()}</span>
-                  <Button variant="ghost" size="sm" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next<ChevronRight className="ml-1 h-4 w-4" /></Button>
+                  <span className="text-muted-foreground">Page {page}{pages ? ` of ${pages.toLocaleString()}` : ""}</span>
+                  <Button variant="ghost" size="sm" disabled={!hasMore} onClick={() => setPage(page + 1)}>Next<ChevronRight className="ml-1 h-4 w-4" /></Button>
                 </div>
               ) : null}
             </div>

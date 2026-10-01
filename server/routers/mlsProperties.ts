@@ -188,12 +188,6 @@ export const mlsPropertiesRouter = router({
   filterOptions: viewProcedure.query(async () => {
     const db = await requireDb();
     const sources = await db.select().from(mlsSources).orderBy(asc(mlsSources.sortOrder));
-    const counts = await db
-      .select({ sourceId: mlsListings.sourceId, count: sql<number>`count(*)` })
-      .from(mlsListings)
-      .where(isNull(mlsListings.removedFromFeedAt))
-      .groupBy(mlsListings.sourceId);
-    const bySource = new Map(counts.map(row => [row.sourceId, Number(row.count)]));
     return {
       sources: sources.map(source => ({
         id: source.id,
@@ -201,12 +195,10 @@ export const mlsPropertiesRouter = router({
         shortName: source.shortName,
         providerRoute: source.providerRoute,
         onboardingStatus: source.onboardingStatus,
-        listingCount: bySource.get(source.id) ?? 0,
       })),
       statuses: CANONICAL_STATUSES.map(value => ({ value, label: STATUS_LABELS[value] })),
       propertyTypes: CANONICAL_PROPERTY_TYPES.map(value => ({ value, label: PROPERTY_TYPE_LABELS[value] })),
       sorts: SEARCH_SORTS,
-      totalListings: Array.from(bySource.values()).reduce((sum, value) => sum + value, 0),
     };
   }),
 
@@ -221,7 +213,7 @@ export const mlsPropertiesRouter = router({
     )
     .query(async ({ input }) => {
       const db = await requireDb();
-      return searchListings(db, input);
+      return searchListings(db, { ...input, countMode: "none" });
     }),
 
   mapPoints: viewProcedure
