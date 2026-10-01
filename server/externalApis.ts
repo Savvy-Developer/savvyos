@@ -79,6 +79,17 @@ export function extractZillowPhotoUrls(data: any, maxPhotos = 40): string[] {
   return photos.slice(0, maxPhotos);
 }
 
+/**
+ * The listing's own description from a Zillow lookup, tidied for a form field:
+ * whitespace collapsed, at most 4,000 characters. Null when there is none.
+ */
+export function extractZillowDescription(data: any): string | null {
+  const raw = data?.propertyDetails?.description;
+  if (typeof raw !== "string") return null;
+  const text = raw.replace(/\r\n?/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  return text ? text.slice(0, 4000) : null;
+}
+
 export function mapZillowPropertyResponse(data: any) {
   const pd = data?.propertyDetails;
   if (!pd || typeof pd !== "object" || Array.isArray(pd) || Object.keys(pd).length === 0) return null;
@@ -156,6 +167,25 @@ export function parseGoogleAddressDetails(result: any, sourceAddress?: string) {
   };
 }
 
+/**
+ * Up to six US address suggestions from Google Places for what was typed.
+ * Shared by the signed-in address box and the public website's seller form.
+ */
+export async function fetchAddressSuggestions(query: string): Promise<Array<{ placeId: string; description: string }>> {
+  const input = query.trim().slice(0, 250);
+  if (input.length < 3) return [];
+  const data = await requestGooglePlaces<any>("/v1/places:autocomplete", {
+    method: "POST",
+    body: JSON.stringify({ input, includedRegionCodes: ["us"] }),
+  }, "suggestions.placePrediction.place,suggestions.placePrediction.text.text");
+  return Array.isArray(data?.suggestions)
+    ? data.suggestions.slice(0, 6).map((suggestion: any) => ({
+        placeId: String(suggestion?.placePrediction?.place ?? "").replace(/^places\//, ""),
+        description: String(suggestion?.placePrediction?.text?.text ?? ""),
+      })).filter((suggestion: { placeId: string; description: string }) => suggestion.placeId && suggestion.description)
+    : [];
+}
+
 export function registerExternalApiRoutes(app: express.Application) {
   // ═══════════════════════════════════════════════════════════════════════════
   // GOOGLE ADDRESS AUTOCOMPLETE
@@ -178,17 +208,7 @@ export function registerExternalApiRoutes(app: express.Application) {
       }
 
       if (query.length < 3) return res.json({ success: true, suggestions: [] });
-      const data = await requestGooglePlaces<any>("/v1/places:autocomplete", {
-        method: "POST",
-        body: JSON.stringify({ input: query, includedRegionCodes: ["us"] }),
-      }, "suggestions.placePrediction.place,suggestions.placePrediction.text.text");
-      const suggestions = Array.isArray(data?.suggestions)
-        ? data.suggestions.slice(0, 6).map((suggestion: any) => ({
-            placeId: String(suggestion?.placePrediction?.place ?? "").replace(/^places\//, ""),
-            description: String(suggestion?.placePrediction?.text?.text ?? ""),
-          })).filter((suggestion: { placeId: string; description: string }) => suggestion.placeId && suggestion.description)
-        : [];
-      return res.json({ success: true, suggestions });
+      return res.json({ success: true, suggestions: await fetchAddressSuggestions(query) });
     } catch (err: any) {
       console.error("[AddressAutocomplete] Error:", err.message);
       return res.status(503).json({ error: "Address suggestions are temporarily unavailable. You can still enter the address manually." });

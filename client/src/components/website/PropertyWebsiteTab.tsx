@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, ExternalLink, Globe2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -41,9 +41,41 @@ import {
   STRATEGY_TAGS,
   splitTags,
 } from "./propertyTagOptions";
+import { WriteWithAiButton } from "./WriteWithAiButton";
 
 const PUBLIC_PROPERTY_PATH = "/newsite/properties/";
 const PUBLIC_SITE_ORIGIN = `https://${(import.meta.env.VITE_PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase()}`;
+
+/** Mirrors HOMEPAGE_FEATURED_LIMIT in server/routers/website.ts. */
+const HOMEPAGE_FEATURED_LIMIT = 6;
+const AUTOSAVE_DELAY_MS = 2500;
+const unsavedKey = (propertyId: number) => `savvyos:website-listing-unsaved:${propertyId}`;
+
+/** Edits not yet on the server, kept per property in this browser. */
+function readUnsavedEdits(propertyId: number): { draft: Partial<Draft>; at: number } | null {
+  try {
+    const raw = window.localStorage.getItem(unsavedKey(propertyId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && parsed.draft ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function writeUnsavedEdits(propertyId: number, draft: Draft) {
+  try {
+    window.localStorage.setItem(unsavedKey(propertyId), JSON.stringify({ draft, at: Date.now() }));
+  } catch {
+    // Storage full or blocked: auto-save still works for drafts.
+  }
+}
+function clearUnsavedEdits(propertyId: number) {
+  try {
+    window.localStorage.removeItem(unsavedKey(propertyId));
+  } catch {
+    // Nothing to clear.
+  }
+}
 
 type Draft = {
   slug: string;
@@ -68,7 +100,6 @@ type Draft = {
   metaTitle: string;
   metaDescription: string;
   isFeatured: boolean;
-  sortOrder: string;
 };
 
 function blankDraft(fallbackSlug: string): Draft {
@@ -95,7 +126,6 @@ function blankDraft(fallbackSlug: string): Draft {
     metaTitle: "",
     metaDescription: "",
     isFeatured: false,
-    sortOrder: "0",
   };
 }
 
@@ -124,7 +154,6 @@ function draftFrom(website: any, fallbackSlug: string): Draft {
     metaTitle: website.metaTitle ?? "",
     metaDescription: website.metaDescription ?? "",
     isFeatured: !!website.isFeatured,
-    sortOrder: String(website.sortOrder ?? 0),
   };
 }
 
@@ -357,42 +386,123 @@ export default function PropertyWebsiteTab({
 
   // Load the saved values once per property, not on every refetch, so a save
   // that returns fresh data does not stamp over whatever is being typed.
+  // What the server has, as the save body; edits are compared against it.
+  const [savedBody, setSavedBody] = useState<string | null>(null);
   useEffect(() => {
     if (content.isLoading || loadedFor === propertyId) return;
-    setDraft(draftFrom(content.data?.website, fallbackSlug));
+    const fromServer = draftFrom(content.data?.website, fallbackSlug);
+    setSavedBody(JSON.stringify(payloadFor(fromServer, !!content.data?.website)));
+    // Edits that never reached the server (a live listing not yet saved, or
+    // an auto-save that could not finish) are kept in this browser. Bring
+    // them back rather than lose them.
+    const unsaved = readUnsavedEdits(propertyId);
+    if (unsaved && JSON.stringify({ ...fromServer, ...unsaved.draft }) !== JSON.stringify(fromServer)) {
+      setDraft({ ...fromServer, ...unsaved.draft });
+      toast.info(`Brought back changes you had not saved (${new Date(unsaved.at).toLocaleString()}).`, {
+        duration: 15000,
+        action: {
+          label: "Discard them",
+          onClick: () => {
+            clearUnsavedEdits(propertyId);
+            setDraft(fromServer);
+          },
+        },
+      });
+    } else {
+      clearUnsavedEdits(propertyId);
+      setDraft(fromServer);
+    }
     setLoadedFor(propertyId);
   }, [content.isLoading, content.data, propertyId, fallbackSlug, loadedFor]);
 
+  // The body each save sent, so the form knows what reached the server.
+  const sentBody = useRef<string | null>(null);
+  // The server may give the listing a different address than the one sent
+  // (taken already, or none typed). Take it into the form, so the next save
+  // does not ask for the taken one again and get yet another number.
+  const settleSaved = (sent: string | null, slug: string | undefined) => {
+    if (!sent) return;
+    const body = JSON.parse(sent);
+    const sentSlug = body.slug;
+    if (slug && sentSlug !== undefined && sentSlug !== slug) {
+      body.slug = slug;
+      setDraft(prior => (slugify(prior.slug) === sentSlug ? { ...prior, slug } : prior));
+    }
+    setSavedBody(JSON.stringify(body));
+  };
   const save = trpc.website.savePropertyWebsiteContent.useMutation({
     onSuccess: async result => {
       toast.success(result.created ? "Added to the website." : "Website details saved.");
+      settleSaved(sentBody.current, result.slug);
       await utils.website.propertyWebsiteContent.invalidate({ propertyId });
       await utils.website.propertyPublishState.invalidate({ propertyId });
     },
     onError: error => toast.error(error.message),
   });
+  // Auto-save (1 Oct call: Tyler's entries were gone when he came back).
+  // Drafts only: a few seconds after typing stops, the draft is saved. A live
+  // listing is never changed without clicking Save; its edits wait in this
+  // browser instead.
+  const autoSentBody = useRef<string | null>(null);
+  const lastAutoError = useRef<string | null>(null);
+  const autoSave = trpc.website.savePropertyWebsiteContent.useMutation({
+    onSuccess: async result => {
+      lastAutoError.current = null;
+      settleSaved(autoSentBody.current, result.slug);
+      await utils.website.propertyWebsiteContent.invalidate({ propertyId });
+      await utils.website.propertyPublishState.invalidate({ propertyId });
+    },
+    onError: error => {
+      if (lastAutoError.current !== error.message) toast.error(`Auto-save did not work: ${error.message}`);
+      lastAutoError.current = error.message;
+    },
+  });
 
+  // Two buttons share the Zillow lookup: "Import photos from Zillow" under
+  // Photos, and "Import from Zillow" beside Public summary, which also brings
+  // the listing description in (25 Sep call: Tyler wanted it by the summary).
+  const [zillowTarget, setZillowTarget] = useState<"photos" | "summary">("photos");
+  const [zillowPasteOpen, setZillowPasteOpen] = useState(false);
   const importZillow = trpc.website.importZillowPhotos.useMutation({
     onSuccess: result => {
+      const withSummary = zillowTarget === "summary";
       const existing = splitLines(draft.galleryImageUrls);
       const gallery = Array.from(new Set([...existing, ...result.photos]));
       const added = gallery.length - existing.length;
+      const description = withSummary ? (result.description ?? "") : "";
+      const summaryFilled = !!description && !draft.summary.trim();
       setDraft(prior => ({
         ...prior,
         sourceUrl: result.zillowUrl,
         // Blank fills in, anything already there wins: the hero is only set
-        // when there isn't one, and the gallery keeps what it had.
-        heroImageUrl: prior.heroImageUrl || result.photos[0],
+        // when there isn't one, the gallery keeps what it had, and a summary
+        // someone already wrote is never replaced.
+        heroImageUrl: prior.heroImageUrl || result.photos[0] || "",
         galleryImageUrls: gallery.join("\n"),
+        summary: prior.summary.trim() || !description ? prior.summary : description,
       }));
-      toast.success(
+      setZillowPasteOpen(false);
+      const photoNote =
         added > 0
-          ? `Added ${added} photo${added === 1 ? "" : "s"} from Zillow. Save to keep them.`
-          : "Those Zillow photos are already in the gallery."
-      );
+          ? `Added ${added} photo${added === 1 ? "" : "s"} from Zillow.`
+          : result.photos.length
+            ? "Those Zillow photos are already in the gallery."
+            : "Zillow had no photos for it.";
+      const summaryNote = !withSummary
+        ? ""
+        : summaryFilled
+          ? " Filled the public summary from the Zillow description."
+          : description
+            ? " The public summary already had text, so it was kept."
+            : " Zillow had no description for it.";
+      toast.success(`${photoNote}${summaryNote}`);
     },
     onError: error => toast.error(error.message),
   });
+  const runZillowImport = (target: "photos" | "summary") => {
+    setZillowTarget(target);
+    importZillow.mutate({ propertyId, zillowUrl: zillowLink.trim() });
+  };
 
   const canEdit = !!content.data?.canEdit;
   const website = content.data?.website;
@@ -407,6 +517,60 @@ export default function PropertyWebsiteTab({
   const agentOptions = content.data?.agents ?? [];
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft(prior => ({ ...prior, [key]: value }));
+
+  function payloadFor(form: Draft, exists: boolean) {
+    // An existing listing keeps its address while the link is being retyped
+    // (under three characters is not a link yet).
+    const typedSlug = slugify(form.slug);
+    return {
+      propertyId,
+      slug: typedSlug.length >= 3 ? typedSlug : exists ? undefined : fallbackSlug,
+      status: form.status,
+      sourceProformaId: form.sourceProformaId ? Number(form.sourceProformaId) : null,
+      sourceUrl: form.sourceUrl.trim() || null,
+      assignedAgentId: form.assignedAgentId ? Number(form.assignedAgentId) : null,
+      headline: form.headline || null,
+      summary: form.summary || null,
+      agentBlurb: form.agentBlurb || null,
+      heroImageUrl: form.heroImageUrl || null,
+      galleryImageUrls: splitLines(form.galleryImageUrls),
+      featureTags: splitLines(form.featureTags),
+      investmentHighlights: splitLines(form.investmentHighlights),
+      projectedRevenue: numberOrNull(form.projectedRevenue),
+      cashOnCash: percentToRate(form.cashOnCash),
+      capRate: percentToRate(form.capRate),
+      occupancyRate: percentToRate(form.occupancyRate),
+      averageDailyRate: numberOrNull(form.averageDailyRate),
+      regulationSummary: form.regulationSummary || null,
+      callToActionText: form.callToActionText || "Request the full investment analysis",
+      metaTitle: form.metaTitle || null,
+      metaDescription: form.metaDescription || null,
+      isFeatured: form.isFeatured,
+    };
+  }
+
+  const listingExists = !!content.data?.website;
+  const savedStatus: Draft["status"] | null = content.data?.website?.status ?? null;
+  const body = JSON.stringify(payloadFor(draft, listingExists));
+  const ready = loadedFor === propertyId && savedBody !== null;
+  const unsavedChanges = ready && body !== savedBody;
+  const canAutoSave = draft.status === "draft" && (savedStatus === null || savedStatus === "draft");
+
+  useEffect(() => {
+    if (!ready || !content.data?.canEdit) return;
+    if (!unsavedChanges) {
+      clearUnsavedEdits(propertyId);
+      return;
+    }
+    writeUnsavedEdits(propertyId, draft);
+    if (!canAutoSave || save.isPending || autoSave.isPending) return;
+    const timer = window.setTimeout(() => {
+      autoSentBody.current = body;
+      autoSave.mutate({ ...payloadFor(draft, listingExists), autosave: true });
+    }, AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+    // body captures every field; the pending flags re-run it once a save ends.
+  }, [body, savedBody, ready, canAutoSave, save.isPending, autoSave.isPending]);
 
   if (content.isLoading) {
     return (
@@ -459,34 +623,39 @@ export default function PropertyWebsiteTab({
         })
       : [];
 
+  // What "Write with AI" reads from the form: the listing as it is right now.
+  const aiContent = () => ({
+    headline: draft.headline,
+    summary: draft.summary,
+    agentBlurb: draft.agentBlurb,
+    featureTags: splitLines(draft.featureTags),
+    investmentHighlights: splitLines(draft.investmentHighlights),
+    projectedAnnualRevenue: draft.projectedRevenue,
+    cashOnCashPercent: draft.cashOnCash,
+    capRatePercent: draft.capRate,
+    occupancyPercent: draft.occupancyRate,
+    averageDailyRate: draft.averageDailyRate,
+    regulationSummary: draft.regulationSummary,
+  });
+
   function submit() {
-    save.mutate({
-      propertyId,
-      slug: slugify(draft.slug) || fallbackSlug,
-      status: draft.status,
-      sourceProformaId: draft.sourceProformaId ? Number(draft.sourceProformaId) : null,
-      sourceUrl: draft.sourceUrl.trim() || null,
-      assignedAgentId: draft.assignedAgentId ? Number(draft.assignedAgentId) : null,
-      headline: draft.headline || null,
-      summary: draft.summary || null,
-      agentBlurb: draft.agentBlurb || null,
-      heroImageUrl: draft.heroImageUrl || null,
-      galleryImageUrls: splitLines(draft.galleryImageUrls),
-      featureTags: splitLines(draft.featureTags),
-      investmentHighlights: splitLines(draft.investmentHighlights),
-      projectedRevenue: numberOrNull(draft.projectedRevenue),
-      cashOnCash: percentToRate(draft.cashOnCash),
-      capRate: percentToRate(draft.capRate),
-      occupancyRate: percentToRate(draft.occupancyRate),
-      averageDailyRate: numberOrNull(draft.averageDailyRate),
-      regulationSummary: draft.regulationSummary || null,
-      callToActionText: draft.callToActionText || "Request the full investment analysis",
-      metaTitle: draft.metaTitle || null,
-      metaDescription: draft.metaDescription || null,
-      isFeatured: draft.isFeatured,
-      sortOrder: Number(draft.sortOrder || 0),
-    });
+    sentBody.current = body;
+    save.mutate(payloadFor(draft, listingExists));
   }
+
+  const autoSaveNote = !ready
+    ? ""
+    : autoSave.isPending
+      ? "Saving draft..."
+      : !unsavedChanges
+        ? listingExists
+          ? "All changes saved."
+          : ""
+        : canAutoSave
+          ? "Unsaved changes. Saving the draft in a moment."
+          : savedStatus === "published"
+            ? "Unsaved changes. Click Save to update the live listing. They are kept in this browser until then."
+            : "Unsaved changes. Click the button to save. They are kept in this browser until then.";
 
   return (
     <div className="space-y-6">
@@ -573,7 +742,43 @@ export default function PropertyWebsiteTab({
                 value={draft.summary}
                 onChange={value => set("summary", value)}
                 placeholder="A short paragraph investors see on the listing card."
+                action={
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="link"
+                    className="h-auto p-0 text-xs"
+                    disabled={importZillow.isPending}
+                    onClick={() => (zillowLink.trim() ? runZillowImport("summary") : setZillowPasteOpen(open => !open))}
+                    title="Fills the summary from the Zillow description (only if it's empty) and adds the listing's photos."
+                  >
+                    {importZillow.isPending && zillowTarget === "summary" ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Download className="mr-1 h-3 w-3" />
+                    )}
+                    Import from Zillow
+                  </Button>
+                }
               />
+              {zillowPasteOpen && !zillowLink.trim() && (
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    autoFocus
+                    value={draft.sourceUrl}
+                    onChange={event => set("sourceUrl", event.target.value)}
+                    placeholder="Paste the Zillow link: https://www.zillow.com/homedetails/..."
+                    className="flex-1"
+                  />
+                </div>
+              )}
+              {zillowPasteOpen && zillowLink.trim() && !importZillow.isPending && (
+                <div className="mt-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => runZillowImport("summary")}>
+                    <Download className="mr-2 h-4 w-4" /> Import description and photos
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="md:col-span-2">
               <Area
@@ -611,9 +816,9 @@ export default function PropertyWebsiteTab({
                 type="button"
                 variant="outline"
                 disabled={!zillowLink.trim() || importZillow.isPending}
-                onClick={() => importZillow.mutate({ propertyId, zillowUrl: zillowLink.trim() })}
+                onClick={() => runZillowImport("photos")}
               >
-                {importZillow.isPending ? (
+                {importZillow.isPending && zillowTarget === "photos" ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Download className="mr-2 h-4 w-4" />
@@ -759,6 +964,16 @@ export default function PropertyWebsiteTab({
               label="Meta title"
               value={draft.metaTitle}
               onChange={value => set("metaTitle", value)}
+              hint="The blue link in Google results. Up to about 60 characters."
+              action={
+                <WriteWithAiButton
+                  kind="property"
+                  propertyId={propertyId}
+                  sourceProformaId={draft.sourceProformaId ? Number(draft.sourceProformaId) : null}
+                  content={aiContent}
+                  onWritten={written => written.metaTitle && set("metaTitle", written.metaTitle)}
+                />
+              }
             />
             <Field
               label="Call to action label"
@@ -770,6 +985,18 @@ export default function PropertyWebsiteTab({
                 label="Meta description"
                 value={draft.metaDescription}
                 onChange={value => set("metaDescription", value)}
+                hint={`The text under the link in Google results. About 140 to 155 characters${
+                  draft.metaDescription ? ` (now ${draft.metaDescription.length})` : ""
+                }.`}
+                action={
+                  <WriteWithAiButton
+                    kind="property"
+                    propertyId={propertyId}
+                    sourceProformaId={draft.sourceProformaId ? Number(draft.sourceProformaId) : null}
+                    content={aiContent}
+                    onWritten={written => written.metaDescription && set("metaDescription", written.metaDescription)}
+                  />
+                }
               />
             </div>
           </div>
@@ -788,22 +1015,19 @@ export default function PropertyWebsiteTab({
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label>Order</Label>
-                <input
-                  className="mt-1 h-10 w-24 rounded-md border border-input bg-background px-3 text-sm"
-                  type="number"
-                  value={draft.sortOrder}
-                  onChange={event => set("sortOrder", event.target.value)}
-                />
+              <div className="pb-1">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <Switch
+                    checked={draft.isFeatured}
+                    onCheckedChange={value => set("isFeatured", value)}
+                  />
+                  Feature on the homepage
+                </label>
+                <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                  The homepage shows the {HOMEPAGE_FEATURED_LIMIT} most recently featured live listings. Featuring a new
+                  one moves the oldest off.
+                </p>
               </div>
-              <label className="flex items-center gap-2 pb-2 text-sm font-medium">
-                <Switch
-                  checked={draft.isFeatured}
-                  onCheckedChange={value => set("isFeatured", value)}
-                />
-                Feature on the homepage
-              </label>
             </div>
             {missing.length > 0 && (
               <p className="w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -811,6 +1035,8 @@ export default function PropertyWebsiteTab({
                 "Edit details" on the property's Overview tab. Photos go in this form.
               </p>
             )}
+            <div className="ml-auto flex flex-col items-end gap-1">
+            {autoSaveNote && <p className="text-xs text-muted-foreground">{autoSaveNote}</p>}
             <Button disabled={save.isPending} onClick={submit}>
               {save.isPending
                 ? "Saving..."
@@ -820,6 +1046,7 @@ export default function PropertyWebsiteTab({
                     ? "Publish to the website"
                     : "Create website draft"}
             </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -828,10 +1055,11 @@ export default function PropertyWebsiteTab({
 }
 
 /**
- * Says when the numbers on this listing no longer match the linked
- * pro-forma, and offers to take the pro-forma's. Saved numbers are reloaded
- * into the form, so without this a listing could show last month's figures
- * with nothing on the page to say so.
+ * "Use the pro-forma numbers", shown whenever a pro-forma is linked (1 Oct
+ * call: it used to appear only once a number had been typed that differed
+ * from the pro-forma, so with empty fields there was no button at all).
+ * When the typed numbers differ it also says so, since saved numbers are
+ * reloaded into the form and could otherwise show last month's figures.
  */
 function ProformaNumbersHint({
   proforma,
@@ -850,22 +1078,49 @@ function ProformaNumbersHint({
     cashOnCash: tidy(rateToPercent(proforma.cashOnCash)),
     capRate: tidy(rateToPercent(proforma.capRate)),
   };
+  const hasNumbers = !!(fromProforma.projectedRevenue || fromProforma.cashOnCash || fromProforma.capRate);
   const differs = (a: string, b: string) =>
     (a || "") !== "" && (b || "") !== "" && Math.abs(Number(a) - Number(b)) > 0.005;
   const mismatch =
     differs(draft.projectedRevenue, fromProforma.projectedRevenue) ||
     differs(draft.cashOnCash, fromProforma.cashOnCash) ||
     differs(draft.capRate, fromProforma.capRate);
-  if (!mismatch) return null;
+  const same = (a: string, b: string) => (a || "") === (b || "") || (!differs(a, b) && a !== "" && b !== "");
+  const alreadyUsed =
+    hasNumbers &&
+    same(draft.projectedRevenue, fromProforma.projectedRevenue) &&
+    same(draft.cashOnCash, fromProforma.cashOnCash) &&
+    same(draft.capRate, fromProforma.capRate);
   const show = (value: string, suffix: string, prefix = "") => (value === "" ? "none" : `${prefix}${value}${suffix}`);
+  const summary = `revenue ${show(fromProforma.projectedRevenue, "", "$")}, cash-on-cash ${show(
+    fromProforma.cashOnCash,
+    "%"
+  )}, cap rate ${show(fromProforma.capRate, "%")}`;
   return (
-    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+    <div
+      className={
+        mismatch
+          ? "rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+          : "rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground"
+      }
+    >
       <p>
-        These numbers differ from the linked pro-forma (revenue {show(fromProforma.projectedRevenue, "", "$")},
-        cash-on-cash {show(fromProforma.cashOnCash, "%")}, cap rate {show(fromProforma.capRate, "%")}). Keep them only
-        if you typed them on purpose.
+        {!hasNumbers
+          ? "The linked pro-forma has no revenue numbers yet. Fill in its revenue scenarios first."
+          : mismatch
+            ? `These numbers differ from the linked pro-forma (${summary}). Keep them only if you typed them on purpose.`
+            : alreadyUsed
+              ? `Using the linked pro-forma's numbers (base case): ${summary}.`
+              : `The linked pro-forma's numbers (base case): ${summary}.`}
       </p>
-      <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => onUse(fromProforma)}>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="mt-2"
+        disabled={!hasNumbers}
+        onClick={() => onUse(fromProforma)}
+      >
         Use the pro-forma numbers
       </Button>
     </div>

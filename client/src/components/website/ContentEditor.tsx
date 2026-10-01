@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { trpc } from "@/lib/trpc";
@@ -21,7 +21,9 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { parseTagText } from "@shared/websiteContentFilters";
+import { Input } from "@/components/ui/input";
 import { Area, Field, MediaUpload, slugify } from "./websiteFormBits";
+import { WriteWithAiButton } from "./WriteWithAiButton";
 
 /** "2026-08-04T01:08:30.319Z" to "2026-08-04" for a date input; "" if none. */
 function dateInputValue(value: unknown): string {
@@ -119,6 +121,24 @@ export function ContentEditor({
   const set = (key: string, value: any) =>
     setDraft((prior: any) => ({ ...prior, [key]: value }));
   const imageKey = isCase ? "heroImageUrl" : "coverImageUrl";
+  // What "Write with AI" reads: the post or story as it is right now.
+  const aiContent = () =>
+    isCase
+      ? {
+          title: draft.title,
+          eyebrow: draft.eyebrow,
+          body: draft.body,
+          primaryMetric: [draft.primaryMetricLabel, draft.primaryMetricValue].filter(Boolean).join(": "),
+          secondaryMetric: [draft.secondaryMetricLabel, draft.secondaryMetricValue].filter(Boolean).join(": "),
+          investmentAmount: draft.investmentAmount,
+        }
+      : {
+          title: draft.title,
+          category: draft.category,
+          tags: parseTagText(draft.tagsText || ""),
+          excerpt: draft.excerpt,
+          body: draft.body,
+        };
   const submit = () => {
     const common = {
       ...(initial?.id ? { id: initial.id } : {}),
@@ -194,6 +214,8 @@ export function ContentEditor({
             label="Eyebrow"
             value={draft.eyebrow || ""}
             onChange={value => set("eyebrow", value)}
+            placeholder="Smoky Mountains cabin, first-time investor"
+            hint="The short line shown above the title on the case study card and page, like a label. A few words: the place, the kind of property, or the kind of client."
           />
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
@@ -213,6 +235,21 @@ export function ContentEditor({
           label="Excerpt"
           value={draft.excerpt || ""}
           onChange={value => set("excerpt", value)}
+          hint={
+            isCase
+              ? "One or two sentences under the title on the case study card, and the description Google shows. Lead with the result."
+              : "One or two sentences under the title on the blog card and at the top of the article."
+          }
+          action={
+            isCase ? (
+              <WriteWithAiButton
+                kind="case"
+                propertyId={draft.propertyId ? Number(draft.propertyId) : null}
+                content={aiContent}
+                onWritten={written => written.metaDescription && set("excerpt", written.metaDescription)}
+              />
+            ) : undefined
+          }
         />
         <div>
           <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -261,30 +298,12 @@ export function ContentEditor({
                 </Select>
               </div>
               )}
-              <div>
-                <Label>{isAgent ? "Your property (optional)" : "Associated property"}</Label>
-                <Select
-                  value={draft.propertyId ? String(draft.propertyId) : "none"}
-                  onValueChange={value =>
-                    set("propertyId", value === "none" ? "" : value)
-                  }
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No property</SelectItem>
-                    {properties.map((item: any) => (
-                      <SelectItem
-                        key={item.propertyId}
-                        value={String(item.propertyId)}
-                      >
-                        {item.address}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <PropertyPicker
+                label={isAgent ? "Your property (optional)" : "Associated property"}
+                properties={properties}
+                value={draft.propertyId ? String(draft.propertyId) : ""}
+                onChange={value => set("propertyId", value)}
+              />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <Field
@@ -344,11 +363,27 @@ export function ContentEditor({
                 label="Meta title"
                 value={draft.metaTitle || ""}
                 onChange={value => set("metaTitle", value)}
+                hint="The blue link in Google results. Up to about 60 characters."
+                action={
+                  <WriteWithAiButton
+                    kind="post"
+                    content={aiContent}
+                    onWritten={written => written.metaTitle && set("metaTitle", written.metaTitle)}
+                  />
+                }
               />
               <Field
                 label="Meta description"
                 value={draft.metaDescription || ""}
                 onChange={value => set("metaDescription", value)}
+                hint="The text under the link in Google results. About 140 to 155 characters."
+                action={
+                  <WriteWithAiButton
+                    kind="post"
+                    content={aiContent}
+                    onWritten={written => written.metaDescription && set("metaDescription", written.metaDescription)}
+                  />
+                }
               />
             </div>
           </>
@@ -434,3 +469,98 @@ function EditorFooter({
   );
 }
 
+/**
+ * Link a property by typing its address (1 Oct call: the dropdown listed
+ * every website listing, 850+ after the old-site import). Shows the chosen
+ * one with a Change button, and up to 8 matches while typing.
+ */
+function PropertyPicker({
+  label,
+  properties,
+  value,
+  onChange,
+}: {
+  label: string;
+  properties: any[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const chosen = properties.find(item => String(item.propertyId) === value);
+  const placeOf = (item: any) => [item.city, item.state].filter(Boolean).join(", ");
+  const matches = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return [];
+    return properties
+      .filter(item =>
+        [item.address, item.city, item.state, item.zip, item.headline]
+          .filter(Boolean)
+          .some(text => String(text).toLowerCase().includes(needle))
+      )
+      .slice(0, 8);
+  }, [properties, search]);
+
+  if (value && !open) {
+    return (
+      <div>
+        <Label>{label}</Label>
+        <div className="mt-1 flex items-center justify-between gap-2 rounded-md border bg-background px-3 py-2 text-sm">
+          <span className="min-w-0 truncate">
+            {chosen ? `${chosen.address}${placeOf(chosen) ? `, ${placeOf(chosen)}` : ""}` : `Property #${value}`}
+          </span>
+          <div className="flex shrink-0 gap-1">
+            <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(true)}>
+              Change
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => onChange("")}>
+              Remove
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <Label>{label}</Label>
+      <Input
+        className="mt-1"
+        value={search}
+        onChange={event => setSearch(event.target.value)}
+        placeholder="Type the address or city"
+      />
+      {search.trim() && (
+        <div className="mt-1 max-h-64 overflow-y-auto rounded-md border bg-background shadow-sm">
+          {matches.length ? (
+            matches.map(item => (
+              <button
+                key={item.propertyId}
+                type="button"
+                className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
+                onClick={() => {
+                  onChange(String(item.propertyId));
+                  setSearch("");
+                  setOpen(false);
+                }}
+              >
+                <span className="font-medium">{item.address}</span>
+                {placeOf(item) && <span className="text-muted-foreground">, {placeOf(item)}</span>}
+                {item.status && item.status !== "published" && (
+                  <span className="ml-2 text-xs text-muted-foreground">({item.status})</span>
+                )}
+              </button>
+            ))
+          ) : (
+            <p className="px-3 py-2 text-sm text-muted-foreground">No property matches that.</p>
+          )}
+        </div>
+      )}
+      {value && open && (
+        <Button type="button" size="sm" variant="link" className="h-auto p-0 text-xs" onClick={() => setOpen(false)}>
+          Keep the current one
+        </Button>
+      )}
+    </div>
+  );
+}

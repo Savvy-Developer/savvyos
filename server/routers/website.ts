@@ -16,6 +16,7 @@ import {
   websiteBlogPosts,
   websiteCaseStudies,
   websiteContentViews,
+  websiteFeaturedListings,
   websiteLeads,
   websiteLeadAttempts,
   websitePages,
@@ -84,7 +85,8 @@ import {
 } from "../websiteDailyEmail";
 import { listResendSegments } from "../_core/resendMarketingBroadcast";
 import { moveWebsiteImages } from "../websiteImageRehost";
-import { ZillowLookupInputError, extractZillowPhotoUrls, fetchZillowListing } from "../externalApis";
+import { ZillowLookupInputError, extractZillowDescription, extractZillowPhotoUrls, fetchAddressSuggestions, fetchZillowListing } from "../externalApis";
+import { allowSeoWrite, writeSeoText } from "../websiteSeoWriter";
 import { importOldSiteListings, importedListingCounts, publishReadyImportedListings } from "../oldSiteListingImport";
 
 /** A zillow.com listing link, normalised, or null for anything else. */
@@ -332,6 +334,26 @@ function sendWebsiteHandoffEmail(
       );
     }
   })().catch(error => console.warn("[Website] Handoff email failed.", error));
+}
+
+/** Public address lookups: 40 a minute per visitor, 400 a minute in all. */
+const ADDRESS_LOOKUPS_PER_VISITOR = 40;
+const ADDRESS_LOOKUPS_OVERALL = 400;
+const addressLookups = new Map<string, number[]>();
+let addressLookupsOverall: number[] = [];
+export function allowAddressLookup(visitorKey: string, now = Date.now()): boolean {
+  const fresh = (times: number[]) => times.filter(at => now - at < 60_000);
+  addressLookupsOverall = fresh(addressLookupsOverall);
+  const mine = fresh(addressLookups.get(visitorKey) ?? []);
+  if (mine.length >= ADDRESS_LOOKUPS_PER_VISITOR || addressLookupsOverall.length >= ADDRESS_LOOKUPS_OVERALL) {
+    addressLookups.set(visitorKey, mine);
+    return false;
+  }
+  mine.push(now);
+  addressLookups.set(visitorKey, mine);
+  addressLookupsOverall.push(now);
+  if (addressLookups.size > 5000) addressLookups.clear();
+  return true;
 }
 
 async function enforceLeadThrottle(db: any, req: any, email: string) {
@@ -800,7 +822,11 @@ const propertyWebsiteContentInput = z.object({
   metaTitle: nullableText,
   metaDescription: nullableText,
   isFeatured: z.boolean().default(false),
-  sortOrder: z.number().int().default(0),
+  // No longer on the form (homepage order is most recently featured). Kept
+  // optional so an older open tab still saves; ignored when absent.
+  sortOrder: z.number().int().optional(),
+  // Sent by the form's auto-save. An auto-save only ever writes a draft.
+  autosave: z.boolean().optional(),
 });
 
 const agentInput = z.object({
@@ -962,6 +988,54 @@ const propertyProjection = {
   assignedAgentSlug: websiteAgentProfiles.slug,
 };
 
+/** How many featured listings the homepage shows. Older ones drop off. */
+export const HOMEPAGE_FEATURED_LIMIT = 6;
+
+/**
+ * The homepage's featured listings: most recently featured first, capped at
+ * HOMEPAGE_FEATURED_LIMIT. No manual order (call with Tyler, 1 Oct).
+ * If website_featured_listings is missing, falls back to newest published,
+ * so the homepage never fails over the ordering.
+ */
+async function homepageFeaturedListings(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
+  const query = () =>
+    db
+      .select(propertyProjection)
+      .from(websiteProperties)
+      .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
+      .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
+      .leftJoin(userProfiles, eq(users.id, userProfiles.userId))
+      .leftJoin(websiteAgentProfiles, eq(users.id, websiteAgentProfiles.userId));
+  const featured = and(eq(websiteProperties.status, "published"), eq(websiteProperties.isFeatured, true));
+  try {
+    return await query()
+      .leftJoin(websiteFeaturedListings, eq(websiteFeaturedListings.websitePropertyId, websiteProperties.id))
+      .where(featured)
+      .orderBy(desc(websiteFeaturedListings.featuredAt), desc(websiteProperties.publishedAt))
+      .limit(HOMEPAGE_FEATURED_LIMIT);
+  } catch (error) {
+    console.error("[website] featured order unavailable, using publish date:", error);
+    return query().where(featured).orderBy(desc(websiteProperties.publishedAt)).limit(HOMEPAGE_FEATURED_LIMIT);
+  }
+}
+
+/** Stamp or clear when a listing was featured. Never fails the save it rides on. */
+async function recordFeatured(db: any, websitePropertyId: number, wasFeatured: boolean, isFeatured: boolean) {
+  if (wasFeatured === isFeatured) return;
+  try {
+    if (isFeatured) {
+      await db
+        .insert(websiteFeaturedListings)
+        .values({ websitePropertyId, featuredAt: new Date() })
+        .onDuplicateKeyUpdate({ set: { featuredAt: new Date() } });
+    } else {
+      await db.delete(websiteFeaturedListings).where(eq(websiteFeaturedListings.websitePropertyId, websitePropertyId));
+    }
+  } catch (error) {
+    console.error("[website] could not record the featured date:", error);
+  }
+}
+
 async function getPublishedHome(signedIn: boolean) {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -972,27 +1046,7 @@ async function getPublishedHome(signedIn: boolean) {
         .from(websiteSiteSettings)
         .where(eq(websiteSiteSettings.singletonKey, "primary"))
         .limit(1),
-      db
-        .select(propertyProjection)
-        .from(websiteProperties)
-        .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
-        .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
-        .leftJoin(userProfiles, eq(users.id, userProfiles.userId))
-        .leftJoin(
-          websiteAgentProfiles,
-          eq(users.id, websiteAgentProfiles.userId)
-        )
-        .where(
-          and(
-            eq(websiteProperties.status, "published"),
-            eq(websiteProperties.isFeatured, true)
-          )
-        )
-        .orderBy(
-          asc(websiteProperties.sortOrder),
-          desc(websiteProperties.publishedAt)
-        )
-        .limit(6),
+      homepageFeaturedListings(db),
       db
         .select({
           id: websiteAgentProfiles.id,
@@ -1177,6 +1231,7 @@ export const WEBSITE_PUBLIC_TRPC_PATHS = new Set([
   "website.recordArticleView",
   "website.submitLead",
   "website.publicTeamMembers",
+  "website.publicAddressSuggestions",
 ]);
 
 export const websiteRouter = router({
@@ -1283,7 +1338,8 @@ export const websiteRouter = router({
             : input?.sort === "newest"
               ? [desc(websiteProperties.publishedAt)]
               : [
-                  asc(websiteProperties.sortOrder),
+                  // "Featured first": featured listings, then the rest, newest first.
+                  desc(websiteProperties.isFeatured),
                   desc(websiteProperties.publishedAt),
                 ];
 
@@ -1978,6 +2034,9 @@ export const websiteRouter = router({
           agentEmail: websiteAgentProfiles.publicEmail,
           agentPhone: websiteAgentProfiles.publicPhone,
           agentBookingUrl: websiteAgentProfiles.bookingUrl,
+          agentHeadline: websiteAgentProfiles.headline,
+          agentMarkets: websiteAgentProfiles.markets,
+          agentProfileStatus: websiteAgentProfiles.status,
         })
         .from(websiteCaseStudies)
         .leftJoin(users, eq(websiteCaseStudies.agentUserId, users.id))
@@ -2048,10 +2107,23 @@ export const websiteRouter = router({
           publishedAt: websiteBlogPosts.publishedAt,
           authorName: users.name,
           authorImageUrl: userProfiles.profilePhotoUrl,
+          // The author's public agent card, the same fields a property's
+          // "Your Agent" card shows (1 Oct call: a bigger Written by box).
+          authorUserId: websiteBlogPosts.authorUserId,
+          authorSlug: websiteAgentProfiles.slug,
+          authorProfileImageUrl: websiteAgentProfiles.imageUrl,
+          authorHeadline: websiteAgentProfiles.headline,
+          authorShortBio: websiteAgentProfiles.shortBio,
+          authorMarkets: websiteAgentProfiles.markets,
+          authorEmail: websiteAgentProfiles.publicEmail,
+          authorPhone: websiteAgentProfiles.publicPhone,
+          authorBookingUrl: websiteAgentProfiles.bookingUrl,
+          authorProfileStatus: websiteAgentProfiles.status,
         })
         .from(websiteBlogPosts)
         .leftJoin(users, eq(websiteBlogPosts.authorUserId, users.id))
         .leftJoin(userProfiles, eq(users.id, userProfiles.userId))
+        .leftJoin(websiteAgentProfiles, eq(users.id, websiteAgentProfiles.userId))
         .where(
           and(
             eq(websiteBlogPosts.slug, input.slug),
@@ -2061,7 +2133,45 @@ export const websiteRouter = router({
           )
         )
         .limit(1);
-      return rows[0] ?? null;
+      const row = rows[0];
+      if (!row) return null;
+      // Only a published agent profile is shown and linked; otherwise the
+      // byline stays a name and photo, as before.
+      const live = row.authorProfileStatus === "published";
+      return {
+        ...row,
+        authorSlug: live ? row.authorSlug : null,
+        authorProfileImageUrl: live ? row.authorProfileImageUrl : null,
+        authorHeadline: live ? row.authorHeadline : null,
+        authorShortBio: live ? row.authorShortBio : null,
+        authorMarkets: live ? row.authorMarkets : null,
+        authorEmail: live ? row.authorEmail : null,
+        authorPhone: live ? row.authorPhone : null,
+        authorBookingUrl: live ? normalizeBookingUrl(row.authorBookingUrl) : null,
+      };
+    }),
+
+  /**
+   * Address suggestions for the public seller form ("Sell your STR"), so an
+   * owner picks their address instead of typing it (1 Oct call). Google bills
+   * each lookup, so it is limited per visitor and overall; past a limit it
+   * returns nothing and the box works as a plain text field.
+   */
+  publicAddressSuggestions: publicProcedure
+    .input(z.object({ query: z.string().trim().min(3).max(200) }))
+    .query(async ({ input, ctx }) => {
+      const forwarded = String(ctx.req?.headers?.["x-forwarded-for"] || "")
+        .split(",")
+        .map((value: string) => value.trim())
+        .filter(Boolean);
+      const ip = forwarded[forwarded.length - 1] || ctx.req?.ip || ctx.req?.socket?.remoteAddress || "unknown";
+      if (!allowAddressLookup(hashLeadKey(ip))) return { suggestions: [] };
+      try {
+        return { suggestions: await fetchAddressSuggestions(input.query) };
+      } catch (error: any) {
+        console.warn("[website] address suggestions failed:", error?.message || error);
+        return { suggestions: [] };
+      }
     }),
 
   submitLead: publicProcedure
@@ -3133,6 +3243,88 @@ export const websiteRouter = router({
    * Every photo from the property's own Zillow listing, for the Website tab.
    * Returns the photos only; nothing is saved until the form is saved.
    */
+  /**
+   * "Write with AI": the meta title and description of a property listing or
+   * blog post, or a case study's excerpt, from what SavvyOS knows about it.
+   * Nothing is saved; the editor fills the field and the person saves.
+   */
+  writeSeoWithAi: protectedProcedure
+    .input(
+      z.object({
+        kind: z.enum(["property", "post", "case"]),
+        propertyId: z.number().int().positive().nullable().optional(),
+        sourceProformaId: z.number().int().positive().nullable().optional(),
+        content: z
+          .record(z.string().max(60), z.union([z.string().max(60_000), z.number(), z.array(z.string().max(200)).max(40), z.null()]))
+          .default({}),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      if (input.kind === "property") {
+        if (!input.propertyId || !(await propertyWebsiteAccess(ctx, db, input.propertyId))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can't edit this property's website listing." });
+        }
+      } else {
+        requireContentAuthor(ctx);
+      }
+      if (!allowSeoWrite(ctx.user.id)) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "That's a lot of AI writing in a minute. Try again shortly." });
+      }
+
+      const { body, summary, ...rest } = input.content as Record<string, unknown>;
+      const facts: Record<string, unknown> = { ...rest };
+      if (input.propertyId) {
+        const [property] = await db
+          .select({
+            address: properties.address,
+            city: properties.city,
+            state: properties.state,
+            zip: properties.zip,
+            beds: properties.beds,
+            baths: properties.baths,
+            sqft: properties.sqft,
+            yearBuilt: properties.yearBuilt,
+            propertyType: properties.propertyType,
+            listPrice: properties.listPrice,
+          })
+          .from(properties)
+          .where(eq(properties.id, input.propertyId))
+          .limit(1);
+        // A case study names the place, never the street.
+        if (property) {
+          if (input.kind === "case") Object.assign(facts, { city: property.city, state: property.state });
+          else Object.assign(facts, property);
+        }
+        if (input.kind === "property" && input.sourceProformaId) {
+          const [proforma] = await db
+            .select({ grossRevenue: proformas.grossRevenue, cashOnCash: proformas.cashOnCash, capRate: proformas.capRate })
+            .from(proformas)
+            .where(and(eq(proformas.id, input.sourceProformaId), eq(proformas.propertyId, input.propertyId)))
+            .limit(1);
+          if (proforma) {
+            facts.proformaBaseCaseGrossRevenue = proforma.grossRevenue;
+            facts.proformaBaseCaseCashOnCash = proforma.cashOnCash == null ? null : `${(Number(proforma.cashOnCash) * 100).toFixed(1)}%`;
+            facts.proformaBaseCaseCapRate = proforma.capRate == null ? null : `${(Number(proforma.capRate) * 100).toFixed(1)}%`;
+          }
+        }
+      }
+      try {
+        return await writeSeoText({
+          kind: input.kind,
+          facts,
+          text: [summary, body].filter(value => typeof value === "string" && value.trim()).join("\n\n"),
+        });
+      } catch (error: any) {
+        console.warn("[website] Write with AI failed:", error?.message || error);
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message: "The AI writer is not answering right now. Try again in a minute, or write it yourself.",
+        });
+      }
+    }),
+
   importZillowPhotos: protectedProcedure
     .input(
       z.object({
@@ -3163,10 +3355,11 @@ export const websiteRouter = router({
         throw new TRPCError({ code: "BAD_GATEWAY", message: error?.message || "Zillow lookup failed." });
       }
       const photos = extractZillowPhotoUrls(data);
-      if (!photos.length) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Zillow returned no photos for that listing." });
+      const description = extractZillowDescription(data);
+      if (!photos.length && !description) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zillow returned no photos or description for that listing." });
       }
-      return { photos, zillowUrl: link };
+      return { photos, description, zillowUrl: link };
     }),
 
   savePropertyWebsiteContent: protectedProcedure
@@ -3175,6 +3368,9 @@ export const websiteRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const access = await requirePropertyPublishAccess(ctx, db, input.propertyId);
+      if (input.autosave && input.status !== "draft") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Auto-save only saves drafts. Click Save to publish." });
+      }
 
       const [property] = await db
         .select({
@@ -3234,10 +3430,16 @@ export const websiteRouter = router({
           slug: websiteProperties.slug,
           status: websiteProperties.status,
           publishedAt: websiteProperties.publishedAt,
+          isFeatured: websiteProperties.isFeatured,
         })
         .from(websiteProperties)
         .where(eq(websiteProperties.propertyId, input.propertyId))
         .limit(1);
+      // Auto-save never touches a live or archived listing: those change only
+      // when someone clicks Save.
+      if (input.autosave && existing && existing.status !== "draft") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This listing is live. Click Save to update it." });
+      }
 
       // The publish date is stamped when a listing first goes live and then
       // left alone. Re-stamping it on every save would make a listing from
@@ -3266,7 +3468,7 @@ export const websiteRouter = router({
         metaTitle: input.metaTitle || null,
         metaDescription: input.metaDescription || null,
         isFeatured: input.isFeatured,
-        sortOrder: input.sortOrder,
+        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
         publishedAt,
         updatedById: ctx.user.id,
         ...metrics,
@@ -3283,13 +3485,18 @@ export const websiteRouter = router({
           .update(websiteProperties)
           .set({ ...data, slug: nextSlug })
           .where(eq(websiteProperties.id, existing.id));
-        await logActivity({
-          userId: ctx.user.id,
-          action: "website_property_updated",
-          entityType: "property",
-          entityId: input.propertyId,
-          details: { slug: nextSlug, status: input.status, previousStatus: existing.status },
-        });
+        await recordFeatured(db, existing.id, !!existing.isFeatured, input.isFeatured);
+        // Auto-saves of a draft are not logged one by one; the activity log
+        // would fill with a row every few seconds of typing.
+        if (!input.autosave) {
+          await logActivity({
+            userId: ctx.user.id,
+            action: "website_property_updated",
+            entityType: "property",
+            entityId: input.propertyId,
+            details: { slug: nextSlug, status: input.status, previousStatus: existing.status },
+          });
+        }
         return { id: existing.id, slug: nextSlug, created: false };
       }
 
@@ -3307,14 +3514,16 @@ export const websiteRouter = router({
           input.assignedAgentId ?? (access === "owner" ? ctx.user.id : null),
         createdById: ctx.user.id,
       });
+      const newId = Number((result as any)[0]?.insertId);
+      if (newId) await recordFeatured(db, newId, false, input.isFeatured);
       await logActivity({
         userId: ctx.user.id,
         action: "website_property_published",
         entityType: "property",
         entityId: input.propertyId,
-        details: { slug, status: input.status },
+        details: { slug, status: input.status, ...(input.autosave ? { autosave: true } : {}) },
       });
-      return { id: Number((result as any)[0]?.insertId), slug, created: true };
+      return { id: newId, slug, created: true };
     }),
 
   /** The agent's own website profile, for the Website tab on their page. */

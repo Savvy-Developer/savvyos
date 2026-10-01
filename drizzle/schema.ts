@@ -1550,6 +1550,17 @@ export const websiteListingClocks = mysqlTable("website_listing_clocks", {
 });
 export type WebsiteListingClock = typeof websiteListingClocks.$inferSelect;
 
+/**
+ * When a website listing was last switched to "Feature on the homepage".
+ * The homepage shows the most recent first. Created at startup by
+ * server/websiteFeaturedSchema.ts; the same statement is kept in
+ * drizzle/20261001_website_featured_listings.sql for the record.
+ */
+export const websiteFeaturedListings = mysqlTable("website_featured_listings", {
+  websitePropertyId: int("websitePropertyId").primaryKey(),
+  featuredAt: timestamp("featuredAt").defaultNow().notNull(),
+});
+
 export const websiteLeads = mysqlTable(
   "website_leads",
   {

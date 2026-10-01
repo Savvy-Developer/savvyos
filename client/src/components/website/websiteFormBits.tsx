@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ImagePlus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ export function Field({
   type = "text",
   placeholder,
   hint,
+  action,
 }: {
   label: string;
   value: string;
@@ -25,10 +26,12 @@ export function Field({
   type?: string;
   placeholder?: string;
   hint?: string;
+  /** A small control shown at the right of the label, such as "Write with AI". */
+  action?: ReactNode;
 }) {
   return (
     <div>
-      <Label>{label}</Label>
+      <LabelRow label={label} action={action} />
       <Input
         className="mt-1"
         type={type}
@@ -48,6 +51,7 @@ export function Area({
   rows = 4,
   placeholder,
   hint,
+  action,
 }: {
   label: string;
   value: string;
@@ -55,10 +59,12 @@ export function Area({
   rows?: number;
   placeholder?: string;
   hint?: string;
+  /** A small control shown at the right of the label, such as "Import from Zillow". */
+  action?: ReactNode;
 }) {
   return (
     <div>
-      <Label>{label}</Label>
+      <LabelRow label={label} action={action} />
       <Textarea
         className="mt-1"
         rows={rows}
@@ -67,6 +73,17 @@ export function Area({
         onChange={event => onChange(event.target.value)}
       />
       {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/** A field label, with an optional control on the right of the same line. */
+export function LabelRow({ label, action }: { label: string; action?: ReactNode }) {
+  if (!action) return <Label>{label}</Label>;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <Label>{label}</Label>
+      {action}
     </div>
   );
 }
