@@ -19,7 +19,9 @@ import PipelineEmailComposer from "@/components/PipelineEmailComposer";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Home, ChevronRight, ChevronDown, Edit2, UserPlus, Search, Clock, AlertTriangle, ArrowUpAZ, ArrowDownAZ, BarChart3, CalendarClock, Mail } from "lucide-react";
+import { Home, ChevronRight, ChevronDown, Edit2, UserPlus, Search, Clock, AlertTriangle, ArrowUpAZ, ArrowDownAZ, BarChart3, CalendarClock, Mail, Download } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { buildPipelineCsv } from "@shared/pipelineCsv";
 import { formatPhone, isValidPhone, isValidEmail } from "@/lib/inputFormatters";
 import { formatEmail } from "@/lib/format";
 import { safeFormat } from "@/lib/safeFormat";
@@ -122,6 +124,11 @@ export default function PipelinePage() {
   const [sopSource, setSopSource] = useState<{ id: number; name: string } | null>(null);
   const [selectedEmailConnectionIds, setSelectedEmailConnectionIds] = useState<Set<number>>(new Set());
   const [massEmailOpen, setMassEmailOpen] = useState(false);
+  // Export CSV: Under Contract and Closed are what the team usually needs.
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportStages, setExportStages] = useState<Set<string>>(() => new Set(["under_contract", "closed"]));
+  const [exporting, setExporting] = useState(false);
+  const trpcUtils = trpc.useUtils();
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [addContactForm, setAddContactForm] = useState({
     firstName: "", lastName: "", email: "", phone: "", pipelineStatus: "new_lead", relationshipType: "both", leadSourceId: "",
@@ -233,6 +240,48 @@ export default function PipelinePage() {
     { enabled: Boolean(sopSource?.id), retry: false },
   );
   const stageCounts = connectionsData?.stageCounts ?? {};
+
+  /**
+   * Download the chosen stages as CSV, honoring the page's agent, ISA, lead
+   * source, relationship and search filters. Built in the browser from the
+   * server's capped export (about 10k rows).
+   */
+  const handleExport = async () => {
+    if (exportStages.size === 0) return;
+    setExporting(true);
+    try {
+      const result = await trpcUtils.agentConnections.exportRows.fetch({
+        statuses: PIPELINE_STAGES.map((s) => s.value).filter((value) => exportStages.has(value)),
+        agentId: effectiveRole === "agent" ? undefined : agentIdParam,
+        isaId: isaIdParam,
+        leadSourceId: leadSourceIdParam,
+        relationshipType: relationshipTypeParam,
+        search: pipelineSearch.trim() || undefined,
+      });
+      const stageLabels = Object.fromEntries(PIPELINE_STAGES.map((s) => [s.value, s.label]));
+      const csv = buildPipelineCsv(result.rows as any[], stageLabels);
+      // BOM so Excel opens UTF-8 names correctly.
+      const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `pipeline-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      if (result.truncated) {
+        toast.warning(`Exported the first ${result.cap.toLocaleString()} contacts. Narrow the filters to export the rest.`);
+      } else {
+        toast.success(`Exported ${result.rows.length.toLocaleString()} contact${result.rows.length === 1 ? "" : "s"}.`);
+      }
+      setExportOpen(false);
+    } catch (error: any) {
+      toast.error(error?.message || "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
   const agentCounts = connectionsData?.agentCounts ?? {};
   const isaCounts = connectionsData?.isaCounts ?? {};
   const leadSourceCounts = connectionsData?.leadSourceCounts ?? {};
@@ -423,6 +472,9 @@ export default function PipelinePage() {
             )}
             <Button size="sm" variant="outline" onClick={() => setMassEmailOpen(true)} disabled={selectedEmailIds.length === 0}>
               <Mail className="h-4 w-4 mr-1.5" /> Mass Email{selectedEmailIds.length > 0 ? ` (${selectedEmailIds.length})` : ""}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setExportOpen(true)}>
+              <Download className="h-4 w-4 mr-1.5" /> Export CSV
             </Button>
           </div>
         }
@@ -912,6 +964,43 @@ export default function PipelinePage() {
           </div>
         </div>
       )}
+
+      <Dialog open={exportOpen} onOpenChange={(open) => { if (!exporting) setExportOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Export contacts to CSV</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Choose the stages to export. The agent, ISA, lead source, relationship and search filters on this page apply too.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {PIPELINE_STAGES.map((s) => (
+                <label key={s.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={exportStages.has(s.value)}
+                    onCheckedChange={(checked) => setExportStages((prev) => {
+                      const next = new Set(prev);
+                      if (checked) next.add(s.value); else next.delete(s.value);
+                      return next;
+                    })}
+                  />
+                  {s.label}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Includes name, email, phone, address, stage, relationship type, agent, ISA, lead source and last updated. Up to 10,000 contacts per export.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportOpen(false)} disabled={exporting}>Cancel</Button>
+            <Button onClick={handleExport} disabled={exporting || exportStages.size === 0}>
+              <Download className="h-4 w-4 mr-1.5" /> {exporting ? "Exporting..." : "Export CSV"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <PipelineEmailComposer
         open={massEmailOpen}

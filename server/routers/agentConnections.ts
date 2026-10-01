@@ -5,6 +5,7 @@ import {
   createAgentConnection,
   createTask,
   getAgentConnectionById,
+  getAgentConnectionExportRows,
   getAgentConnections,
   getDb,
   updateContact,
@@ -88,6 +89,27 @@ function normalizeBuyBox(b: any): any {
   return out;
 }
 
+/**
+ * Whose pipeline a user may read. Agents are hard-scoped to their own
+ * connections; agent_support users to their assigned agents (an empty list
+ * means nothing); admins and ISAs are unscoped. Shared by list and exportRows
+ * so the two can never disagree.
+ */
+async function resolvePipelineScope(user: { id: number; role: string }): Promise<{
+  scopeAgentId?: number;
+  scopeAgentIds?: number[];
+}> {
+  if (user.role === "agent") return { scopeAgentId: user.id };
+  if (user.role !== "agent_support") return {};
+  const db = await getDb();
+  if (!db) return { scopeAgentIds: [] };
+  const assignments = await db
+    .select({ agentId: agentSupportAssignments.agentId })
+    .from(agentSupportAssignments)
+    .where(eq(agentSupportAssignments.agentSupportUserId, user.id));
+  return { scopeAgentIds: assignments.map((a) => a.agentId) };
+}
+
 export const agentConnectionsRouter = router({
   list: protectedProcedure
     .input(z.object({
@@ -112,24 +134,8 @@ export const agentConnectionsRouter = router({
       const followUpDateTo = input?.followUpDateTo ? new Date(input.followUpDateTo) : undefined;
       if (followUpDateTo) followUpDateTo.setHours(23, 59, 59, 999);
 
-      // Resolve agent_support scope: look up assigned agent IDs
-      let scopeAgentIds: number[] | undefined;
-      if (ctx.user.role === "agent_support") {
-        const db = await getDb();
-        if (db) {
-          const assignments = await db
-            .select({ agentId: agentSupportAssignments.agentId })
-            .from(agentSupportAssignments)
-            .where(eq(agentSupportAssignments.agentSupportUserId, ctx.user.id));
-          scopeAgentIds = assignments.map((a) => a.agentId);
-        } else {
-          scopeAgentIds = [];
-        }
-      }
-
       return getAgentConnections({
-        scopeAgentId: ctx.user.role === "agent" ? ctx.user.id : undefined,
-        scopeAgentIds,
+        ...(await resolvePipelineScope(ctx.user)),
         agentId: ctx.user.role === "agent" ? undefined : input?.agentId,
         contactId: input?.contactId,
         status: input?.status,
@@ -143,6 +149,32 @@ export const agentConnectionsRouter = router({
         sortOrder: input?.sortOrder ?? "desc",
         page: input?.page ?? 1,
         limit: input?.limit ?? 50,
+      });
+    }),
+
+  /**
+   * Every pipeline row matching the page's filters and the chosen stages, for
+   * the Export CSV dialog. Same role scope as list; no pagination, capped at
+   * about 10k rows (truncated tells the client the cap was hit).
+   */
+  exportRows: protectedProcedure
+    .input(z.object({
+      statuses: z.array(z.string().min(1).max(64)).min(1).max(20),
+      agentId: z.number().optional(),
+      isaId: z.number().optional(),
+      leadSourceId: z.number().optional(),
+      relationshipType: relationshipType.optional(),
+      search: z.string().max(200).optional(),
+    }))
+    .query(async ({ input, ctx }) => {
+      return getAgentConnectionExportRows({
+        ...(await resolvePipelineScope(ctx.user)),
+        agentId: ctx.user.role === "agent" ? undefined : input.agentId,
+        isaId: input.isaId,
+        leadSourceId: input.leadSourceId,
+        relationshipType: input.relationshipType,
+        search: input.search?.trim() || undefined,
+        statuses: input.statuses,
       });
     }),
 

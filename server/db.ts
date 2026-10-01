@@ -567,40 +567,30 @@ type AgentConnectionListFilters = {
   limit?: number;
 };
 
-export async function getAgentConnections(filters: AgentConnectionListFilters = {}) {
-  const db = await getDb();
-  const page = filters.page ?? 1;
-  const limit = filters.limit ?? 50;
-  if (!db) {
-    return {
-      rows: [], total: 0, page, limit,
-      stageCounts: {}, agentCounts: {}, isaCounts: {}, leadSourceCounts: {},
-      fullPipelineTotal: 0,
-      stats: {
-        total: 0, openCount: 0, overdueFollowUps: 0, dueToday: 0,
-        avgAgeDays: 0, oldestAgeDays: 0, staleCount: 0,
-        agingBuckets: { fresh: 0, idle: 0, stale: 0, aging: 0, critical: 0 },
-      },
-    };
-  }
+/** Filters understood by buildAgentConnectionBaseConditions. */
+export type AgentConnectionBaseFilters = Omit<AgentConnectionListFilters, "status" | "sortOrder" | "page" | "limit"> & {
+  /** Restrict to these pipeline stages. An empty array matches nothing. */
+  statuses?: string[];
+};
 
+/**
+ * The WHERE conditions shared by every pipeline read: archived rows excluded,
+ * role scope, and the list filters. The conditions reference both
+ * agent_connections and contacts, so callers must left-join contacts.
+ *
+ * Role scope: `scopeAgentId` limits to one agent's connections (agents see only
+ * their own), `scopeAgentIds` to a set (agent_support sees only their assigned
+ * agents). Returns null when the scope allows nothing, e.g. an agent_support
+ * user with no assigned agents, so callers return an empty result rather than
+ * running an unscoped query.
+ */
+export function buildAgentConnectionBaseConditions(filters: AgentConnectionBaseFilters): any[] | null {
   const baseConditions: any[] = [isNull(agentConnections.archivedAt)];
   if (filters.scopeAgentId) baseConditions.push(eq(agentConnections.agentId, filters.scopeAgentId));
   // scopeAgentIds: restrict to a set of agent IDs (used by agent_support role)
   if (filters.scopeAgentIds) {
-    if (filters.scopeAgentIds.length === 0) {
-      // No assigned agents — return empty results immediately
-      return {
-        rows: [], total: 0, page, limit,
-        stageCounts: {}, agentCounts: {}, isaCounts: {}, leadSourceCounts: {},
-        fullPipelineTotal: 0,
-        stats: {
-          total: 0, openCount: 0, overdueFollowUps: 0, dueToday: 0,
-          avgAgeDays: 0, oldestAgeDays: 0, staleCount: 0,
-          agingBuckets: { fresh: 0, idle: 0, stale: 0, aging: 0, critical: 0 },
-        },
-      };
-    }
+    // No assigned agents: nothing may be returned.
+    if (filters.scopeAgentIds.length === 0) return null;
     baseConditions.push(inArray(agentConnections.agentId, filters.scopeAgentIds));
   }
   if (filters.agentId) baseConditions.push(eq(agentConnections.agentId, filters.agentId));
@@ -675,6 +665,45 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
   }
   if (filters.followUpDateFrom) baseConditions.push(gte(agentConnections.followUpDate, filters.followUpDateFrom));
   if (filters.followUpDateTo) baseConditions.push(lte(agentConnections.followUpDate, filters.followUpDateTo));
+  if (filters.statuses) {
+    // An explicit empty stage list selects nothing, never everything.
+    if (filters.statuses.length === 0) return null;
+    baseConditions.push(inArray(agentConnections.pipelineStatus, filters.statuses as any));
+  }
+  return baseConditions;
+}
+
+export async function getAgentConnections(filters: AgentConnectionListFilters = {}) {
+  const db = await getDb();
+  const page = filters.page ?? 1;
+  const limit = filters.limit ?? 50;
+  if (!db) {
+    return {
+      rows: [], total: 0, page, limit,
+      stageCounts: {}, agentCounts: {}, isaCounts: {}, leadSourceCounts: {},
+      fullPipelineTotal: 0,
+      stats: {
+        total: 0, openCount: 0, overdueFollowUps: 0, dueToday: 0,
+        avgAgeDays: 0, oldestAgeDays: 0, staleCount: 0,
+        agingBuckets: { fresh: 0, idle: 0, stale: 0, aging: 0, critical: 0 },
+      },
+    };
+  }
+
+  const baseConditions = buildAgentConnectionBaseConditions(filters);
+  if (!baseConditions) {
+    // No assigned agents — return empty results immediately
+    return {
+      rows: [], total: 0, page, limit,
+      stageCounts: {}, agentCounts: {}, isaCounts: {}, leadSourceCounts: {},
+      fullPipelineTotal: 0,
+      stats: {
+        total: 0, openCount: 0, overdueFollowUps: 0, dueToday: 0,
+        avgAgeDays: 0, oldestAgeDays: 0, staleCount: 0,
+        agingBuckets: { fresh: 0, idle: 0, stale: 0, aging: 0, critical: 0 },
+      },
+    };
+  }
 
   const resultConditions = [...baseConditions];
   if (filters.status) resultConditions.push(eq(agentConnections.pipelineStatus, filters.status as any));
@@ -783,6 +812,57 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
       },
     },
   };
+}
+
+/** Most rows a single pipeline export returns. */
+export const AGENT_CONNECTION_EXPORT_CAP = 10_000;
+
+/**
+ * Pipeline rows for a CSV export: same scope and filters as the pipeline list,
+ * no pagination, capped at AGENT_CONNECTION_EXPORT_CAP. One extra row is read
+ * so the caller can tell the user the export was cut short.
+ */
+export async function getAgentConnectionExportRows(
+  filters: AgentConnectionBaseFilters,
+  cap: number = AGENT_CONNECTION_EXPORT_CAP,
+) {
+  const db = await getDb();
+  if (!db) return { rows: [], truncated: false, cap };
+  const conditions = buildAgentConnectionBaseConditions(filters);
+  if (!conditions) return { rows: [], truncated: false, cap };
+
+  const isaUser = aliasedTable(users, "export_isa_user");
+  const parentLS = aliasedTable(leadSources, "export_parent_ls");
+  const rows = await db
+    .select({
+      id: agentConnections.id,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      email: contacts.email,
+      phone: contacts.phone,
+      address: contacts.address,
+      city: contacts.city,
+      state: contacts.state,
+      zip: contacts.zip,
+      stage: agentConnections.pipelineStatus,
+      relationshipType: agentConnections.relationshipType,
+      agentName: users.name,
+      isaName: isaUser.name,
+      leadSourceName: leadSources.name,
+      parentLeadSourceName: parentLS.name,
+      updatedAt: agentConnections.updatedAt,
+    })
+    .from(agentConnections)
+    .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
+    .leftJoin(users, eq(agentConnections.agentId, users.id))
+    .leftJoin(isaUser, eq(contacts.assignedIsaId, isaUser.id))
+    .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
+    .leftJoin(parentLS, eq(leadSources.parentId, parentLS.id))
+    .where(and(...conditions))
+    .orderBy(desc(agentConnections.updatedAt), desc(agentConnections.id))
+    .limit(cap + 1);
+
+  return { rows: rows.slice(0, cap), truncated: rows.length > cap, cap };
 }
 
 export async function getAgentConnectionById(id: number) {
