@@ -629,6 +629,12 @@ function HealthPanel({ feeds }: { feeds: MlsFeedView[] }) {
           {photo.data?.queue.length ? photo.data.queue.map(row => (
             <div key={`${row.feedId}:${row.status}`} className="flex justify-between gap-3"><span className="text-muted-foreground">{feeds.find(feed => feed.id === row.feedId)?.name ?? `Feed #${row.feedId}`} · {row.status}</span><span className="font-medium">{formatNumber(row.count)}</span></div>
           )) : <p className="text-muted-foreground">{photo.isLoading ? "Checking photo queue..." : photo.isError ? "Photo queue unavailable. Try again shortly." : "No photo rows queued or stored yet."}</p>}
+          {photo.data?.activeGalleryScans.map(scan => (
+            <div key={`gallery-${scan.feedId}`} className="rounded border px-2 py-1.5 text-xs">
+              <span className="font-medium">{feeds.find(feed => feed.id === scan.feedId)?.name ?? `Feed #${scan.feedId}`} · Active galleries</span>
+              <div className="text-muted-foreground">{formatNumber(scan.scanned)} listings checked · {scan.phase === "initial" ? "first scan in progress" : "watching for new Active listings"}</div>
+            </div>
+          ))}
           {photo.data?.lastMediaActivity ? <p className="text-xs text-muted-foreground">Last photo batch {timeAgo(photo.data.lastMediaActivity.at)}: {formatNumber(photo.data.lastMediaActivity.stored)} stored, {formatNumber(photo.data.lastMediaActivity.failed)} failed, {formatNumber(photo.data.lastMediaActivity.expired)} URLs expired.</p> : null}
           {photo.data?.laneUsage.map(lane => (
             <div key={lane.key} className="rounded border p-2 text-xs">

@@ -122,13 +122,13 @@ function RawPayload({ listingId }: { listingId: number }) {
 export default function MlsListingDetailPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  // Merely viewing a listing must not spend MLS Grid photo requests.
-  // Poll briefly only after an explicit gallery request.
+  // Only the worker requests MLS Grid media. This admin page polls SavvyOS
+  // while its automatic Active gallery (or an explicit request) is queued.
   const [galleryPollUntil, setGalleryPollUntil] = useState(0);
   const galleryPolling = galleryPollUntil > Date.now();
   const query = trpc.mlsProperties.listing.useQuery({ id }, {
     enabled: Number.isFinite(id) && id > 0,
-    refetchInterval: galleryPolling ? 5000 : false,
+    refetchInterval: current => current.state.data?.galleryQueued || galleryPolling ? 10_000 : false,
   });
   const requestGallery = trpc.mlsProperties.requestGallery.useMutation({
     onSuccess: () => { setGalleryPollUntil(Date.now() + 120_000); void query.refetch(); },
@@ -162,10 +162,7 @@ export default function MlsListingDetailPage() {
   const storedPhotos = data.media.filter(photo => photo.url).length;
   const expectedPhotos = Number(listing.photosCount ?? 0);
   const galleryComplete = expectedPhotos > 0 && storedPhotos >= expectedPhotos;
-  const galleryQueued = data.media.some(photo =>
-    (photo.mediaKey === "__gallery_request__" && photo.status === "expired") ||
-    (photo.priority === 0 && (photo.status === "pending" || photo.status === "expired"))
-  );
+  const galleryQueued = data.galleryQueued;
 
   return (
     <div className="space-y-4 pb-10">
@@ -206,13 +203,13 @@ export default function MlsListingDetailPage() {
           <Gallery media={data.media} alt={addressLine(listing)} />
           <div className="flex flex-wrap items-center gap-2">
             {galleryComplete ? <span className="text-sm text-muted-foreground">All {storedPhotos} available photos stored</span> : galleryQueued ? (
-              <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>Photos queued · refresh status</Button>
+              <span className="text-sm text-muted-foreground">Importing photos · {storedPhotos}{expectedPhotos ? ` of ${expectedPhotos}` : ""} ready</span>
             ) : (
               <Button type="button" variant="outline" size="sm" disabled={requestGallery.isPending || galleryPolling} onClick={() => requestGallery.mutate({ id })}>
-                {requestGallery.isPending ? "Queuing photos..." : galleryPolling ? "Photos requested" : "Load available photos"}
+                {requestGallery.isPending ? "Queuing photos..." : galleryPolling ? "Photos requested" : listing.standardStatus === "active" ? "Prioritize photos now" : "Load available photos"}
               </Button>
             )}
-            {!galleryComplete ? <span className="text-xs text-muted-foreground">Full galleries load only when requested. Downloads may take time and use MLS Grid's photo budget.</span> : null}
+            {!galleryComplete ? <span className="text-xs text-muted-foreground">{listing.standardStatus === "active" ? "All Active listing photos are prioritized automatically. Downloads may take time." : "Other galleries load on request and may take time."}</span> : null}
             {requestGallery.error ? <span className="text-xs text-destructive">{requestGallery.error.message}</span> : null}
           </div>
 
