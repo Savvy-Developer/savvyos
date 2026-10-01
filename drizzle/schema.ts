@@ -6329,16 +6329,18 @@ export type ShortLinkClick = typeof shortLinkClicks.$inferSelect;
 export type InsertShortLinkClick = typeof shortLinkClicks.$inferInsert;
 
 // ─── Agent Vendor Lists ─────────────────────────────────────────────────────
-// Each agent owns one client-facing Vendor List. Categories and vendors are
-// fully scoped to that list so agents' recommendations never intermingle.
+// Each agent owns one or more client-facing Vendor Lists (one per market,
+// named by `label`), each with its own public link. Categories and vendors are
+// fully scoped to their list so recommendations never intermingle.
+// One-list-per-agent was dropped in drizzle/20261001_vendor_lists_multiple.sql.
 export const vendorLists = mysqlTable(
   "vendor_lists",
   {
     id: int("id").autoincrement().primaryKey(),
     agentId: int("agentId")
       .notNull()
-      .references(() => users.id, { onDelete: "cascade" })
-      .unique(),
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: varchar("label", { length: 120 }),
     displayName: varchar("displayName", { length: 160 }).notNull(),
     headline: varchar("headline", { length: 255 }),
     intro: text("intro"),
@@ -6352,6 +6354,7 @@ export const vendorLists = mysqlTable(
       table.isPublished,
       table.updatedAt
     ),
+    index("vendor_lists_agent_idx").on(table.agentId),
   ]
 );
 export type VendorList = typeof vendorLists.$inferSelect;

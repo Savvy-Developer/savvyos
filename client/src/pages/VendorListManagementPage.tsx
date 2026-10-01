@@ -68,6 +68,7 @@ type VendorList = {
   id: number;
   agentId: number;
   agentName?: string | null;
+  label: string | null;
   displayName: string;
   headline: string | null;
   intro: string | null;
@@ -226,12 +227,23 @@ function VendorFormFields({ form, setForm, categories, showPhoneError, showEmail
   );
 }
 
-export default function VendorListManagementPage({ agentId }: { agentId?: number }) {
+export default function VendorListManagementPage({ agentId, listId: initialListId }: { agentId?: number; listId?: number }) {
   const isAdminEditor = Boolean(agentId);
   const targetAgentId = agentId;
   const utils = trpc.useUtils();
-  const listQuery = trpc.vendors.getManageableList.useQuery(targetAgentId ? { agentId: targetAgentId } : undefined, { retry: false });
+  // An agent can keep one list per market. With none selected the server
+  // returns the agent's first list.
+  const [selectedListId, setSelectedListId] = useState<number | undefined>(initialListId);
+  const agentInput = targetAgentId ? { agentId: targetAgentId } : {};
+  const listsQuery = trpc.vendors.myLists.useQuery(targetAgentId ? { agentId: targetAgentId } : undefined, { retry: false });
+  const lists = listsQuery.data ?? [];
+  const listQuery = trpc.vendors.getManageableList.useQuery(
+    targetAgentId || selectedListId ? { ...agentInput, ...(selectedListId ? { listId: selectedListId } : {}) } : undefined,
+    { retry: false },
+  );
   const list = listQuery.data as VendorList | null | undefined;
+  const [newListOpen, setNewListOpen] = useState(false);
+  const [newListLabel, setNewListLabel] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [vendorOpen, setVendorOpen] = useState(false);
@@ -240,7 +252,7 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
   const [categoryForm, setCategoryForm] = useState<CategoryForm>(emptyCategoryForm);
   const [vendorForm, setVendorForm] = useState<VendorForm>(emptyVendorForm);
   const [vendorSubmitAttempted, setVendorSubmitAttempted] = useState(false);
-  const [settings, setSettings] = useState({ displayName: "", headline: "", intro: "", publicSlug: "", isPublished: false });
+  const [settings, setSettings] = useState({ label: "", displayName: "", headline: "", intro: "", publicSlug: "", isPublished: false });
   const [paymentVendor, setPaymentVendor] = useState<Vendor | null>(null);
   const [monthlyAmountDollars, setMonthlyAmountDollars] = useState("75");
   const [paymentInvite, setPaymentInvite] = useState<{ checkoutUrl: string; emailSent: boolean; emailError?: string } | null>(null);
@@ -248,10 +260,10 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
   const totalVendors = useMemo(() => list?.categories.reduce((count, category) => count + category.vendors.length, 0) ?? 0, [list]);
   const mutationOptions = {
     onSuccess: async () => {
-      await Promise.all([utils.vendors.getManageableList.invalidate(), utils.vendors.adminList.invalidate()]);
+      await Promise.all([utils.vendors.getManageableList.invalidate(), utils.vendors.myLists.invalidate(), utils.vendors.adminList.invalidate()]);
     },
   };
-  const createList = trpc.vendors.createList.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); toast.success("Vendor List created. Add a category to get started."); } });
+  const createList = trpc.vendors.createList.useMutation({ ...mutationOptions, onSuccess: async (result) => { setSelectedListId(result.id); setNewListOpen(false); setNewListLabel(""); await mutationOptions.onSuccess(); toast.success("Vendor List created. Add a category to get started."); } });
   const updateList = trpc.vendors.updateList.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); setSettingsOpen(false); toast.success("Vendor List settings saved."); } });
   const createCategory = trpc.vendors.createCategory.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); setCategoryOpen(false); toast.success("Category added."); } });
   const updateCategory = trpc.vendors.updateCategory.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); setCategoryOpen(false); toast.success("Category updated."); } });
@@ -273,11 +285,12 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
   const anySaving = createList.isPending || updateList.isPending || createCategory.isPending || updateCategory.isPending || deleteCategory.isPending || reorderCategories.isPending || createVendor.isPending || updateVendor.isPending || createFeaturedPaymentInvite.isPending || deleteVendor.isPending || reorderVendors.isPending;
   const mutationError = createList.error || updateList.error || createCategory.error || updateCategory.error || deleteCategory.error || reorderCategories.error || createVendor.error || updateVendor.error || createFeaturedPaymentInvite.error || deleteVendor.error || reorderVendors.error;
 
-  const agentParam = targetAgentId ? { agentId: targetAgentId } : {};
+  // Every edit names the list it belongs to, so it lands on the list on screen.
+  const agentParam = { ...agentInput, ...(list ? { listId: list.id } : {}) };
 
   function openSettings() {
     if (!list) return;
-    setSettings({ displayName: list.displayName, headline: list.headline ?? "", intro: list.intro ?? "", publicSlug: list.publicSlug, isPublished: list.isPublished });
+    setSettings({ label: list.label ?? "", displayName: list.displayName, headline: list.headline ?? "", intro: list.intro ?? "", publicSlug: list.publicSlug, isPublished: list.isPublished });
     setSettingsOpen(true);
   }
 
@@ -373,6 +386,26 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
     else createVendor.mutate(data);
   }
 
+  const newListDialog = (
+    <Dialog open={newListOpen} onOpenChange={setNewListOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>New Vendor List</DialogTitle>
+          <DialogDescription>Keep a separate list, with its own public link, for each market you serve.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 py-2">
+          <Label htmlFor="new-list-label">Market</Label>
+          <Input id="new-list-label" value={newListLabel} maxLength={120} onChange={(event) => setNewListLabel(event.target.value)} placeholder="Lake of the Ozarks" autoFocus />
+          <p className="text-xs text-muted-foreground">The new list starts as a private draft. You can rename it and set its link in List settings.</p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setNewListOpen(false)} disabled={createList.isPending}>Cancel</Button>
+          <Button onClick={() => createList.mutate({ ...agentInput, label: newListLabel.trim() })} disabled={createList.isPending || newListLabel.trim().length < 2}>{createList.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}Create list</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (listQuery.isLoading) {
     return <div className="flex min-h-[55vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-cyan-600" /></div>;
   }
@@ -401,10 +434,17 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-cyan-700"><UsersRound className="h-4 w-4" /> Client resource</div>
-          <div className="flex flex-wrap items-center gap-2"><h1 className="text-3xl font-bold tracking-tight">{isAdminEditor ? `${list.agentName ?? "Agent"}'s Vendor List` : "My Vendor List"}</h1><Badge variant={list.isPublished ? "default" : "secondary"}>{list.isPublished ? "Published" : "Draft"}</Badge></div>
+          <div className="flex flex-wrap items-center gap-2"><h1 className="text-3xl font-bold tracking-tight">{isAdminEditor ? `${list.agentName ?? "Agent"}'s Vendor List` : "My Vendor List"}{list.label ? <span className="text-slate-500"> · {list.label}</span> : null}</h1><Badge variant={list.isPublished ? "default" : "secondary"}>{list.isPublished ? "Published" : "Draft"}</Badge></div>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{isAdminEditor ? "Review and manage this agent’s client-facing vendor recommendations." : "Organize the professionals you trust and share one client-ready link when your list is published."}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {lists.length > 1 && (
+            <Select value={String(list.id)} onValueChange={(value) => setSelectedListId(Number(value))}>
+              <SelectTrigger className="w-[220px]" aria-label="Choose a Vendor List"><SelectValue /></SelectTrigger>
+              <SelectContent>{lists.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.label || item.displayName}{item.isPublished ? "" : " (draft)"}</SelectItem>)}</SelectContent>
+            </Select>
+          )}
+          <Button variant="outline" onClick={() => { setNewListLabel(""); setNewListOpen(true); }}><Plus className="mr-2 h-4 w-4" /> New list</Button>
           <VendorListHelpDialog />
           <Button variant="outline" onClick={openSettings}><Settings2 className="mr-2 h-4 w-4" /> List settings</Button>
           <Button variant="outline" disabled={!list.isPublished} onClick={() => window.open(getPublicUrl(list.publicSlug), "_blank", "noopener,noreferrer")}><ExternalLink className="mr-2 h-4 w-4" /> Open public list</Button>
@@ -450,7 +490,8 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
 
       {mutationError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{mutationError.message}</p>}
 
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Vendor List settings</DialogTitle><DialogDescription>These details appear at the top of your public client resource.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label htmlFor="list-name">Public list name</Label><Input id="list-name" value={settings.displayName} maxLength={160} onChange={(event) => setSettings({ ...settings, displayName: event.target.value })} placeholder="Tyler's Vendor List" /></div><div className="space-y-2"><Label htmlFor="list-headline">Headline</Label><Input id="list-headline" value={settings.headline} maxLength={255} onChange={(event) => setSettings({ ...settings, headline: event.target.value })} placeholder="Trusted local professionals for your STR" /></div><div className="space-y-2"><Label htmlFor="list-intro">Welcome message</Label><Textarea id="list-intro" value={settings.intro} maxLength={6000} onChange={(event) => setSettings({ ...settings, intro: event.target.value })} placeholder="A note to clients about how to use these recommendations." rows={5} /></div><div className="space-y-2"><Label htmlFor="list-slug">Public URL</Label><div className="flex items-center rounded-md border bg-muted/40 px-3 text-sm"><span className="shrink-0 text-muted-foreground">{window.location.origin}/vendors/</span><Input id="list-slug" value={settings.publicSlug} maxLength={120} onChange={(event) => setSettings({ ...settings, publicSlug: event.target.value.toLowerCase().replace(/\s+/g, "-") })} className="h-10 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0" /></div><p className="text-xs text-muted-foreground">Use lowercase letters, numbers, and hyphens. Changing this path changes your share link.</p></div><div className="flex items-center justify-between rounded-lg border p-4"><div><Label htmlFor="list-published">Publish this list</Label><p className="mt-0.5 max-w-md text-xs text-muted-foreground">Published lists are visible to anyone with the link. Private categories and vendors remain hidden.</p></div><Switch id="list-published" checked={settings.isPublished} onCheckedChange={(checked) => setSettings({ ...settings, isPublished: checked })} /></div></div><DialogFooter><Button variant="outline" onClick={() => setSettingsOpen(false)} disabled={updateList.isPending}>Cancel</Button><Button onClick={() => updateList.mutate({ ...agentParam, displayName: settings.displayName.trim(), headline: settings.headline.trim() || null, intro: settings.intro.trim() || null, publicSlug: settings.publicSlug.trim(), isPublished: settings.isPublished })} disabled={updateList.isPending || settings.displayName.trim().length < 2 || settings.publicSlug.trim().length < 3}>{updateList.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save settings</Button></DialogFooter></DialogContent></Dialog>
+      {newListDialog}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Vendor List settings</DialogTitle><DialogDescription>These details appear at the top of your public client resource.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label htmlFor="list-label">Market</Label><Input id="list-label" value={settings.label} maxLength={120} onChange={(event) => setSettings({ ...settings, label: event.target.value })} placeholder="St. Louis" /><p className="text-xs text-muted-foreground">Which market this list covers. Shown in your list switcher.</p></div><div className="space-y-2"><Label htmlFor="list-name">Public list name</Label><Input id="list-name" value={settings.displayName} maxLength={160} onChange={(event) => setSettings({ ...settings, displayName: event.target.value })} placeholder="Tyler's Vendor List" /></div><div className="space-y-2"><Label htmlFor="list-headline">Headline</Label><Input id="list-headline" value={settings.headline} maxLength={255} onChange={(event) => setSettings({ ...settings, headline: event.target.value })} placeholder="Trusted local professionals for your STR" /></div><div className="space-y-2"><Label htmlFor="list-intro">Welcome message</Label><Textarea id="list-intro" value={settings.intro} maxLength={6000} onChange={(event) => setSettings({ ...settings, intro: event.target.value })} placeholder="A note to clients about how to use these recommendations." rows={5} /></div><div className="space-y-2"><Label htmlFor="list-slug">Public URL</Label><div className="flex items-center rounded-md border bg-muted/40 px-3 text-sm"><span className="shrink-0 text-muted-foreground">{window.location.origin}/vendors/</span><Input id="list-slug" value={settings.publicSlug} maxLength={120} onChange={(event) => setSettings({ ...settings, publicSlug: event.target.value.toLowerCase().replace(/\s+/g, "-") })} className="h-10 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0" /></div><p className="text-xs text-muted-foreground">Use lowercase letters, numbers, and hyphens. Changing this path changes your share link.</p></div><div className="flex items-center justify-between rounded-lg border p-4"><div><Label htmlFor="list-published">Publish this list</Label><p className="mt-0.5 max-w-md text-xs text-muted-foreground">Published lists are visible to anyone with the link. Private categories and vendors remain hidden.</p></div><Switch id="list-published" checked={settings.isPublished} onCheckedChange={(checked) => setSettings({ ...settings, isPublished: checked })} /></div></div><DialogFooter><Button variant="outline" onClick={() => setSettingsOpen(false)} disabled={updateList.isPending}>Cancel</Button><Button onClick={() => updateList.mutate({ ...agentParam, label: settings.label.trim() || null, displayName: settings.displayName.trim(), headline: settings.headline.trim() || null, intro: settings.intro.trim() || null, publicSlug: settings.publicSlug.trim(), isPublished: settings.isPublished })} disabled={updateList.isPending || settings.displayName.trim().length < 2 || settings.publicSlug.trim().length < 3}>{updateList.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save settings</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={categoryOpen} onOpenChange={setCategoryOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingCategory ? "Edit category" : "Add category"}</DialogTitle><DialogDescription>Categories keep your recommendations easy for clients to browse.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label htmlFor="category-name">Category name</Label><Input id="category-name" value={categoryForm.name} maxLength={120} onChange={(event) => setCategoryForm({ ...categoryForm, name: event.target.value })} placeholder="Cleaners" /></div><div className="space-y-2"><Label htmlFor="category-description">Description</Label><Textarea id="category-description" value={categoryForm.description} maxLength={1500} onChange={(event) => setCategoryForm({ ...categoryForm, description: event.target.value })} placeholder="Optional note about the services in this category." rows={3} /></div><div className="flex items-center justify-between rounded-lg border p-3"><div><Label htmlFor="category-visible">Show publicly</Label><p className="mt-0.5 text-xs text-muted-foreground">Keep this category private until it is ready for clients.</p></div><Switch id="category-visible" checked={categoryForm.isVisible} onCheckedChange={(checked) => setCategoryForm({ ...categoryForm, isVisible: checked })} /></div></div><DialogFooter><Button variant="outline" onClick={() => setCategoryOpen(false)} disabled={createCategory.isPending || updateCategory.isPending}>Cancel</Button><Button onClick={() => { const data = { ...agentParam, name: categoryForm.name.trim(), description: categoryForm.description.trim() || null, isVisible: categoryForm.isVisible }; if (editingCategory) updateCategory.mutate({ ...data, id: editingCategory.id }); else createCategory.mutate(data); }} disabled={createCategory.isPending || updateCategory.isPending || categoryForm.name.trim().length < 2}>{(createCategory.isPending || updateCategory.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingCategory ? "Save category" : "Add category"}</Button></DialogFooter></DialogContent></Dialog>
 

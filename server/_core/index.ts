@@ -110,6 +110,7 @@ import { ensureWebsitePriceDropSchema } from "../websitePriceDropSchema";
 import { ensureWebsiteSoldSweepSchema } from "../websiteSoldSweepSchema";
 import { ensureWebsiteListingExpirySchema } from "../websiteListingExpirySchema";
 import { ensureWebsiteFeaturedSchema } from "../websiteFeaturedSchema";
+import { ensureVendorListsMultiSchema } from "../vendorListsMultiSchema";
 import { ensureTransactionTerminationTextSchema } from "../transactionTerminationTextSchema";
 import { ensureOrganicSocialLeadSources } from "../organicSocialLeadSources";
 import { ensureWebsiteLeadSources } from "../websiteLeadSources";
@@ -158,6 +159,7 @@ async function startServer() {
   await ensureWebsiteLinkForwardingSchema();
   await ensureWebsiteListingExpirySchema();
   await ensureWebsiteFeaturedSchema();
+  await ensureVendorListsMultiSchema();
   await ensureTransactionTerminationTextSchema();
   await ensurePulseRunnerIssueSourceSchema();
   // Organic Social lead sources exist before the first organic lead arrives
