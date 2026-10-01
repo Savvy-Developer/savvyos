@@ -63,11 +63,13 @@ describe("Pulse Meeting Runner workspace", () => {
   });
 
   it("lets the live meeting acknowledge an incoming cascade once for the full destination team", () => {
-    expect(runner).toContain("Incoming cascades");
+    expect(runner).toContain("Incoming Cascades");
     expect(runner).toContain("Acknowledge for team");
     expect(runner).toContain("pulse.cascades.acknowledgeForMeeting");
     expect(runner).toContain("data.permissions?.canRun");
     expect(runner).toContain("pendingDestinationMeetingIds");
+    expect(runner).not.toContain("setCascadeInboxOpen");
+    expect(runner).not.toContain("<Inbox");
     expect(cascades).toContain("acknowledgeForMeeting:");
     expect(cascades).toContain("requireTeamCascadeAcknowledgmentAuthority");
     expect(cascades).toContain('acknowledgedFrom: "meeting_runner_team"');
