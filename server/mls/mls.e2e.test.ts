@@ -383,18 +383,31 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const windowStart = hour.toISOString().slice(0, 19).replace("T", " ");
     await q(
       `INSERT INTO mls_provider_usage (credentialRef, provider, windowStart, requests, bytes, mediaRequests, mediaBytes, throttled)
-       VALUES ('RESTARTTEST', 'mls_grid', ?, 3000, 1000, 3000, 2000000000, 0)`,
+       VALUES ('RESTARTTEST', 'mls_grid', ?, 12000, 1000, 9000, 2000000000, 0)`,
       [windowStart]
     );
     const limits = modules.adapters.adapterFor("mls_grid").limits({ options: null } as any);
     const lane = modules.http.getLane("mls_grid", "RESTARTTEST", limits);
     await lane.ready();
-    // 6,000 requests this hour is over our 5,760 cap: both data and photos must wait.
+    // 21,000 requests this hour is over the temporary 20,000 cap; both data and photos must wait.
     expect(lane.api.nextWaitMs()).toBeGreaterThan(0);
     expect(lane.media.nextWaitMs()).toBeGreaterThan(0);
     const untouched = modules.http.getLane("mls_grid", "OTHERTOKEN", limits);
     await untouched.ready();
     expect(untouched.api.nextWaitMs()).toBe(0);
+    // A MARIS-like photo burst can block the standard 32k/day cap. During the
+    // provider's waiver it must not hold the listing lane, but should hold photos.
+    for (const [hoursAgo, mediaRequests] of [[2, 5319], [3, 18514], [4, 8794], [5, 4843]]) {
+      await q(
+        `INSERT INTO mls_provider_usage (credentialRef, provider, windowStart, requests, bytes, mediaRequests, mediaBytes, throttled)
+         VALUES ('MARISBURST', 'mls_grid', ?, 0, 0, ?, 200000000, 0)`,
+        [new Date(hour.getTime() - hoursAgo * 3_600_000).toISOString().slice(0, 19).replace("T", " "), mediaRequests]
+      );
+    }
+    const maris = modules.http.getLane("mls_grid", "MARISBURST", limits);
+    await maris.ready();
+    expect(maris.api.nextWaitMs()).toBe(0);
+    expect(maris.media.nextWaitMs()).toBeGreaterThan(0);
   }, 60_000);
 
   it("prefills the market, checks live changes, loads history without Media, and refreshes galleries in a batch", async () => {
@@ -458,6 +471,45 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       const images = await q<any>("SELECT status, priority FROM mls_media WHERE feedId=? AND resourceKey=? AND mediaKey<>'__gallery_request__'", [fast.id, market.providerListingKey]);
       expect(images.length).toBe(2);
       expect(images.every(image => image.priority === 0)).toBe(true);
+    } finally {
+      state.properties = original;
+    }
+  }, 90_000);
+
+  it("quarantines a bad row, advances the page, and recovers it when corrected", async () => {
+    const original = state.properties;
+    try {
+      state.properties = [
+        listing("badrow", { ModificationTimestamp: "2026-09-25T10:00:00.000Z", PublicRemarks: "X".repeat(70_000) }),
+        listing("goodrow", { ModificationTimestamp: "2026-09-25T11:00:00.000Z" }),
+      ];
+      const [source] = await q("SELECT id FROM mls_sources WHERE code='canopy'");
+      await admin.query(
+        `INSERT INTO mls_feeds (sourceId, name, provider, feedType, baseUrl, originatingSystemName, keyPrefix, credentialRef, resources, options, enabled, mediaPolicy, syncIntervalMinutes, retentionPolicy)
+         VALUES (?, 'Quarantine test', 'mls_grid', 'idx_plus', ?, 'carolina', 'CAR', 'E2EGRID', ?, ?, true, 'primary_only', 5, 'purge')`,
+        [source.id, `${base}/v2`, JSON.stringify(["Property"]), JSON.stringify({ fastImportV1: true, license: { approved: true, internalUse: true, reference: "SYNTHETIC TEST FIXTURE ONLY" } })]
+      );
+      const [feed] = await q("SELECT id FROM mls_feeds WHERE name='Quarantine test'");
+      const first = await modules.engine.runFeedCycle(feed.id, { workerId: "quarantine-test" });
+      expect(first.ok).toBe(true);
+      expect(first.resources["Priority:Property"].quarantined).toBe(1);
+      expect(first.resources.Property.quarantined).toBe(1);
+      const [cursor] = await q("SELECT phase, recordsSeen FROM mls_sync_cursors WHERE feedId=? AND resource='Property'", [feed.id]);
+      expect(cursor.phase).toBe("incremental");
+      expect(Number(cursor.recordsSeen)).toBe(2);
+      const [bad] = await q("SELECT providerKey, errorCode, errorColumn, payloadGzip FROM mls_import_exceptions WHERE feedId=?", [feed.id]);
+      expect(bad.providerKey).toBe("CARbadrow");
+      expect(bad.errorCode).toBe("ER_DATA_TOO_LONG");
+      expect(bad.errorColumn).toBe("publicRemarks");
+      expect(bad.payloadGzip.length).toBeGreaterThan(0);
+      const [good] = await q("SELECT listingNumber FROM mls_listings WHERE feedId=?", [feed.id]);
+      expect(good.listingNumber).toBe("goodrow");
+
+      state.properties[0] = { ...state.properties[0], PublicRemarks: "Corrected", ModificationTimestamp: new Date(Date.now() + 60_000).toISOString() };
+      const second = await modules.engine.runFeedCycle(feed.id, { workerId: "quarantine-test" });
+      expect(second.ok).toBe(true);
+      expect(await q("SELECT id FROM mls_import_exceptions WHERE feedId=?", [feed.id])).toHaveLength(0);
+      expect(await q("SELECT id FROM mls_listings WHERE feedId=?", [feed.id])).toHaveLength(2);
     } finally {
       state.properties = original;
     }

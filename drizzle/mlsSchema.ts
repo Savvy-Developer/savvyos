@@ -199,6 +199,30 @@ export const mlsRawRecords = mysqlTable(
   table => [uniqueIndex("mls_raw_records_feed_resource_key_uq").on(table.feedId, table.resource, table.providerKey)]
 );
 
+/** A record that could not be normalized or persisted. Its provider payload stays
+ * private and retryable; a bad row must not pin a million-record feed forever. */
+export const mlsImportExceptions = mysqlTable(
+  "mls_import_exceptions",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+    feedId: int("feedId").notNull(),
+    resource: varchar("resource", { length: 32 }).notNull(),
+    providerKey: varchar("providerKey", { length: 160 }).notNull(),
+    payloadGzip: mediumblob("payloadGzip").notNull(),
+    sourceModifiedAt: datetime("sourceModifiedAt", { fsp: 3 }),
+    errorCode: varchar("errorCode", { length: 64 }).notNull(),
+    errorColumn: varchar("errorColumn", { length: 64 }),
+    attempts: int("attempts").default(1).notNull(),
+    firstSeenAt: datetime("firstSeenAt").notNull(),
+    lastSeenAt: datetime("lastSeenAt").notNull(),
+    nextRetryAt: datetime("nextRetryAt").notNull(),
+  },
+  table => [
+    uniqueIndex("mls_import_exceptions_feed_resource_key_uq").on(table.feedId, table.resource, table.providerKey),
+    index("mls_import_exceptions_retry_idx").on(table.feedId, table.nextRetryAt),
+  ]
+);
+
 /** A physical property. Listings come and go; the property stays. */
 export const mlsProperties = mysqlTable(
   "mls_properties",

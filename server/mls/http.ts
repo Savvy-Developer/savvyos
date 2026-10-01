@@ -79,7 +79,8 @@ export class SlidingLimiter implements Limiter {
   constructor(
     private minIntervalMs: number,
     windows: LimitSpec[],
-    byteWindows: LimitSpec[] = []
+    byteWindows: LimitSpec[] = [],
+    private fallback?: { at: number; minIntervalMs: number; windows: LimitSpec[]; byteWindows: LimitSpec[] }
   ) {
     this.windows = windows.filter(validLimit).map(window => ({ ...window, events: [] }));
     this.byteWindows = byteWindows.filter(validLimit);
@@ -91,23 +92,27 @@ export class SlidingLimiter implements Limiter {
   }
 
   nextWaitMs(now = Date.now()): number {
-    let wait = Math.max(0, this.pausedUntil - now, this.lastAt + this.minIntervalMs - now);
+    const standard = this.fallback && now >= this.fallback.at ? this.fallback : null;
+    let wait = Math.max(0, this.pausedUntil - now, this.lastAt + (standard?.minIntervalMs ?? this.minIntervalMs) - now);
     for (const window of this.windows) {
       while (window.events.length && window.events[0] <= now - window.windowMs) window.events.shift();
-      if (window.events.length >= window.limit) {
+      const limit = standard?.windows.find(item => item.windowMs === window.windowMs)?.limit ?? window.limit;
+      if (limit !== null && window.events.length >= limit) {
         // Wait until enough old requests age out to leave one free slot.
-        const freeing = window.events[window.events.length - window.limit];
+        const freeing = window.events[window.events.length - limit];
         wait = Math.max(wait, freeing + window.windowMs - now + 5);
       }
     }
     if (this.byteWindows.length) {
       while (this.bytes.length && this.bytes[0].at <= now - this.byteHorizonMs) this.bytes.shift();
       for (const window of this.byteWindows) {
+        const limit = standard?.byteWindows.find(item => item.windowMs === window.windowMs)?.limit ?? window.limit;
+        if (limit === null) continue;
         const start = now - window.windowMs;
         let used = 0;
         for (const item of this.bytes) if (item.at > start) used += item.bytes;
-        if (used < window.limit) continue;
-        let excess = used - window.limit;
+        if (used < limit) continue;
+        let excess = used - limit;
         for (const item of this.bytes) {
           if (item.at <= start) continue;
           excess -= item.bytes;
@@ -156,17 +161,18 @@ export class SlidingLimiter implements Limiter {
 
   snapshot(): LimiterSnapshot {
     const now = Date.now();
+    const standard = this.fallback && now >= this.fallback.at ? this.fallback : null;
     const bytesSince = (windowMs: number) => this.bytes.filter(item => item.at > now - windowMs).reduce((sum, item) => sum + item.bytes, 0);
     const hourly = this.byteWindows.find(window => window.windowMs === HOUR_MS);
     return {
       windows: this.windows.map(window => ({
         windowMs: window.windowMs,
-        limit: window.limit,
+        limit: standard?.windows.find(item => item.windowMs === window.windowMs)?.limit ?? window.limit,
         used: window.events.filter(at => at > now - window.windowMs).length,
       })),
-      byteWindows: this.byteWindows.map(window => ({ windowMs: window.windowMs, limit: window.limit, used: bytesSince(window.windowMs) })),
+      byteWindows: this.byteWindows.map(window => ({ windowMs: window.windowMs, limit: standard?.byteWindows.find(item => item.windowMs === window.windowMs)?.limit ?? window.limit, used: bytesSince(window.windowMs) })),
       bytesLastHour: bytesSince(HOUR_MS),
-      bytesPerHour: hourly?.limit ?? null,
+      bytesPerHour: standard?.byteWindows.find(item => item.windowMs === HOUR_MS)?.limit ?? hourly?.limit ?? null,
       pausedForMs: Math.max(0, this.pausedUntil - now),
     };
   }
@@ -225,6 +231,8 @@ export class ProviderLane {
     readonly limits: ProviderLimits
   ) {
     const budget = limits.tokenBudget ?? null;
+    const baseline = limits.temporary?.baseline;
+    const revertAt = limits.temporary?.untilMs;
     this.api = new SlidingLimiter(
       intervalMs(limits.requestsPerSecond),
       [
@@ -237,7 +245,19 @@ export class ProviderLane {
             { limit: budget.bytesPerHour, windowMs: HOUR_MS },
             { limit: budget.bytesPerDay, windowMs: DAY_MS },
           ]
-        : []
+        : [],
+      baseline && revertAt ? {
+        at: revertAt, minIntervalMs: intervalMs(baseline.requestsPerSecond),
+        windows: [
+          { limit: baseline.requestsPerHour, windowMs: HOUR_MS },
+          { limit: baseline.requestsPerDay, windowMs: DAY_MS },
+          { limit: baseline.requestsPerFiveMinutes, windowMs: 300_000 },
+        ],
+        byteWindows: baseline.tokenBudget ? [
+          { limit: baseline.tokenBudget.bytesPerHour, windowMs: HOUR_MS },
+          { limit: baseline.tokenBudget.bytesPerDay, windowMs: DAY_MS },
+        ] : [],
+      } : undefined
     );
     const mediaInterval = intervalMs(Math.max(1, Number(process.env.MLS_MEDIA_REQUESTS_PER_SECOND ?? 10)));
     if (budget) {
@@ -252,7 +272,18 @@ export class ProviderLane {
         [
           { limit: part(budget.bytesPerHour), windowMs: HOUR_MS },
           { limit: part(budget.bytesPerDay), windowMs: DAY_MS },
-        ]
+        ],
+        baseline?.tokenBudget && revertAt ? {
+          at: revertAt, minIntervalMs: mediaInterval,
+          windows: [
+            { limit: Math.floor((baseline.requestsPerHour ?? 0) * baseline.tokenBudget.mediaShare), windowMs: HOUR_MS },
+            { limit: Math.floor((baseline.requestsPerDay ?? 0) * baseline.tokenBudget.mediaShare), windowMs: DAY_MS },
+          ],
+          byteWindows: [
+            { limit: Math.floor(baseline.tokenBudget.bytesPerHour * baseline.tokenBudget.mediaShare), windowMs: HOUR_MS },
+            { limit: Math.floor(baseline.tokenBudget.bytesPerDay * baseline.tokenBudget.mediaShare), windowMs: DAY_MS },
+          ],
+        } : undefined
       );
       this.media = new ChainedLimiter(own, this.api);
     } else {

@@ -10,6 +10,7 @@ import {
   type MlsAdapter,
   type MlsResource,
   type ODataPage,
+  type ProviderLimits,
 } from "./types";
 
 /**
@@ -102,6 +103,10 @@ export const MLS_GRID_LIMITS = {
 
 /** Share of the lowest limit we allow ourselves. options.rateSafety can lower it, never raise it past 0.9. */
 const DEFAULT_SAFETY = 0.8;
+/** Tyler confirmed MLS Grid waived limits through Friday Oct 2, 2026 at 4 p.m. ET.
+ * This is a controlled catch-up budget, not a permanent change to their limits. */
+export const MLS_GRID_GRACE_UNTIL_MS = Date.parse("2026-10-02T20:00:00Z");
+export function mlsGridGraceActive(now = Date.now()) { return now < MLS_GRID_GRACE_UNTIL_MS; }
 
 export const mlsGridAdapter: MlsAdapter = {
   provider: "mls_grid",
@@ -127,7 +132,7 @@ export const mlsGridAdapter: MlsAdapter = {
       bytesPerDay: warning.bytesPerDay,
     };
     const requestedShare = Number(readOption(feed, "mediaShare", 0.75));
-    return {
+    const baseline: ProviderLimits = {
       requestsPerSecond: lowest.requestsPerSecond * safety,
       requestsPerHour: Math.floor(lowest.requestsPerHour * safety),
       requestsPerDay: Math.floor(lowest.requestsPerDay * safety),
@@ -141,6 +146,15 @@ export const mlsGridAdapter: MlsAdapter = {
       },
       mediaConcurrency: Math.min(4, Math.max(1, Number(readOption(feed, "mediaConcurrency", 2)) || 2)),
       sequentialOnly: true,
+    };
+    if (!mlsGridGraceActive()) return baseline;
+    return {
+      ...baseline,
+      requestsPerSecond: 4,
+      requestsPerHour: 20_000,
+      requestsPerDay: 250_000,
+      tokenBudget: { bytesPerHour: 12_000_000_000, bytesPerDay: 250_000_000_000, mediaShare: 0.1 },
+      temporary: { untilMs: MLS_GRID_GRACE_UNTIL_MS, baseline },
     };
   },
   keyField: resource => KEY_FIELD[resource],

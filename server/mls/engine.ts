@@ -12,7 +12,7 @@ import {
 } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { adapterFor } from "./adapters";
-import { mlsGridStageUrl } from "./adapters/mlsGrid";
+import { mlsGridGraceActive, mlsGridStageUrl } from "./adapters/mlsGrid";
 import { clearTokenCache } from "./adapters/trestle";
 import {
   parseODataPage,
@@ -27,7 +27,7 @@ import { credentialStatus } from "./credentials";
 import { licenseError } from "./license";
 import { FatalHttpError, getLane, redactUrl, requestJson, requestText, type ProviderLane } from "./http";
 import { isKnownResoField } from "./normalize/resoStandardFields";
-import { emptyCounts, laterTimestamp, localKeys, processRecords, pruneEndedOpenHouses, removeKeys, type PageCounts } from "./store";
+import { emptyCounts, laterTimestamp, localKeys, processRecords, pruneEndedOpenHouses, removeKeys, retryImportExceptions, type PageCounts } from "./store";
 
 /**
  * Sync engine. One cycle for one feed:
@@ -61,6 +61,7 @@ export type CycleSummary = {
   ok: boolean;
   skipped?: string;
   resources: Record<string, PageCounts & { pages: number; mode: string }>;
+  exceptions?: { attempted: number; recovered: number };
   reconciled?: Record<string, { remote: number; local: number; removed: number; aborted?: string }>;
   error?: string;
 };
@@ -178,6 +179,8 @@ function addCounts(total: PageCounts, page: PageCounts) {
   total.unchanged += page.unchanged;
   total.deleted += page.deleted;
   total.mediaQueued += page.mediaQueued;
+  total.quarantined += page.quarantined;
+  total.unpersisted += page.unpersisted;
   total.maxModified = laterTimestamp(total.maxModified, page.maxModified);
   for (const error of page.errors) if (total.errors.length < 50) total.errors.push(error);
 }
@@ -353,7 +356,7 @@ async function replicateResource(
   try {
     while (url) {
       if (options.signal?.aborted) throw new Error("aborted");
-      const pageLimit = options.maxPagesPerResource ?? (stage === "history" ? 20 : undefined);
+      const pageLimit = options.maxPagesPerResource ?? (stage === "history" ? (mlsGridGraceActive() ? 100 : 20) : undefined);
       if (pageLimit && totals.pages >= pageLimit) break;
       await renewLease(ctx.feed.id, options.workerId);
       let response: { body: any; bytes: number };
@@ -387,8 +390,9 @@ async function replicateResource(
         metadataLocalFields: shared.metadataLocalFields,
       });
       addCounts(totals, counts);
-      // A failed record must not be skipped permanently by advancing its checkpoint.
-      if (counts.errors.length) throw new Error(`Page contains ${counts.errors.length} record errors; checkpoint retained for retry.`);
+      // Advance only if every failed provider payload is durably quarantined.
+      // Transient DB failures or a failed quarantine must keep the checkpoint.
+      if (counts.unpersisted) throw new Error(`Page contains ${counts.unpersisted} unpersisted records; checkpoint retained for retry.`);
       totals.pages += 1;
       if (ordered) highWaterMark = laterTimestamp(highWaterMark, counts.maxModified);
       const next = adapter.nextPageUrl(ctx, resource, page, { ...state, highWaterMark });
@@ -451,14 +455,14 @@ async function replicateResource(
       }
       await saveCursor(db, cursor.id, finishedValues);
     }
-    await updateRun(db, runId, totals, { status: "succeeded", detail: { ...detail, errors: totals.errors, pages: totals.pages } });
+    await updateRun(db, runId, totals, { status: "succeeded", error: totals.quarantined ? `${totals.quarantined} records saved for repair; see run detail.` : null, detail: { ...detail, quarantined: totals.quarantined, errors: totals.errors, pages: totals.pages } });
     return { ...totals, mode };
   } catch (error) {
     const aborted = options.signal?.aborted;
     await updateRun(db, runId, totals, {
       status: aborted ? "aborted" : "failed",
       error: sanitizeError(error),
-      detail: { ...detail, errors: totals.errors, pages: totals.pages, url: url ? redactUrl(url) : null },
+      detail: { ...detail, quarantined: totals.quarantined, errors: totals.errors, pages: totals.pages, url: url ? redactUrl(url) : null },
     });
     throw error;
   }
@@ -604,6 +608,7 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
         historical ? "history" : undefined
       );
     }
+    summary.exceptions = await retryImportExceptions(ctx, adapter, shared);
     await applyDeletedResource(db, ctx, adapter, lane, options);
 
     const [fresh] = await db.select().from(mlsFeeds).where(eq(mlsFeeds.id, feedId)).limit(1);

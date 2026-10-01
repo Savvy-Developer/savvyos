@@ -353,6 +353,17 @@ function RunsPanel({ feeds, feedId, setFeedId }: { feeds: MlsFeedView[]; feedId:
               <Badge key={cursor.id} variant="outline" className="font-normal">{cursor.resource}: {cursor.phase} · {formatNumber(cursor.recordsSeen)} seen · mark {cursor.highWaterMark ?? "none"}</Badge>
             ))}
           </div>
+          {runs.data.quarantinedCount > 0 ? (
+            <Card className="border-amber-300">
+              <CardContent className="space-y-1 pt-4 text-sm">
+                <p className="font-semibold">{formatNumber(runs.data.quarantinedCount)} records saved for repair</p>
+                <p className="text-muted-foreground">Their original provider payloads are stored privately. Other records continue importing; these are retried in small batches.</p>
+                {runs.data.exceptions.map(row => (
+                  <p key={`${row.resource}:${row.providerKey}`} className="font-mono text-xs">{row.resource} {row.providerKey}: {row.errorCode}{row.errorColumn ? ` (${row.errorColumn})` : ""} · {row.attempts} attempt(s)</p>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
           <Table>
             <TableHeader><TableRow><TableHead>Started</TableHead><TableHead>Kind</TableHead><TableHead>Resource</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Requests</TableHead><TableHead className="text-right">Received</TableHead><TableHead className="text-right">Upserted</TableHead><TableHead className="text-right">Unchanged</TableHead><TableHead className="text-right">Deleted</TableHead><TableHead className="text-right">Media queued</TableHead><TableHead>Error</TableHead></TableRow></TableHeader>
             <TableBody>
