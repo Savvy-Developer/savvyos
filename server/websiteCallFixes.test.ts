@@ -22,7 +22,9 @@ import { WEBSITE_PUBLIC_TRPC_PATHS, allowAddressLookup } from "./routers/website
 import { WEBSITE_FEATURED_LISTINGS_BACKFILL, WEBSITE_FEATURED_LISTINGS_DDL } from "./websiteFeaturedSchema";
 
 const root = path.resolve(import.meta.dirname, "..");
-const read = (relative: string) => readFileSync(path.join(root, relative), "utf8");
+// Line endings are normalised: core.autocrlf checks these files out with CRLF
+// on Windows, which would break every assertion that spans a line break.
+const read = (relative: string) => readFileSync(path.join(root, relative), "utf8").replace(/\r\n/g, "\n");
 const router = read("server/routers/website.ts");
 const websiteTab = read("client/src/components/website/PropertyWebsiteTab.tsx");
 const editor = read("client/src/components/website/ContentEditor.tsx");
