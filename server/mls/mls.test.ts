@@ -109,6 +109,14 @@ describe("status and type normalization", () => {
 });
 
 describe("normalizeListing", () => {
+  it("drops out-of-range derived bathroom totals instead of rejecting a whole MLS page", () => {
+    const component = normalizeListing(ctx, mlsGridAdapter, canopyRecord({ BathroomsFull: 5000, BathroomsHalf: 0 }));
+    expect(component.columns.bathroomsTotal).toBeNull();
+    expect(component.provenance.bathroomsTotal).toBeUndefined();
+    const integer = normalizeListing(ctx, mlsGridAdapter, canopyRecord({ BathroomsFull: 0, BathroomsHalf: 0, BathroomsTotalInteger: 5000 }));
+    expect(integer.columns.bathroomsTotal).toBeNull();
+    expect(integer.provenance.bathroomsTotal).toBeUndefined();
+  });
   it("maps a Canopy MLS Grid record into canonical, feature, and local layers", () => {
     const result = normalizeListing(ctx, mlsGridAdapter, canopyRecord());
     expect(result.providerListingKey).toBe("CAR4123456");
