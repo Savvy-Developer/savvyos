@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { mlsListings, mlsMedia } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { privateMlsStorage, privateMlsStorageError } from "./privateMedia";
@@ -111,7 +111,7 @@ async function refreshExpiredUrls(
   lane: ProviderLane,
   feeds: Map<number, FeedContext>,
   result: MediaBatchResult,
-  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; limit: number; requestedOnly: boolean }
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; limit: number; priority: "active" | "gallery" | "market" }
 ) {
   const feedIds = Array.from(feeds.keys()).filter(id => adapterFor(feeds.get(id)!.feed.provider).capabilities.mediaUrlsExpire);
   if (!feedIds.length) return;
@@ -122,9 +122,11 @@ async function refreshExpiredUrls(
     .innerJoin(mlsListings, and(eq(mlsListings.feedId, mlsMedia.feedId), eq(mlsListings.providerListingKey, mlsMedia.resourceKey)))
     .where(and(
       inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS),
-      options.requestedOnly
+      options.priority === "gallery"
         ? eq(mlsMedia.mediaKey, "__gallery_request__")
-        : gridOnly ? and(eq(mlsMedia.isPrimary, true), inArray(mlsListings.standardStatus, MARKET_STATUSES)) : undefined
+        : options.priority === "active"
+          ? and(eq(mlsMedia.isPrimary, true), eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
+          : gridOnly ? and(eq(mlsMedia.isPrimary, true), inArray(mlsListings.standardStatus, MARKET_STATUSES), isNull(mlsListings.removedFromFeedAt)) : undefined
     ))
     .limit(options.limit);
   const groups = new Map<string, typeof rows>();
@@ -207,7 +209,7 @@ export async function withLockRetry<T>(run: () => Promise<T>, attempts = 4): Pro
   }
 }
 
-async function claim(db: Db, feedIds: number[], claimToken: string, limit: number) {
+async function claim(db: Db, feedIds: number[], claimToken: string, limit: number, activeOnly = false) {
   const now = new Date();
   await withLockRetry(() => db
     .update(mlsMedia)
@@ -227,6 +229,12 @@ async function claim(db: Db, feedIds: number[], claimToken: string, limit: numbe
        AND ${mlsMedia.status} = 'pending'
        AND ${mlsMedia.sourceUrl} IS NOT NULL
        AND (${mlsMedia.nextAttemptAt} IS NULL OR ${mlsMedia.nextAttemptAt} <= ${now})
+       ${activeOnly ? sql`AND ${mlsMedia.isPrimary} = 1 AND EXISTS (
+         SELECT 1 FROM ${mlsListings} AS active_listing
+          WHERE active_listing.id = ${mlsMedia.listingId}
+            AND active_listing.standardStatus = 'active'
+            AND active_listing.removedFromFeedAt IS NULL
+       )` : sql``}
      ORDER BY ${mlsMedia.priority} ASC, ${mlsMedia.id} ASC
      LIMIT ${limit}`));
   return db
@@ -261,16 +269,22 @@ export async function runMediaBatch(
   if (storage === privateMlsStorage && privateMlsStorageError()) return result;
 
   await deleteRemovedMedia(db, feedIds, result);
-  // Honor deliberate gallery requests, but do not spend a provider request on
-  // hundreds of thousands of old expired links ahead of signed, fresh covers.
-  await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, requestedOnly: true });
-
+  // The old queue gave every market status the same priority. A status-aware
+  // claim puts Active covers first without a mass UPDATE of millions of rows.
   const claimToken = `${workerId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`.slice(0, 160);
-  let rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50);
+  let rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50, true);
   if (!rows.length && (options.refreshLimit ?? 20) > 0) {
-    // Only when the fresh queue is clear, refresh links for market primary
-    // photos. Historical off-market galleries remain on-demand.
-    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, requestedOnly: false });
+    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active" });
+    rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50, true);
+  }
+  if (!rows.length) {
+    // Explicit galleries and other market statuses continue after the Active
+    // covers are clear. Do not refresh the historic off-market backlog.
+    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "gallery" });
+    rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50);
+  }
+  if (!rows.length && (options.refreshLimit ?? 20) > 0) {
+    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "market" });
     rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50);
   }
   result.claimed = rows.length;

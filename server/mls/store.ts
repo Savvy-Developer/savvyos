@@ -216,7 +216,13 @@ export function mediaWanted(
 }
 
 function mediaPriority(item: ExtractedMedia, status: CanonicalStatus) {
-  if (item.isPrimary) return MARKET_STATUSES.includes(status) ? 10 : 20;
+  if (item.isPrimary) {
+    if (status === "active") return 1;
+    if (status === "coming_soon") return 10;
+    if (status === "active_under_contract") return 20;
+    if (status === "pending") return 30;
+    return 40;
+  }
   return MARKET_STATUSES.includes(status) ? 50 : 100;
 }
 
