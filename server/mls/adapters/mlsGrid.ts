@@ -150,13 +150,13 @@ export const mlsGridAdapter: MlsAdapter = {
     if (!mlsGridGraceActive()) return baseline;
     return {
       ...baseline,
-      // Eight RPS triggered provider 429s and a 15-minute MARIS lane pause in
-      // production. Use the previously unthrottled four-RPS pace while retaining
-      // extra photo concurrency and the waived aggregate budgets. API and media
-      // still share this per-token budget, reverting automatically on Friday.
-      requestsPerSecond: 4,
-      requestsPerHour: 40_000,
-      requestsPerDay: 500_000,
+      // Both 8 and 4 RPS triggered provider 429s despite the stated waiver.
+      // Stay below the published two-RPS and 7,200/hour warning thresholds until
+      // MLS Grid confirms the media CDN and both tokens are actually uncapped.
+      // Keep eight concurrent photo transfers to overlap storage/network latency.
+      requestsPerSecond: 1.8,
+      requestsPerHour: 6_500,
+      requestsPerDay: 35_000,
       tokenBudget: { bytesPerHour: 24_000_000_000, bytesPerDay: 500_000_000_000, mediaShare: 0.75 },
       mediaConcurrency: 8,
       temporary: { untilMs: MLS_GRID_GRACE_UNTIL_MS, baseline },
