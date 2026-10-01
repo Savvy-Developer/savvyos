@@ -19,7 +19,7 @@ type Draft = { value: string; note: string };
 /** Reviews a selected L10's measurable drafts; final submission happens in the shared weekly-prep review below. */
 export function PulseMyMeasurables({ embedded = false, meetingId }: { embedded?: boolean; meetingId?: string }) {
   const utils = trpc.useUtils();
-  const prep = trpc.pulse.personal.inputs.useQuery();
+  const prep = trpc.pulse.personal.inputs.useQuery(undefined, { refetchInterval: 15_000 });
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const save = trpc.pulse.personal.saveInput.useMutation({
     onSuccess: () => { void utils.pulse.personal.inputs.invalidate(); void utils.pulse.personal.dashboard.invalidate(); },

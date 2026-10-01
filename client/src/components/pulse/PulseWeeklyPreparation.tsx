@@ -46,7 +46,7 @@ function MeetingPreparationCard({ meeting, fields, onChanged, hideMeetingName = 
 /** Renders L10 meeting updates; the parent places one final review after measurables and Rocks. */
 export function PulseWeeklyPreparation({ embedded = false, meetingId, rocks = [] }: { embedded?: boolean; meetingId?: string; rocks?: any[] }) {
   const utils = trpc.useUtils();
-  const prep = trpc.pulse.personal.inputs.useQuery();
+  const prep = trpc.pulse.personal.inputs.useQuery(undefined, { refetchInterval: 15_000 });
   const [activeMeetingId, setActiveMeetingId] = useState("");
   const activeId = meetingId ?? (activeMeetingId || prep.data?.meetings[0]?.id || "");
   useEffect(() => { if (!meetingId && activeMeetingId && !(prep.data?.meetings ?? []).some((meeting: any) => meeting.id === activeMeetingId)) setActiveMeetingId(""); }, [activeMeetingId, meetingId, prep.data?.meetings]);
@@ -64,7 +64,7 @@ export function PulseWeeklyPreparation({ embedded = false, meetingId, rocks = []
 /** The My EOS footer review that follows the meeting's updates, work, Rocks, and measurable review. */
 export function PulseWeeklyPreparationReview({ meetingId, rocks }: { meetingId: string; rocks: any[] }) {
   const utils = trpc.useUtils();
-  const prep = trpc.pulse.personal.inputs.useQuery();
+  const prep = trpc.pulse.personal.inputs.useQuery(undefined, { refetchInterval: 15_000 });
   if (prep.isLoading) return <Skeleton className="h-28 w-full" />;
   if (prep.error || !prep.data) return null;
   const meeting = prep.data.meetings.find((entry: any) => entry.id === meetingId);

@@ -2,21 +2,21 @@ import { describe, expect, it } from "vitest";
 import { measurableReportingWeek } from "./personal";
 
 describe("measurableReportingWeek", () => {
-  it("defaults Monday to the Sunday–Saturday week that just ended", () => {
+  it("uses the active Saturday–Friday operational week on Monday", () => {
     const week = measurableReportingWeek(new Date("2026-09-28T16:00:00.000Z"));
-    expect(week.startDate).toBe("2026-09-20");
-    expect(week.endDate).toBe("2026-09-26");
+    expect(week.startDate).toBe("2026-09-26");
+    expect(week.endDate).toBe("2026-10-02");
   });
 
-  it("uses the active Sunday–Saturday reporting week on other days", () => {
+  it("uses the active Saturday–Friday reporting week before the reset", () => {
     const week = measurableReportingWeek(new Date("2026-09-25T16:00:00.000Z"));
-    expect(week.startDate).toBe("2026-09-20");
-    expect(week.endDate).toBe("2026-09-26");
+    expect(week.startDate).toBe("2026-09-19");
+    expect(week.endDate).toBe("2026-09-25");
   });
 
-  it("uses the completed week when Monday begins in Eastern time", () => {
+  it("keeps the new Saturday cycle active across the Eastern-time Sunday boundary", () => {
     const week = measurableReportingWeek(new Date("2026-09-28T04:30:00.000Z"));
-    expect(week.startDate).toBe("2026-09-20");
-    expect(week.endDate).toBe("2026-09-26");
+    expect(week.startDate).toBe("2026-09-26");
+    expect(week.endDate).toBe("2026-10-02");
   });
 });

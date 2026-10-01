@@ -10,6 +10,7 @@ import { sendTransactionalEmail } from "../_core/resendEmail";
 import { is_visible_meeting_manager, require_visible_meeting } from "./access";
 import { getMeetingSectionPayloads, PULSE_SECTION_FUNCTIONS } from "./sections";
 import { scorecardAttention } from "./scorecard";
+import { pulseWeeklyCycleStart } from "../../shared/pulseWeeklyCycle";
 
 const meetingId = z.string().uuid();
 const uuid = () => crypto.randomUUID();
@@ -94,10 +95,10 @@ export const pulseMeetingViewsRouter = router({
     return { ...payload, members, run: { sectionDurations: meeting.sectionDurations, current: await activeRun(db, input.meetingId) } };
   }),
 
-  addUpdate: pulseMemberProcedure.input(z.object({ meetingId, updateType: z.enum(["segue", "headline"]), body: z.string().trim().min(1).max(4000), tone: z.enum(["green", "amber", "red"]).optional(), weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })).mutation(async ({ ctx, input }) => {
+  addUpdate: pulseMemberProcedure.input(z.object({ meetingId, updateType: z.enum(["segue", "headline"]), body: z.string().trim().min(1).max(4000), tone: z.enum(["green", "amber", "red"]).optional() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();
     await require_visible_meeting(db, ctx.user.id, input.meetingId);
-    await db.insert(pulseMeetingUpdates).values({ id: uuid(), meetingId: input.meetingId, authorId: ctx.user.id, updateType: input.updateType, tone: input.updateType === "headline" ? input.tone ?? "green" : null, weekOf: input.weekOf ? new Date(`${input.weekOf}T00:00:00.000Z`) : null, body: input.body });
+    await db.insert(pulseMeetingUpdates).values({ id: uuid(), meetingId: input.meetingId, authorId: ctx.user.id, updateType: input.updateType, tone: input.updateType === "headline" ? input.tone ?? "green" : null, weekOf: pulseWeeklyCycleStart(), body: input.body });
     return { success: true };
   }),
 

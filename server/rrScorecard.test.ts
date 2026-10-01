@@ -51,10 +51,10 @@ describe("governed R&R scorecard calculations", () => {
     expect(rolling.end.toISOString()).toBe("2026-08-13T00:00:00.000Z");
   });
 
-  it("aligns weekly scorecard reporting with the Sunday-to-Saturday measurable week", () => {
+  it("aligns weekly scorecard reporting with the Saturday-to-Friday Pulse operating week", () => {
     const bounds = metricPeriodBounds({ frequency: "weekly" }, new Date("2026-08-12T15:00:00Z"));
-    expect(bounds.start.toISOString()).toBe("2026-08-09T00:00:00.000Z");
-    expect(bounds.end.toISOString()).toBe("2026-08-16T00:00:00.000Z");
+    expect(bounds.start.toISOString()).toBe("2026-08-08T00:00:00.000Z");
+    expect(bounds.end.toISOString()).toBe("2026-08-15T00:00:00.000Z");
   });
 
   it("marks unique best and lowest weeks only after four reported weeks", () => {

@@ -45,7 +45,7 @@ export function PulseMasterScorecard() {
   const scorecard = trpc.pulse.scorecard.master.useQuery({
     cadence,
     periodStart,
-  });
+  }, { refetchInterval: 15_000 });
 
   useEffect(() => {
     if (!scorecard.data) return;

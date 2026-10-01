@@ -17,6 +17,7 @@ import { router } from "../_core/trpc";
 import { getDb } from "../db";
 import { is_visible_meeting_manager, require_visible_meeting, visible_meeting_ids } from "./access";
 import { currentMeasurementPeriod, formatPeriod as formatScorecardPeriod, isEventMetric, isSnapshotMetric, metricPeriodBounds, periodToDatePerformance, scoreResult, targetLabel, trendPhrase as scorecardTrendPhrase } from "../rrScorecard";
+import { pulseWeeklyCycleStart } from "../../shared/pulseWeeklyCycle";
 
 export const SCORECARD_CADENCES = ["weekly", "monthly", "quarterly", "annually"] as const;
 export type ScorecardCadence = (typeof SCORECARD_CADENCES)[number];
@@ -42,8 +43,7 @@ function addDays(value: Date, days: number) {
 export function periodBounds(cadence: ScorecardCadence, reference = new Date()) {
   const day = dayStart(reference);
   if (cadence === "weekly") {
-    const weekday = day.getUTCDay();
-    const start = addDays(day, -weekday);
+    const start = pulseWeeklyCycleStart(reference);
     return { start, end: addDays(start, 7) };
   }
   if (cadence === "monthly") {

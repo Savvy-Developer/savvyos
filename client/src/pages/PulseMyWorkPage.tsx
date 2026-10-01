@@ -145,7 +145,7 @@ export default function PulseMyWorkPage() {
   const [selectedMeetingId, setSelectedMeetingId] = useState("");
   const [issueTimeframe, setIssueTimeframe] = useState<IssueTimeframeFilterValue>("all");
   const [activeTab, setActiveTab] = useState("work");
-  const { data, isLoading, error } = trpc.pulse.personal.dashboard.useQuery(selectedMeetingId ? { workspaceId: selectedMeetingId } : undefined);
+  const { data, isLoading, error } = trpc.pulse.personal.dashboard.useQuery(selectedMeetingId ? { workspaceId: selectedMeetingId } : undefined, { refetchInterval: 15_000 });
   const changed = () => { void utils.pulse.personal.dashboard.invalidate(); void utils.pulse.workItems.invalidate(); void utils.pulse.notifications.invalidate(); void utils.pulse.cascades.pending.invalidate(); };
   const acknowledgeCascade = trpc.pulse.cascades.acknowledge.useMutation({ onSuccess: () => { changed(); toast.success("Cascade acknowledged."); }, onError: (error) => toast.error(error.message) });
 

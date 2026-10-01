@@ -48,6 +48,7 @@ import {
   trendPhrase as scorecardTrendPhrase,
 } from "../rrScorecard";
 import { describeMeasurableCalculation, listTrailingWeeks } from "@shared/scorecard";
+import { pulseWeeklyCycleStart } from "../../shared/pulseWeeklyCycle";
 
 const CADENCES = ["ongoing", "daily", "weekly", "biweekly", "monthly", "quarterly", "annually", "as_needed", "custom"] as const;
 const METRIC_FREQUENCIES = LEGACY_FREQUENCIES;
@@ -212,8 +213,7 @@ function addDays(date: Date, days: number): Date {
 export function periodBounds(frequency: typeof METRIC_FREQUENCIES[number], reference = new Date()): { start: Date; end: Date } {
   const day = startOfUtcDay(reference);
   if (frequency === "weekly") {
-    const weekday = day.getUTCDay();
-    const start = addDays(day, -weekday);
+    const start = pulseWeeklyCycleStart(reference);
     return { start, end: addDays(start, 7) };
   }
   if (frequency === "monthly") {

@@ -33,14 +33,10 @@ import { listAccessibleItems } from "./workItems";
 import { projectRoutedPersonalRocks } from "./myEosRocks";
 import { isEventMetric } from "../rrScorecard";
 import { refreshAutomaticMetric } from "../routers/rolesResponsibilities";
+import { pulseWeeklyCycle, pulseWeeklyCycleStart } from "../../shared/pulseWeeklyCycle";
 
 const uuid = () => crypto.randomUUID();
-const week = () => {
-  const date = new Date();
-  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-  date.setHours(0, 0, 0, 0);
-  return date;
-};
+const week = (reference = new Date()) => pulseWeeklyCycleStart(reference);
 const dateOnly = (date: Date) => date.toISOString().slice(0, 10);
 const todayEastern = () => new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
@@ -85,20 +81,9 @@ function sourceLabel(value?: string | null) {
   return value ? value.replaceAll("_", " ") : "SavvyOS";
 }
 
-function easternCalendarDay(reference = new Date()) {
-  const parts = new Map(new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(reference).filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
-  return new Date(Date.UTC(parts.get("year") ?? 0, (parts.get("month") ?? 1) - 1, parts.get("day") ?? 1));
-}
-
-/** Sunday–Saturday reporting window. Monday deliberately opens the week that just ended. */
+/** Saturday–Friday reporting window. Each new Pulse preparation cycle begins at Saturday midnight Eastern. */
 export function measurableReportingWeek(reference = new Date()) {
-  const day = easternCalendarDay(reference);
-  const sunday = addDays(day, -day.getUTCDay());
-  const start = day.getUTCDay() === 1 ? addDays(sunday, -7) : sunday;
-  const end = addDays(start, 6);
-  return { start, end, startDate: dateOnly(start), endDate: dateOnly(end) };
+  return pulseWeeklyCycle(reference);
 }
 
 function asNumber(value: unknown): number | null {

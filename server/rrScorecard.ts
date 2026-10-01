@@ -1,3 +1,5 @@
+import { pulseWeeklyCycleStart } from "../shared/pulseWeeklyCycle";
+
 export const LEGACY_FREQUENCIES = ["weekly", "monthly", "quarterly", "annually"] as const;
 export const MEASUREMENT_PERIODS = [
   "weekly",
@@ -56,8 +58,7 @@ export function dateOnly(value: Date) {
 export function periodBounds(frequency: LegacyFrequency, reference = new Date()) {
   const day = dayStart(reference);
   if (frequency === "weekly") {
-    const weekday = day.getUTCDay();
-    const start = addDays(day, -weekday);
+    const start = pulseWeeklyCycleStart(reference);
     return { start, end: addDays(start, 7) };
   }
   if (frequency === "monthly") {

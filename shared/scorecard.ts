@@ -1,3 +1,5 @@
+import { pulseWeeklyCycleStart } from "./pulseWeeklyCycle";
+
 export type PeriodPerformanceKind = "best" | "worst";
 
 export type PeriodPerformanceMarker = {
@@ -33,10 +35,6 @@ export function displayFormatForUnit(unit: string) {
   return "number";
 }
 
-function utcDay(value: Date) {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
-}
-
 function addUtcDays(value: Date, days: number) {
   const next = new Date(value);
   next.setUTCDate(next.getUTCDate() + days);
@@ -44,9 +42,7 @@ function addUtcDays(value: Date, days: number) {
 }
 
 export function weekStartUtc(reference = new Date()) {
-  const day = utcDay(reference);
-  const weekday = day.getUTCDay();
-  return addUtcDays(day, -weekday);
+  return pulseWeeklyCycleStart(reference);
 }
 
 export function dateOnlyUtc(value: Date) {

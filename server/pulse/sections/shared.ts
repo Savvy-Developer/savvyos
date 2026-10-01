@@ -4,6 +4,7 @@ import { require_visible_meeting } from "../access";
 import { getMeetingCascadePayloads } from "../cascadePayload";
 import { listAccessibleItems } from "../workItems";
 import { getMeetingScorecard } from "../scorecard";
+import { pulseWeeklyCycleStart } from "../../../shared/pulseWeeklyCycle";
 
 export type SectionKey = "segue" | "headlines" | "scorecard" | "goals" | "rocks" | "todos" | "issues" | "cascading" | "conclude";
 export type SectionContext = { db: any; viewerId: number; meeting: any };
@@ -20,9 +21,10 @@ export async function meetingItems(ctx: SectionContext, type: "todo" | "issue" |
 }
 
 export async function meetingUpdates(ctx: SectionContext, updateType: "segue" | "headline") {
+  const weekOf = pulseWeeklyCycleStart();
   return ctx.db.select({ id: pulseMeetingUpdates.id, body: pulseMeetingUpdates.body, authorId: pulseMeetingUpdates.authorId, authorName: users.name, createdAt: pulseMeetingUpdates.createdAt })
     .from(pulseMeetingUpdates).leftJoin(users, eq(users.id, pulseMeetingUpdates.authorId))
-    .where(and(eq(pulseMeetingUpdates.meetingId, ctx.meeting.id), eq(pulseMeetingUpdates.updateType, updateType), isNull(pulseMeetingUpdates.deletedAt)))
+    .where(and(eq(pulseMeetingUpdates.meetingId, ctx.meeting.id), eq(pulseMeetingUpdates.updateType, updateType), eq(pulseMeetingUpdates.weekOf, weekOf), isNull(pulseMeetingUpdates.deletedAt)))
     .orderBy(desc(pulseMeetingUpdates.createdAt));
 }
 

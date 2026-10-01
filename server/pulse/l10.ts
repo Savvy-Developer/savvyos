@@ -40,6 +40,7 @@ import { publishDraftCascade, validateCascadeDelivery } from "./cascades";
 import { encodeCascadeContent } from "../../shared/pulseCascadeContent";
 import { getL10RunnerSteps, L10_RUNNER_STEPS, normaliseL10RunnerDurations } from "./l10RunnerAgenda";
 import { getMeetingScorecard } from "./scorecard";
+import { pulseWeeklyCycleStart } from "../../shared/pulseWeeklyCycle";
 
 const id = () => crypto.randomUUID();
 const day = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
@@ -288,10 +289,11 @@ async function getIssues(db: any, targetMeetingId: string) {
 
 async function getUpdates(db: any, targetMeetingId: string, updateType: "segue" | "headline" | "brief") {
   const { pulseMeetingUpdates } = await import("../../drizzle/schema");
+  const weekOf = pulseWeeklyCycleStart();
   return db.select({ id: pulseMeetingUpdates.id, body: pulseMeetingUpdates.body, tone: pulseMeetingUpdates.tone, authorName: users.name, createdAt: pulseMeetingUpdates.createdAt, sessionId: pulseMeetingUpdates.sessionId })
     .from(pulseMeetingUpdates)
     .leftJoin(users, eq(users.id, pulseMeetingUpdates.authorId))
-    .where(and(eq(pulseMeetingUpdates.meetingId, targetMeetingId), eq(pulseMeetingUpdates.updateType, updateType), isNull(pulseMeetingUpdates.deletedAt)))
+    .where(and(eq(pulseMeetingUpdates.meetingId, targetMeetingId), eq(pulseMeetingUpdates.updateType, updateType), eq(pulseMeetingUpdates.weekOf, weekOf), isNull(pulseMeetingUpdates.deletedAt)))
     .orderBy(desc(pulseMeetingUpdates.createdAt)).limit(30);
 }
 
@@ -680,7 +682,7 @@ export const pulseL10Router = router({
     await require_visible_meeting(db, ctx.user.id, input.meetingId);
     if (input.sessionId) await requireSession(db, input.meetingId, input.sessionId, true);
     const { pulseMeetingUpdates } = await import("../../drizzle/schema");
-    await db.insert(pulseMeetingUpdates).values({ id: id(), meetingId: input.meetingId, sessionId: input.sessionId ?? null, authorId: ctx.user.id, updateType: input.updateType, tone: input.updateType === "headline" ? input.tone ?? "green" : null, body: input.body });
+    await db.insert(pulseMeetingUpdates).values({ id: id(), meetingId: input.meetingId, sessionId: input.sessionId ?? null, authorId: ctx.user.id, updateType: input.updateType, tone: input.updateType === "headline" ? input.tone ?? "green" : null, weekOf: pulseWeeklyCycleStart(), body: input.body });
     return { success: true };
   }),
 
