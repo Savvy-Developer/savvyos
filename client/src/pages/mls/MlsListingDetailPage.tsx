@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "wouter";
 import { AlertTriangle, ArrowLeft, Bath, BedDouble, CalendarDays, ChevronLeft, ChevronRight, Clock, Code2, ExternalLink, History, ImageOff, Loader2, MapPin, Ruler, Trees } from "lucide-react";
-import { loadGoogleMaps } from "@/components/Map";
+import { CircleMarker, MapContainer, TileLayer } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -79,7 +80,7 @@ function Gallery({ media, alt }: { media: MlsListingDetail["media"]; alt: string
       </div>
       <div className="flex gap-1.5 overflow-x-auto pb-1">
         {photos.map((photo, photoIndex) => (
-          <button key={photo.id} type="button" onClick={() => setIndex(photoIndex)} className={`h-14 w-20 shrink-0 overflow-hidden rounded border-2 ${photoIndex === index ? "border-primary" : "border-transparent"}`}>
+          <button key={photo.id} type="button" aria-label={`Show photo ${photoIndex + 1} of ${photos.length}`} aria-current={photoIndex === index ? "true" : undefined} onClick={() => setIndex(photoIndex)} className={`h-14 w-20 shrink-0 overflow-hidden rounded border-2 ${photoIndex === index ? "border-primary" : "border-transparent"}`}>
             <img src={photo.url!} alt="" loading="lazy" className="h-full w-full object-cover" />
           </button>
         ))}
@@ -89,21 +90,14 @@ function Gallery({ media, alt }: { media: MlsListingDetail["media"]; alt: string
 }
 
 function MiniMap({ lat, lng }: { lat: number; lng: number }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    let cancelled = false;
-    loadGoogleMaps()
-      .then(() => {
-        if (cancelled || !ref.current || !window.google?.maps) return;
-        const map = new window.google.maps.Map(ref.current, { center: { lat, lng }, zoom: 15, mapId: "DEMO_MAP_ID", disableDefaultUI: true, zoomControl: true });
-        new window.google.maps.marker.AdvancedMarkerElement({ map, position: { lat, lng } });
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [lat, lng]);
-  return <div ref={ref} className="h-56 w-full rounded-lg bg-muted" />;
+  return (
+    <div className="h-56 w-full overflow-hidden rounded-lg border bg-muted">
+      <MapContainer key={`${lat}:${lng}`} center={[lat, lng]} zoom={15} scrollWheelZoom={false} style={{ height: "100%", width: "100%" }}>
+        <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>' maxZoom={19} />
+        <CircleMarker center={[lat, lng]} radius={8} pathOptions={{ color: "#fff", fillColor: "#0f766e", fillOpacity: 1, weight: 2 }} />
+      </MapContainer>
+    </div>
+  );
 }
 
 function RawPayload({ listingId }: { listingId: number }) {
@@ -128,23 +122,17 @@ function RawPayload({ listingId }: { listingId: number }) {
 export default function MlsListingDetailPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  const [galleryRequested, setGalleryRequested] = useState(false);
+  // Merely viewing a listing must not spend MLS Grid photo requests.
+  // Poll briefly only after an explicit gallery request.
+  const [galleryPollUntil, setGalleryPollUntil] = useState(0);
+  const galleryPolling = galleryPollUntil > Date.now();
   const query = trpc.mlsProperties.listing.useQuery({ id }, {
     enabled: Number.isFinite(id) && id > 0,
-    refetchInterval: galleryRequested ? 5000 : false,
+    refetchInterval: galleryPolling ? 5000 : false,
   });
-  const requestGallery = trpc.mlsProperties.requestGallery.useMutation({ onSuccess: () => setGalleryRequested(true) });
-  const requestedFor = useRef<number | null>(null);
-
-  useEffect(() => {
-    const data = query.data;
-    if (!data || requestedFor.current === id || data.media.some(photo => photo.priority === 0)) return;
-    const totalPhotos = Number(data.listing.photosCount ?? 0);
-    const stored = data.media.filter(photo => photo.url).length;
-    if (totalPhotos <= 1 || stored >= totalPhotos) return;
-    requestedFor.current = id;
-    requestGallery.mutate({ id });
-  }, [id, query.data]);
+  const requestGallery = trpc.mlsProperties.requestGallery.useMutation({
+    onSuccess: () => { setGalleryPollUntil(Date.now() + 120_000); void query.refetch(); },
+  });
 
   const data = query.data;
   const features = useMemo(() => Object.entries((data?.listing.features ?? {}) as Record<string, string[]>).filter(([, values]) => values?.length), [data]);
@@ -171,6 +159,13 @@ export default function MlsListingDetailPage() {
   const status = statusStyle(listing.standardStatus);
   const price = displayPrice(listing);
   const freshness = feed ? FRESHNESS_STYLES[feed.freshness] : null;
+  const storedPhotos = data.media.filter(photo => photo.url).length;
+  const expectedPhotos = Number(listing.photosCount ?? 0);
+  const galleryComplete = expectedPhotos > 0 && storedPhotos >= expectedPhotos;
+  const galleryQueued = data.media.some(photo =>
+    (photo.mediaKey === "__gallery_request__" && photo.status === "expired") ||
+    (photo.priority === 0 && (photo.status === "pending" || photo.status === "expired"))
+  );
 
   return (
     <div className="space-y-4 pb-10">
@@ -210,10 +205,14 @@ export default function MlsListingDetailPage() {
         <div className="space-y-4">
           <Gallery media={data.media} alt={addressLine(listing)} />
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" size="sm" disabled={requestGallery.isPending || galleryRequested} onClick={() => requestGallery.mutate({ id })}>
-              {requestGallery.isPending ? "Queuing photos..." : galleryRequested ? "Photos requested" : "Load available photos"}
-            </Button>
-            {galleryRequested ? <span className="text-xs text-muted-foreground">Photos appear here as the worker downloads them under the MLS Grid limit. This may take longer when the token budget is full.</span> : null}
+            {galleryComplete ? <span className="text-sm text-muted-foreground">All {storedPhotos} available photos stored</span> : galleryQueued ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>Photos queued · refresh status</Button>
+            ) : (
+              <Button type="button" variant="outline" size="sm" disabled={requestGallery.isPending || galleryPolling} onClick={() => requestGallery.mutate({ id })}>
+                {requestGallery.isPending ? "Queuing photos..." : galleryPolling ? "Photos requested" : "Load available photos"}
+              </Button>
+            )}
+            {!galleryComplete ? <span className="text-xs text-muted-foreground">Full galleries load only when requested. Downloads may take time and use MLS Grid's photo budget.</span> : null}
             {requestGallery.error ? <span className="text-xs text-destructive">{requestGallery.error.message}</span> : null}
           </div>
 
