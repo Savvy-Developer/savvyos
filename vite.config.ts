@@ -150,7 +150,19 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+// The Manus runtime (~360 KB inline script) and debug collector only power the
+// Manus editor preview. They are not needed on os.savvy-agents.com, and the
+// runtime listens for unauthenticated cross-window "refresh" messages, so apply
+// them to the dev server only (`apply: "serve"`), never to production builds.
+const devOnly = (plugin: Plugin): Plugin => ({ ...plugin, apply: "serve" });
+
+const plugins = [
+  react(),
+  tailwindcss(),
+  jsxLocPlugin(),
+  devOnly(vitePluginManusRuntime()),
+  devOnly(vitePluginManusDebugCollector()),
+];
 
 export default defineConfig({
   plugins,

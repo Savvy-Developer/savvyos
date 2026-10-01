@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, httpLink, splitLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
-import { toast } from "sonner";
 import App from "./App";
 import { initializeAppHistory } from "@/lib/navigationHistory";
+import { initDeployUpdates, markDraftsSaved, reportApiErrorForUpdates } from "@/lib/deployUpdates";
 import "./index.css";
 
 initializeAppHistory();
@@ -28,6 +28,9 @@ const queryClient = new QueryClient({
   },
 });
 
+const isUnauthorizedError = (error: unknown) =>
+  error instanceof TRPCClientError && error.message === UNAUTHED_ERR_MSG;
+
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
@@ -43,6 +46,7 @@ queryClient.getQueryCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.query.state.error;
     redirectToLoginIfUnauthorized(error);
+    if (!isUnauthorizedError(error)) reportApiErrorForUpdates();
     console.error("[API Query Error]", error);
   }
 });
@@ -51,7 +55,12 @@ queryClient.getMutationCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.mutation.state.error;
     redirectToLoginIfUnauthorized(error);
+    if (!isUnauthorizedError(error)) reportApiErrorForUpdates();
     console.error("[API Mutation Error]", error);
+  }
+  // A save succeeded, so typed text on screen is no longer an unsaved draft.
+  if (event.type === "updated" && event.action.type === "success") {
+    markDraftsSaved();
   }
 });
 
@@ -84,88 +93,7 @@ const trpcClient = trpc.createClient({
   ],
 });
 
-// ---------------------------------------------------------------------------
-// Deploy-version watcher
-// ---------------------------------------------------------------------------
-// Polls the server's health endpoint every 60 s. When the server returns a
-// different buildId (meaning a new deploy has gone live), it:
-//   1. Shows a persistent toast: "SavvyOS has been updated" with a
-//      "Refresh now" button so the user can reload at a safe moment.
-//   2. Intercepts the next in-app navigation (pushState) and converts it
-//      into a full-page load so the new JS bundle is picked up automatically
-//      without disrupting whatever the user is currently doing.
-//
-// We intentionally do NOT force an immediate reload — users may have unsaved
-// notes or form input that would be lost.
-// ---------------------------------------------------------------------------
-let knownBuildId: string | null = null;
-let pendingReload = false;
-
-/** When a new deploy is pending, intercept the next pushState navigation and
- *  convert it to a hard reload at the destination URL so the fresh bundle loads. */
-function installNavigationReloadInterceptor() {
-  const originalPushState = history.pushState.bind(history);
-  history.pushState = function (state, unused, url) {
-    if (pendingReload && url) {
-      // Navigate to the new URL with a full page load instead of a SPA transition.
-      window.location.href = url.toString();
-      return;
-    }
-    originalPushState(state, unused, url);
-  };
-}
-
-async function checkForNewDeploy() {
-  try {
-    const res = await fetch(
-      `/api/trpc/system.health?input=${encodeURIComponent(JSON.stringify({ json: { timestamp: Date.now() } }))}`,
-      { credentials: "include" }
-    );
-    if (!res.ok) return;
-    const json = await res.json();
-    const buildId: string | undefined = json?.result?.data?.json?.buildId;
-    if (!buildId) return;
-
-    if (knownBuildId === null) {
-      // First poll — just record the current build id.
-      knownBuildId = buildId;
-      return;
-    }
-
-    if (buildId !== knownBuildId && !pendingReload) {
-      console.info(
-        `[SavvyOS] New deploy detected (${knownBuildId} → ${buildId}). Will reload on next navigation.`
-      );
-      knownBuildId = buildId;
-      pendingReload = true;
-
-      // Show a persistent toast. The user can reload immediately via the
-      // action button, or simply navigate anywhere and the page will reload
-      // automatically to pick up the new bundle.
-      toast.info("SavvyOS has been updated", {
-        description: "Click \"Refresh now\" or navigate to any page to load the latest version.",
-        duration: Infinity,
-        action: {
-          label: "Refresh now",
-          onClick: () => window.location.reload(),
-        },
-      });
-
-      // Install the navigation interceptor so the next link click triggers
-      // a full reload at the destination rather than a SPA transition.
-      installNavigationReloadInterceptor();
-    }
-  } catch {
-    // Network errors are expected during the brief window when Railway is
-    // cycling the container. Silently ignore them.
-  }
-}
-
-// Start polling after a short delay so the initial page load isn't impacted.
-setTimeout(() => {
-  checkForNewDeploy();
-  setInterval(checkForNewDeploy, 60_000);
-}, 5_000);
+initDeployUpdates();
 
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
