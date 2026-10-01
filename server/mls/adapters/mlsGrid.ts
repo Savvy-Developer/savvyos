@@ -150,9 +150,11 @@ export const mlsGridAdapter: MlsAdapter = {
     if (!mlsGridGraceActive()) return baseline;
     return {
       ...baseline,
-      // Controlled 2x trial during MLS Grid's explicit waiver. API and images
-      // share this per-token budget; do not infer unlimited worker or DB capacity.
-      requestsPerSecond: 8,
+      // Eight RPS triggered provider 429s and a 15-minute MARIS lane pause in
+      // production. Use the previously unthrottled four-RPS pace while retaining
+      // extra photo concurrency and the waived aggregate budgets. API and media
+      // still share this per-token budget, reverting automatically on Friday.
+      requestsPerSecond: 4,
       requestsPerHour: 40_000,
       requestsPerDay: 500_000,
       tokenBudget: { bytesPerHour: 24_000_000_000, bytesPerDay: 500_000_000_000, mediaShare: 0.75 },
