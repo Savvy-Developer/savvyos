@@ -219,7 +219,9 @@ export async function mapPoints(
   db: Db,
   input: { filters: SearchFilters; bounds: z.infer<typeof boundsSchema>; zoom: number; pinLimit?: number }
 ) {
-  const pinLimit = input.pinLimit ?? 500;
+  // Hundreds of price pills overlap badly on a phone-sized map. Zoom into
+  // clusters first, then show individual listings once the viewport is usable.
+  const pinLimit = input.pinLimit ?? 80;
   const where = searchConditions({ ...input.filters, bounds: input.bounds });
   const pins = await db
     .select({
@@ -247,8 +249,6 @@ export async function mapPoints(
       clusters: [],
     };
   }
-  const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings).where(where);
-  const count = Number(total);
   // About 64 screen pixels per cell: a 256px tile spans 360 / 2^zoom degrees.
   const zoom = Math.max(1, Math.min(20, Math.round(input.zoom)));
   const cell = 360 / 2 ** zoom / 4;
@@ -267,6 +267,13 @@ export async function mapPoints(
     .where(where)
     .groupBy(sql`1`, sql`2`)
     .limit(2000);
+  // The grouped scan already knows the count in each cell. Only fall back to
+  // a separate count when the 2,000-cell cap could have truncated the result.
+  let count = rows.reduce((sum, row) => sum + Number(row.count), 0);
+  if (rows.length === 2000) {
+    const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings).where(where);
+    count = Number(total);
+  }
   return {
     mode: "clusters" as const,
     total: count,

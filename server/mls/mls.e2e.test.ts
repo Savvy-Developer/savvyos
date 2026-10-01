@@ -342,6 +342,7 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(pins.pins.length).toBe(2);
     const clusters = await modules.search.mapPoints(db as any, { filters: {}, bounds: { north: 36, south: 35, east: -82, west: -83 }, zoom: 8, pinLimit: 1 });
     expect(clusters.mode).toBe("clusters");
+    expect(clusters.total).toBe(2);
     expect(clusters.clusters.reduce((sum, cluster) => sum + cluster.count, 0)).toBe(2);
   }, 60_000);
 
