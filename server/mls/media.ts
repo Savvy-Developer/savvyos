@@ -7,6 +7,7 @@ import { adapterFor } from "./adapters";
 import { mlsGridBatchUrl } from "./adapters/mlsGrid";
 import { parseODataPage, type FeedContext } from "./adapters/types";
 import { downloadMedia, FatalHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
+import { MARKET_STATUSES } from "./normalize/enums";
 import { processRecords } from "./store";
 
 /**
@@ -110,15 +111,21 @@ async function refreshExpiredUrls(
   lane: ProviderLane,
   feeds: Map<number, FeedContext>,
   result: MediaBatchResult,
-  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; limit: number }
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; limit: number; requestedOnly: boolean }
 ) {
   const feedIds = Array.from(feeds.keys()).filter(id => adapterFor(feeds.get(id)!.feed.provider).capabilities.mediaUrlsExpire);
   if (!feedIds.length) return;
+  const gridOnly = feedIds.every(id => feeds.get(id)!.feed.provider === "mls_grid");
   const rows = await db
     .selectDistinct({ feedId: mlsMedia.feedId, resourceKey: mlsMedia.resourceKey, listingNumber: mlsListings.listingNumber })
     .from(mlsMedia)
     .innerJoin(mlsListings, and(eq(mlsListings.feedId, mlsMedia.feedId), eq(mlsListings.providerListingKey, mlsMedia.resourceKey)))
-    .where(and(inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS)))
+    .where(and(
+      inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS),
+      options.requestedOnly
+        ? eq(mlsMedia.mediaKey, "__gallery_request__")
+        : gridOnly ? and(eq(mlsMedia.isPrimary, true), inArray(mlsListings.standardStatus, MARKET_STATUSES)) : undefined
+    ))
     .limit(options.limit);
   const groups = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -254,10 +261,18 @@ export async function runMediaBatch(
   if (storage === privateMlsStorage && privateMlsStorageError()) return result;
 
   await deleteRemovedMedia(db, feedIds, result);
-  await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20 });
+  // Honor deliberate gallery requests, but do not spend a provider request on
+  // hundreds of thousands of old expired links ahead of signed, fresh covers.
+  await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, requestedOnly: true });
 
   const claimToken = `${workerId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`.slice(0, 160);
-  const rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50);
+  let rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50);
+  if (!rows.length && (options.refreshLimit ?? 20) > 0) {
+    // Only when the fresh queue is clear, refresh links for market primary
+    // photos. Historical off-market galleries remain on-demand.
+    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, requestedOnly: false });
+    rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50);
+  }
   result.claimed = rows.length;
 
   await pool(rows, lane.limits.mediaConcurrency, async row => {

@@ -438,11 +438,14 @@ describe("MLS Grid token budget", () => {
       const limits = mlsGridAdapter.limits(gridFeed(null));
       expect(limits.temporary?.untilMs).toBe(MLS_GRID_GRACE_UNTIL_MS);
       expect(limits.requestsPerDay).toBe(250_000);
+      expect(limits.tokenBudget?.mediaShare).toBe(0.5);
       const lane = new ProviderLane("mls_grid:grace", "mls_grid", "grace", limits);
+      expect(lane.media.snapshot().windows.find(window => window.windowMs === 86_400_000)?.limit).toBe(125_000);
       lane.api.seed(before - 10 * 60_000, 8_000, 4_000_000_000);
       expect(lane.api.nextWaitMs(before)).toBe(0);
       expect(lane.api.nextWaitMs(MLS_GRID_GRACE_UNTIL_MS + 1)).toBeGreaterThan(0);
       clock.mockReturnValue(MLS_GRID_GRACE_UNTIL_MS + 1);
+      expect(lane.media.snapshot().windows.find(window => window.windowMs === 86_400_000)?.limit).toBe(24_000);
       expect(mlsGridAdapter.limits(gridFeed(null)).temporary).toBeUndefined();
     } finally { clock.mockRestore(); }
   });

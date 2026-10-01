@@ -457,6 +457,8 @@ export const mlsPropertiesRouter = router({
     ]);
     let photoStorage: { configurationValid: boolean; issue: string | null } | null = null;
     let lastMediaActivity: { at: string; claimed: number; stored: number; failed: number; expired: number; refreshed: number } | null = null;
+    type UsageWindow = { windowMs: number; limit: number; used: number };
+    let laneUsage: Array<{ key: string; downloading: boolean; mediaDay: UsageWindow | null; mediaHour: UsageWindow | null; sharedDay: UsageWindow | null; pausedForMs: number }> = [];
     try {
       const detail = JSON.parse(worker?.detail ?? "null");
       if (typeof detail?.photoStorage?.configurationValid === "boolean") {
@@ -464,6 +466,18 @@ export const mlsPropertiesRouter = router({
           configurationValid: detail.photoStorage.configurationValid,
           issue: typeof detail.photoStorage.issue === "string" ? detail.photoStorage.issue : null,
         };
+      }
+      const windowFor = (snapshot: { windows?: UsageWindow[] } | undefined, ms: number) =>
+        Array.isArray(snapshot?.windows) ? snapshot.windows.find(item => item.windowMs === ms) ?? null : null;
+      if (Array.isArray(detail?.lanes)) {
+        laneUsage = detail.lanes.filter((lane: any) => typeof lane?.key === "string").map((lane: any) => ({
+          key: lane.key,
+          downloading: !!lane.state?.media,
+          mediaDay: windowFor(lane.media, 86_400_000),
+          mediaHour: windowFor(lane.media, 3_600_000),
+          sharedDay: windowFor(lane.api, 86_400_000),
+          pausedForMs: Number(lane.media?.pausedForMs) || 0,
+        }));
       }
       for (const [key, value] of Object.entries(detail?.lastActivity ?? {})) {
         if (!key.startsWith("media:") || !value || typeof value !== "object") continue;
@@ -486,6 +500,7 @@ export const mlsPropertiesRouter = router({
       worker: worker ? { alive: Date.now() - worker.lastBeatAt.getTime() < 120_000, lastBeatAt: worker.lastBeatAt, version: worker.version } : null,
       photoStorage,
       lastMediaActivity,
+      laneUsage,
     };
   }),
 
