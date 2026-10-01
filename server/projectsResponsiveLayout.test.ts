@@ -31,8 +31,10 @@ describe("Projects responsive layout", () => {
   it("wraps project rows instead of allowing their metadata to crowd titles", () => {
     expect(projectsPage).toContain("flex min-w-0 flex-wrap items-center");
     expect(projectsPage).toContain("basis-full text-sm font-medium");
-    expect(projectsPage).toContain("max-w-full shrink-0 truncate");
-    expect(projectsPage).toContain("sm:opacity-0 sm:group-hover:opacity-100");
+    expect(projectsPage).toContain("sm:ml-auto sm:flex-nowrap sm:gap-3");
+    expect(projectsPage).toContain("hidden max-w-36 shrink-0 truncate");
+    expect(projectsPage).not.toContain("MoreHorizontal");
+    expect(projectsPage).not.toContain("ChevronRight");
   });
 
   it("uses an adaptive project detail tab layout before horizontal scrolling", () => {
@@ -40,7 +42,7 @@ describe("Projects responsive layout", () => {
       "grid h-auto w-full grid-cols-2 gap-1 p-1 sm:grid-cols-3 lg:flex lg:gap-0 lg:overflow-x-auto"
     );
     expect(projectDetailPage).toContain(
-      "h-auto min-h-9 min-w-0 whitespace-normal px-2 text-center text-xs leading-tight",
+      "h-auto min-h-9 min-w-0 whitespace-normal px-2 text-center text-xs leading-tight"
     );
     expect(projectDetailPage).toContain("flex flex-col gap-3 sm:flex-row");
   });

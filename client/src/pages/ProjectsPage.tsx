@@ -15,10 +15,9 @@ import { toast } from "sonner";
 import { format, isPast, isToday, addDays } from "date-fns";
 import {
   Plus, Search,
-  CheckCircle2, Clock, TrendingUp, AlertTriangle, ChevronRight,
-  User, Layers, MoreHorizontal, Archive, Trash2, Flag, X, GripVertical, ListOrdered, ClipboardList, CalendarClock,
+  CheckCircle2, Clock, TrendingUp, AlertTriangle,
+  User, Layers, Trash2, Flag, X, GripVertical, ListOrdered, ClipboardList, CalendarClock,
 } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
@@ -410,10 +409,6 @@ export default function ProjectsPage() {
   );
   const canViewWeeklyUpdateHub = weeklyUpdateHubAccess?.canView === true;
 
-  const archive = trpc.pm.projects.archive.useMutation({
-    onSuccess: () => { toast.success("Project archived"); refetch(); },
-    onError: (e) => toast.error(e.message),
-  });
   const createDeptMut = trpc.pm.departments.create.useMutation({
     onSuccess: () => { refetchDepts(); setDeptCreateOpen(false); setDeptNewName(""); toast.success("Department created"); },
     onError: (e) => toast.error(e.message),
@@ -701,7 +696,7 @@ export default function ProjectsPage() {
         ) : (
           <div className="space-y-2">
             {filtered.map(p => (
-              <ProjectListRow key={p.id} project={p as Project} onArchive={id => archive.mutate({ id })} />
+              <ProjectListRow key={p.id} project={p as Project} />
             ))}
           </div>
         )
@@ -816,7 +811,7 @@ export default function ProjectsPage() {
 }
 
 // ─── List Row ─────────────────────────────────────────────────────────────────
-function ProjectListRow({ project, onArchive }: { project: Project; onArchive: (id: number) => void }) {
+function ProjectListRow({ project }: { project: Project }) {
   const [, navigate] = useLocation();
   const statusCfg = STATUS_CONFIG[project.status];
   const priorityCfg = PRIORITY_CONFIG[project.priority];
@@ -830,70 +825,40 @@ function ProjectListRow({ project, onArchive }: { project: Project; onArchive: (
       className="group flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-card px-3 py-2.5 transition-all hover:shadow-sm sm:items-center sm:gap-4 sm:px-4 sm:py-3"
       onClick={() => navigate(`/projects/${project.id}`)}
     >
-      {/* Priority dot */}
       <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${priorityCfg.dot}`} title={`${priorityCfg.label} priority`} />
 
-      {/* Title + dept */}
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
           <span className="min-w-0 basis-full text-sm font-medium text-foreground transition-colors group-hover:text-primary sm:basis-auto sm:flex-1">{project.title}</span>
           {project.isRock ? <span className="inline-flex shrink-0 items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary"><Flag className="h-3 w-3" />Rock{project.rockQuarter ? ` · ${project.rockQuarter}` : ""}</span> : null}
-          <span className="max-w-full shrink-0 truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{project.department}</span>
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">{project.description}</p>
       </div>
 
-      {/* Status */}
-      <span className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border shrink-0 ${statusCfg.color}`}>
-        {statusCfg.icon} {statusCfg.label}
-      </span>
-
-      {/* Progress */}
-      <div className="hidden md:flex items-center gap-2 w-28 shrink-0">
-        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full ${project.status === "completed" ? "bg-green-500" : project.status === "at_risk" ? "bg-amber-500" : "bg-primary"}`}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <span className="text-xs text-muted-foreground w-8 text-right">{progress}%</span>
-      </div>
-
-      {/* Due date */}
-      <span className={`hidden lg:block text-xs shrink-0 ${dueDateInfo.cls}`}>
-        {dueDateInfo.label}
-      </span>
-
-      {/* Owner */}
-      {project.ownerName && (
-        <span className="hidden lg:flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-          <User className="h-3 w-3" />
-          {project.ownerName.split(" ")[0]}
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 sm:ml-auto sm:flex-nowrap sm:gap-3">
+        <span className="hidden max-w-36 shrink-0 truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground sm:inline-flex">{project.department}</span>
+        <span className={`hidden shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium sm:inline-flex ${statusCfg.color}`}>
+          {statusCfg.icon} {statusCfg.label}
         </span>
-      )}
-
-      {/* Actions */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
-          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={e => { e.stopPropagation(); navigate(`/projects/${project.id}`); }}>
-            View Project
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive"
-            onClick={e => { e.stopPropagation(); onArchive(project.id); }}
-          >
-            <Archive className="h-3.5 w-3.5 mr-2" /> Archive
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <ChevronRight className="hidden h-4 w-4 shrink-0 text-muted-foreground opacity-0 sm:block sm:group-hover:opacity-100" />
+        <div className="hidden md:flex items-center gap-2 w-28 shrink-0">
+          <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full ${project.status === "completed" ? "bg-green-500" : project.status === "at_risk" ? "bg-amber-500" : "bg-primary"}`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="text-xs text-muted-foreground w-8 text-right">{progress}%</span>
+        </div>
+        <span className={`hidden lg:block text-xs shrink-0 ${dueDateInfo.cls}`}>
+          {dueDateInfo.label}
+        </span>
+        {project.ownerName && (
+          <span className="hidden lg:flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+            <User className="h-3 w-3" />
+            {project.ownerName.split(" ")[0]}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
