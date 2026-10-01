@@ -404,8 +404,8 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const untouched = modules.http.getLane("mls_grid", "OTHERTOKEN", limits);
     await untouched.ready();
     expect(untouched.api.nextWaitMs()).toBe(0);
-    // A MARIS-like photo burst can block the standard 32k/day cap. During the
-    // provider's waiver it must not hold the listing lane, but should hold photos.
+    // A MARIS-like burst exhausted the old 25k/day photo share. The temporary
+    // 50% share must let photos resume too, without resetting saved usage.
     for (const [hoursAgo, mediaRequests] of [[2, 5319], [3, 18514], [4, 8794], [5, 4843]]) {
       await q(
         `INSERT INTO mls_provider_usage (credentialRef, provider, windowStart, requests, bytes, mediaRequests, mediaBytes, throttled)
@@ -416,7 +416,7 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const maris = modules.http.getLane("mls_grid", "MARISBURST", limits);
     await maris.ready();
     expect(maris.api.nextWaitMs()).toBe(0);
-    expect(maris.media.nextWaitMs()).toBeGreaterThan(0);
+    expect(maris.media.nextWaitMs()).toBe(0);
   }, 60_000);
 
   it("prefills the market, checks live changes, loads history without Media, and refreshes galleries in a batch", async () => {
@@ -445,6 +445,15 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       const media = await q<any>("SELECT resourceKey, status, isPrimary FROM mls_media WHERE feedId=?", [fast.id]);
       expect(media.length).toBe(2);
       expect(media.every(row => !!row.isPrimary && row.status === "pending")).toBe(true);
+      await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL WHERE feedId=? AND resourceKey='CARfast1'", [fast.id]);
+      const coverLane = modules.http.getLane("mls_grid", "E2EGRID", modules.adapters.adapterFor("mls_grid").limits({ options: null } as any));
+      const coverCtx = (await modules.engine.loadFeedContext(fast.id))!;
+      const beforeCover = state.requests.length;
+      const cover = await modules.media.runMediaBatch(coverLane, [coverCtx], "fast-cover-e2e", { batchSize: 1 });
+      expect(cover.stored).toBe(1);
+      expect(state.requests.slice(beforeCover).some(request => request.includes("ListingId in ("))).toBe(false);
+      const [freshCover] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND resourceKey='CARfast3'", [fast.id]);
+      expect(freshCover.status).toBe("stored");
       const [cursor] = await q<any>("SELECT phase, highWaterMark FROM mls_sync_cursors WHERE feedId=? AND resource='Property'", [fast.id]);
       expect(cursor.phase).toBe("incremental");
       expect(new Date(cursor.highWaterMark).getTime()).toBeGreaterThan(Date.parse("2026-09-25"));

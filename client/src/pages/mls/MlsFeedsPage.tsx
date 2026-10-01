@@ -630,6 +630,17 @@ function HealthPanel({ feeds }: { feeds: MlsFeedView[] }) {
             <div key={`${row.feedId}:${row.status}`} className="flex justify-between gap-3"><span className="text-muted-foreground">{feeds.find(feed => feed.id === row.feedId)?.name ?? `Feed #${row.feedId}`} · {row.status}</span><span className="font-medium">{formatNumber(row.count)}</span></div>
           )) : <p className="text-muted-foreground">{photo.isLoading ? "Checking photo queue..." : photo.isError ? "Photo queue unavailable. Try again shortly." : "No photo rows queued or stored yet."}</p>}
           {photo.data?.lastMediaActivity ? <p className="text-xs text-muted-foreground">Last photo batch {timeAgo(photo.data.lastMediaActivity.at)}: {formatNumber(photo.data.lastMediaActivity.stored)} stored, {formatNumber(photo.data.lastMediaActivity.failed)} failed, {formatNumber(photo.data.lastMediaActivity.expired)} URLs expired.</p> : null}
+          {photo.data?.laneUsage.map(lane => (
+            <div key={lane.key} className="rounded border p-2 text-xs">
+              <div className="font-medium">{feeds.find(feed => `${feed.provider}:${feed.credentialRef}` === lane.key)?.name ?? lane.key}</div>
+              {lane.mediaDay ? <div>Photo requests, rolling 24 hours: {formatNumber(lane.mediaDay.used)} / {formatNumber(lane.mediaDay.limit)}</div> : null}
+              {lane.mediaHour ? <div>Photo requests, rolling hour: {formatNumber(lane.mediaHour.used)} / {formatNumber(lane.mediaHour.limit)}</div> : null}
+              {lane.sharedDay ? <div className="text-muted-foreground">All requests on token, rolling 24 hours: {formatNumber(lane.sharedDay.used)} / {formatNumber(lane.sharedDay.limit)}</div> : null}
+              {lane.mediaDay && lane.mediaDay.used >= lane.mediaDay.limit ? <p className="mt-1 text-amber-800">Photo allocation exhausted; new downloads wait for usage to age out.</p> : null}
+              {lane.downloading ? <p className="mt-1 text-muted-foreground">Photo batch active</p> : null}
+              {lane.pausedForMs > 0 ? <p className="mt-1 text-amber-800">Provider retry pause active</p> : null}
+            </div>
+          ))}
           {photo.data?.worker && !photo.data.worker.alive ? <p className="text-red-700">The MLS worker has not checked in recently.</p> : null}
         </CardContent>
       </Card>
