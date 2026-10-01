@@ -458,7 +458,7 @@ describe("MLS Grid token budget", () => {
     try {
       const limits = mlsGridAdapter.limits(gridFeed(null));
       expect(limits.temporary?.untilMs).toBe(MLS_GRID_GRACE_UNTIL_MS);
-      expect(limits.requestsPerSecond).toBe(8);
+      expect(limits.requestsPerSecond).toBe(4);
       expect(limits.requestsPerHour).toBe(40_000);
       expect(limits.requestsPerDay).toBe(500_000);
       expect(limits.mediaConcurrency).toBe(8);
