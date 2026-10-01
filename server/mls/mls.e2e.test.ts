@@ -462,4 +462,18 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       state.properties = original;
     }
   }, 90_000);
+
+  it("reports worker commit and liveness without exposing worker IDs or MLS data", async () => {
+    const { readMlsWorkerStatus } = await import("./status");
+    const now = new Date();
+    await admin.query(
+      "INSERT INTO mls_worker_heartbeats (workerId, startedAt, lastBeatAt, version, detail) VALUES ('test-worker-id', ?, ?, 'fast-build', '{}')",
+      [now, now]
+    );
+    const fresh = await readMlsWorkerStatus();
+    expect([fresh.alive, fresh.version]).toEqual([true, "fast-build"]);
+    expect(JSON.stringify(fresh)).not.toContain("test-worker-id");
+    await admin.query("UPDATE mls_worker_heartbeats SET lastBeatAt=? WHERE workerId='test-worker-id'", [new Date(Date.now() - 150_000)]);
+    expect((await readMlsWorkerStatus()).alive).toBe(false);
+  });
 });

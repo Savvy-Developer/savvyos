@@ -22,6 +22,7 @@ export type MlsSchemaStatus = {
 const PERMISSION_COLUMNS = ["canViewMlsProperties", "canManageMlsFeeds"];
 const CACHE_MS = 30_000;
 let cached: { at: number; value: MlsSchemaStatus } | null = null;
+let workerCached: { at: number; value: Awaited<ReturnType<typeof readMlsWorkerStatus>> } | null = null;
 
 function rowsOf(result: unknown): any[] {
   if (Array.isArray(result) && Array.isArray(result[0])) return result[0] as any[];
@@ -66,6 +67,24 @@ export async function readMlsSchemaStatus(): Promise<MlsSchemaStatus> {
   return summarize({ tables, permissionColumns: Number(columnRows[0]?.count ?? 0), sources });
 }
 
+/** Public liveness only. No worker ID, feed names, MLS data, or credentials. */
+export async function readMlsWorkerStatus(now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("database unavailable");
+  const rows = rowsOf(await db.execute(sql`
+    SELECT version, lastBeatAt FROM mls_worker_heartbeats
+     ORDER BY lastBeatAt DESC LIMIT 1`));
+  const beat = rows[0];
+  const ageSeconds = beat ? Math.max(0, Math.floor((now.getTime() - new Date(beat.lastBeatAt).getTime()) / 1000)) : null;
+  return {
+    status: ageSeconds !== null && ageSeconds <= 90 ? "ok" as const : "stale" as const,
+    alive: ageSeconds !== null && ageSeconds <= 90,
+    version: beat?.version ?? null,
+    ageSeconds,
+    checkedAt: now.toISOString(),
+  };
+}
+
 export function registerMlsStatusRoute(app: Express) {
   app.get("/healthz/mls", async (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -74,6 +93,17 @@ export function registerMlsStatusRoute(app: Express) {
         cached = { at: Date.now(), value: await readMlsSchemaStatus() };
       }
       res.status(cached.value.status === "ok" ? 200 : 503).json(cached.value);
+    } catch {
+      res.status(503).json({ status: "unavailable", checkedAt: new Date().toISOString() });
+    }
+  });
+  app.get("/healthz/mls/worker", async (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      if (!workerCached || Date.now() - workerCached.at > CACHE_MS) {
+        workerCached = { at: Date.now(), value: await readMlsWorkerStatus() };
+      }
+      res.status(workerCached.value.alive ? 200 : 503).json(workerCached.value);
     } catch {
       res.status(503).json({ status: "unavailable", checkedAt: new Date().toISOString() });
     }
