@@ -21,6 +21,7 @@ import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import PipelineEmailComposer from "@/components/PipelineEmailComposer";
 import { WebsiteBehaviorsTab } from "@/components/WebsiteBehaviorsTab";
 import ConnectionAppointmentManager from "@/components/ConnectionAppointmentManager";
+import ChecklistPanel from "@/components/checklists/ChecklistPanel";
 import { safeFormat } from "@/lib/safeFormat";
 import { useAppBack } from "@/lib/navigationHistory";
 
@@ -545,6 +546,9 @@ export default function AgentConnectionDetail() {
               <TabsTrigger value="smart-plans" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm"><Zap className="mr-1 inline h-3.5 w-3.5" />Smart Plans</TabsTrigger>
               <TabsTrigger value="email-behaviors" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm"><Inbox className="mr-1 inline h-3.5 w-3.5" />Email Behaviors</TabsTrigger>
               <TabsTrigger value="website-behaviors" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm">Website Behaviors</TabsTrigger>
+              {(user?.role === "agent" || user?.role === "admin") && (
+                <TabsTrigger value="checklists" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm">Checklists</TabsTrigger>
+              )}
             </TabsList>
 
             {/* Communications Tab */}
@@ -790,6 +794,17 @@ export default function AgentConnectionDetail() {
                 <p className="text-sm text-muted-foreground text-center py-8">No connection linked.</p>
               )}
             </TabsContent>
+
+            {/* Checklists Tab: the agent's SOP for this connection (TR016) */}
+            {(user?.role === "agent" || user?.role === "admin") && (
+              <TabsContent value="checklists">
+                {conn?.connection?.id ? (
+                  <ChecklistPanel targetType="pipeline_connection" targetId={conn.connection.id} />
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-8">No connection linked.</p>
+                )}
+              </TabsContent>
+            )}
           </Tabs>
         </div>
       </div>

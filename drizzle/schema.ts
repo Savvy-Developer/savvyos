@@ -2500,7 +2500,8 @@ export const agentChecklistTemplates = mysqlTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
-    targetType: mysqlEnum("targetType", ["transaction", "listing"]).notNull(),
+    // pipeline_connection: an agent's SOP for a Pipeline connection (TR016).
+    targetType: mysqlEnum("targetType", ["transaction", "listing", "pipeline_connection"]).notNull(),
     transactionTypeFilter: mysqlEnum("transactionTypeFilter", [
       "buyer",
       "seller",
@@ -2625,7 +2626,10 @@ export const agentChecklistApplications = mysqlTable(
     listingId: int("listingId").references(() => listings.id, {
       onDelete: "cascade",
     }),
-    targetType: mysqlEnum("targetType", ["transaction", "listing"]).notNull(),
+    agentConnectionId: int("agentConnectionId").references(() => agentConnections.id, {
+      onDelete: "cascade",
+    }),
+    targetType: mysqlEnum("targetType", ["transaction", "listing", "pipeline_connection"]).notNull(),
     source: mysqlEnum("source", ["auto", "manual"]).notNull(),
     autoKey: varchar("autoKey", { length: 255 }),
     templateNameSnapshot: varchar("templateNameSnapshot", { length: 255 }).notNull(),
@@ -2634,6 +2638,7 @@ export const agentChecklistApplications = mysqlTable(
     templateTargetTypeSnapshot: mysqlEnum("templateTargetTypeSnapshot", [
       "transaction",
       "listing",
+      "pipeline_connection",
     ]).notNull(),
     templateTransactionTypeFilterSnapshot: mysqlEnum(
       "templateTransactionTypeFilterSnapshot",
@@ -2657,7 +2662,7 @@ export const agentChecklistApplications = mysqlTable(
   table => [
     check(
       "agent_checklist_applications_exact_target_chk",
-      sql`((${table.transactionId} IS NOT NULL AND ${table.listingId} IS NULL AND ${table.targetType} = 'transaction') OR (${table.transactionId} IS NULL AND ${table.listingId} IS NOT NULL AND ${table.targetType} = 'listing'))`
+      sql`((${table.transactionId} IS NOT NULL AND ${table.listingId} IS NULL AND ${table.agentConnectionId} IS NULL AND ${table.targetType} = 'transaction') OR (${table.transactionId} IS NULL AND ${table.listingId} IS NOT NULL AND ${table.agentConnectionId} IS NULL AND ${table.targetType} = 'listing') OR (${table.transactionId} IS NULL AND ${table.listingId} IS NULL AND ${table.agentConnectionId} IS NOT NULL AND ${table.targetType} = 'pipeline_connection'))`
     ),
     uniqueIndex("agent_checklist_applications_autoKey_unique").on(table.autoKey),
     index("agent_checklist_applications_transaction_idx").on(
@@ -2667,6 +2672,11 @@ export const agentChecklistApplications = mysqlTable(
     ),
     index("agent_checklist_applications_listing_idx").on(
       table.listingId,
+      table.removedAt,
+      table.createdAt
+    ),
+    index("agent_checklist_applications_connection_idx").on(
+      table.agentConnectionId,
       table.removedAt,
       table.createdAt
     ),

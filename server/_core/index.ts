@@ -102,6 +102,7 @@ import { ensureContactLeadSourceTrigger } from "../contactLeadSourceTrigger";
 import { ensureRrMeasurableSchema } from "../rrMeasurableSchema";
 import { ensureCoachingWorkflowSchema } from "../coachingWorkflowSchema";
 import { ensureOneOnOneSchema } from "../oneOnOneSchema";
+import { ensurePipelineChecklistSchema } from "../pipelineChecklistSchema";
 import { ensureEventProjectLinkSchema } from "../eventProjectLinkSchema";
 import { ensureSponsorContactLogSchema } from "../sponsorContactLogSchema";
 import { ensureChatUserAccessSchema } from "../chatUserAccessSchema";
@@ -150,6 +151,7 @@ async function startServer() {
   await ensureRrMeasurableSchema();
   await ensureCoachingWorkflowSchema();
   await ensureOneOnOneSchema();
+  await ensurePipelineChecklistSchema();
   await ensureEventProjectLinkSchema();
   await ensureSponsorContactLogSchema();
   await ensureChatUserAccessSchema();

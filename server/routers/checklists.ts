@@ -22,13 +22,14 @@ import {
 } from "../checklistAuthorization";
 import {
   applyChecklistTemplate,
+  checklistApplicationTargetId,
   checklistTemplateMatchesTarget,
   listChecklistApplications,
 } from "../checklistService";
 import { getDb, logActivity } from "../db";
 
 const positiveId = z.number().int().positive();
-const targetTypeSchema = z.enum(["transaction", "listing"]);
+const targetTypeSchema = z.enum(["transaction", "listing", "pipeline_connection"]);
 const transactionTypeFilterSchema = z.enum(["buyer", "seller", "dual", "any"]);
 const automaticEventSchema = z.enum(["none", "on_create", "on_under_contract"]);
 const dueAnchorSchema = z.enum([
@@ -75,6 +76,34 @@ const templateDataSchema = z
         code: "custom",
         path: ["transactionTypeFilter"],
         message: "Listing templates must use the 'any' transaction filter.",
+      });
+    }
+    if (value.targetType === "pipeline_connection") {
+      // A pipeline SOP is applied by hand to a connection. It has no
+      // transaction subtype, no automatic trigger, and only one date to
+      // count from: when the connection was created.
+      if (value.transactionTypeFilter !== "any") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["transactionTypeFilter"],
+          message: "Pipeline templates must use the 'any' transaction filter.",
+        });
+      }
+      if (value.automaticDefaultEvent !== "none") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["automaticDefaultEvent"],
+          message: "Pipeline templates are applied by hand, not automatically.",
+        });
+      }
+      value.items.forEach((item, index) => {
+        if (item.dueAnchor && item.dueAnchor !== "target_created") {
+          ctx.addIssue({
+            code: "custom",
+            path: ["items", index, "dueAnchor"],
+            message: "Pipeline checklist items can only be due relative to when the connection was added.",
+          });
+        }
       });
     }
     value.items.forEach((item, index) => {
@@ -248,7 +277,7 @@ export const checklistsRouter = router({
           name: input.name,
           description: input.description || null,
           targetType: input.targetType,
-          transactionTypeFilter: input.targetType === "listing" ? "any" : input.transactionTypeFilter,
+          transactionTypeFilter: input.targetType === "transaction" ? input.transactionTypeFilter : "any",
           automaticDefaultEvent: input.automaticDefaultEvent,
         });
         const templateId = Number((result as { insertId: number }).insertId);
@@ -284,7 +313,7 @@ export const checklistsRouter = router({
               description: input.data.description || null,
               targetType: input.data.targetType,
               transactionTypeFilter:
-                input.data.targetType === "listing" ? "any" : input.data.transactionTypeFilter,
+                input.data.targetType === "transaction" ? input.data.transactionTypeFilter : "any",
               automaticDefaultEvent: input.data.automaticDefaultEvent,
             })
             .where(eq(agentChecklistTemplates.id, input.id));
@@ -502,7 +531,7 @@ export const checklistsRouter = router({
             userId: current.id,
             action: "checklist_removed",
             entityType: application.targetType,
-            entityId: application.targetType === "transaction" ? application.transactionId : application.listingId,
+            entityId: checklistApplicationTargetId(application),
             details: { applicationId: application.id },
           });
         }
@@ -568,7 +597,7 @@ export const checklistsRouter = router({
             userId: current.id,
             action: input.data.completed ? "checklist_item_completed" : "checklist_item_reopened",
             entityType: application.targetType,
-            entityId: application.targetType === "transaction" ? application.transactionId : application.listingId,
+            entityId: checklistApplicationTargetId(application),
             details: { applicationId: application.id, itemId: item.id, title: item.title },
           });
         } else {
@@ -576,7 +605,7 @@ export const checklistsRouter = router({
             userId: current.id,
             action: "checklist_item_updated",
             entityType: application.targetType,
-            entityId: application.targetType === "transaction" ? application.transactionId : application.listingId,
+            entityId: checklistApplicationTargetId(application),
             details: { applicationId: application.id, itemId: item.id, fields: Object.keys(input.data) },
           });
         }
@@ -625,7 +654,7 @@ export const checklistsRouter = router({
           userId: current.id,
           action: "checklist_item_added",
           entityType: application.targetType,
-          entityId: application.targetType === "transaction" ? application.transactionId : application.listingId,
+          entityId: checklistApplicationTargetId(application),
           details: { applicationId: application.id, itemId, title: input.title },
         });
         return { id: itemId };
@@ -645,7 +674,7 @@ export const checklistsRouter = router({
           userId: current.id,
           action: "checklist_item_removed",
           entityType: application.targetType,
-          entityId: application.targetType === "transaction" ? application.transactionId : application.listingId,
+          entityId: checklistApplicationTargetId(application),
           details: { applicationId: application.id, itemId: item.id, title: item.title },
         });
         return { success: true };
