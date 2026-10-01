@@ -8,6 +8,7 @@ import {
   ExternalLink,
   FolderKanban,
   MessageCircle,
+  Paperclip,
   Pencil,
   Repeat2,
   Trash2,
@@ -432,6 +433,16 @@ function ProjectTodoWorkspace({
           >
             {todo.title}
           </span>
+          {Number(todo.attachmentCount ?? 0) > 0 ? (
+            <span
+              className="shrink-0 text-primary"
+              role="img"
+              aria-label={`${Number(todo.attachmentCount)} attached document${Number(todo.attachmentCount) === 1 ? "" : "s"}`}
+              title={`${Number(todo.attachmentCount)} attached document${Number(todo.attachmentCount) === 1 ? "" : "s"}`}
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+            </span>
+          ) : null}
           <ChevronDown
             className={cn(
               "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
@@ -554,11 +565,12 @@ function ProjectTodoWorkspace({
               </p>
             )}
           </section>
-          {todo.projectId ? (
+          {todo.projectId && Number(todo.attachmentCount ?? 0) > 0 ? (
             <div className="mt-2">
               <ProjectTodoAttachments
                 projectId={todo.projectId}
                 taskId={taskId}
+                presentation="files"
                 onChanged={onChanged}
               />
             </div>
@@ -743,6 +755,13 @@ function ProjectTodoWorkspace({
                   onMove={destinationProjectId =>
                     onMoveProject(taskId, destinationProjectId)
                   }
+                />
+              ) : null}
+              {todo.projectId ? (
+                <ProjectTodoAttachments
+                  projectId={todo.projectId}
+                  taskId={taskId}
+                  onChanged={onChanged}
                 />
               ) : null}
               <Button

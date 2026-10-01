@@ -76,11 +76,22 @@ describe("Project To-Do rich details and documents", () => {
   it("renders rich links and documents from both Project To-Do workspaces", () => {
     expect(detailsSurface).toContain("ProjectTodoDetailsEditor");
     expect(detailsSurface).toContain("dangerouslySetInnerHTML");
-    expect(attachmentSurface).toContain("Attach documents");
+    expect(attachmentSurface).toContain("Attach document");
     expect(attachmentSurface).toContain("getAttachmentDownloadUrl");
     expect(detailPage).toContain("ProjectTodoDetailsEditor");
     expect(detailPage).toContain("ProjectTodoAttachments");
     expect(myTodos).toContain("ProjectTodoDetailsEditor");
     expect(myTodos).toContain("ProjectTodoAttachments");
+  });
+
+  it("keeps empty document surfaces compact and marks attached Project To-Dos", () => {
+    expect(attachmentSurface).toContain('presentation?: "compact" | "files"');
+    expect(attachmentSurface).toContain("if (!hasFiles) return null;");
+    expect(attachmentSurface).toContain("Attach document");
+    expect(detailPage).toContain('presentation="files"');
+    expect(detailPage).toContain("Number(task.attachmentCount ?? 0) > 0");
+    expect(detailPage).toContain('<Paperclip className="h-3.5 w-3.5');
+    expect(myTodos).toContain("Number(todo.attachmentCount ?? 0) > 0");
+    expect(myTodos).toContain("attached document");
   });
 });

@@ -23,6 +23,13 @@ type ProjectTodoAttachmentsProps = {
   pendingUploads?: ProjectTodoAttachmentUpload[];
   onPendingUploadsChange?: (uploads: ProjectTodoAttachmentUpload[]) => void;
   onChanged?: () => void;
+  /**
+   * Compact keeps the attachment action in an existing control row. Files
+   * renders only saved documents, so an empty To-Do never reserves a document row.
+   */
+  presentation?: "compact" | "files";
+  /** Defaults to the staged-file list for a new To-Do, and no list for saved To-Dos. */
+  showFileList?: boolean;
 };
 
 function fileSizeLabel(value: number | null) {
@@ -42,6 +49,8 @@ export default function ProjectTodoAttachments({
   pendingUploads = [],
   onPendingUploadsChange,
   onChanged,
+  presentation = "compact",
+  showFileList,
 }: ProjectTodoAttachmentsProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -78,6 +87,8 @@ export default function ProjectTodoAttachments({
     attachUploads.isPending ||
     discardUpload.isPending ||
     removeAttachment.isPending;
+  const hasFiles = taskId ? attachments.length > 0 : pendingUploads.length > 0;
+  const shouldShowFileList = showFileList ?? !taskId;
 
   async function uploadFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -159,111 +170,114 @@ export default function ProjectTodoAttachments({
     }
   }
 
-  const hasFiles = taskId ? attachments.length > 0 : pendingUploads.length > 0;
+  const documentList = hasFiles ? (
+    <div className="divide-y rounded border bg-muted/10 px-2">
+      {taskId
+        ? attachments.map(attachment => (
+            <div
+              key={attachment.id}
+              className="flex min-w-0 items-center gap-2 py-1.5 text-sm"
+            >
+              <FileText className="h-4 w-4 shrink-0 text-primary" />
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left font-medium text-sky-700 underline decoration-sky-400 underline-offset-2 hover:text-sky-900"
+                title={`Open ${attachment.fileName}`}
+                disabled={downloadAttachment.isPending}
+                onClick={() =>
+                  downloadAttachment.mutate({ attachmentId: attachment.id })
+                }
+              >
+                {attachment.fileName}
+              </button>
+              {fileSizeLabel(attachment.fileSize) ? (
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {fileSizeLabel(attachment.fileSize)}
+                </span>
+              ) : null}
+              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                disabled={busy}
+                title={`Remove ${attachment.fileName}`}
+                aria-label={`Remove ${attachment.fileName}`}
+                onClick={() => void removeSaved(attachment.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))
+        : pendingUploads.map(attachment => (
+            <div
+              key={attachment.id}
+              className="flex min-w-0 items-center gap-2 py-1.5 text-sm"
+            >
+              <FileText className="h-4 w-4 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {attachment.fileName}
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                Ready to save
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                disabled={busy}
+                title={`Remove ${attachment.fileName}`}
+                aria-label={`Remove ${attachment.fileName}`}
+                onClick={() => void discardPending(attachment.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+    </div>
+  ) : null;
+
+  if (presentation === "files") {
+    if (!hasFiles) return null;
+    return (
+      <section className="rounded-md border bg-background p-2 sm:p-2.5">
+        <h4 className="flex items-center gap-1.5 text-sm font-semibold">
+          <Paperclip className="h-4 w-4 text-primary" /> Documents
+        </h4>
+        <div className="mt-2">{documentList}</div>
+      </section>
+    );
+  }
 
   return (
-    <section className="rounded-md border bg-background p-2 sm:p-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h4 className="flex items-center gap-1.5 text-sm font-semibold">
-            <Paperclip className="h-4 w-4 text-primary" /> Documents
-          </h4>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Attach up to 10 files, 16 MB each. Project collaborators can open
-            the documents here.
-          </p>
-        </div>
-        <input
-          ref={inputRef}
-          className="hidden"
-          type="file"
-          multiple
-          onChange={event => void uploadFiles(event.target.files)}
-        />
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-8"
-          disabled={busy || isLoading}
-          onClick={() => inputRef.current?.click()}
-        >
-          {uploading ? (
-            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Paperclip className="mr-1.5 h-3.5 w-3.5" />
-          )}
-          Attach documents
-        </Button>
-      </div>
-      {hasFiles ? (
-        <div className="mt-2 divide-y rounded border bg-muted/10 px-2">
-          {taskId
-            ? attachments.map(attachment => (
-                <div
-                  key={attachment.id}
-                  className="flex min-w-0 items-center gap-2 py-1.5 text-sm"
-                >
-                  <FileText className="h-4 w-4 shrink-0 text-primary" />
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 truncate text-left font-medium text-sky-700 underline decoration-sky-400 underline-offset-2 hover:text-sky-900"
-                    title={`Open ${attachment.fileName}`}
-                    disabled={downloadAttachment.isPending}
-                    onClick={() =>
-                      downloadAttachment.mutate({ attachmentId: attachment.id })
-                    }
-                  >
-                    {attachment.fileName}
-                  </button>
-                  {fileSizeLabel(attachment.fileSize) ? (
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {fileSizeLabel(attachment.fileSize)}
-                    </span>
-                  ) : null}
-                  <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                    disabled={busy}
-                    title={`Remove ${attachment.fileName}`}
-                    aria-label={`Remove ${attachment.fileName}`}
-                    onClick={() => void removeSaved(attachment.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ))
-            : pendingUploads.map(attachment => (
-                <div
-                  key={attachment.id}
-                  className="flex min-w-0 items-center gap-2 py-1.5 text-sm"
-                >
-                  <FileText className="h-4 w-4 shrink-0 text-primary" />
-                  <span className="min-w-0 flex-1 truncate font-medium">
-                    {attachment.fileName}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    Ready to save
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                    disabled={busy}
-                    title={`Remove ${attachment.fileName}`}
-                    aria-label={`Remove ${attachment.fileName}`}
-                    onClick={() => void discardPending(attachment.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ))}
-        </div>
+    <div className="flex flex-wrap items-center gap-2">
+      <input
+        ref={inputRef}
+        className="hidden"
+        type="file"
+        multiple
+        onChange={event => void uploadFiles(event.target.files)}
+      />
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-8"
+        disabled={busy || isLoading}
+        onClick={() => inputRef.current?.click()}
+      >
+        {uploading ? (
+          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+        )}
+        Attach document
+      </Button>
+      {shouldShowFileList && documentList ? (
+        <div className="basis-full">{documentList}</div>
       ) : null}
-    </section>
+    </div>
   );
 }
