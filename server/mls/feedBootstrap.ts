@@ -87,15 +87,28 @@ async function createMissingFeeds(connection: Connection, feeds: DeclaredMlsFeed
       "SELECT id FROM `mls_feeds` WHERE sourceId = ? AND provider = ? AND feedType = ? LIMIT 1",
       [source.id, declared.provider, declared.feedType]
     );
-    if (existing.length) continue;
+    if (existing.length) {
+      if (declared.provider === "mls_grid") {
+        // One-time migration only. Subsequent admin changes to the interval or
+        // photo policy are never overwritten by another deploy.
+        await connection.query(
+          `UPDATE mls_feeds
+             SET options = JSON_SET(COALESCE(options, JSON_OBJECT()), '$.fastImportV1', true),
+                 syncIntervalMinutes = 5, mediaPolicy = 'primary_only'
+           WHERE id = ? AND JSON_EXTRACT(options, '$.fastImportV1') IS NULL`,
+          [existing[0].id]
+        );
+      }
+      continue;
+    }
     if (!source.originatingSystemName) {
       console.warn(`[mlsFeeds] ${declared.sourceCode} has no OriginatingSystemName; not creating ${declared.name}`);
       continue;
     }
     await connection.query(
       `INSERT INTO \`mls_feeds\`
-        (sourceId, name, provider, feedType, baseUrl, originatingSystemName, keyPrefix, credentialRef, options, enabled)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
+        (sourceId, name, provider, feedType, baseUrl, originatingSystemName, keyPrefix, credentialRef, options, enabled, syncIntervalMinutes, mediaPolicy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, true, ?, ?)`,
       [
         source.id,
         declared.name,
@@ -105,7 +118,9 @@ async function createMissingFeeds(connection: Connection, feeds: DeclaredMlsFeed
         source.originatingSystemName,
         source.keyPrefix ?? null,
         declared.credentialRef,
-        JSON.stringify({ license: declared.license, declaredInCode: true }),
+        JSON.stringify({ license: declared.license, declaredInCode: true, fastImportV1: declared.provider === "mls_grid" }),
+        declared.provider === "mls_grid" ? 5 : 15,
+        "primary_only",
       ]
     );
     if (["planned", "conditional", "applied"].includes(String(source.onboardingStatus))) {

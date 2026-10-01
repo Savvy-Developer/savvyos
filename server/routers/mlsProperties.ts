@@ -230,6 +230,21 @@ export const mlsPropertiesRouter = router({
       return mapPoints(db, { filters: { ...input.filters, bounds: undefined }, bounds: input.bounds, zoom: input.zoom });
     }),
 
+  requestGallery: viewProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+    const db = await requireDb();
+    const [listing] = await db.select().from(mlsListings).where(and(eq(mlsListings.id, input.id), isNull(mlsListings.removedFromFeedAt))).limit(1);
+    if (!listing) throw new TRPCError({ code: "NOT_FOUND", message: "Listing not found" });
+    const [feed] = await db.select().from(mlsFeeds).where(eq(mlsFeeds.id, listing.feedId)).limit(1);
+    if (!feed || !feed.enabled || licenseError(feed)) throw new TRPCError({ code: "NOT_FOUND", message: "Feed unavailable" });
+    // A sentinel works even for historical pages fetched without Media.
+    // Only the ingestion worker refreshes photo links, within the token budget.
+    await db.insert(mlsMedia).values({
+      feedId: listing.feedId, listingId: listing.id, resourceKey: listing.providerListingKey,
+      mediaKey: "__gallery_request__", status: "expired", priority: 0,
+    }).onDuplicateKeyUpdate({ set: { status: "expired", attempts: 0, priority: 0 } });
+    return { queued: true };
+  }),
+
   listing: viewProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input, ctx }) => {
     const db = await requireDb();
     const [listing] = await db.select().from(mlsListings).where(eq(mlsListings.id, input.id)).limit(1);
@@ -263,6 +278,7 @@ export const mlsPropertiesRouter = router({
           isPrimary: mlsMedia.isPrimary,
           sortOrder: mlsMedia.sortOrder,
           status: mlsMedia.status,
+          priority: mlsMedia.priority,
         })
         .from(mlsMedia)
         .where(and(eq(mlsMedia.feedId, listing.feedId), eq(mlsMedia.resourceKey, listing.providerListingKey)))

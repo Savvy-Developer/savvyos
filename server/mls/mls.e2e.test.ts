@@ -97,10 +97,19 @@ function handler(req: IncomingMessage, res: ServerResponse) {
     return;
   }
   if (filter.includes("MlgCanView eq true")) rows = rows.filter(row => row.MlgCanView !== false);
+  const statuses = filter.match(/StandardStatus in \(([^)]+)\)/)?.[1]?.match(/'[^']+'/g)?.map(item => item.slice(1, -1));
+  if (statuses) rows = rows.filter(row => statuses.includes(row.StandardStatus));
+  const ids = filter.match(/ListingId in \(([^)]+)\)/)?.[1]?.match(/'[^']+'/g)?.map(item => item.slice(1, -1));
+  if (ids) rows = rows.filter(row => ids.includes(row.ListingId));
   const gt = filter.match(/ModificationTimestamp gt ([0-9T:.\-Z]+)/)?.[1];
   if (gt) rows = rows.filter(row => row.ModificationTimestamp > gt);
   rows.sort((a, b) => String(a.ModificationTimestamp).localeCompare(String(b.ModificationTimestamp)));
-  const pageRows = rows.slice(skip, skip + top).map(row => (resource === "Property" ? withMediaUrls(row) : row));
+  const pageRows = rows.slice(skip, skip + top).map(row => {
+    if (resource !== "Property") return row;
+    return (url.searchParams.get("$expand") ?? "").split(",").includes("Media")
+      ? withMediaUrls(row)
+      : (({ Media: _media, ...withoutMedia }) => withoutMedia)(row);
+  });
   const nextUrl = new URL(url.toString());
   nextUrl.searchParams.set("skip", String(skip + top));
   const body: Record_ = { "@odata.context": `${base}/v2/$metadata#${resource}`, value: pageRows };
@@ -387,4 +396,70 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     await untouched.ready();
     expect(untouched.api.nextWaitMs()).toBe(0);
   }, 60_000);
+
+  it("prefills the market, checks live changes, loads history without Media, and refreshes galleries in a batch", async () => {
+    const original = state.properties;
+    try {
+      state.properties = [
+        listing("fast1", { ModificationTimestamp: "2026-09-25T10:00:00.000Z" }),
+        listing("fast2", { ModificationTimestamp: "2026-09-25T11:00:00.000Z", StandardStatus: "Closed" }),
+        listing("fast3", { ModificationTimestamp: "2026-09-25T12:00:00.000Z", StandardStatus: "Active Under Contract", StreetNumber: "31" }),
+      ];
+      const [source] = await q("SELECT id FROM mls_sources WHERE code = 'canopy'");
+      await admin.query(
+        `INSERT INTO mls_feeds (sourceId, name, provider, feedType, baseUrl, originatingSystemName, keyPrefix, credentialRef, resources, options, enabled, mediaPolicy, syncIntervalMinutes, retentionPolicy)
+         VALUES (?, 'Fast test', 'mls_grid', 'bbo', ?, 'carolina', 'CAR', 'E2EGRID', ?, ?, true, 'primary_only', 5, 'purge')`,
+        [source.id, `${base}/v2`, JSON.stringify(["Property"]), JSON.stringify({ fastImportV1: true, license: { approved: true, internalUse: true, reference: "SYNTHETIC TEST FIXTURE ONLY" } })]
+      );
+      const [fast] = await q("SELECT id FROM mls_feeds WHERE name='Fast test'");
+      const before = state.requests.length;
+      const first = await modules.engine.runFeedCycle(fast.id, { workerId: "fast-e2e" });
+      expect(first.ok).toBe(true);
+      expect(first.resources["Priority:Property"].received).toBe(2);
+      expect(first.resources["Property"].received).toBe(3);
+      const propertyRequests = state.requests.slice(before).filter(request => request.startsWith("/v2/Property?"));
+      expect(propertyRequests.some(request => request.includes("StandardStatus in ("))).toBe(true);
+      expect(propertyRequests.some(request => request.includes("MlgCanView eq true") && request.includes("$expand=Rooms,UnitTypes") && !request.includes("Media"))).toBe(true);
+      const media = await q<any>("SELECT resourceKey, status, isPrimary FROM mls_media WHERE feedId=?", [fast.id]);
+      expect(media.length).toBe(2);
+      expect(media.every(row => !!row.isPrimary && row.status === "pending")).toBe(true);
+      const [cursor] = await q<any>("SELECT phase, highWaterMark FROM mls_sync_cursors WHERE feedId=? AND resource='Property'", [fast.id]);
+      expect(cursor.phase).toBe("incremental");
+      expect(new Date(cursor.highWaterMark).getTime()).toBeGreaterThan(Date.parse("2026-09-25"));
+
+      state.properties[0] = { ...state.properties[0], StandardStatus: "Pending", ListPrice: 490000, ModificationTimestamp: new Date(Date.now() + 1000).toISOString() };
+      const changed = await modules.engine.runFeedCycle(fast.id, { workerId: "fast-e2e" });
+      expect(changed.ok).toBe(true);
+      const [updated] = await q<any>("SELECT standardStatus, listPrice FROM mls_listings WHERE feedId=? AND providerListingKey='CARfast1'", [fast.id]);
+      expect(updated.standardStatus).toBe("pending");
+      expect(Number(updated.listPrice)).toBe(490000);
+
+      const latest = state.properties[0];
+      state.properties[0] = { ...latest, StandardStatus: "Active", ListPrice: 500000, ModificationTimestamp: "2026-09-25T10:00:00.000Z" };
+      await admin.query("UPDATE mls_sync_cursors SET phase='initial', highWaterMark=NULL, resumeToken=NULL WHERE feedId=? AND resource='Property'", [fast.id]);
+      expect((await modules.engine.runFeedCycle(fast.id, { workerId: "fast-e2e" })).ok).toBe(true);
+      const [stillPending] = await q<any>("SELECT standardStatus, listPrice FROM mls_listings WHERE feedId=? AND providerListingKey='CARfast1'", [fast.id]);
+      expect([stillPending.standardStatus, Number(stillPending.listPrice)]).toEqual(["pending", 490000]);
+      state.properties[0] = latest;
+
+      // Two expired links should cost one ListingId-in request, not two.
+      await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL, attempts=0 WHERE feedId=?", [fast.id]);
+      const lane = modules.http.getLane("mls_grid", "E2EGRID", modules.adapters.adapterFor("mls_grid").limits({ options: null } as any));
+      const ctx = (await modules.engine.loadFeedContext(fast.id))!;
+      const refreshStart = state.requests.length;
+      const batch = await modules.media.runMediaBatch(lane, [ctx], "fast-e2e", { batchSize: 0 });
+      expect(batch.refreshed).toBe(2);
+      expect(state.requests.slice(refreshStart).filter(request => request.includes("ListingId in ("))).toHaveLength(1);
+
+      const [market] = await q<any>("SELECT id, providerListingKey FROM mls_listings WHERE feedId=? AND providerListingKey='CARfast1'", [fast.id]);
+      await admin.query("INSERT INTO mls_media (feedId, listingId, resourceKey, mediaKey, status, priority) VALUES (?, ?, ?, '__gallery_request__', 'expired', 0)", [fast.id, market.id, market.providerListingKey]);
+      const gallery = await modules.media.runMediaBatch(lane, [ctx], "fast-e2e", { batchSize: 0 });
+      expect(gallery.refreshed).toBe(1);
+      const images = await q<any>("SELECT status, priority FROM mls_media WHERE feedId=? AND resourceKey=? AND mediaKey<>'__gallery_request__'", [fast.id, market.providerListingKey]);
+      expect(images.length).toBe(2);
+      expect(images.every(image => image.priority === 0)).toBe(true);
+    } finally {
+      state.properties = original;
+    }
+  }, 90_000);
 });

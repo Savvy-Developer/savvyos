@@ -16,7 +16,7 @@ import {
   type MlsMediaPolicy,
 } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
-import type { ExtractedMedia, FeedContext, MlsAdapter, MlsResource } from "./adapters/types";
+import { readOption, type ExtractedMedia, type FeedContext, type MlsAdapter, type MlsResource } from "./adapters/types";
 import { readComplianceProfile } from "./compliance";
 import { MARKET_STATUSES, OFF_MARKET_STATUSES, type CanonicalStatus } from "./normalize/enums";
 import {
@@ -71,15 +71,15 @@ async function requireDb(): Promise<Db> {
 }
 
 async function loadRawHashes(db: Db, feedId: number, resource: MlsResource, keys: string[]) {
-  const hashes = new Map<string, string>();
+  const hashes = new Map<string, { hash: string; modifiedAt: Date | null }>();
   for (let i = 0; i < keys.length; i += 500) {
     const chunk = keys.slice(i, i + 500);
     if (!chunk.length) continue;
     const rows = await db
-      .select({ key: mlsRawRecords.providerKey, hash: mlsRawRecords.payloadHash })
+      .select({ key: mlsRawRecords.providerKey, hash: mlsRawRecords.payloadHash, modifiedAt: mlsRawRecords.sourceModifiedAt })
       .from(mlsRawRecords)
       .where(and(eq(mlsRawRecords.feedId, feedId), eq(mlsRawRecords.resource, resource), inArray(mlsRawRecords.providerKey, chunk)));
-    for (const row of rows) hashes.set(row.key, row.hash);
+    for (const row of rows) hashes.set(row.key, { hash: row.hash, modifiedAt: row.modifiedAt });
   }
   return hashes;
 }
@@ -178,7 +178,11 @@ async function syncListingMedia(
     const mediaKey = item.mediaKey.slice(0, 191);
     incoming.add(mediaKey);
     const current = byKey.get(mediaKey);
-    const wanted = mediaWanted(item, status, ctx.feed.mediaPolicy, closedPrimaryOnly);
+    const wanted = current?.priority === 0 || (
+      (!readOption(ctx.feed, "fastImportV1", false) || MARKET_STATUSES.includes(status))
+      && mediaWanted(item, status, ctx.feed.mediaPolicy, closedPrimaryOnly)
+    );
+    if (!wanted && !current && readOption(ctx.feed, "fastImportV1", false)) continue;
     const changedAtSource =
       !current || (item.sourceModifiedAt?.getTime() ?? 0) !== (current.sourceModifiedAt?.getTime() ?? 0);
     // Expired URLs get refreshed; failures retry only while attempts remain.
@@ -204,7 +208,7 @@ async function syncListingMedia(
       sourceUrlExpiresAt: needsUrl && item.sourceUrl ? adapter.mediaUrlExpiresAt(item.sourceUrl, receivedAt) : null,
       status: nextStatus,
       claimedBy: nextStatus === "downloading" ? current?.claimedBy ?? null : null,
-      priority: mediaPriority(item, status),
+      priority: current?.priority === 0 ? 0 : mediaPriority(item, status),
       attempts: changedAtSource ? 0 : current?.attempts ?? 0,
       nextAttemptAt: null,
       lastError: needsUrl ? null : current?.lastError ?? null,
@@ -460,7 +464,7 @@ export async function upsertNormalizedListing(
     }
     if (history.length) await t.insert(mlsListingHistory).values(history);
 
-    const mediaQueued = await syncListingMedia(
+    const mediaQueued = normalized.mediaExpanded ? await syncListingMedia(
       t,
       ctx,
       adapter,
@@ -469,7 +473,7 @@ export async function upsertNormalizedListing(
       status,
       normalized.media,
       receivedAt
-    );
+    ) : 0;
     await upsertInsights(t, propertyId, ctx, listingId, normalized);
     await refreshPropertySummary(t, propertyId);
     if (previousPropertyId) {
@@ -577,7 +581,15 @@ export async function processRecords(
         continue;
       }
       const hash = payloadHash(record);
-      if (!options.force && hashes.get(key) === hash) {
+      const previous = hashes.get(key);
+      // A market prefill / live cursor runs ahead of the historical cursor.
+      // Never let an older history page roll a price or status backwards.
+      if (previous?.modifiedAt && modified && Date.parse(modified) < previous.modifiedAt.getTime()) {
+        await db.update(mlsRawRecords).set({ receivedAt }).where(and(eq(mlsRawRecords.feedId, ctx.feed.id), eq(mlsRawRecords.resource, resource), eq(mlsRawRecords.providerKey, key)));
+        counts.unchanged += 1;
+        continue;
+      }
+      if (!options.force && previous?.hash === hash) {
         await db.update(mlsRawRecords).set({ receivedAt }).where(and(eq(mlsRawRecords.feedId, ctx.feed.id), eq(mlsRawRecords.resource, resource), eq(mlsRawRecords.providerKey, key)));
         counts.unchanged += 1;
         continue;
