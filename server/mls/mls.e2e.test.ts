@@ -405,15 +405,15 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const limits = modules.adapters.adapterFor("mls_grid").limits({ options: null } as any);
     const lane = modules.http.getLane("mls_grid", "RESTARTTEST", limits);
     await lane.ready();
-    // 46,000 requests this hour exceed the temporary 40,000 cap. A restart
+    // 46,000 requests this hour exceed the temporary 6,500 cap. A restart
     // cannot reset either data or photo usage.
     expect(lane.api.nextWaitMs()).toBeGreaterThan(0);
     expect(lane.media.nextWaitMs()).toBeGreaterThan(0);
     const untouched = modules.http.getLane("mls_grid", "OTHERTOKEN", limits);
     await untouched.ready();
     expect(untouched.api.nextWaitMs()).toBe(0);
-    // The same MARIS-like burst fits the increased temporary photo share.
-    for (const [hoursAgo, mediaRequests] of [[2, 5319], [3, 18514], [4, 8794], [5, 4843]]) {
+    // Earlier media usage below the safe daily share still allows new work.
+    for (const [hoursAgo, mediaRequests] of [[2, 5319], [3, 8000], [4, 4000], [5, 3500]]) {
       await q(
         `INSERT INTO mls_provider_usage (credentialRef, provider, windowStart, requests, bytes, mediaRequests, mediaBytes, throttled)
          VALUES ('MARISBURST', 'mls_grid', ?, 0, 0, ?, 200000000, 0)`,

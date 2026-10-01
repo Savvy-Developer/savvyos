@@ -26,7 +26,7 @@ const TICK_MS = Number(process.env.MLS_WORKER_TICK_MS ?? 15_000);
 const HEARTBEAT_MS = 30_000;
 const STALE_CLAIM_SWEEP_MS = 10 * 60_000;
 
-type LaneState = { syncing: boolean; media: boolean };
+type LaneState = { syncing: boolean; media: boolean; scanning: boolean };
 
 export class MlsIngestionScheduler {
   readonly workerId = `mls-worker:${process.env.RAILWAY_DEPLOYMENT_ID ?? process.pid}:${randomUUID().slice(0, 8)}`;
@@ -80,7 +80,7 @@ export class MlsIngestionScheduler {
       lanes: allLanes().map(lane => ({
         key: lane.key,
         provider: lane.provider,
-        state: this.lanes.get(lane.key) ?? { syncing: false, media: false },
+        state: this.lanes.get(lane.key) ?? { syncing: false, media: false, scanning: false },
         api: lane.api.snapshot(),
         media: lane.media.snapshot(),
       })),
@@ -117,9 +117,13 @@ export class MlsIngestionScheduler {
       byLane.set(key, [...(byLane.get(key) ?? []), ctx]);
     }
     for (const [key, laneFeeds] of Array.from(byLane.entries())) {
-      const state = this.lanes.get(key) ?? { syncing: false, media: false };
+      const state = this.lanes.get(key) ?? { syncing: false, media: false, scanning: false };
       this.lanes.set(key, state);
       const configured = laneFeeds.filter(ctx => credentialStatus(ctx.feed).configured && !licenseError(ctx.feed));
+      if (!state.scanning && configured.some(ctx => ctx.feed.provider === "mls_grid" && ctx.feed.enabled)) {
+        state.scanning = true;
+        void this.track(this.scanActiveGalleries(configured)).finally(() => { state.scanning = false; });
+      }
       if (!state.syncing) {
         // Requested syncs first, then the stalest due feed.
         const due = laneFeeds
@@ -153,29 +157,29 @@ export class MlsIngestionScheduler {
     }
   }
 
+  private async scanActiveGalleries(feeds: FeedContext[]) {
+    const db = await getDb();
+    if (!db || this.controller.signal.aborted) return;
+    for (const ctx of feeds) {
+      if (this.controller.signal.aborted || ctx.feed.provider !== "mls_grid" || !ctx.feed.enabled) continue;
+      try {
+        const progress = await queueActiveGalleries(db, ctx);
+        if (progress.scanned || progress.queued) this.lastActivity[`gallery:${ctx.feed.id}`] = { at: new Date().toISOString(), ...progress };
+      } catch (error) {
+        // Gallery discovery must not block live listing sync or media downloads.
+        console.error(`[mls] Active gallery scan failed for feed ${ctx.feed.id}`, error);
+      }
+    }
+  }
+
   private async mediaLane(key: string, feeds: FeedContext[]) {
     const provider = feeds[0].feed.provider;
     const lane = getLane(provider, feeds[0].feed.credentialRef, adapterFor(provider).limits(feeds[0].feed));
     const feedIds = feeds.map(ctx => ctx.feed.id);
     // Drain for up to one tick window, then yield so feed changes are picked up.
     const until = Date.now() + Math.max(TICK_MS * 4, 60_000);
-    let nextGalleryScanAt = 0;
     try {
       while (Date.now() < until && !this.controller.signal.aborted) {
-        if (Date.now() >= nextGalleryScanAt) {
-          const db = await getDb();
-          if (db) for (const ctx of feeds) {
-            if (ctx.feed.provider !== "mls_grid" || !ctx.feed.enabled) continue;
-            try {
-              const progress = await queueActiveGalleries(db, ctx);
-              if (progress.scanned || progress.queued) this.lastActivity[`gallery:${ctx.feed.id}`] = { at: new Date().toISOString(), ...progress };
-            } catch (error) {
-              // Gallery discovery must never prevent live listing sync or covers.
-              console.error(`[mls] Active gallery scan failed for feed ${ctx.feed.id}`, error);
-            }
-          }
-          nextGalleryScanAt = Date.now() + 15_000;
-        }
         if (!(await hasPendingMedia(feedIds))) return;
         const result = await runMediaBatch(lane, feeds, this.workerId, { signal: this.controller.signal });
         this.lastActivity[`media:${key}`] = { at: new Date().toISOString(), ...result };
