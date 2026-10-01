@@ -585,8 +585,9 @@ function MappingsPanel({ sources, feeds }: { sources: Source[]; feeds: MlsFeedVi
   );
 }
 
-function HealthPanel() {
+function HealthPanel({ feeds }: { feeds: MlsFeedView[] }) {
   const overview = trpc.mlsProperties.overview.useQuery(undefined, { refetchInterval: 30_000 });
+  const photo = trpc.mlsProperties.photoHealth.useQuery(undefined, { refetchInterval: 60_000 });
   const usage = trpc.mlsProperties.usage.useQuery({ hours: 48 }, { refetchInterval: 60_000 });
   const usageByCredential = useMemo(() => {
     const totals = new Map<string, { provider: string; requests: number; bytes: number; mediaRequests: number; mediaBytes: number; throttled: number; lastHour: number }>();
@@ -618,9 +619,18 @@ function HealthPanel() {
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base">Photo pipeline</CardTitle></CardHeader>
         <CardContent className="space-y-2 text-sm">
-          {data?.mediaByStatus.length ? data.mediaByStatus.map(row => (
-            <div key={row.status} className="flex justify-between"><span className="text-muted-foreground">{row.status}</span><span>{formatNumber(row.count)}</span></div>
-          )) : <p className="text-muted-foreground">No media yet.</p>}
+          {photo.data?.photoStorage?.configurationValid === false ? (
+            <p className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 p-2 text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Photo downloads paused: {photo.data.photoStorage.issue}</p>
+          ) : photo.data?.photoStorage?.configurationValid ? (
+            <p className="text-muted-foreground">Private photo storage variables are present on the worker. This does not verify bucket access.</p>
+          ) : photo.data ? (
+            <p className="text-amber-800">Waiting for the worker to report its photo storage configuration.</p>
+          ) : null}
+          {photo.data?.queue.length ? photo.data.queue.map(row => (
+            <div key={`${row.feedId}:${row.status}`} className="flex justify-between gap-3"><span className="text-muted-foreground">{feeds.find(feed => feed.id === row.feedId)?.name ?? `Feed #${row.feedId}`} · {row.status}</span><span className="font-medium">{formatNumber(row.count)}</span></div>
+          )) : <p className="text-muted-foreground">{photo.isLoading ? "Checking photo queue..." : photo.isError ? "Photo queue unavailable. Try again shortly." : "No photo rows queued or stored yet."}</p>}
+          {photo.data?.lastMediaActivity ? <p className="text-xs text-muted-foreground">Last photo batch {timeAgo(photo.data.lastMediaActivity.at)}: {formatNumber(photo.data.lastMediaActivity.stored)} stored, {formatNumber(photo.data.lastMediaActivity.failed)} failed, {formatNumber(photo.data.lastMediaActivity.expired)} URLs expired.</p> : null}
+          {photo.data?.worker && !photo.data.worker.alive ? <p className="text-red-700">The MLS worker has not checked in recently.</p> : null}
         </CardContent>
       </Card>
       <Card>
@@ -769,7 +779,7 @@ export default function MlsFeedsPage() {
 
         <TabsContent value="runs"><RunsPanel feeds={feeds} feedId={runsFeedId} setFeedId={setRunsFeedId} /></TabsContent>
         <TabsContent value="mappings"><MappingsPanel sources={sources} feeds={feeds} /></TabsContent>
-        <TabsContent value="health"><HealthPanel /></TabsContent>
+        <TabsContent value="health"><HealthPanel feeds={feeds} /></TabsContent>
       </Tabs>
 
       {query.data ? <FeedDialog form={feedForm} onClose={() => setFeedForm(null)} sources={sources} providers={query.data.providers} /> : null}

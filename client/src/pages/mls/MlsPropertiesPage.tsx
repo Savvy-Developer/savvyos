@@ -94,16 +94,17 @@ function ListingCard({
       onClick={() => onOpen(listing.id)}
       className={`group flex w-full flex-col overflow-hidden rounded-lg border bg-card text-left transition hover:shadow-md ${selected ? "ring-2 ring-primary" : ""}`}
     >
-      <div className="relative aspect-[4/3] w-full bg-muted">
+      <div className={`relative w-full ${listing.primaryPhotoUrl ? "aspect-[4/3] bg-muted" : "min-h-[116px] bg-gradient-to-br from-slate-50 to-sky-50"}`}>
         {listing.primaryPhotoUrl ? (
           <img src={listing.primaryPhotoUrl} alt={addressLine(listing)} loading="lazy" className="h-full w-full object-cover" />
         ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-muted-foreground">
-            <ImageOff className="h-5 w-5" />
-            {listing.photosCount ? "Photos downloading" : "No photos"}
+          <div className="flex min-h-[116px] flex-col justify-end gap-0.5 px-3 pb-3 pt-9">
+            <span className="truncate text-sm font-semibold text-foreground">{addressLine(listing)}</span>
+            <span className="truncate text-xs text-muted-foreground">{cityLine(listing)}</span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><ImageOff className="h-3 w-3" />{listing.photosCount ? "Photo pending" : "No MLS photo supplied"}</span>
           </div>
         )}
-        <span className={`absolute left-2 top-2 rounded border px-1.5 py-0.5 text-[11px] font-semibold ${status.className}`}>{status.label}</span>
+        <span className={`absolute top-2 rounded border px-1.5 py-0.5 text-[11px] font-semibold ${listing.primaryPhotoUrl ? "left-2" : "right-2"} ${status.className}`}>{status.label}</span>
         {listing.removedFromFeedAt ? (
           <span className="absolute right-2 top-2 rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">Removed</span>
         ) : null}
@@ -123,8 +124,7 @@ function ListingCard({
           <span className="inline-flex items-center gap-1"><Ruler className="h-3.5 w-3.5" />{formatNumber(listing.livingArea)} sqft</span>
           {listing.lotSizeAcres ? <span>{formatNumber(listing.lotSizeAcres, 2)} ac</span> : null}
         </div>
-        <div className="truncate text-sm font-medium">{addressLine(listing)}</div>
-        <div className="truncate text-xs text-muted-foreground">{cityLine(listing)}</div>
+        {listing.primaryPhotoUrl ? <><div className="truncate text-sm font-medium">{addressLine(listing)}</div><div className="truncate text-xs text-muted-foreground">{cityLine(listing)}</div></> : null}
         <div className="mt-auto flex items-center justify-between gap-2 pt-1 text-[11px] text-muted-foreground">
           <span className="truncate">{listing.listOfficeName ?? ""}</span>
           <span className="shrink-0">{listing.sourceShortName} #{listing.listingNumber}</span>

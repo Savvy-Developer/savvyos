@@ -446,6 +446,49 @@ export const mlsPropertiesRouter = router({
     return { payload, receivedAt: raw.receivedAt, bytes: raw.payloadBytes };
   }),
 
+  /** Photo diagnostics must not wait on a full listing/property count during import. */
+  photoHealth: manageProcedure.query(async () => {
+    const db = await requireDb();
+    const [queue, [worker]] = await Promise.all([
+      db.select({ feedId: mlsMedia.feedId, status: mlsMedia.status, count: sql<number>`count(*)` })
+        .from(mlsMedia).groupBy(mlsMedia.feedId, mlsMedia.status),
+      db.select({ detail: mlsWorkerHeartbeats.detail, lastBeatAt: mlsWorkerHeartbeats.lastBeatAt, version: mlsWorkerHeartbeats.version })
+        .from(mlsWorkerHeartbeats).orderBy(desc(mlsWorkerHeartbeats.lastBeatAt)).limit(1),
+    ]);
+    let photoStorage: { configurationValid: boolean; issue: string | null } | null = null;
+    let lastMediaActivity: { at: string; claimed: number; stored: number; failed: number; expired: number; refreshed: number } | null = null;
+    try {
+      const detail = JSON.parse(worker?.detail ?? "null");
+      if (typeof detail?.photoStorage?.configurationValid === "boolean") {
+        photoStorage = {
+          configurationValid: detail.photoStorage.configurationValid,
+          issue: typeof detail.photoStorage.issue === "string" ? detail.photoStorage.issue : null,
+        };
+      }
+      for (const [key, value] of Object.entries(detail?.lastActivity ?? {})) {
+        if (!key.startsWith("media:") || !value || typeof value !== "object") continue;
+        const activity = value as Record<string, unknown>;
+        if (typeof activity.at !== "string") continue;
+        if (!lastMediaActivity || activity.at > lastMediaActivity.at) {
+          lastMediaActivity = {
+            at: activity.at,
+            claimed: Number(activity.claimed) || 0,
+            stored: Number(activity.stored) || 0,
+            failed: Number(activity.failed) || 0,
+            expired: Number(activity.expired) || 0,
+            refreshed: Number(activity.refreshed) || 0,
+          };
+        }
+      }
+    } catch { /* An old or malformed heartbeat must not break the health page. */ }
+    return {
+      queue: queue.map(row => ({ feedId: row.feedId, status: row.status, count: Number(row.count) })),
+      worker: worker ? { alive: Date.now() - worker.lastBeatAt.getTime() < 120_000, lastBeatAt: worker.lastBeatAt, version: worker.version } : null,
+      photoStorage,
+      lastMediaActivity,
+    };
+  }),
+
   overview: viewProcedure.query(async () => {
     const db = await requireDb();
     const [byStatus, [{ properties }], mediaByStatus, heartbeats] = await Promise.all([
