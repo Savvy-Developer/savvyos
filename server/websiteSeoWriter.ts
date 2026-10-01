@@ -118,9 +118,15 @@ export function parseSeoAnswer(content: unknown, kind: SeoKind): SeoResult {
 }
 
 export async function writeSeoText(context: SeoContext): Promise<SeoResult> {
+  // gpt-5-mini spends max_completion_tokens on reasoning before it writes
+  // anything, so a small budget returns a 200 with empty content. Minimal
+  // effort plus a larger budget leaves room for the answer itself.
   const response = await invokeLLM({
     messages: buildSeoMessages(context),
-    maxTokens: 400,
+    model: "gpt-5-mini",
+    reasoning: { effort: "minimal" },
+    responseFormat: { type: "json_object" },
+    maxTokens: 1200,
     timeoutMs: 30_000,
   });
   return parseSeoAnswer(response.choices[0]?.message?.content, context.kind);

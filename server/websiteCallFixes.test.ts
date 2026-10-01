@@ -6,7 +6,30 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const { llmCalls } = vi.hoisted(() => ({ llmCalls: [] as any[] }));
+// Only websiteSeoWriter reaches the model from this file's imports, and it uses
+// invokeLLM alone; the rest of the module is kept so nothing else is disturbed.
+vi.mock("./_core/llm", async importOriginal => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    invokeLLM: async (params: any) => {
+      llmCalls.push(params);
+      return {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: '{"metaTitle": "3BR Gatlinburg Cabin", "metaDescription": "Three beds and a hot tub."}',
+            },
+          },
+        ],
+      };
+    },
+  };
+});
 
 import { extractZillowDescription } from "./externalApis";
 import {
@@ -17,6 +40,7 @@ import {
   fitTo,
   parseSeoAnswer,
   plainText,
+  writeSeoText,
 } from "./websiteSeoWriter";
 import { WEBSITE_PUBLIC_TRPC_PATHS, allowAddressLookup } from "./routers/website";
 import { WEBSITE_FEATURED_LISTINGS_BACKFILL, WEBSITE_FEATURED_LISTINGS_DDL } from "./websiteFeaturedSchema";
@@ -134,6 +158,18 @@ describe("Write with AI", () => {
     for (let index = 0; index < 12; index += 1) expect(allowSeoWrite(990001, now + index)).toBe(true);
     expect(allowSeoWrite(990001, now + 20)).toBe(false);
     expect(allowSeoWrite(990001, now + 61_000)).toBe(true);
+  });
+
+  it("leaves gpt-5-mini room to answer instead of spending it all on reasoning", async () => {
+    llmCalls.length = 0;
+    const answer = await writeSeoText({ kind: "property", facts: { city: "Gatlinburg", state: "TN", beds: 3 } });
+    expect(llmCalls).toHaveLength(1);
+    const [request] = llmCalls;
+    expect(request.model).toBe("gpt-5-mini");
+    expect(request.reasoning).toEqual({ effort: "minimal" });
+    expect(request.maxTokens).toBeGreaterThanOrEqual(1000);
+    expect(request.responseFormat).toEqual({ type: "json_object" });
+    expect(answer.metaTitle).toBe("3BR Gatlinburg Cabin");
   });
 
   it("checks access before calling the model, and is on all three editors", () => {
