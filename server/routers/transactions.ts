@@ -39,6 +39,7 @@ import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_E
 import { eq, and, sql, desc, aliasedTable, or, inArray, ne, isNull } from "drizzle-orm";
 import { applyAutomaticChecklists, recalculateChecklistDueDates } from "../checklistService";
 import { canAdminUsePermission } from "./permissions";
+import { customFilterSchema, getCustomValuesForRows, resolveCustomFilters, transactionCustomFieldsRouter } from "./transactionCustomFields";
 
 const NON_MANUAL_LEAD_SOURCE_NAMES = new Set([
   "unattributed",
@@ -163,6 +164,7 @@ const transactionExportFiltersSchema = z.object({
 });
 
 export const transactionsRouter = router({
+  customFields: transactionCustomFieldsRouter,
   list: protectedProcedure
     .input(z.object({
       agentId: z.number().optional(),
@@ -186,12 +188,23 @@ export const transactionsRouter = router({
       limit: z.number().min(1).max(100).default(25),
       sortOrder: z.enum(["asc", "desc"]).default("desc"),
       sortBy: z.string().optional(),
+      customFilters: z.array(customFilterSchema).max(10).optional(),
+      includeCustomValues: z.boolean().optional(),
+      viewerId: z.number().int().positive().optional(), // Client cache key only; access always comes from ctx.user.
     }))
     .query(async ({ input, ctx }) => {
       const isAgentViewer = ctx.user.role === "agent";
       const agentId = isAgentViewer ? ctx.user.id : input.agentId;
       const agentIds = isAgentViewer ? undefined : input.agentIds;
-      return getTransactions(agentId, input.status, input.search, input.page, input.limit, input.marketId, input.contractDateFrom, input.contractDateTo, input.closingDateFrom, input.closingDateTo, input.flagNoClosingDate, input.flagPastClosingDate, input.leadSourceId, input.flagPayoutIntegrity, input.transactionType, input.sortOrder, input.sortBy ?? "closing_date", input.groupLeaderId, input.includeLeaderStats, agentIds, input.leadSourceIds);
+      if (input.customFilters?.length && !isAgentViewer) throw new TRPCError({ code: "FORBIDDEN", message: "Only agents may filter by their own custom fields." });
+      const predicates = isAgentViewer ? await resolveCustomFilters(input.customFilters, ctx.user.id) : [];
+      const result = await getTransactions(agentId, input.status, input.search, input.page, input.limit, input.marketId, input.contractDateFrom, input.contractDateTo, input.closingDateFrom, input.closingDateTo, input.flagNoClosingDate, input.flagPastClosingDate, input.leadSourceId, input.flagPayoutIntegrity, input.transactionType, input.sortOrder, input.sortBy ?? "closing_date", input.groupLeaderId, input.includeLeaderStats, agentIds, input.leadSourceIds, predicates);
+      const fieldOwnerId = input.includeCustomValues
+        ? isAgentViewer ? ctx.user.id : ctx.user.role === "admin" ? input.agentId : undefined
+        : undefined;
+      if (!fieldOwnerId) return result;
+      const values = await getCustomValuesForRows(result.rows.map(row => row.transaction.id), fieldOwnerId);
+      return { ...result, rows: result.rows.map(row => ({ ...row, customValues: values.get(row.transaction.id) ?? {} })) };
     }),
 
   byContact: protectedProcedure

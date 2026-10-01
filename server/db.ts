@@ -1,4 +1,4 @@
-import { aliasedTable, and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
+import { aliasedTable, and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql, type SQL } from "drizzle-orm";
 import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import {
@@ -1199,7 +1199,7 @@ export async function getPropertyOwnership(propertyId: number) {
 }
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
-export async function getTransactions(agentId?: number, status?: string, search?: string, page = 1, limit = 25, marketId?: number, contractDateFrom?: string, contractDateTo?: string, closingDateFrom?: string, closingDateTo?: string, flagNoClosingDate?: boolean, flagPastClosingDate?: boolean, leadSourceId?: number, flagPayoutIntegrity?: boolean, transactionType?: string, sortOrder: "asc" | "desc" = "desc", sortBy: string = "closing_date", groupLeaderId?: number, includeLeaderStats?: boolean, agentIds?: number[], leadSourceIds?: number[]) {
+export async function getTransactions(agentId?: number, status?: string, search?: string, page = 1, limit = 25, marketId?: number, contractDateFrom?: string, contractDateTo?: string, closingDateFrom?: string, closingDateTo?: string, flagNoClosingDate?: boolean, flagPastClosingDate?: boolean, leadSourceId?: number, flagPayoutIntegrity?: boolean, transactionType?: string, sortOrder: "asc" | "desc" = "desc", sortBy: string = "closing_date", groupLeaderId?: number, includeLeaderStats?: boolean, agentIds?: number[], leadSourceIds?: number[], customConditions: SQL[] = []) {
   const offset = (page - 1) * limit;
   const db = await getDb();
   if (!db) return { rows: [], total: 0, totals: { purchasePrice: 0, grossCommission: 0 }, page, limit };
@@ -1207,6 +1207,7 @@ export async function getTransactions(agentId?: number, status?: string, search?
     SELECT 1 FROM \`referral_transaction_links\` rtl
     WHERE rtl.\`transactionId\` = ${transactions.id}
   )`];
+  conditions.push(...customConditions);
   if (agentIds?.length) conditions.push(inArray(transactions.agentId, agentIds));
   else if (agentId) conditions.push(eq(transactions.agentId, agentId));
   if (status) conditions.push(eq(transactions.status, status as any));
