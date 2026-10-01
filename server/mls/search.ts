@@ -219,9 +219,9 @@ export async function mapPoints(
   db: Db,
   input: { filters: SearchFilters; bounds: z.infer<typeof boundsSchema>; zoom: number; pinLimit?: number }
 ) {
-  // Hundreds of price pills overlap badly on a phone-sized map. Zoom into
+  // Even 49 price pills overlap on a phone-sized neighborhood map. Zoom into
   // clusters first, then show individual listings once the viewport is usable.
-  const pinLimit = input.pinLimit ?? 80;
+  const pinLimit = input.pinLimit ?? 20;
   const where = searchConditions({ ...input.filters, bounds: input.bounds });
   const pins = await db
     .select({
