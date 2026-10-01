@@ -297,11 +297,11 @@ export function normalizeListing(
     const threeQuarter = toNumber(record.BathroomsThreeQuarter) ?? 0;
     const quarter = toNumber(record.BathroomsOneQuarter) ?? 0;
     if (full || half || threeQuarter || quarter) {
-      columns.bathroomsTotal = full + threeQuarter * 0.75 + half * 0.5 + quarter * 0.25;
-      provenance.bathroomsTotal = "derived:BathroomsFull+ThreeQuarter+Half+OneQuarter";
+      columns.bathroomsTotal = fitColumn("bathroomsTotal", full + threeQuarter * 0.75 + half * 0.5 + quarter * 0.25);
+      if (columns.bathroomsTotal !== null) provenance.bathroomsTotal = "derived:BathroomsFull+ThreeQuarter+Half+OneQuarter";
     } else if (columns.bathroomsTotalInteger !== undefined) {
-      columns.bathroomsTotal = columns.bathroomsTotalInteger;
-      provenance.bathroomsTotal = "derived:BathroomsTotalInteger";
+      columns.bathroomsTotal = fitColumn("bathroomsTotal", columns.bathroomsTotalInteger);
+      if (columns.bathroomsTotal !== null) provenance.bathroomsTotal = "derived:BathroomsTotalInteger";
     }
   }
 
