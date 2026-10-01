@@ -58,6 +58,16 @@ describe("Pulse cascading-message workflow", () => {
     expect(dashboard).toContain("Sent cascades");
   });
 
+  it("keeps individual acknowledgment on My EOS and lets the runner clear an incoming cascade for its destination team", () => {
+    expect(cascades).toContain("acknowledgeForMeeting:");
+    expect(cascades).toContain("pulseCascadeRecipients.viaMeetingId");
+    expect(cascades).toContain("pulseNotifications.sourceType, \"cascade\"");
+    expect(cascades).toContain('action: "acknowledged_for_meeting"');
+    expect(payloads).toContain("pendingDestinationMeetingIds");
+    expect(payloads).toContain("message.pendingDestinationMeetingIds.includes(meetingId)");
+    expect(runner).toContain("Acknowledge for team");
+  });
+
   it("uses one global session composer with a deferred-publication explanation", () => {
     const concludeStep = runner.slice(
       runner.indexOf("function ConcludeStep"),

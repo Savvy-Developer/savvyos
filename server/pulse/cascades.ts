@@ -1,12 +1,14 @@
 import { TRPCError } from "@trpc/server";
-import { pulseMemberProcedure, pulseProcedure } from "./authorization";
+import { hasPulseCapability, pulseMemberProcedure, pulseProcedure } from "./authorization";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   pulseCascadeDestinations,
   pulseCascadeRecipients,
   pulseCascadingMessages,
+  pulseActivityLog,
   pulseMeetingMembers,
+  pulseMeetingSessions,
   pulseMeetings,
   pulseNotifications,
   users,
@@ -45,6 +47,25 @@ async function database() {
       message: "Pulse is not available right now. Please try again.",
     });
   return db;
+}
+
+/** A team acknowledgment is a live-runner decision, made by the meeting's Administrator or a runner-authorized Pulse user. */
+async function requireTeamCascadeAcknowledgmentAuthority(db: any, user: { id: number }, meetingId: string, sessionId: string) {
+  const meeting = await require_visible_meeting(db, user.id, meetingId);
+  const canRun = meeting.administratorId === user.id || await hasPulseCapability(db, user, "run_l10s");
+  if (!canRun) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Only this meeting’s Administrator or a Pulse user with meeting-run authority can acknowledge a cascade for the team." });
+  }
+  const [session] = await db.select({ id: pulseMeetingSessions.id })
+    .from(pulseMeetingSessions)
+    .where(and(
+      eq(pulseMeetingSessions.id, sessionId),
+      eq(pulseMeetingSessions.meetingId, meetingId),
+      inArray(pulseMeetingSessions.status, ["running", "paused"]),
+    ))
+    .limit(1);
+  if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "This active meeting session is not available." });
+  return meeting;
 }
 
 /** Resolves the frozen delivery audience and rejects cross-meeting context leaks before any data is written. */
@@ -502,6 +523,92 @@ export const pulseCascadesRouter = router({
           );
       });
       return { success: true };
+    }),
+
+  acknowledgeForMeeting: pulseMemberProcedure
+    .input(z.object({
+      messageId: z.string().uuid(),
+      meetingId: z.string().uuid(),
+      sessionId: z.string().uuid(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await database();
+      await requireTeamCascadeAcknowledgmentAuthority(db, ctx.user, input.meetingId, input.sessionId);
+      const visibleIds = await visible_meeting_ids(db, ctx.user.id);
+      const [message] = await db.select({
+        id: pulseCascadingMessages.id,
+        fromMeetingId: pulseCascadingMessages.fromMeetingId,
+      })
+        .from(pulseCascadingMessages)
+        .innerJoin(pulseCascadeDestinations, eq(pulseCascadeDestinations.cascadingMessageId, pulseCascadingMessages.id))
+        .where(and(
+          eq(pulseCascadingMessages.id, input.messageId),
+          eq(pulseCascadeDestinations.meetingId, input.meetingId),
+          eq(pulseCascadingMessages.deliveryStatus, "published"),
+          isNull(pulseCascadingMessages.deletedAt),
+        ))
+        .limit(1);
+      if (!message || !visibleIds.includes(message.fromMeetingId)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "This message is not available." });
+      }
+
+      const outstanding = await db.select({
+        id: pulseCascadeRecipients.id,
+        personId: pulseCascadeRecipients.personId,
+      })
+        .from(pulseCascadeRecipients)
+        .where(and(
+          eq(pulseCascadeRecipients.cascadingMessageId, input.messageId),
+          eq(pulseCascadeRecipients.viaMeetingId, input.meetingId),
+          isNull(pulseCascadeRecipients.acknowledgedAt),
+        ));
+      const recipientIds = Array.from(new Set(outstanding.map((row: any) => row.personId)));
+      if (!recipientIds.length) return { success: true, acknowledgedRecipientCount: 0, remainingRecipientCount: 0 };
+
+      const now = new Date();
+      let remainingRecipientCount = 0;
+      await db.transaction(async (tx: any) => {
+        await tx.update(pulseCascadeRecipients)
+          .set({ acknowledgedAt: now, acknowledgedFrom: "meeting_runner_team" })
+          .where(and(
+            eq(pulseCascadeRecipients.cascadingMessageId, input.messageId),
+            eq(pulseCascadeRecipients.viaMeetingId, input.meetingId),
+            isNull(pulseCascadeRecipients.acknowledgedAt),
+          ));
+        const remaining = await tx.select({ personId: pulseCascadeRecipients.personId })
+          .from(pulseCascadeRecipients)
+          .where(and(
+            eq(pulseCascadeRecipients.cascadingMessageId, input.messageId),
+            inArray(pulseCascadeRecipients.personId, recipientIds),
+            isNull(pulseCascadeRecipients.acknowledgedAt),
+          ));
+        const remainingPersonIds = new Set(remaining.map((row: any) => row.personId));
+        remainingRecipientCount = remainingPersonIds.size;
+        const clearedPersonIds = recipientIds.filter((personId) => !remainingPersonIds.has(personId));
+        if (clearedPersonIds.length) {
+          await tx.update(pulseNotifications)
+            .set({ clearedAt: now })
+            .where(and(
+              inArray(pulseNotifications.personId, clearedPersonIds),
+              eq(pulseNotifications.sourceType, "cascade"),
+              eq(pulseNotifications.sourceId, input.messageId),
+              isNull(pulseNotifications.clearedAt),
+            ));
+        }
+        await tx.insert(pulseActivityLog).values({
+          id: id(),
+          entityType: "cascade",
+          entityId: input.messageId,
+          personId: ctx.user.id,
+          action: "acknowledged_for_meeting",
+          newValue: {
+            meetingId: input.meetingId,
+            sessionId: input.sessionId,
+            acknowledgedRecipientCount: recipientIds.length,
+          },
+        });
+      });
+      return { success: true, acknowledgedRecipientCount: recipientIds.length, remainingRecipientCount };
     }),
 
   pending: pulseProcedure.query(async ({ ctx }) => {

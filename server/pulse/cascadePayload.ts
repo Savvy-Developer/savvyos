@@ -23,6 +23,7 @@ export type CascadePayload = {
   canAcknowledge: boolean;
   recipientMeetingIds: string[];
   destinationMeetingIds: string[];
+  pendingDestinationMeetingIds: string[];
   routing: ReturnType<typeof getCascadeRoutingPresentation>;
 };
 
@@ -108,6 +109,11 @@ async function hydrateCascadeMessages(db: any, viewerId: number, messageIds: str
       canAcknowledge: myRows.length > 0 && !myAcknowledgedAt,
       recipientMeetingIds: Array.from(new Set(myRows.map((row: any) => row.viaMeetingId))),
       destinationMeetingIds: destinationMeetingIds.get(message.id) ?? [],
+      pendingDestinationMeetingIds: Array.from(new Set(
+        recipients
+          .filter((recipient: any) => recipient.cascadingMessageId === message.id && !recipient.acknowledgedAt)
+          .map((recipient: any) => recipient.viaMeetingId),
+      )),
       routing: getCascadeRoutingPresentation(details),
     };
   });
@@ -129,7 +135,7 @@ export async function getMeetingCascadePayloads(db: any, viewerId: number, meeti
   const messages = await hydrateCascadeMessages(db, viewerId, Array.from(new Set(rows.map((row: any) => row.id))) as string[]);
   return messages.filter((message) => (
     visibleIds.includes(message.fromMeetingId)
-    && (message.fromMeetingId === meetingId || message.recipientMeetingIds.includes(meetingId))
+    && (message.fromMeetingId === meetingId || message.pendingDestinationMeetingIds.includes(meetingId))
   ));
 }
 

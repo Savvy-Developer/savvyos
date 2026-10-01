@@ -9,12 +9,14 @@ const completionRail = read("client/src/components/pulse/PulseMeetingCompletionR
 const cascadeComposer = read("client/src/components/pulse/PulseCascadeComposer.tsx");
 const styles = read("client/src/index.css");
 const l10 = read("server/pulse/l10.ts");
+const cascades = read("server/pulse/cascades.ts");
+const cascadePayloads = read("server/pulse/cascadePayload.ts");
 
 describe("Pulse Meeting Runner workspace", () => {
   it("renders incoming cascades as an actionable agenda step", () => {
     expect(runner).toContain('step === "cascades" ? <CascadesStep');
     expect(runner).toContain("PulseCascadeCard");
-    expect(runner).toContain('from: "meeting_runner"');
+    expect(runner).toContain("Acknowledge for team");
   });
 
   it("uses a full-width, full-height work surface", () => {
@@ -58,6 +60,19 @@ describe("Pulse Meeting Runner workspace", () => {
     expect(runner).not.toContain("PulseCascadeDraftForm");
     expect(cascadeComposer).toContain("export function PulseCascadeDraftDialog");
     expect(cascadeComposer).toContain("Capture this handoff from {sourceMeetingName} now.");
+  });
+
+  it("lets the live meeting acknowledge an incoming cascade once for the full destination team", () => {
+    expect(runner).toContain("Incoming cascades");
+    expect(runner).toContain("Acknowledge for team");
+    expect(runner).toContain("pulse.cascades.acknowledgeForMeeting");
+    expect(runner).toContain("data.permissions?.canRun");
+    expect(runner).toContain("pendingDestinationMeetingIds");
+    expect(cascades).toContain("acknowledgeForMeeting:");
+    expect(cascades).toContain("requireTeamCascadeAcknowledgmentAuthority");
+    expect(cascades).toContain('acknowledgedFrom: "meeting_runner_team"');
+    expect(cascades).toContain('action: "acknowledged_for_meeting"');
+    expect(cascadePayloads).toContain("pendingDestinationMeetingIds");
   });
 
   it("allows each authorized L10 runner to prepare an in-session cascade", () => {
