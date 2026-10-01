@@ -8,10 +8,11 @@ import { sparkAdapter } from "./adapters/spark";
 import { keysetFilter, trestleAdapter } from "./adapters/trestle";
 import { buildComplianceProfile, feedFreshness, fillComplianceTemplate } from "./compliance";
 import { credentialStatus } from "./credentials";
+import { galleryMarkerKey, isGalleryMarker } from "./gallery";
 import { normalizePropertyType, normalizeStatus } from "./normalize/enums";
 import { normalizeListing } from "./normalize/normalizeListing";
 import { propertyIdentity } from "./normalize/propertyIdentity";
-import { searchConditions } from "./search";
+import { searchConditions, useRecentFeedIndex } from "./search";
 import { licenseError } from "./license";
 import { summarize } from "./status";
 import { mediaClientConfig, privateMlsStorageError } from "./privateMedia";
@@ -46,6 +47,26 @@ const feed = {
 } as unknown as MlsFeed;
 
 const ctx = { feed, source };
+
+describe("Active-gallery queue and default search", () => {
+  it("uses one collision-free gallery marker per listing while recognizing legacy requests", () => {
+    expect(galleryMarkerKey(101)).toBe("__gallery_request__:101");
+    expect(galleryMarkerKey(101)).not.toBe(galleryMarkerKey(102));
+    expect(isGalleryMarker(galleryMarkerKey(101))).toBe(true);
+    expect(isGalleryMarker("__gallery_request__")).toBe(true);
+    expect(isGalleryMarker("CAR-photo-101")).toBe(false);
+    expect(() => galleryMarkerKey(0)).toThrow();
+  });
+
+  it("forces chronological index only for the unfiltered first Active pages", () => {
+    expect(useRecentFeedIndex({ statuses: ["active"] }, "updated", 1)).toBe(true);
+    expect(useRecentFeedIndex({ statuses: ["active"], q: "28801" }, "updated", 1)).toBe(false);
+    expect(useRecentFeedIndex({ statuses: ["active"], minPrice: 400000 }, "updated", 1)).toBe(false);
+    expect(useRecentFeedIndex({ statuses: ["active", "pending"] }, "updated", 1)).toBe(false);
+    expect(useRecentFeedIndex({ statuses: ["active"] }, "price_desc", 1)).toBe(false);
+    expect(useRecentFeedIndex({ statuses: ["active"] }, "updated", 11)).toBe(false);
+  });
+});
 
 function canopyRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -437,10 +458,13 @@ describe("MLS Grid token budget", () => {
     try {
       const limits = mlsGridAdapter.limits(gridFeed(null));
       expect(limits.temporary?.untilMs).toBe(MLS_GRID_GRACE_UNTIL_MS);
-      expect(limits.requestsPerDay).toBe(250_000);
-      expect(limits.tokenBudget?.mediaShare).toBe(0.5);
+      expect(limits.requestsPerSecond).toBe(8);
+      expect(limits.requestsPerHour).toBe(40_000);
+      expect(limits.requestsPerDay).toBe(500_000);
+      expect(limits.mediaConcurrency).toBe(8);
+      expect(limits.tokenBudget?.mediaShare).toBe(0.75);
       const lane = new ProviderLane("mls_grid:grace", "mls_grid", "grace", limits);
-      expect(lane.media.snapshot().windows.find(window => window.windowMs === 86_400_000)?.limit).toBe(125_000);
+      expect(lane.media.snapshot().windows.find(window => window.windowMs === 86_400_000)?.limit).toBe(375_000);
       lane.api.seed(before - 10 * 60_000, 8_000, 4_000_000_000);
       expect(lane.api.nextWaitMs(before)).toBe(0);
       expect(lane.api.nextWaitMs(MLS_GRID_GRACE_UNTIL_MS + 1)).toBeGreaterThan(0);

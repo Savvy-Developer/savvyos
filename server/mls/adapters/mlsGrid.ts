@@ -150,14 +150,13 @@ export const mlsGridAdapter: MlsAdapter = {
     if (!mlsGridGraceActive()) return baseline;
     return {
       ...baseline,
-      requestsPerSecond: 4,
-      requestsPerHour: 20_000,
-      requestsPerDay: 250_000,
-      // Do not let yesterday's photo burst hold every new cover photo behind a
-      // 10% media sub-limit while MLS Grid's temporary waiver is in effect.
-      // Photos still share the 4 RPS token lane with listing data; the baseline
-      // 75% media share and all normal caps return at temporary.untilMs.
-      tokenBudget: { bytesPerHour: 12_000_000_000, bytesPerDay: 250_000_000_000, mediaShare: 0.5 },
+      // Controlled 2x trial during MLS Grid's explicit waiver. API and images
+      // share this per-token budget; do not infer unlimited worker or DB capacity.
+      requestsPerSecond: 8,
+      requestsPerHour: 40_000,
+      requestsPerDay: 500_000,
+      tokenBudget: { bytesPerHour: 24_000_000_000, bytesPerDay: 500_000_000_000, mediaShare: 0.75 },
+      mediaConcurrency: 8,
       temporary: { untilMs: MLS_GRID_GRACE_UNTIL_MS, baseline },
     };
   },

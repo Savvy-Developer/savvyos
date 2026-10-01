@@ -339,6 +339,9 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const active = await modules.search.searchListings(db as any, { filters: { statuses: ["active"] }, sort: "newest", page: 1, pageSize: 10 });
     expect(active.items.map(item => item.listingNumber)).toEqual(["100"]);
     expect(active.items[0].sourceShortName).toBe("Canopy");
+    const firstActive = await modules.search.searchListings(db as any, { filters: { statuses: ["active"] }, sort: "updated", page: 1, pageSize: 12, countMode: "none" });
+    expect(firstActive.items.map(item => item.listingNumber)).toEqual(["100"]);
+    expect(firstActive.total).toBeNull();
     const byZip = await modules.search.searchListings(db as any, { filters: { q: "28801" }, sort: "newest", page: 1, pageSize: 10 });
     expect(byZip.total).toBe(2);
     const pins = await modules.search.mapPoints(db as any, { filters: {}, bounds: { north: 36, south: 35, east: -82, west: -83 }, zoom: 12 });
@@ -396,20 +399,20 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const windowStart = hour.toISOString().slice(0, 19).replace("T", " ");
     await q(
       `INSERT INTO mls_provider_usage (credentialRef, provider, windowStart, requests, bytes, mediaRequests, mediaBytes, throttled)
-       VALUES ('RESTARTTEST', 'mls_grid', ?, 12000, 1000, 9000, 2000000000, 0)`,
+       VALUES ('RESTARTTEST', 'mls_grid', ?, 24000, 1000, 22000, 2000000000, 0)`,
       [windowStart]
     );
     const limits = modules.adapters.adapterFor("mls_grid").limits({ options: null } as any);
     const lane = modules.http.getLane("mls_grid", "RESTARTTEST", limits);
     await lane.ready();
-    // 21,000 requests this hour is over the temporary 20,000 cap; both data and photos must wait.
+    // 46,000 requests this hour exceed the temporary 40,000 cap. A restart
+    // cannot reset either data or photo usage.
     expect(lane.api.nextWaitMs()).toBeGreaterThan(0);
     expect(lane.media.nextWaitMs()).toBeGreaterThan(0);
     const untouched = modules.http.getLane("mls_grid", "OTHERTOKEN", limits);
     await untouched.ready();
     expect(untouched.api.nextWaitMs()).toBe(0);
-    // A MARIS-like burst exhausted the old 25k/day photo share. The temporary
-    // 50% share must let photos resume too, without resetting saved usage.
+    // The same MARIS-like burst fits the increased temporary photo share.
     for (const [hoursAgo, mediaRequests] of [[2, 5319], [3, 18514], [4, 8794], [5, 4843]]) {
       await q(
         `INSERT INTO mls_provider_usage (credentialRef, provider, windowStart, requests, bytes, mediaRequests, mediaBytes, throttled)
@@ -506,6 +509,53 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       const images = await q<any>("SELECT status, priority FROM mls_media WHERE feedId=? AND resourceKey=? AND mediaKey<>'__gallery_request__'", [fast.id, market.providerListingKey]);
       expect(images.length).toBe(2);
       expect(images.every(image => image.priority === 0)).toBe(true);
+    } finally {
+      state.properties = original;
+    }
+  }, 90_000);
+
+  it("backfills complete Active galleries with distinct markers and batched MLS Grid refreshes", async () => {
+    const original = state.properties;
+    try {
+      state.properties = ["gallery1", "gallery2"].map((key, index) => listing(key, {
+        ModificationTimestamp: `2026-09-25T1${index}:00:00.000Z`,
+        StreetNumber: String(80 + index), PhotosCount: 3,
+        Media: [1, 2, 3].map(order => ({ MediaKey: `CAR${key}-${order}`, Order: order, MediaCategory: "Photo", MediaURL: "" })),
+      }));
+      const [source] = await q("SELECT id FROM mls_sources WHERE code='canopy'");
+      await admin.query(
+        `INSERT INTO mls_feeds (sourceId, name, provider, feedType, baseUrl, originatingSystemName, keyPrefix, credentialRef, resources, options, enabled, mediaPolicy, syncIntervalMinutes, retentionPolicy)
+         VALUES (?, 'Active gallery test', 'mls_grid', 'vow', ?, 'carolina', 'CAR', 'E2EGRID', ?, ?, true, 'primary_only', 5, 'purge')`,
+        [source.id, `${base}/v2`, JSON.stringify(["Property"]), JSON.stringify({ fastImportV1: true, license: { approved: true, internalUse: true, reference: "SYNTHETIC TEST FIXTURE ONLY" } })]
+      );
+      const [feed] = await q<any>("SELECT id FROM mls_feeds WHERE name='Active gallery test'");
+      expect((await modules.engine.runFeedCycle(feed.id, { workerId: "gallery-e2e" })).ok).toBe(true);
+      const ctx = (await modules.engine.loadFeedContext(feed.id))!;
+      const db = (await modules.db.getDb())!;
+      const { queueActiveGalleries } = await import("./activeGallery");
+      const { galleryMarkerKey } = await import("./gallery");
+      expect(await queueActiveGalleries(db, ctx)).toEqual({ scanned: 2, queued: 2 });
+      expect(await queueActiveGalleries(db, ctx)).toEqual({ scanned: 0, queued: 0 });
+      const markers = await q<any>("SELECT listingId, mediaKey FROM mls_media WHERE feedId=? AND mediaKey LIKE '__gallery_request__:%' ORDER BY listingId", [feed.id]);
+      expect(markers).toHaveLength(2);
+      expect(markers.map(row => row.mediaKey)).toEqual(markers.map(row => galleryMarkerKey(Number(row.listingId))));
+
+      const lane = modules.http.getLane("mls_grid", "E2EGRID", modules.adapters.adapterFor("mls_grid").limits(ctx.feed));
+      const before = state.requests.length;
+      const refreshed = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 0 });
+      expect(refreshed.refreshed).toBe(2);
+      expect(state.requests.slice(before).filter(request => request.includes("ListingId in ("))).toHaveLength(1);
+      const images = await q<any>("SELECT listingId, status, priority FROM mls_media WHERE feedId=? AND mediaKey NOT LIKE '__gallery_request__:%'", [feed.id]);
+      expect(images).toHaveLength(6);
+      expect(images.every(row => row.priority === 0)).toBe(true);
+      let totalStored = 0;
+      for (let i = 0; i < 4; i++) {
+        totalStored += (await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6, refreshLimit: 0 })).stored;
+        if (totalStored >= 6) break;
+      }
+      expect(totalStored).toBe(6);
+      const perListing = await q<any>("SELECT listingId, COUNT(*) AS photos FROM mls_media WHERE feedId=? AND status='stored' GROUP BY listingId ORDER BY listingId", [feed.id]);
+      expect(perListing.map(row => Number(row.photos))).toEqual([3, 3]);
     } finally {
       state.properties = original;
     }

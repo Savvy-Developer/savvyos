@@ -3,12 +3,13 @@ import { eq } from "drizzle-orm";
 import { mlsFeeds, mlsSources, mlsWorkerHeartbeats } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { adapterFor } from "./adapters";
+import { queueActiveGalleries } from "./activeGallery";
 import type { FeedContext } from "./adapters/types";
 import { credentialStatus } from "./credentials";
 import { runFeedCycle, syncDue } from "./engine";
 import { allLanes, getLane, laneKey } from "./http";
 import { licenseError } from "./license";
-import { pendingMediaCount, resetStaleMediaClaims, runMediaBatch } from "./media";
+import { hasPendingMedia, resetStaleMediaClaims, runMediaBatch } from "./media";
 import { privateMlsStorageError } from "./privateMedia";
 import { ensureMlsSchema } from "./schema";
 
@@ -158,9 +159,24 @@ export class MlsIngestionScheduler {
     const feedIds = feeds.map(ctx => ctx.feed.id);
     // Drain for up to one tick window, then yield so feed changes are picked up.
     const until = Date.now() + Math.max(TICK_MS * 4, 60_000);
+    let nextGalleryScanAt = 0;
     try {
       while (Date.now() < until && !this.controller.signal.aborted) {
-        if ((await pendingMediaCount(feedIds)) === 0) return;
+        if (Date.now() >= nextGalleryScanAt) {
+          const db = await getDb();
+          if (db) for (const ctx of feeds) {
+            if (ctx.feed.provider !== "mls_grid" || !ctx.feed.enabled) continue;
+            try {
+              const progress = await queueActiveGalleries(db, ctx);
+              if (progress.scanned || progress.queued) this.lastActivity[`gallery:${ctx.feed.id}`] = { at: new Date().toISOString(), ...progress };
+            } catch (error) {
+              // Gallery discovery must never prevent live listing sync or covers.
+              console.error(`[mls] Active gallery scan failed for feed ${ctx.feed.id}`, error);
+            }
+          }
+          nextGalleryScanAt = Date.now() + 15_000;
+        }
+        if (!(await hasPendingMedia(feedIds))) return;
         const result = await runMediaBatch(lane, feeds, this.workerId, { signal: this.controller.signal });
         this.lastActivity[`media:${key}`] = { at: new Date().toISOString(), ...result };
         if (result.claimed === 0 && result.deleted === 0 && result.refreshed === 0) return;

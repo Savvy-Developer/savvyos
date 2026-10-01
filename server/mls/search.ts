@@ -189,15 +189,27 @@ export function toCard(row: CardRow) {
 }
 export type ListingCard = ReturnType<typeof toCard>;
 
+/** The default feed needs the chronological index, not a wide status index
+ * followed by a filesort over millions of imported records. Keep this hint
+ * off narrowed searches: ZIP, source, price and viewport filters have better
+ * selective indexes. The InnoDB primary key is the index's tie breaker. */
+export function useRecentFeedIndex(filters: SearchFilters, sort: (typeof SEARCH_SORTS)[number], page: number) {
+  if (sort !== "updated" || page > 10 || filters.includeRemoved || filters.statuses?.length !== 1 || filters.statuses[0] !== "active") return false;
+  return !Object.entries(filters).some(([key, value]) => key !== "statuses" && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
+}
+
 export async function searchListings(
   db: Db,
   input: { filters: SearchFilters; sort: (typeof SEARCH_SORTS)[number]; page: number; pageSize: number; countMode?: "exact" | "none" }
 ) {
   const where = searchConditions(input.filters);
   const offset = (input.page - 1) * input.pageSize;
+  const indexHint = useRecentFeedIndex(input.filters, input.sort, input.page)
+    ? { forceIndex: ["mls_listings_modified_idx"] }
+    : undefined;
   const rows = await db
     .select(listingCardColumns)
-    .from(mlsListings)
+    .from(mlsListings, indexHint)
     .innerJoin(mlsSources, eq(mlsSources.id, mlsListings.sourceId))
     .where(where)
     .orderBy(...sortOrder(input.sort))

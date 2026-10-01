@@ -43,6 +43,7 @@ import {
 } from "../mls/compliance";
 import { CREDENTIAL_REF_PATTERN, credentialStatus } from "../mls/credentials";
 import { sanitizeError } from "../mls/engine";
+import { galleryMarkerCondition, galleryMarkerKey, isGalleryMarker } from "../mls/gallery";
 import { approvedFeedSql, licenseError } from "../mls/license";
 import { getLane, requestJson } from "../mls/http";
 import { CANONICAL_PROPERTY_TYPES, CANONICAL_STATUSES, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "../mls/normalize/enums";
@@ -231,10 +232,14 @@ export const mlsPropertiesRouter = router({
     if (!feed || !feed.enabled || licenseError(feed)) throw new TRPCError({ code: "NOT_FOUND", message: "Feed unavailable" });
     // A sentinel works even for historical pages fetched without Media.
     // Only the ingestion worker refreshes photo links, within the token budget.
+    const [existingMarker] = await db.select({ status: mlsMedia.status }).from(mlsMedia)
+      .where(and(eq(mlsMedia.feedId, listing.feedId), eq(mlsMedia.resourceKey, listing.providerListingKey), galleryMarkerCondition()))
+      .limit(1);
+    if (existingMarker && existingMarker.status !== "delete_pending" && existingMarker.status !== "failed") return { queued: true };
     await db.insert(mlsMedia).values({
       feedId: listing.feedId, listingId: listing.id, resourceKey: listing.providerListingKey,
-      mediaKey: "__gallery_request__", status: "expired", priority: 0,
-    }).onDuplicateKeyUpdate({ set: { status: "expired", attempts: 0, priority: 0 } });
+      mediaKey: galleryMarkerKey(listing.id), status: "expired", priority: 0,
+    }).onDuplicateKeyUpdate({ set: { status: "expired", attempts: 0, priority: 0, lastError: null } });
     return { queued: true };
   }),
 
@@ -402,6 +407,10 @@ export const mlsPropertiesRouter = router({
           }
         : null,
       media: media.filter(item => item.status === "stored" && item.url),
+      galleryQueued: media.some(item =>
+        (isGalleryMarker(item.mediaKey) || item.priority === 0) &&
+        ["pending", "expired", "downloading"].includes(item.status)
+      ),
       mediaStatus: media.reduce<Record<string, number>>((acc, item) => {
         acc[item.status] = (acc[item.status] ?? 0) + 1;
         return acc;
@@ -449,11 +458,13 @@ export const mlsPropertiesRouter = router({
   /** Photo diagnostics must not wait on a full listing/property count during import. */
   photoHealth: manageProcedure.query(async () => {
     const db = await requireDb();
-    const [queue, [worker]] = await Promise.all([
+    const [queue, [worker], galleries] = await Promise.all([
       db.select({ feedId: mlsMedia.feedId, status: mlsMedia.status, count: sql<number>`count(*)` })
         .from(mlsMedia).groupBy(mlsMedia.feedId, mlsMedia.status),
       db.select({ detail: mlsWorkerHeartbeats.detail, lastBeatAt: mlsWorkerHeartbeats.lastBeatAt, version: mlsWorkerHeartbeats.version })
         .from(mlsWorkerHeartbeats).orderBy(desc(mlsWorkerHeartbeats.lastBeatAt)).limit(1),
+      db.select({ feedId: mlsSyncCursors.feedId, phase: mlsSyncCursors.phase, recordsSeen: mlsSyncCursors.recordsSeen, lastSuccessAt: mlsSyncCursors.lastSuccessAt })
+        .from(mlsSyncCursors).where(eq(mlsSyncCursors.resource, "ActiveGallery")),
     ]);
     let photoStorage: { configurationValid: boolean; issue: string | null } | null = null;
     let lastMediaActivity: { at: string; claimed: number; stored: number; failed: number; expired: number; refreshed: number } | null = null;
@@ -497,6 +508,7 @@ export const mlsPropertiesRouter = router({
     } catch { /* An old or malformed heartbeat must not break the health page. */ }
     return {
       queue: queue.map(row => ({ feedId: row.feedId, status: row.status, count: Number(row.count) })),
+      activeGalleryScans: galleries.map(row => ({ feedId: row.feedId, phase: row.phase, scanned: Number(row.recordsSeen), lastPassAt: row.lastSuccessAt })),
       worker: worker ? { alive: Date.now() - worker.lastBeatAt.getTime() < 120_000, lastBeatAt: worker.lastBeatAt, version: worker.version } : null,
       photoStorage,
       lastMediaActivity,

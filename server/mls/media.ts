@@ -6,6 +6,7 @@ import { loadOverrides, loadMetadataLocalFields } from "./engine";
 import { adapterFor } from "./adapters";
 import { mlsGridBatchUrl } from "./adapters/mlsGrid";
 import { parseODataPage, type FeedContext } from "./adapters/types";
+import { galleryMarkerCondition } from "./gallery";
 import { downloadMedia, FatalHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
 import { MARKET_STATUSES } from "./normalize/enums";
 import { processRecords } from "./store";
@@ -111,7 +112,7 @@ async function refreshExpiredUrls(
   lane: ProviderLane,
   feeds: Map<number, FeedContext>,
   result: MediaBatchResult,
-  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; limit: number; priority: "active" | "gallery" | "market" }
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; limit: number; priority: "active" | "active_gallery" | "gallery" | "market" }
 ) {
   const feedIds = Array.from(feeds.keys()).filter(id => adapterFor(feeds.get(id)!.feed.provider).capabilities.mediaUrlsExpire);
   if (!feedIds.length) return;
@@ -122,8 +123,8 @@ async function refreshExpiredUrls(
     .innerJoin(mlsListings, and(eq(mlsListings.feedId, mlsMedia.feedId), eq(mlsListings.providerListingKey, mlsMedia.resourceKey)))
     .where(and(
       inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS),
-      options.priority === "gallery"
-        ? eq(mlsMedia.mediaKey, "__gallery_request__")
+      options.priority === "gallery" || options.priority === "active_gallery"
+        ? and(galleryMarkerCondition(), options.priority === "active_gallery" ? eq(mlsListings.standardStatus, "active") : undefined, isNull(mlsListings.removedFromFeedAt))
         : options.priority === "active"
           ? and(eq(mlsMedia.isPrimary, true), eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
           : gridOnly ? and(eq(mlsMedia.isPrimary, true), inArray(mlsListings.standardStatus, MARKET_STATUSES), isNull(mlsListings.removedFromFeedAt)) : undefined
@@ -139,6 +140,8 @@ async function refreshExpiredUrls(
     const ctx = feeds.get(feedId)!;
     const adapter = adapterFor(ctx.feed.provider);
     try {
+      const overrides = await loadOverrides(db, ctx);
+      const metadataLocalFields = await loadMetadataLocalFields(db, feedId);
       const batch = ctx.feed.provider === "mls_grid";
       const url = batch
         ? mlsGridBatchUrl(ctx, group.map(row => `${ctx.feed.keyPrefix ?? ctx.source.keyPrefix ?? ""}${row.listingNumber}`))
@@ -154,11 +157,11 @@ async function refreshExpiredUrls(
         if (!group.some(row => row.resourceKey === key)) continue;
         returned.add(key);
         const gallery = await db.select({ id: mlsMedia.id }).from(mlsMedia)
-          .where(and(eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, key), eq(mlsMedia.mediaKey, "__gallery_request__")))
+          .where(and(eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, key), eq(mlsMedia.status, "expired"), galleryMarkerCondition()))
           .limit(1);
         const feed = gallery.length ? { ...ctx.feed, mediaPolicy: "all" as const, options: { ...ctx.feed.options, fastImportV1: false } } : ctx.feed;
         await processRecords({ ...ctx, feed }, adapter, "Property", [record], {
-          overrides: await loadOverrides(db, ctx), metadataLocalFields: await loadMetadataLocalFields(db, feedId), force: true,
+          overrides, metadataLocalFields, force: true,
         });
         if (gallery.length) {
           await db.update(mlsMedia).set({ priority: 0 })
@@ -209,7 +212,7 @@ export async function withLockRetry<T>(run: () => Promise<T>, attempts = 4): Pro
   }
 }
 
-async function claim(db: Db, feedIds: number[], claimToken: string, limit: number, activeOnly = false) {
+async function claim(db: Db, feedIds: number[], claimToken: string, limit: number, scope: "active_cover" | "active_gallery" | "any" = "any") {
   const now = new Date();
   await withLockRetry(() => db
     .update(mlsMedia)
@@ -229,7 +232,12 @@ async function claim(db: Db, feedIds: number[], claimToken: string, limit: numbe
        AND ${mlsMedia.status} = 'pending'
        AND ${mlsMedia.sourceUrl} IS NOT NULL
        AND (${mlsMedia.nextAttemptAt} IS NULL OR ${mlsMedia.nextAttemptAt} <= ${now})
-       ${activeOnly ? sql`AND ${mlsMedia.isPrimary} = 1 AND EXISTS (
+       ${scope === "active_cover" ? sql`AND ${mlsMedia.isPrimary} = 1 AND EXISTS (
+         SELECT 1 FROM ${mlsListings} AS active_listing
+          WHERE active_listing.id = ${mlsMedia.listingId}
+            AND active_listing.standardStatus = 'active'
+            AND active_listing.removedFromFeedAt IS NULL
+       )` : scope === "active_gallery" ? sql`AND ${mlsMedia.priority} = 0 AND EXISTS (
          SELECT 1 FROM ${mlsListings} AS active_listing
           WHERE active_listing.id = ${mlsMedia.listingId}
             AND active_listing.standardStatus = 'active'
@@ -272,14 +280,18 @@ export async function runMediaBatch(
   // The old queue gave every market status the same priority. A status-aware
   // claim puts Active covers first without a mass UPDATE of millions of rows.
   const claimToken = `${workerId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`.slice(0, 160);
-  let rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50, true);
+  let rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50, "active_cover");
   if (!rows.length && (options.refreshLimit ?? 20) > 0) {
     await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active" });
-    rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50, true);
+    rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50, "active_cover");
   }
   if (!rows.length) {
-    // Explicit galleries and other market statuses continue after the Active
-    // covers are clear. Do not refresh the historic off-market backlog.
+    // Automatically requested Active galleries run after Active covers, before
+    // under-contract covers or explicit non-Active galleries.
+    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active_gallery" });
+    rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50, "active_gallery");
+  }
+  if (!rows.length) {
     await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "gallery" });
     rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50);
   }
@@ -367,17 +379,14 @@ export async function runMediaBatch(
   return result;
 }
 
-export async function pendingMediaCount(feedIds: number[]) {
+export async function hasPendingMedia(feedIds: number[]) {
   if (!feedIds.length) return 0;
   const db = await requireDb();
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(mlsMedia)
-    .where(
-      and(
-        inArray(mlsMedia.feedId, feedIds),
-        or(eq(mlsMedia.status, "pending"), eq(mlsMedia.status, "delete_pending"), and(eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS)))
-      )
-    );
-  return Number(count);
+  for (const status of ["pending", "expired", "delete_pending"] as const) {
+    const [row] = await db.select({ id: mlsMedia.id }).from(mlsMedia)
+      .where(and(inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, status), status === "expired" ? lt(mlsMedia.attempts, MAX_ATTEMPTS) : undefined))
+      .limit(1);
+    if (row) return 1;
+  }
+  return 0;
 }

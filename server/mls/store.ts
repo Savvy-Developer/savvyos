@@ -19,6 +19,7 @@ import {
 import { getDb } from "../db";
 import { readOption, type ExtractedMedia, type FeedContext, type MlsAdapter, type MlsResource } from "./adapters/types";
 import { readComplianceProfile } from "./compliance";
+import { galleryMarkerKey } from "./gallery";
 import { MARKET_STATUSES, OFF_MARKET_STATUSES, type CanonicalStatus } from "./normalize/enums";
 import {
   MAPPING_VERSION,
@@ -250,10 +251,10 @@ async function syncListingMedia(
     const mediaKey = item.mediaKey.slice(0, 191);
     incoming.add(mediaKey);
     const current = byKey.get(mediaKey);
-    const wanted = current?.priority === 0 || (
+    const wanted = !(status === "closed" && closedPrimaryOnly && !item.isPrimary) && (current?.priority === 0 || (
       (!readOption(ctx.feed, "fastImportV1", false) || MARKET_STATUSES.includes(status))
       && mediaWanted(item, status, ctx.feed.mediaPolicy, closedPrimaryOnly)
-    );
+    ));
     if (!wanted && !current && readOption(ctx.feed, "fastImportV1", false)) continue;
     const changedAtSource =
       !current || (item.sourceModifiedAt?.getTime() ?? 0) !== (current.sourceModifiedAt?.getTime() ?? 0);
@@ -546,6 +547,16 @@ export async function upsertNormalizedListing(
       normalized.media,
       receivedAt
     ) : 0;
+    // The ID-based gallery scan has already passed older listings. A fresh
+    // status change to Active must still queue all of this listing's photos.
+    // Never queue every Active listing in the million-row initial import.
+    if (ctx.feed.provider === "mls_grid" && ctx.feed.mediaPolicy !== "none" && prior &&
+        prior.standardStatus !== "active" && status === "active" && Number(columns.photosCount ?? 0) > 1) {
+      await t.insert(mlsMedia).values({
+        feedId: ctx.feed.id, listingId, resourceKey: normalized.providerListingKey,
+        mediaKey: galleryMarkerKey(listingId), status: "expired", priority: 0,
+      }).onDuplicateKeyUpdate({ set: { status: "expired", attempts: 0, priority: 0, lastError: null } });
+    }
     await upsertInsights(t, propertyId, ctx, listingId, normalized);
     await refreshPropertySummary(t, propertyId);
     if (previousPropertyId) {
