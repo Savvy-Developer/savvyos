@@ -4,6 +4,7 @@ import {
   agentChecklistApplications,
   agentChecklistTemplateItems,
   agentChecklistTemplates,
+  agentConnections,
   listings,
   transactions,
   users,
@@ -29,6 +30,25 @@ export type ChecklistTargetSnapshot = {
   closingDate: Date | string | null;
   listDate: Date | string | null;
 };
+
+/** The record an application is attached to, whichever kind it is. */
+export function checklistApplicationTargetId(application: {
+  targetType: ChecklistTargetType;
+  transactionId: number | null;
+  listingId: number | null;
+  agentConnectionId?: number | null;
+}): number | null {
+  if (application.targetType === "transaction") return application.transactionId;
+  if (application.targetType === "listing") return application.listingId;
+  return application.agentConnectionId ?? null;
+}
+
+/** The applications column that points at a target of this type. */
+function applicationTargetColumn(targetType: ChecklistTargetType) {
+  if (targetType === "transaction") return agentChecklistApplications.transactionId;
+  if (targetType === "listing") return agentChecklistApplications.listingId;
+  return agentChecklistApplications.agentConnectionId;
+}
 
 export type ChecklistTemplateItemSnapshotInput = {
   id?: number | null;
@@ -120,6 +140,32 @@ export async function getChecklistTarget(
       : null;
   }
 
+  if (targetType === "pipeline_connection") {
+    // The connection's agent owns it, exactly as for transactions and
+    // listings: agents reach only their own, admins every one.
+    const [target] = await db
+      .select({
+        id: agentConnections.id,
+        agentUserId: agentConnections.agentId,
+        createdAt: agentConnections.createdAt,
+      })
+      .from(agentConnections)
+      .where(eq(agentConnections.id, targetId))
+      .limit(1);
+    return target
+      ? {
+          targetType,
+          targetId: target.id,
+          agentUserId: target.agentUserId,
+          transactionType: null,
+          createdAt: target.createdAt,
+          contractDate: null,
+          closingDate: null,
+          listDate: null,
+        }
+      : null;
+  }
+
   const [target] = await db
     .select({
       id: listings.id,
@@ -153,7 +199,7 @@ export function checklistTemplateMatchesTarget(
 ): boolean {
   return (
     template.targetType === target.targetType &&
-    (target.targetType === "listing" ||
+    (target.targetType !== "transaction" ||
       template.transactionTypeFilter === "any" ||
       template.transactionTypeFilter === target.transactionType)
   );
@@ -215,6 +261,7 @@ export async function applyChecklistTemplate(params: {
         templateId: template.id,
         transactionId: target.targetType === "transaction" ? target.targetId : null,
         listingId: target.targetType === "listing" ? target.targetId : null,
+        agentConnectionId: target.targetType === "pipeline_connection" ? target.targetId : null,
         targetType: target.targetType,
         source: params.source,
         autoKey: params.autoKey ?? null,
@@ -373,9 +420,7 @@ export async function listChecklistApplications(
     .from(agentChecklistApplications)
     .where(
       and(
-        targetType === "transaction"
-          ? eq(agentChecklistApplications.transactionId, targetId)
-          : eq(agentChecklistApplications.listingId, targetId),
+        eq(applicationTargetColumn(targetType), targetId),
         isNull(agentChecklistApplications.removedAt)
       )
     )
@@ -426,9 +471,7 @@ export async function recalculateChecklistDueDates(params: {
     .from(agentChecklistApplications)
     .where(
       and(
-        params.targetType === "transaction"
-          ? eq(agentChecklistApplications.transactionId, params.targetId)
-          : eq(agentChecklistApplications.listingId, params.targetId),
+        eq(applicationTargetColumn(params.targetType), params.targetId),
         isNull(agentChecklistApplications.removedAt)
       )
     );

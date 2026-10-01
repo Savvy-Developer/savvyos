@@ -1,4 +1,11 @@
-export type ChecklistTargetType = "transaction" | "listing";
+export type ChecklistTargetType = "transaction" | "listing" | "pipeline_connection";
+
+/** Words for a target in messages and the activity log. */
+export const CHECKLIST_TARGET_LABELS: Record<ChecklistTargetType, string> = {
+  transaction: "transaction",
+  listing: "listing",
+  pipeline_connection: "pipeline connection",
+};
 export type ChecklistDueAnchor =
   | "target_created"
   | "under_contract"

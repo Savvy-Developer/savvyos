@@ -54,7 +54,18 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-type TargetType = "transaction" | "listing";
+type TargetType = "transaction" | "listing" | "pipeline_connection";
+
+const TARGET_LABELS: Record<TargetType, string> = {
+  transaction: "Transaction",
+  listing: "Listing",
+  pipeline_connection: "Pipeline connection",
+};
+
+/** Read a stored target type, keeping pipeline templates as pipeline templates. */
+function toTargetType(value: unknown): TargetType {
+  return value === "listing" || value === "pipeline_connection" ? value : "transaction";
+}
 type AssigneeRule = "none" | "record_owner" | "specific_user";
 type AutomaticDefaultEvent = "none" | "on_create" | "on_under_contract";
 
@@ -129,6 +140,11 @@ const LISTING_ANCHORS = [
   { value: "under_contract", label: "Under-contract date" },
 ] as const;
 
+// A pipeline connection has one date to count from: when it was added.
+const PIPELINE_ANCHORS = [
+  { value: "target_created", label: "Connection added date" },
+] as const;
+
 function asArray(value: any, keys: string[]): any[] {
   if (Array.isArray(value)) return value;
   for (const key of keys) {
@@ -187,7 +203,7 @@ function normalizeSummary(row: any, currentUserId?: number): TemplateSummary {
     id: Number(template.id),
     name: template.name ?? "Untitled checklist",
     description: template.description ?? null,
-    targetType: target === "listing" ? "listing" : "transaction",
+    targetType: toTargetType(target),
     transactionSubtype:
       template.transactionTypeFilter ??
       template.transactionSubtype ??
@@ -231,10 +247,7 @@ function newItem(sectionName = ""): TemplateItemDraft {
 
 function normalizeDetail(value: any): TemplateDraft {
   const template = value?.template ?? value ?? {};
-  const targetType: TargetType =
-    (template.targetType ?? template.appliesTo) === "listing"
-      ? "listing"
-      : "transaction";
+  const targetType: TargetType = toTargetType(template.targetType ?? template.appliesTo);
   const items = asArray(value?.items ?? template.items, ["items", "rows"]);
   return {
     name: template.name ?? "",
@@ -296,7 +309,7 @@ function relativeDateExample(item: TemplateItemDraft): string {
       : offset > 0
         ? `${offset} day${offset === 1 ? "" : "s"} after`
         : `${Math.abs(offset)} day${offset === -1 ? "" : "s"} before`;
-  const anchor = [...TRANSACTION_ANCHORS, ...LISTING_ANCHORS].find(
+  const anchor = [...TRANSACTION_ANCHORS, ...LISTING_ANCHORS, ...PIPELINE_ANCHORS].find(
     option => option.value === item.relativeDueDateAnchor
   )?.label.toLowerCase();
   return `Example: due ${direction} the ${anchor ?? "record date"}. Use -3 for three days before; +7 for seven days after.`;
@@ -724,9 +737,14 @@ export default function ChecklistsPage() {
                         ...current,
                         targetType: value as TargetType,
                         transactionSubtype:
-                          value === "listing"
-                            ? "any"
-                            : current.transactionSubtype,
+                          value === "transaction"
+                            ? current.transactionSubtype
+                            : "any",
+                        // Pipeline templates are applied by hand only.
+                        automaticDefaultEvent:
+                          value === "pipeline_connection"
+                            ? "none"
+                            : current.automaticDefaultEvent,
                         items: current.items.map(item => ({
                           ...item,
                           relativeDueDateAnchor:
@@ -743,6 +761,7 @@ export default function ChecklistsPage() {
                     <SelectContent>
                       <SelectItem value="transaction">Transaction</SelectItem>
                       <SelectItem value="listing">Listing</SelectItem>
+                      <SelectItem value="pipeline_connection">Pipeline connection (SOP)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -772,6 +791,7 @@ export default function ChecklistsPage() {
                 <div className="md:col-span-2">
                   <Label>Automatic application</Label>
                   <Select
+                    disabled={draft.targetType === "pipeline_connection"}
                     value={draft.automaticDefaultEvent}
                     onValueChange={automaticDefaultEvent =>
                       setDraft(current => ({
@@ -795,7 +815,9 @@ export default function ChecklistsPage() {
                     </SelectContent>
                   </Select>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    SavvyOS applies this template once to matching records owned by you. You can still apply it manually.
+                    {draft.targetType === "pipeline_connection"
+                      ? "Pipeline SOPs are applied by hand from a connection in your Pipeline."
+                      : "SavvyOS applies this template once to matching records owned by you. You can still apply it manually."}
                   </p>
                 </div>
               </div>
@@ -845,7 +867,9 @@ export default function ChecklistsPage() {
                       const anchors =
                         draft.targetType === "transaction"
                           ? TRANSACTION_ANCHORS
-                          : LISTING_ANCHORS;
+                          : draft.targetType === "pipeline_connection"
+                            ? PIPELINE_ANCHORS
+                            : LISTING_ANCHORS;
                       return (
                         <div
                           key={item.clientId}
@@ -1258,7 +1282,7 @@ function TemplateCard({
                 ) : (
                   <Building2 className="h-3 w-3" />
                 )}
-                {template.targetType}
+                {TARGET_LABELS[template.targetType]}
               </Badge>
               {template.targetType === "transaction" &&
                 template.transactionSubtype &&

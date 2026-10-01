@@ -7,7 +7,12 @@ import {
   agentChecklistTemplates,
 } from "../drizzle/schema";
 import { getDb } from "./db";
-import { getChecklistTarget, type ChecklistTargetSnapshot } from "./checklistService";
+import {
+  checklistApplicationTargetId,
+  getChecklistTarget,
+  type ChecklistTargetSnapshot,
+} from "./checklistService";
+import { CHECKLIST_TARGET_LABELS, type ChecklistTargetType } from "./checklistDates";
 import { canAdminUsePermission } from "./routers/permissions";
 
 export type ChecklistViewer = {
@@ -46,7 +51,7 @@ export function canAccessChecklistTarget(
 export async function requireChecklistTargetAccess(
   db: Db,
   viewer: ChecklistViewer,
-  targetType: "transaction" | "listing",
+  targetType: ChecklistTargetType,
   targetId: number
 ): Promise<ChecklistTargetSnapshot> {
   assertChecklistRole(viewer);
@@ -55,7 +60,7 @@ export async function requireChecklistTargetAccess(
   if (!canAccessChecklistTarget(viewer, target)) {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: `You can only access ${targetType}s assigned to you.`,
+      message: `You can only access ${CHECKLIST_TARGET_LABELS[targetType]}s assigned to you.`,
     });
   }
   return target;
@@ -116,14 +121,11 @@ export async function requireApplicationAccess(
     .where(eq(agentChecklistApplications.id, applicationId))
     .limit(1);
   if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "Checklist application not found." });
-  await requireChecklistTargetAccess(
-    db,
-    viewer,
-    application.targetType,
-    application.targetType === "transaction"
-      ? application.transactionId!
-      : application.listingId!
-  );
+  const targetId = checklistApplicationTargetId(application);
+  // A row whose target column is empty (its record was removed) is treated as
+  // missing rather than readable by anyone.
+  if (!targetId) throw new TRPCError({ code: "NOT_FOUND", message: "Checklist target not found." });
+  await requireChecklistTargetAccess(db, viewer, application.targetType, targetId);
   return application;
 }
 

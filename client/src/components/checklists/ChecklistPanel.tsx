@@ -53,7 +53,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-export type ChecklistTargetType = "transaction" | "listing";
+export type ChecklistTargetType = "transaction" | "listing" | "pipeline_connection";
+
+const TARGET_LABELS: Record<ChecklistTargetType, string> = {
+  transaction: "transaction",
+  listing: "listing",
+  pipeline_connection: "connection",
+};
 
 type Candidate = {
   id: number;
@@ -537,7 +543,7 @@ export default function ChecklistPanel({
             </div>
             <h3 className="font-semibold">No checklists attached</h3>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
-              Apply a reusable checklist to keep this {targetType} moving. The
+              Apply a reusable checklist to keep this {TARGET_LABELS[targetType]} moving. The
               applied checklist becomes an independent snapshot.
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -1021,7 +1027,7 @@ export default function ChecklistPanel({
           </DialogHeader>
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
             Applying creates an independent snapshot. Later template edits will not
-            change this {targetType}, and edits here will not change the template.
+            change this {TARGET_LABELS[targetType]}, and edits here will not change the template.
           </div>
           {templatesQuery.isLoading ? (
             <div className="space-y-3 py-2">
@@ -1037,7 +1043,7 @@ export default function ChecklistPanel({
               <ClipboardCheck className="mx-auto h-8 w-8 text-muted-foreground/50" />
               <p className="mt-2 font-medium">No matching templates</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Create a {targetType} template in My Checklists first.
+                Create a {TARGET_LABELS[targetType]} template in My Checklists first.
               </p>
               <Button asChild variant="outline" size="sm" className="mt-4">
                 <Link href="/checklists">Open library</Link>
@@ -1121,7 +1127,7 @@ export default function ChecklistPanel({
             <AlertDialogTitle>Remove this checklist?</AlertDialogTitle>
             <AlertDialogDescription>
               “{applicationToRemove?.name}” and its current completion history will
-              be removed from this {targetType}. Your library template is not affected.
+              be removed from this {TARGET_LABELS[targetType]}. Your library template is not affected.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
