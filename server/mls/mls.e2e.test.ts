@@ -265,8 +265,12 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const adapter = modules.adapters.adapterFor("mls_grid");
     const lane = modules.http.getLane("mls_grid", feed.credentialRef, adapter.limits(feed));
     const ctx = (await modules.engine.loadFeedContext(feedId))!;
-    const result = await modules.media.runMediaBatch(lane, [ctx], "e2e", { batchSize: 50 });
-    expect(result.stored).toBe(6);
+    const first = await modules.media.runMediaBatch(lane, [ctx], "e2e", { batchSize: 50 });
+    expect(first.stored).toBe(2);
+    const firstPhotos = await q<any>("SELECT resourceKey, isPrimary FROM mls_media WHERE status = 'stored'");
+    expect(firstPhotos.every(row => !!row.isPrimary && ["CAR100", "CAR200"].includes(row.resourceKey))).toBe(true);
+    const remaining = await modules.media.runMediaBatch(lane, [ctx], "e2e", { batchSize: 50 });
+    expect(remaining.stored).toBe(4);
     expect(stored.size).toBe(6);
     expect(state.mediaUserAgents.every(agent => agent === TOKEN)).toBe(true);
     const media = await q("SELECT status, sourceUrl, url FROM mls_media");
@@ -423,9 +427,9 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const original = state.properties;
     try {
       state.properties = [
-        listing("fast1", { ModificationTimestamp: "2026-09-25T10:00:00.000Z" }),
+        listing("fast1", { ModificationTimestamp: "2026-09-25T10:00:00.000Z", StandardStatus: "Active Under Contract" }),
         listing("fast2", { ModificationTimestamp: "2026-09-25T11:00:00.000Z", StandardStatus: "Closed" }),
-        listing("fast3", { ModificationTimestamp: "2026-09-25T12:00:00.000Z", StandardStatus: "Active Under Contract", StreetNumber: "31" }),
+        listing("fast3", { ModificationTimestamp: "2026-09-25T12:00:00.000Z", StandardStatus: "Active", StreetNumber: "31" }),
       ];
       const [source] = await q("SELECT id FROM mls_sources WHERE code = 'canopy'");
       await admin.query(
@@ -445,15 +449,27 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       const media = await q<any>("SELECT resourceKey, status, isPrimary FROM mls_media WHERE feedId=?", [fast.id]);
       expect(media.length).toBe(2);
       expect(media.every(row => !!row.isPrimary && row.status === "pending")).toBe(true);
-      await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL WHERE feedId=? AND resourceKey='CARfast1'", [fast.id]);
+      const priorities = await q<any>("SELECT resourceKey, priority FROM mls_media WHERE feedId=?", [fast.id]);
+      expect(Object.fromEntries(priorities.map(row => [row.resourceKey, row.priority]))).toEqual({ CARfast1: 20, CARfast3: 1 });
+      // Simulate rows queued by the old build: identical priority, older
+      // under-contract ID. The worker must still claim Active first.
+      await admin.query("UPDATE mls_media SET priority=10 WHERE feedId=?", [fast.id]);
       const coverLane = modules.http.getLane("mls_grid", "E2EGRID", modules.adapters.adapterFor("mls_grid").limits({ options: null } as any));
       const coverCtx = (await modules.engine.loadFeedContext(fast.id))!;
       const beforeCover = state.requests.length;
       const cover = await modules.media.runMediaBatch(coverLane, [coverCtx], "fast-cover-e2e", { batchSize: 1 });
       expect(cover.stored).toBe(1);
       expect(state.requests.slice(beforeCover).some(request => request.includes("ListingId in ("))).toBe(false);
-      const [freshCover] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND resourceKey='CARfast3'", [fast.id]);
-      expect(freshCover.status).toBe("stored");
+      const [activeCover] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND resourceKey='CARfast3'", [fast.id]);
+      const [underContractCover] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND resourceKey='CARfast1'", [fast.id]);
+      expect([activeCover.status, underContractCover.status]).toEqual(["stored", "pending"]);
+      await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL WHERE feedId=? AND resourceKey='CARfast3'", [fast.id]);
+      const beforeExpiredActive = state.requests.length;
+      const expiredActive = await modules.media.runMediaBatch(coverLane, [coverCtx], "fast-cover-e2e", { batchSize: 1 });
+      expect([expiredActive.refreshed, expiredActive.stored]).toEqual([1, 1]);
+      expect(state.requests.slice(beforeExpiredActive).some(request => request.includes("ListingId in ("))).toBe(true);
+      const [stillWaiting] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND resourceKey='CARfast1'", [fast.id]);
+      expect(stillWaiting.status).toBe("pending");
       const [cursor] = await q<any>("SELECT phase, highWaterMark FROM mls_sync_cursors WHERE feedId=? AND resource='Property'", [fast.id]);
       expect(cursor.phase).toBe("incremental");
       expect(new Date(cursor.highWaterMark).getTime()).toBeGreaterThan(Date.parse("2026-09-25"));
@@ -473,14 +489,15 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       expect([stillPending.standardStatus, Number(stillPending.listPrice)]).toEqual(["pending", 490000]);
       state.properties[0] = latest;
 
-      // Two expired links should cost one ListingId-in request, not two.
+      // Active and under-contract links are refreshed in separate batches so
+      // Active never waits behind the older record, even in refresh-only mode.
       await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL, attempts=0 WHERE feedId=?", [fast.id]);
       const lane = modules.http.getLane("mls_grid", "E2EGRID", modules.adapters.adapterFor("mls_grid").limits({ options: null } as any));
       const ctx = (await modules.engine.loadFeedContext(fast.id))!;
       const refreshStart = state.requests.length;
       const batch = await modules.media.runMediaBatch(lane, [ctx], "fast-e2e", { batchSize: 0 });
       expect(batch.refreshed).toBe(2);
-      expect(state.requests.slice(refreshStart).filter(request => request.includes("ListingId in ("))).toHaveLength(1);
+      expect(state.requests.slice(refreshStart).filter(request => request.includes("ListingId in ("))).toHaveLength(2);
 
       const [market] = await q<any>("SELECT id, providerListingKey FROM mls_listings WHERE feedId=? AND providerListingKey='CARfast1'", [fast.id]);
       await admin.query("INSERT INTO mls_media (feedId, listingId, resourceKey, mediaKey, status, priority) VALUES (?, ?, ?, '__gallery_request__', 'expired', 0)", [fast.id, market.id, market.providerListingKey]);
