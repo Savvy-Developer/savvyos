@@ -49,12 +49,12 @@ async function database() {
   return db;
 }
 
-/** A team acknowledgment is a live-runner decision, made by the meeting's Administrator or a runner-authorized Pulse user. */
+/** A team acknowledgment is a live-runner decision, made by the facilitator, Administrator, or a runner-authorized Pulse user. */
 async function requireTeamCascadeAcknowledgmentAuthority(db: any, user: { id: number }, meetingId: string, sessionId: string) {
   const meeting = await require_visible_meeting(db, user.id, meetingId);
-  const canRun = meeting.administratorId === user.id || await hasPulseCapability(db, user, "run_l10s");
+  const canRun = await is_visible_meeting_manager(db, user.id, meetingId) || await hasPulseCapability(db, user, "run_l10s");
   if (!canRun) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Only this meeting’s Administrator or a Pulse user with meeting-run authority can acknowledge a cascade for the team." });
+    throw new TRPCError({ code: "FORBIDDEN", message: "Only this meeting’s facilitator, Administrator, or a Pulse user with meeting-run authority can acknowledge a cascade for the team." });
   }
   const [session] = await db.select({ id: pulseMeetingSessions.id })
     .from(pulseMeetingSessions)
