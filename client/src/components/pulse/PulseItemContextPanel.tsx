@@ -11,6 +11,7 @@ import { PulseCompletionCelebration, usePulseCompletionCelebration } from "@/com
 import { PulseIssueTimeframeBadge, PulsePriorityBadge, statusBadgeClass } from "@/components/pulse/PulseWorkItemBadges";
 import { formatEasternDateTime } from "@/lib/format";
 import { PulseWorkItemComments } from "@/components/pulse/PulseWorkItemComments";
+import { formatTodoDueMonthDay } from "@shared/todoDueDate";
 
 type Props = { workItemId: string; completionRequest?: number; openSubTodosRequest?: number; onEdit: () => void; onAddSubTodo?: () => void; canReopen?: boolean; onChanged: () => void; onDeleted?: () => void; sourceSessionId?: string | null; renderSubTodo?: (todo: any) => ReactNode };
 
@@ -23,7 +24,7 @@ const statuses = [
 
 const label = (status?: string | null) => statuses.find(([value]) => value === status)?.[1] ?? (status ? status.replaceAll("_", " ") : "Not Started");
 const when = (value?: string | null) => formatEasternDateTime(value);
-const day = (value?: string | null) => value ? new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No due date";
+const day = (value?: string | null) => value ? formatTodoDueMonthDay(new Date(`${value}T12:00:00`)) : "No due date";
 
 function linksIn(html?: string | null) {
   const found = Array.from(String(html ?? "").matchAll(/href=["']([^"']+)|\b(https?:\/\/[^\s<>"']+)/gi)).map(match => match[1] ?? match[2]).filter(Boolean);

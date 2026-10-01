@@ -554,7 +554,7 @@ export const pulseWorkItemsRouter = router({
   updateQuickWorkItemFields: pulseMemberProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
-      dueDate: dateSchema.optional(),
+      dueDate: dateSchema.nullable().optional(),
       priorityLevel: priorityLevelSchema.optional(),
       assigneeId: z.number().int().positive().optional(),
     }).refine((input) => input.dueDate !== undefined || input.priorityLevel !== undefined || input.assigneeId !== undefined, { message: "Choose a field to update." }))
@@ -583,6 +583,63 @@ export const pulseWorkItemsRouter = router({
         for (const change of changes) await writeActivity(tx, ctx.user.id, "work_item", item.id, change.field === "assignee" ? "assignee_changed" : "quick_field_updated", change.field, change.oldValue, change.newValue);
       });
       return { success: true, unchanged: false };
+    }),
+
+  sendTodoToIssues: pulseMemberProcedure
+    .input(z.object({
+      workItemId: z.string().uuid(),
+      issueTimeframe: issueTimeframeSchema.default("short_term"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const { item, meeting } = await getAccessibleWorkItem(
+        db,
+        ctx.user.id,
+        input.workItemId
+      );
+      if (item.type !== "todo" || !meeting || item.status === "completed") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Only open meeting To-Dos can be sent to Issues.",
+        });
+      }
+
+      await db.transaction(async (tx: any) => {
+        await tx
+          .update(pulseWorkItems)
+          .set({
+            type: "issue",
+            status: "not_started",
+            dueDate: null,
+            issueTimeframe: input.issueTimeframe,
+            sortOrder: 0,
+            parentWorkItemId: null,
+            blockerPersonId: null,
+            solvedNote: null,
+            completedAt: null,
+            completedById: null,
+            requiresL10Acknowledgement: false,
+          })
+          .where(eq(pulseWorkItems.id, item.id));
+        await writeActivity(
+          tx,
+          ctx.user.id,
+          "work_item",
+          item.id,
+          "todo_sent_to_issues",
+          "type",
+          "todo",
+          {
+            type: "issue",
+            issueTimeframe: input.issueTimeframe,
+            dueDateRemoved: dateValue(item.dueDate),
+            previousParentWorkItemId: item.parentWorkItemId,
+            meetingId: meeting.id,
+          }
+        );
+      });
+      return { success: true, workItemId: item.id, issueTimeframe: input.issueTimeframe };
     }),
 
   rocketIssue: pulseMemberProcedure
