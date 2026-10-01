@@ -54,7 +54,9 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
     for (const feed of feeds) {
       const options = typeof feed.options === "string" ? JSON.parse(feed.options) : feed.options;
       expect(feed.baseUrl).toBe("https://api.mlsgrid.com/v2");
-      expect(feed.mediaPolicy).toBe("active_all_else_primary");
+      expect(feed.mediaPolicy).toBe("primary_only");
+      expect(feed.syncIntervalMinutes).toBe(5);
+      expect(options.fastImportV1).toBe(true);
       expect(feed.retentionPolicy).toBe("purge");
       expect(license.licenseError({ options, retentionPolicy: feed.retentionPolicy })).toBeNull();
     }
@@ -68,11 +70,17 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
   }, 60_000);
 
   it("never overwrites an admin's later changes", async () => {
-    await admin.query("UPDATE mls_feeds SET enabled = false, mediaPolicy = 'primary_only' WHERE feedType = 'bbo'");
+    // Simulate a feed created by the previous release, before fastImportV1.
+    await admin.query("UPDATE mls_feeds SET options = JSON_REMOVE(options, '$.fastImportV1'), mediaPolicy = 'active_all_else_primary', syncIntervalMinutes = 15 WHERE feedType = 'bbo'");
+    expect(await bootstrap.ensureDeclaredMlsFeeds(admin as any)).toEqual([]);
+    const [[migrated]]: any = await admin.query("SELECT options, mediaPolicy, syncIntervalMinutes FROM mls_feeds WHERE feedType = 'bbo'");
+    const migratedOptions = typeof migrated.options === "string" ? JSON.parse(migrated.options) : migrated.options;
+    expect([migratedOptions.fastImportV1, migrated.mediaPolicy, migrated.syncIntervalMinutes]).toEqual([true, "primary_only", 5]);
+    await admin.query("UPDATE mls_feeds SET enabled = false, mediaPolicy = 'none', syncIntervalMinutes = 12 WHERE feedType = 'bbo'");
     await admin.query("UPDATE mls_sources SET onboardingStatus = 'live' WHERE code = 'maris'");
     expect(await bootstrap.ensureDeclaredMlsFeeds(admin as any)).toEqual([]);
-    const [[bbo]]: any = await admin.query("SELECT enabled, mediaPolicy FROM mls_feeds WHERE feedType = 'bbo'");
-    expect([!!bbo.enabled, bbo.mediaPolicy]).toEqual([false, "primary_only"]);
+    const [[bbo]]: any = await admin.query("SELECT enabled, mediaPolicy, syncIntervalMinutes FROM mls_feeds WHERE feedType = 'bbo'");
+    expect([!!bbo.enabled, bbo.mediaPolicy, bbo.syncIntervalMinutes]).toEqual([false, "none", 12]);
     const [[maris]]: any = await admin.query("SELECT onboardingStatus FROM mls_sources WHERE code = 'maris'");
     expect(maris.onboardingStatus).toBe("live");
     const [[count]]: any = await admin.query("SELECT COUNT(*) AS n FROM mls_feeds");

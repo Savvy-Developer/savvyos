@@ -128,7 +128,23 @@ function RawPayload({ listingId }: { listingId: number }) {
 export default function MlsListingDetailPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  const query = trpc.mlsProperties.listing.useQuery({ id }, { enabled: Number.isFinite(id) && id > 0 });
+  const [galleryRequested, setGalleryRequested] = useState(false);
+  const query = trpc.mlsProperties.listing.useQuery({ id }, {
+    enabled: Number.isFinite(id) && id > 0,
+    refetchInterval: galleryRequested ? 5000 : false,
+  });
+  const requestGallery = trpc.mlsProperties.requestGallery.useMutation({ onSuccess: () => setGalleryRequested(true) });
+  const requestedFor = useRef<number | null>(null);
+
+  useEffect(() => {
+    const data = query.data;
+    if (!data || requestedFor.current === id || data.media.some(photo => photo.priority === 0)) return;
+    const totalPhotos = Number(data.listing.photosCount ?? 0);
+    const stored = data.media.filter(photo => photo.url).length;
+    if (totalPhotos <= 1 || stored >= totalPhotos) return;
+    requestedFor.current = id;
+    requestGallery.mutate({ id });
+  }, [id, query.data]);
 
   const data = query.data;
   const features = useMemo(() => Object.entries((data?.listing.features ?? {}) as Record<string, string[]>).filter(([, values]) => values?.length), [data]);
@@ -193,6 +209,13 @@ export default function MlsListingDetailPage() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <div className="space-y-4">
           <Gallery media={data.media} alt={addressLine(listing)} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={requestGallery.isPending || galleryRequested} onClick={() => requestGallery.mutate({ id })}>
+              {requestGallery.isPending ? "Queuing photos..." : galleryRequested ? "Photos requested" : "Load available photos"}
+            </Button>
+            {galleryRequested ? <span className="text-xs text-muted-foreground">Photos appear here as the worker downloads them under the MLS Grid limit. This may take longer when the token budget is full.</span> : null}
+            {requestGallery.error ? <span className="text-xs text-destructive">{requestGallery.error.message}</span> : null}
+          </div>
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {[

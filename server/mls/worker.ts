@@ -7,6 +7,7 @@ import type { FeedContext } from "./adapters/types";
 import { credentialStatus } from "./credentials";
 import { runFeedCycle, syncDue } from "./engine";
 import { allLanes, getLane, laneKey } from "./http";
+import { licenseError } from "./license";
 import { pendingMediaCount, resetStaleMediaClaims, runMediaBatch } from "./media";
 import { ensureMlsSchema } from "./schema";
 
@@ -114,7 +115,7 @@ export class MlsIngestionScheduler {
     for (const [key, laneFeeds] of Array.from(byLane.entries())) {
       const state = this.lanes.get(key) ?? { syncing: false, media: false };
       this.lanes.set(key, state);
-      const configured = laneFeeds.filter(ctx => credentialStatus(ctx.feed).configured);
+      const configured = laneFeeds.filter(ctx => credentialStatus(ctx.feed).configured && !licenseError(ctx.feed));
       if (!state.syncing) {
         // Requested syncs first, then the stalest due feed.
         const due = laneFeeds

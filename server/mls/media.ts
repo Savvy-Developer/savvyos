@@ -4,6 +4,7 @@ import { getDb } from "../db";
 import { privateMlsStorage, privateMlsStorageError } from "./privateMedia";
 import { loadOverrides, loadMetadataLocalFields } from "./engine";
 import { adapterFor } from "./adapters";
+import { mlsGridBatchUrl } from "./adapters/mlsGrid";
 import { parseODataPage, type FeedContext } from "./adapters/types";
 import { downloadMedia, FatalHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
 import { processRecords } from "./store";
@@ -101,11 +102,9 @@ async function deleteRemovedMedia(db: Db, feedIds: number[], result: MediaBatchR
   }
 }
 
-/**
- * MLS Grid only: listings whose photo URLs expired before download are
- * re-requested one by one to get fresh URLs. Costs one API request each, so
- * it is capped per batch and shares the lane's request budget.
- */
+/** Refresh expired URLs in batches, including gallery requests. All provider
+ * calls run here in the worker, not from the web process, so they share the
+ * same token rate and byte budget as replication and photo downloads. */
 async function refreshExpiredUrls(
   db: Db,
   lane: ProviderLane,
@@ -116,33 +115,60 @@ async function refreshExpiredUrls(
   const feedIds = Array.from(feeds.keys()).filter(id => adapterFor(feeds.get(id)!.feed.provider).capabilities.mediaUrlsExpire);
   if (!feedIds.length) return;
   const rows = await db
-    .selectDistinct({ feedId: mlsMedia.feedId, resourceKey: mlsMedia.resourceKey })
+    .selectDistinct({ feedId: mlsMedia.feedId, resourceKey: mlsMedia.resourceKey, listingNumber: mlsListings.listingNumber })
     .from(mlsMedia)
+    .innerJoin(mlsListings, and(eq(mlsListings.feedId, mlsMedia.feedId), eq(mlsListings.providerListingKey, mlsMedia.resourceKey)))
     .where(and(inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS)))
     .limit(options.limit);
+  const groups = new Map<string, typeof rows>();
   for (const row of rows) {
-    const ctx = feeds.get(row.feedId)!;
+    const key = feeds.get(row.feedId)!.feed.provider === "mls_grid" ? String(row.feedId) : `${row.feedId}:${row.resourceKey}`;
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  for (const group of Array.from(groups.values())) {
+    const feedId = group[0].feedId;
+    const ctx = feeds.get(feedId)!;
     const adapter = adapterFor(ctx.feed.provider);
     try {
-      const { body } = await requestJson(lane, adapter.singleRecordUrl(ctx, "Property", row.resourceKey), () => adapter.authHeaders(ctx), {
+      const batch = ctx.feed.provider === "mls_grid";
+      const url = batch
+        ? mlsGridBatchUrl(ctx, group.map(row => `${ctx.feed.keyPrefix ?? ctx.source.keyPrefix ?? ""}${row.listingNumber}`))
+        : adapter.singleRecordUrl(ctx, "Property", group[0].resourceKey);
+      const { body } = await requestJson(lane, url, () => adapter.authHeaders(ctx), {
         signal: options.signal,
         fetchImpl: options.fetchImpl,
       });
       const page = parseODataPage(body);
-      if (!page.value.length) {
+      const returned = new Set<string>();
+      for (const record of page.value) {
+        const key = String(record[adapter.keyField("Property")] ?? "");
+        if (!group.some(row => row.resourceKey === key)) continue;
+        returned.add(key);
+        const gallery = await db.select({ id: mlsMedia.id }).from(mlsMedia)
+          .where(and(eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, key), eq(mlsMedia.mediaKey, "__gallery_request__")))
+          .limit(1);
+        const feed = gallery.length ? { ...ctx.feed, mediaPolicy: "all" as const, options: { ...ctx.feed.options, fastImportV1: false } } : ctx.feed;
+        await processRecords({ ...ctx, feed }, adapter, "Property", [record], {
+          overrides: await loadOverrides(db, ctx), metadataLocalFields: await loadMetadataLocalFields(db, feedId), force: true,
+        });
+        if (gallery.length) {
+          await db.update(mlsMedia).set({ priority: 0 })
+            .where(and(eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, key), inArray(mlsMedia.status, ["pending", "stored", "expired"])));
+          await db.update(mlsMedia).set({ status: "delete_pending" }).where(eq(mlsMedia.id, gallery[0].id));
+        }
+        result.refreshed += 1;
+      }
+      for (const row of group.filter(row => !returned.has(row.resourceKey))) {
         await db
           .update(mlsMedia)
           .set({ status: "failed", lastError: "Listing no longer returned by provider" })
-          .where(and(eq(mlsMedia.feedId, row.feedId), eq(mlsMedia.resourceKey, row.resourceKey), eq(mlsMedia.status, "expired")));
-        continue;
+          .where(and(eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, row.resourceKey), eq(mlsMedia.status, "expired")));
       }
-      await processRecords(ctx, adapter, "Property", page.value, { overrides: await loadOverrides(db, ctx), metadataLocalFields: await loadMetadataLocalFields(db, ctx.feed.id), force: true });
-      result.refreshed += 1;
     } catch (error) {
       await db
         .update(mlsMedia)
         .set({ attempts: sql`${mlsMedia.attempts} + 1`, lastError: String(error instanceof Error ? error.message : error).slice(0, 512) })
-        .where(and(eq(mlsMedia.feedId, row.feedId), eq(mlsMedia.resourceKey, row.resourceKey), eq(mlsMedia.status, "expired")));
+        .where(and(eq(mlsMedia.feedId, feedId), inArray(mlsMedia.resourceKey, group.map(row => row.resourceKey)), eq(mlsMedia.status, "expired")));
     }
   }
 }

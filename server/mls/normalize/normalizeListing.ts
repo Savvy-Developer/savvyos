@@ -42,6 +42,7 @@ export type NormalizedListing = {
   provenance: Record<string, string>;
   insights: Record<string, NormalizedInsight>;
   media: ExtractedMedia[];
+  mediaExpanded: boolean;
   permittedUses: string[] | null;
   viewable: boolean;
   modifiedAt: Date | null;
@@ -364,6 +365,7 @@ export function normalizeListing(
     provenance,
     insights,
     media,
+    mediaExpanded: Object.prototype.hasOwnProperty.call(record, "Media"),
     permittedUses: adapter.permittedUses(record),
     viewable: adapter.isViewable(record),
     modifiedAt: (columns.sourceModifiedAt as Date | undefined) ?? null,

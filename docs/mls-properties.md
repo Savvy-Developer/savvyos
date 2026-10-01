@@ -117,7 +117,7 @@ MLS_E2E_DATABASE_URL=mysql://root@127.0.0.1:3307/savvyos_mls_e2e \
 
 ## Licensed feeds declared in code
 
-`server/mls/feedBootstrap.ts` lists the feeds Savvy has licensed. On startup (web and worker), SavvyOS creates any that are missing, under a MySQL named lock, and never edits one that exists. Admin changes in Feeds and mappings always win. Set `MLS_DECLARED_FEEDS=off` to skip this.
+`server/mls/feedBootstrap.ts` lists the feeds Savvy has licensed. On startup (web and worker), SavvyOS creates any that are missing under a MySQL named lock. It also applies the fast-import settings **once** to existing declared MLS Grid feeds. Admin changes after that migration always win. Set `MLS_DECLARED_FEEDS=off` to skip this.
 
 | Feed | Token variable | Why |
 |---|---|---|
@@ -143,3 +143,15 @@ MLS Grid meters each access token as a whole: API pages, single-listing photo-li
 `server/mls/http.ts` enforces this with one limiter per token. The media limiter is chained onto it, so photos draw from the same budget, and photos alone may use at most `mediaShare` (default 0.75, max 0.9) so replication keeps room. Bytes are counted from `Content-Length` when sent (compressed size), otherwise the decoded size. On start, each lane reloads the last 25 hours from `mls_provider_usage`, so a restart or deploy cannot reset the rolling windows. Tests: `MLS Grid token budget` in `mls.test.ts` and the restart test in `mls.e2e.test.ts`.
 
 Photo backfill is bound by the daily request cap (one request per photo). Faster options need MLS Grid: CDN media access with non-expiring links, or a temporary limit increase for the first load (contact support@mlsgrid.com in advance).
+
+## Fast first load (Oct 1, 2026)
+
+The two declared MLS Grid feeds get `options.fastImportV1=true`, `syncIntervalMinutes=5`, and `mediaPolicy=primary_only` once. Other providers are unchanged.
+
+Canopy and MARIS now use three Property cursors per feed: `Priority:Property` imports active, coming soon, under-contract, and pending listings first with Media expanded for main-photo metadata; `Live:Property` is seeded before that pass and catches all changes since it started, including lost display rights; `Property` resumes the full historical pass without Media expansion. Rooms and UnitTypes remain expanded. Historical work is limited to 20 pages per worker cycle, and a live check runs again between historical pages if they take over four minutes. Other resources are capped at 20 pages per cycle until caught up. A failed page does not advance its cursor. When the history finishes, the live high-water mark is copied to the regular Property cursor. Market prefill itself is not interrupted by live checks; a large prefill can delay the first live check. The admin search becomes populated as pages arrive, not only after the full history finishes.
+
+Historical pages without Media cannot delete photos already held. A provider record older than our stored `ModificationTimestamp` cannot roll a newer status or price back; the seen timestamp still updates for the final sweep. MLS Grid returned gzip without Content-Length on a live sample. `wireBytes` counts the decoded size in that case, conservatively. It does **not** infer a smaller compressed size or weaken the byte limit to speed up import.
+
+Only main photos of market listings are queued automatically. Historical photos are not pre-downloaded. On opening an admin listing with more photos than are stored, the detail page queues its available gallery, with a manual button as a fallback. The web process never makes an MLS Grid request for this: the worker fetches up to 20 listing records in one `ListingId in (...)` request and downloads permitted photos under the shared token budget. MLS-specific restrictions, such as primary-only closed photos, still apply. A full token budget can delay the gallery. Runs and Health show actual progress. Tests for the staged pass, live status, old-version guard, batch refresh, gallery queue, and one-time migration run with `MLS_E2E_DATABASE_URL` against local MySQL and the mock MLS Grid server.
+
+Do not promise an under-hour market import, under-day history import, or a six-minute status latency until the real worker and its run logs confirm them. A worker stuck on a long market-prefill page, a full token budget, or a provider delay makes those estimates unreliable.

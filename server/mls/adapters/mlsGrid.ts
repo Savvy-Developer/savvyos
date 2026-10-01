@@ -60,6 +60,35 @@ function prefix(ctx: FeedContext) {
   return ctx.feed.keyPrefix ?? ctx.source.keyPrefix ?? null;
 }
 
+/** A one-time market prefill followed by the ordinary timestamp-based full pass. */
+export function mlsGridStageUrl(ctx: FeedContext, stage: "priority" | "history", cursor: CursorState) {
+  const filters = [
+    `OriginatingSystemName eq ${odataString(originatingSystem(ctx))}`,
+    "MlgCanView eq true",
+  ];
+  if (stage === "priority") {
+    filters.push("StandardStatus in ('Active','Active Under Contract','Coming Soon','Pending')");
+  }
+  if (cursor.highWaterMark) filters.push(`ModificationTimestamp gt ${cursor.highWaterMark}`);
+  // Historical records still need rooms and units, but not signed photo URLs
+  // that will expire before a millions-record backfill can use them.
+  return buildODataUrl(ctx.feed.baseUrl, "Property", {
+    $filter: filters.join(" and "),
+    $expand: stage === "priority" ? EXPAND.Property : "Rooms,UnitTypes",
+    $top: 1000,
+  });
+}
+
+/** MLS Grid supports `ListingId in (...)`; one request can refresh many photo links. */
+export function mlsGridBatchUrl(ctx: FeedContext, listingIds: string[]) {
+  if (!listingIds.length || listingIds.length > 100) throw new Error("MLS Grid batch requires 1 to 100 listing IDs");
+  return buildODataUrl(ctx.feed.baseUrl, "Property", {
+    $filter: `OriginatingSystemName eq ${odataString(originatingSystem(ctx))} and ListingId in (${listingIds.map(odataString).join(",")})`,
+    $expand: "Media",
+    $top: 100,
+  });
+}
+
 /**
  * Per token. `published` is docs.mlsgrid.com; `warning` and `suspension` are
  * from MLS Grid's notice to Savvy (Sept 30, 2026). Exceeding warning sends an

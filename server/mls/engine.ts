@@ -12,6 +12,7 @@ import {
 } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { adapterFor } from "./adapters";
+import { mlsGridStageUrl } from "./adapters/mlsGrid";
 import { clearTokenCache } from "./adapters/trestle";
 import {
   parseODataPage,
@@ -299,9 +300,11 @@ async function replicateResource(
   lane: ProviderLane,
   resource: MlsResource,
   shared: { overrides: Awaited<ReturnType<typeof loadOverrides>>; metadataLocalFields: Set<string> | null },
-  options: CycleOptions
+  options: CycleOptions,
+  stage?: "priority" | "live" | "history"
 ) {
-  let cursor = await getCursor(db, ctx.feed.id, resource);
+  const cursorResource = resource === "Property" && stage && stage !== "history" ? `${stage === "priority" ? "Priority" : "Live"}:Property` : resource;
+  let cursor = await getCursor(db, ctx.feed.id, cursorResource);
   const now = new Date();
   const detail: Record<string, unknown> = {};
 
@@ -311,6 +314,7 @@ async function replicateResource(
   if (gapDays && cursor.phase === "incremental" && cursor.lastSuccessAt) {
     const gapHours = (now.getTime() - cursor.lastSuccessAt.getTime()) / 3_600_000;
     if (gapHours > gapDays * 24 - 12) {
+      if (stage === "live") throw new Error("Live cursor exceeded provider deletion window; full reload and reconciliation required");
       await saveCursor(db, cursor.id, { phase: "initial", highWaterMark: null, resumeToken: null });
       cursor = { ...cursor, phase: "initial", highWaterMark: null, resumeToken: null };
       detail.gapReload = { gapHours: Math.round(gapHours) };
@@ -321,7 +325,7 @@ async function replicateResource(
   const ordered = mode === "incremental" || initialIsOrdered(ctx, adapter);
   const fromScratch = mode === "initial" && !cursor.highWaterMark && !cursor.resumeToken;
   let sweepStartedAt = cursor.sweepStartedAt;
-  if (mode === "initial" && fromScratch) {
+  if (mode === "initial" && fromScratch && stage !== "priority") {
     // Seconds precision matches MySQL datetime. Includes every resource, not just listings.
     sweepStartedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
     await saveCursor(db, cursor.id, { sweepStartedAt });
@@ -332,15 +336,25 @@ async function replicateResource(
   const passStartedAt = new Date();
   const windowEnd = passStartedAt.toISOString();
 
-  let url: string | null =
-    cursor.resumeToken ? cursor.resumeToken : adapter.firstPageUrl(ctx, resource, state, windowEnd);
+  const firstUrl = (position: CursorState) => stage === "priority" || stage === "history"
+    ? mlsGridStageUrl(ctx, stage, position)
+    : adapter.firstPageUrl(ctx, resource, position, windowEnd);
+  // Existing imports may hold a nextLink with Media expanded. Rebuild from the
+  // saved boundary timestamp to switch to the lean historical pass safely.
+  if (stage === "history" && cursor.resumeToken && /(?:Media|%2C?Media)/i.test(cursor.resumeToken)) {
+    await saveCursor(db, cursor.id, { resumeToken: null });
+    cursor = { ...cursor, resumeToken: null };
+  }
+  let url: string | null = cursor.resumeToken ? cursor.resumeToken : firstUrl({ ...state, resumeToken: null });
   let resumed = !!cursor.resumeToken;
   let highWaterMark = cursor.highWaterMark;
+  let lastLiveCheck = Date.now();
 
   try {
     while (url) {
       if (options.signal?.aborted) throw new Error("aborted");
-      if (options.maxPagesPerResource && totals.pages >= options.maxPagesPerResource) break;
+      const pageLimit = options.maxPagesPerResource ?? (stage === "history" ? 20 : undefined);
+      if (pageLimit && totals.pages >= pageLimit) break;
       await renewLease(ctx.feed.id, options.workerId);
       let response: { body: any; bytes: number };
       try {
@@ -358,7 +372,7 @@ async function replicateResource(
             state.highWaterMark = null;
           }
           await saveCursor(db, cursor.id, { resumeToken: null, highWaterMark });
-          url = adapter.firstPageUrl(ctx, resource, { ...state, highWaterMark, resumeToken: null }, windowEnd);
+          url = firstUrl({ ...state, highWaterMark, resumeToken: null });
           detail.resumeReset = true;
           continue;
         }
@@ -388,9 +402,13 @@ async function replicateResource(
       });
       if (totals.pages % 10 === 0) await updateRun(db, runId, totals);
       url = next;
+      if (stage === "history" && Date.now() - lastLiveCheck >= 4 * 60_000 && !options.maxPagesPerResource) {
+        await replicateResource(db, ctx, adapter, lane, "Property", shared, options, "live");
+        lastLiveCheck = Date.now();
+      }
     }
 
-    const completed = !(options.maxPagesPerResource && url);
+    const completed = !url;
     if (completed) {
       const finishedValues: Partial<typeof mlsSyncCursors.$inferInsert> = { lastSuccessAt: new Date(), resumeToken: null };
       if (mode === "initial") {
@@ -402,13 +420,17 @@ async function replicateResource(
         } else {
           finishedValues.highWaterMark = highWaterMark;
         }
-        if (resource === "Property") {
+        if (stage === "history") {
+          const live = await getCursor(db, ctx.feed.id, "Live:Property");
+          finishedValues.highWaterMark = laterTimestamp(finishedValues.highWaterMark ?? null, live.highWaterMark);
+        }
+        if (resource === "Property" && stage !== "priority") {
           await db
             .update(mlsFeeds)
             .set({ initialImportCompletedAt: ctx.feed.initialImportCompletedAt ?? new Date() })
             .where(eq(mlsFeeds.id, ctx.feed.id));
         }
-        if (sweepStartedAt) {
+        if (sweepStartedAt && stage !== "priority") {
           // DB-backed mark/sweep survives a crash and bounds process memory.
           const { mlsRawRecords } = await import("../../drizzle/mlsSchema");
           const stale = and(eq(mlsRawRecords.feedId, ctx.feed.id), eq(mlsRawRecords.resource, resource), lt(mlsRawRecords.receivedAt, sweepStartedAt));
@@ -554,8 +576,33 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
       overrides: await loadOverrides(db, ctx),
       metadataLocalFields: await loadMetadataLocalFields(db, feedId),
     };
+    const fastGrid = ctx.feed.provider === "mls_grid" && readOption(ctx.feed, "fastImportV1", false);
+    if (fastGrid && !options.maxPagesPerResource) {
+      const history = await getCursor(db, feedId, "Property");
+      if (history.phase === "initial") {
+        // Start the live watermark BEFORE the prefill. Changes that land during
+        // the prefill will be replayed, with a 15-minute overlap.
+        const live = await getCursor(db, feedId, "Live:Property");
+        if (live.phase === "initial") {
+          await saveCursor(db, live.id, {
+            phase: "incremental",
+            highWaterMark: new Date(Date.now() - UNORDERED_MARGIN_MS).toISOString(),
+          });
+        }
+        const priority = await getCursor(db, feedId, "Priority:Property");
+        if (priority.phase === "initial") {
+          summary.resources["Priority:Property"] = await replicateResource(db, ctx, adapter, lane, "Property", shared, options, "priority");
+        }
+        summary.resources["Live:Property"] = await replicateResource(db, ctx, adapter, lane, "Property", shared, options, "live");
+      }
+    }
     for (const resource of resourcesFor(ctx.feed, adapter)) {
-      summary.resources[resource] = await replicateResource(db, ctx, adapter, lane, resource, shared, options);
+      const historical = fastGrid && !options.maxPagesPerResource && resource === "Property" && (await getCursor(db, feedId, "Property")).phase === "initial";
+      summary.resources[resource] = await replicateResource(
+        db, ctx, adapter, lane, resource, shared,
+        fastGrid && !options.maxPagesPerResource && resource !== "Property" ? { ...options, maxPagesPerResource: 20 } : options,
+        historical ? "history" : undefined
+      );
     }
     await applyDeletedResource(db, ctx, adapter, lane, options);
 
