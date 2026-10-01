@@ -155,7 +155,7 @@ export default function OnboardingTrackerPage() {
 
   const serverStatus =
     statusFilter === "overdue" ? "in_progress" : statusFilter;
-  const { data: rawInstances = [], isLoading } =
+  const { data: rawInstances = [], isLoading, error: instancesError } =
     trpc.onboarding.listInstances.useQuery({ status: serverStatus });
   const instances =
     statusFilter === "overdue"
@@ -462,6 +462,16 @@ export default function OnboardingTrackerPage() {
         <div className="py-12 text-center text-muted-foreground">
           Loading...
         </div>
+      ) : instancesError ? (
+        <Card className="border-destructive/30">
+          <CardContent className="py-12 text-center">
+            <AlertTriangle className="mx-auto mb-3 h-12 w-12 text-destructive" />
+            <p className="text-lg font-medium">Unable to load onboarding</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {instancesError.message}
+            </p>
+          </CardContent>
+        </Card>
       ) : instances.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
