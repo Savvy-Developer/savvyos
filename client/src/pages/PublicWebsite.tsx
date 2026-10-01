@@ -2841,6 +2841,150 @@ function DraftPreviewBanner({ status, what }: { status?: string | null; what: st
   );
 }
 
+/**
+ * The agent card for a case study or blog post, with the same ways to reach
+ * the agent as a property's "Your Agent" card: message, call, schedule a
+ * call, full profile (1 Oct call with Tyler). "Message" opens a lead form
+ * credited to the agent, which runs the same SavvyOS lead and agent
+ * connection path as every other website form.
+ */
+type ContactAgent = {
+  userId?: number | null;
+  name: string;
+  imageUrl?: string | null;
+  profileHref?: string | null;
+  headline?: string | null;
+  bio?: string | null;
+  place?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  bookingUrl?: string | null;
+};
+
+function AgentContactCard({
+  agent,
+  heading,
+  leadTitle,
+  leadMessage,
+  propertyId,
+  layout = "column",
+  onMessage,
+}: {
+  agent: ContactAgent;
+  heading?: string;
+  leadTitle: string;
+  leadMessage: string;
+  propertyId?: number | null;
+  /** "column": the narrow side panel. "row": the wide box under an article. */
+  layout?: "column" | "row";
+  /** When the page already shows a form, "Message" scrolls to it instead. */
+  onMessage?: () => void;
+}) {
+  const [showLead, setShowLead] = useState(false);
+  const firstName = agent.name.split(" ")[0];
+  const outline =
+    "inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border px-4 text-sm font-medium transition-all";
+  const photo = (
+    <div
+      className={`relative shrink-0 overflow-hidden rounded-full border-2 border-[#e5e5e5] ${
+        layout === "row" ? "h-20 w-20" : "h-24 w-24"
+      }`}
+    >
+      {agent.imageUrl ? (
+        <img src={agent.imageUrl} alt={agent.name} className="h-full w-full object-cover object-[center_20%]" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-gray-100 text-2xl text-gray-500">
+          {agent.name.charAt(0).toUpperCase()}
+        </div>
+      )}
+    </div>
+  );
+  const identity = (
+    <div className={layout === "row" ? "min-w-0" : "mt-3"}>
+      {heading ? <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{heading}</p> : null}
+      <h4 className="font-bold text-gray-900">{agent.name}</h4>
+      <p className="text-sm">{agent.headline || "STR Investment Specialist"}</p>
+      {agent.place ? <p className="text-sm text-gray-600">{agent.place}</p> : null}
+    </div>
+  );
+  const actions = (
+    <div className={layout === "row" ? "grid gap-2 sm:grid-cols-2" : "space-y-2"}>
+      <button
+        type="button"
+        onClick={() => (onMessage ? onMessage() : setShowLead(open => !open))}
+        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[#171717] px-4 text-sm font-medium text-white transition-all hover:bg-[#171717]/90"
+      >
+        <Mail className="h-4 w-4" />
+        Message {firstName}
+      </button>
+      {agent.bookingUrl ? (
+        <a
+          href={agent.bookingUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${outline} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
+        >
+          <CalendarCheck className="h-4 w-4" />
+          Schedule a Call
+        </a>
+      ) : null}
+      {agent.phone ? (
+        <a className={`${outline} bg-white hover:bg-[#f5f5f5]`} href={`tel:${String(agent.phone).replace(/[^+\d]/g, "")}`}>
+          <Phone className="h-4 w-4" />
+          Call {firstName}
+        </a>
+      ) : null}
+      {agent.profileHref ? (
+        <a href={agent.profileHref} className={`${outline} border-transparent hover:bg-[#f5f5f5]`}>
+          View Full Profile
+        </a>
+      ) : null}
+    </div>
+  );
+  return (
+    <div className="rounded-[10px] border border-[#e5e5e5] bg-white p-5 shadow-sm">
+      {layout === "row" ? (
+        <div className="flex flex-col gap-5 md:flex-row md:items-start">
+          <a href={agent.profileHref || path("/agents")} className="flex items-center gap-4 transition-opacity hover:opacity-80 md:w-1/2">
+            {photo}
+            {identity}
+          </a>
+          <div className="md:w-1/2">{actions}</div>
+        </div>
+      ) : (
+        <>
+          <a
+            href={agent.profileHref || path("/agents")}
+            className="mb-3 flex flex-col items-center text-center transition-opacity hover:opacity-80"
+          >
+            {photo}
+            {identity}
+          </a>
+          <div className="my-3 h-px bg-[#e5e5e5]" />
+          {actions}
+        </>
+      )}
+      {agent.bio && layout === "row" ? <p className="mt-4 text-sm leading-6 text-gray-600">{agent.bio}</p> : null}
+      {showLead ? (
+        <div className="mt-4">
+          <LeadForm
+            agentUserId={agent.userId || undefined}
+            propertyId={propertyId || undefined}
+            intent="agent"
+            title={leadTitle}
+            message={leadMessage}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A published agent profile's markets as "Gulf Shores, AL · Destin, FL" (first two). */
+function marketsLine(markets: unknown): string | null {
+  return Array.isArray(markets) && markets.length ? markets.filter(Boolean).slice(0, 2).join(" · ") : null;
+}
+
 function CaseStudyDetailPage({ slug }: { slug: string }) {
   const query = trpc.website.publicCaseStudy.useQuery({ slug });
   // "More from" the agent: their live listings, from the (small) public list.
@@ -2851,7 +2995,10 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
   if (query.isLoading) return <LoadingPage />;
   if (!item) return <NotFoundPage />;
   const agentName = item.agentName || null;
-  const agentProfile = item.agentSlug ? path(`/agents/${item.agentSlug}`) : null;
+  const agentProfile =
+    item.agentSlug && (item.agentProfileStatus == null || item.agentProfileStatus === "published")
+      ? path(`/agents/${item.agentSlug}`)
+      : null;
   const invested = item.investmentAmount != null && Number(item.investmentAmount) > 0 ? Number(item.investmentAmount) : null;
   const metrics = [
     [item.primaryMetricLabel, item.primaryMetricValue],
@@ -2964,47 +3111,30 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
               </a>
 
               {agentName ? (
-                <div className="mb-4 rounded-xl border bg-white p-4">
-                  <a href={agentProfile || "#"} className="group flex flex-col items-center text-center transition-opacity hover:opacity-80 lg:flex-row lg:text-left">
-                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-gray-200 transition-colors group-hover:border-[#05314a]">
-                      {item.agentImageUrl ? (
-                        <img src={item.agentImageUrl} alt={agentName} className="h-full w-full object-cover object-[center_20%]" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <UserRound className="h-5 w-5" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="mt-2 min-w-0 lg:ml-3 lg:mt-0">
-                      <p className="truncate font-semibold leading-tight text-[#05314a] transition-colors group-hover:text-[#10c0df]">{agentName}</p>
-                      <p className="text-xs">STR Investment Specialist</p>
-                    </div>
-                  </a>
-                  {item.agentEmail || item.agentPhone ? (
-                    <div className="mt-3 flex flex-col items-center space-y-1.5 border-t pt-3 lg:items-stretch">
-                      {item.agentEmail ? (
-                        <a href={`mailto:${item.agentEmail}`} className="flex items-center gap-2 text-sm transition-colors hover:text-[#10c0df]">
-                          <Mail className="h-4 w-4 shrink-0 text-[#10c0df]" />
-                          <span className="truncate">{item.agentEmail}</span>
-                        </a>
-                      ) : null}
-                      {item.agentPhone ? (
-                        <a href={`tel:${String(item.agentPhone).replace(/[^+\d]/g, "")}`} className="flex items-center gap-2 text-sm transition-colors hover:text-[#10c0df]">
-                          <Phone className="h-4 w-4 shrink-0 text-[#10c0df]" />
-                          <span className="truncate">{item.agentPhone}</span>
-                        </a>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {agentProfile ? (
-                    <a href={agentProfile} className="mt-3 block text-center text-sm font-medium text-[#10c0df] transition-colors hover:text-[#05314a]">
-                      View Profile
-                    </a>
-                  ) : null}
+                <div className="mb-4">
+                  <AgentContactCard
+                    agent={{
+                      userId: item.agentUserId,
+                      name: agentName,
+                      imageUrl: item.agentImageUrl,
+                      profileHref: agentProfile,
+                      headline: item.agentHeadline,
+                      place: marketsLine(item.agentMarkets),
+                      phone: item.agentPhone,
+                      email: item.agentEmail,
+                      bookingUrl: item.agentBookingUrl,
+                    }}
+                    leadTitle={`Ask ${String(agentName).split(" ")[0]} about this deal`}
+                    leadMessage={`I'd like to learn more about the strategy behind ${item.title}.`}
+                    propertyId={item.propertyId}
+                    onMessage={() =>
+                      document.getElementById("case-study-lead-form")?.scrollIntoView({ behavior: "smooth", block: "center" })
+                    }
+                  />
                 </div>
               ) : null}
 
-              <div className="mb-4">
+              <div className="mb-4" id="case-study-lead-form">
                 <LeadForm
                   agentUserId={item.agentUserId || undefined}
                   propertyId={item.propertyId || undefined}
@@ -3506,7 +3636,29 @@ function ResourceDetailPage({ slug }: { slug: string }) {
             </div>
           </div>
 
-          {item.authorName ? (
+          {item.authorName && item.authorSlug ? (
+            // A published agent profile: the full card, like a property's.
+            <div className="mt-12">
+              <AgentContactCard
+                layout="row"
+                heading="Written by"
+                agent={{
+                  userId: item.authorUserId,
+                  name: authorName,
+                  imageUrl: item.authorProfileImageUrl || item.authorImageUrl,
+                  profileHref: path(`/agents/${item.authorSlug}`),
+                  headline: item.authorHeadline,
+                  bio: item.authorShortBio,
+                  place: marketsLine(item.authorMarkets),
+                  phone: item.authorPhone,
+                  email: item.authorEmail,
+                  bookingUrl: item.authorBookingUrl,
+                }}
+                leadTitle={`Ask ${authorName.split(" ")[0]} a question`}
+                leadMessage={`I read "${item.title}" and have a question.`}
+              />
+            </div>
+          ) : item.authorName ? (
             <div className="mt-12 rounded-xl bg-gray-50 p-6">
               <div className="flex items-start gap-4">
                 {item.authorImageUrl ? (
@@ -5196,6 +5348,106 @@ function TeamPage() {
  * are written into the contact's notes. The rules live in
  * shared/websiteSellerLead.ts so they are tested.
  */
+/**
+ * An address box with Google suggestions, for the seller form (1 Oct call).
+ * Typing still works on its own: if suggestions are slow, limited or off,
+ * it is a plain text field.
+ */
+function PublicAddressInput({
+  id,
+  className,
+  value,
+  onChange,
+  placeholder,
+  invalid,
+}: {
+  id: string;
+  className: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  invalid?: boolean;
+}) {
+  const [typed, setTyped] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  // Ask once typing pauses, not on every key.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setTyped(value.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [value]);
+  const lookup = trpc.website.publicAddressSuggestions.useQuery(
+    { query: typed },
+    { enabled: open && typed.length >= 3, staleTime: 5 * 60_000, retry: false }
+  );
+  const suggestions = open && typed.length >= 3 ? lookup.data?.suggestions ?? [] : [];
+  const pick = (description: string) => {
+    onChange(description.replace(/, USA$/, ""));
+    setOpen(false);
+    setActive(-1);
+  };
+  return (
+    <div className="relative">
+      <input
+        id={id}
+        className={className}
+        value={value}
+        onChange={event => {
+          onChange(event.target.value);
+          setOpen(true);
+          setActive(-1);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        onKeyDown={event => {
+          if (!suggestions.length) return;
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setActive(index => Math.min(index + 1, suggestions.length - 1));
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setActive(index => Math.max(index - 1, 0));
+          } else if (event.key === "Enter" && active >= 0) {
+            event.preventDefault();
+            pick(suggestions[active].description);
+          } else if (event.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+        placeholder={placeholder}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={suggestions.length > 0}
+        aria-controls={`${id}-suggestions`}
+        aria-autocomplete="list"
+        aria-invalid={invalid}
+      />
+      {suggestions.length > 0 && (
+        <ul
+          id={`${id}-suggestions`}
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-gray-200 bg-white py-1 text-sm shadow-lg"
+        >
+          {suggestions.map((suggestion, index) => (
+            <li
+              key={suggestion.placeId}
+              role="option"
+              aria-selected={index === active}
+              className={`cursor-pointer px-3 py-2 ${index === active ? "bg-[#10c0df]/10" : "hover:bg-gray-50"}`}
+              onMouseDown={event => {
+                event.preventDefault();
+                pick(suggestion.description);
+              }}
+            >
+              {suggestion.description.replace(/, USA$/, "")}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function SellerLeadForm({ phone, tel }: { phone: string; tel: string }) {
   const [values, setValues] = useState<SellerValues>(emptySellerValues());
   const [honeypot, setHoneypot] = useState("");
@@ -5270,14 +5522,13 @@ function SellerLeadForm({ phone, tel }: { phone: string; tel: string }) {
       <div className="mt-6 grid gap-5 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label htmlFor="seller-address" className={labelClass}>Property address</label>
-          <input
+          <PublicAddressInput
             id="seller-address"
             className={fieldClass(!!errorFor("address"))}
             value={values.address}
-            onChange={set("address")}
+            onChange={address => setValues(current => ({ ...current, address }))}
             placeholder="412 Gulf Shore Dr, Destin, FL 32541"
-            autoComplete="street-address"
-            aria-invalid={!!errorFor("address")}
+            invalid={!!errorFor("address")}
           />
           {errorText("address")}
         </div>
