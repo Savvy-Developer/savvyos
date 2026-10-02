@@ -25,6 +25,7 @@ import { parseODataPage } from "./adapters/types";
 import { __testables__ as mcpTestables } from "../readOnlyMcp";
 import { MLS_SOURCE_SEEDS, seedCompliance } from "./sources";
 import { importErrorInfo, mediaWanted, payloadHash, retryOnDeadlock } from "./store";
+import { REFRESH_STAGE_MAX_PRIORITY, isQueryTimeout } from "./media";
 import { blockingHolders, scrubSql } from "./schema";
 
 const source = {
@@ -688,5 +689,20 @@ describe("MLS Grid token budget", () => {
 
   it("keeps separate media metering for providers that meter it separately", () => {
     expect(trestleAdapter.limits({ ...feed, provider: "trestle" } as unknown as MlsFeed).tokenBudget ?? null).toBeNull();
+  });
+});
+
+describe("expired-link refresh scan bounds", () => {
+  it("recognizes MAX_EXECUTION_TIME interruptions through driver wrappers only", () => {
+    expect(isQueryTimeout({ message: "Failed query", cause: { errno: 3024, code: "ER_QUERY_TIMEOUT" } })).toBe(true);
+    expect(isQueryTimeout({ code: "ER_QUERY_TIMEOUT" })).toBe(true);
+    expect(isQueryTimeout({ cause: { errno: 1213, code: "ER_LOCK_DEADLOCK" } })).toBe(false);
+    expect(isQueryTimeout(new Error("boom"))).toBe(false);
+  });
+
+  it("keeps every refresh stage inside its media priority band", () => {
+    // store.ts mediaPriority: Active gallery 0, Active cover 1, coming soon 10,
+    // under contract 20, pending 30, other covers 40, non-primary 50/100.
+    expect(REFRESH_STAGE_MAX_PRIORITY).toEqual({ active_gallery: 0, gallery: 0, active: 10, market: 30 });
   });
 });
