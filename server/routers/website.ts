@@ -88,6 +88,7 @@ import { getSignupSegmentId, saveSignupSegmentId } from "../websiteSignupAudienc
 import { moveWebsiteImages } from "../websiteImageRehost";
 import { ZillowLookupInputError, extractZillowDescription, extractZillowPhotoUrls, fetchAddressSuggestions, fetchZillowListing } from "../externalApis";
 import { allowSeoWrite, writeSeoText } from "../websiteSeoWriter";
+import { saveCaseStudySeo, withCaseStudySeo } from "../websiteCaseStudySeo";
 import { importOldSiteListings, importedListingCounts, publishReadyImportedListings } from "../oldSiteListingImport";
 
 /** A zillow.com listing link, normalised, or null for anything else. */
@@ -862,12 +863,20 @@ const caseStudyInput = z.object({
   secondaryMetricLabel: nullableText,
   secondaryMetricValue: nullableText,
   investmentAmount: z.number().nonnegative().max(1e11).nullable().optional(),
+  // Optional. Blank means Google gets the title and the excerpt, as before.
+  // Left out entirely by an older open tab, which then changes nothing.
+  metaTitle: z.string().trim().max(255).nullable().optional(),
+  metaDescription: z.string().trim().max(2000).nullable().optional(),
   /** Admins only (Website Studio): the date shown as published. */
   publishedAt: z.string().trim().max(40).nullable().optional(),
   status: statusSchema.default("draft"),
   isFeatured: z.boolean().default(false),
   sortOrder: z.number().int().default(0),
 });
+
+/** Whether the form sent the case study's meta fields at all. */
+const sentCaseStudySeo = (input: { metaTitle?: string | null; metaDescription?: string | null }) =>
+  input.metaTitle !== undefined || input.metaDescription !== undefined;
 
 const postInput = z.object({
   id: z.number().int().positive().optional(),
@@ -2437,7 +2446,7 @@ export const websiteRouter = router({
       settings: settingsRows[0] ?? null,
       properties: propertyRows,
       agents: agentRows.map(withNormalizedBooking),
-      caseStudies: caseRows,
+      caseStudies: await withCaseStudySeo(db, caseRows),
       posts: postRows,
       leads: leadRows,
       canViewLeads,
@@ -2790,8 +2799,10 @@ export const websiteRouter = router({
             .where(eq(websiteCaseStudies.id, input.id))
             .limit(1)
         : [];
+      // The meta fields live in their own table (see websiteCaseStudySeo.ts).
+      const { metaTitle, metaDescription, ...caseFields } = input;
       const data = {
-        ...input,
+        ...caseFields,
         id: undefined,
         slug: cleanSlug(input.slug),
         // decimal columns take a string. Left out (undefined) when the form
@@ -2805,16 +2816,22 @@ export const websiteRouter = router({
         publishedAt: studioPublishedAt(input.status, input.publishedAt, existing?.publishedAt),
         updatedById: ctx.user.id,
       };
+      let caseStudyId = input.id ?? 0;
       if (input.id)
         await db
           .update(websiteCaseStudies)
           .set(data as any)
           .where(eq(websiteCaseStudies.id, input.id));
-      else
-        await db
+      else {
+        const result = await db
           .insert(websiteCaseStudies)
           .values({ ...data, createdById: ctx.user.id } as any);
-      return { success: true };
+        caseStudyId = Number((result as any)[0]?.insertId) || 0;
+      }
+      const seoSaved = sentCaseStudySeo(input)
+        ? await saveCaseStudySeo(db, caseStudyId, { metaTitle, metaDescription })
+        : true;
+      return { success: true, seoSaved };
     }),
 
   savePost: protectedProcedure
@@ -2885,7 +2902,7 @@ export const websiteRouter = router({
         .orderBy(properties.address)
         .limit(500),
     ]);
-    return { caseStudies: caseRows, posts: postRows, properties: propertyRows };
+    return { caseStudies: await withCaseStudySeo(db, caseRows), posts: postRows, properties: propertyRows };
   }),
 
   saveMyCaseStudy: protectedProcedure
@@ -2941,6 +2958,10 @@ export const websiteRouter = router({
         } as any);
         id = Number((result as any)[0]?.insertId);
       }
+      const seoSaved =
+        sentCaseStudySeo(input) && id
+          ? await saveCaseStudySeo(db, id, { metaTitle: input.metaTitle, metaDescription: input.metaDescription })
+          : true;
       await logActivity({
         userId: me,
         action: existing ? "website_case_study_updated" : "website_case_study_created",
@@ -2948,7 +2969,7 @@ export const websiteRouter = router({
         entityId: id ?? null,
         details: { slug, status: input.status, byAgent: true },
       });
-      return { id, slug, status: input.status };
+      return { id, slug, status: input.status, seoSaved };
     }),
 
   saveMyPost: protectedProcedure
@@ -3252,7 +3273,7 @@ export const websiteRouter = router({
   writeSeoWithAi: protectedProcedure
     .input(
       z.object({
-        kind: z.enum(["property", "post", "case"]),
+        kind: z.enum(["property", "post", "case", "caseSeo"]),
         propertyId: z.number().int().positive().nullable().optional(),
         sourceProformaId: z.number().int().positive().nullable().optional(),
         content: z
@@ -3295,8 +3316,8 @@ export const websiteRouter = router({
           .limit(1);
         // A case study names the place, never the street.
         if (property) {
-          if (input.kind === "case") Object.assign(facts, { city: property.city, state: property.state });
-          else Object.assign(facts, property);
+          if (input.kind === "property") Object.assign(facts, property);
+          else Object.assign(facts, { city: property.city, state: property.state });
         }
         if (input.kind === "property" && input.sourceProformaId) {
           const [proforma] = await db

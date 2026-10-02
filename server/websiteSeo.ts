@@ -20,6 +20,7 @@ import {
   websiteSiteSettings,
 } from "../drizzle/schema";
 import { getDb } from "./db";
+import { loadCaseStudySeo } from "./websiteCaseStudySeo";
 import type { LandingMetadata } from "./landingPageHtml";
 import { RESERVED_PAGE_SLUGS } from "./routers/website";
 import {
@@ -183,6 +184,7 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
     case "caseStudy": {
       const [row] = await db
         .select({
+          id: websiteCaseStudies.id,
           title: websiteCaseStudies.title,
           excerpt: websiteCaseStudies.excerpt,
           body: websiteCaseStudies.body,
@@ -192,9 +194,12 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
         .where(and(eq(websiteCaseStudies.slug, route.slug), eq(websiteCaseStudies.status, "published")))
         .limit(1);
       if (row) {
+        // Its own meta title and description when someone wrote them; else
+        // the title and the excerpt, as before.
+        const seo = (await loadCaseStudySeo(db, [row.id])).get(row.id);
         found = {
-          title: row.title,
-          description: describeText(row.excerpt) ?? describeText(row.body),
+          title: seo?.metaTitle || row.title,
+          description: describeText(seo?.metaDescription) ?? describeText(row.excerpt) ?? describeText(row.body),
           image: absoluteImage(row.heroImageUrl, ORIGIN) ?? defaults.image,
         };
       }

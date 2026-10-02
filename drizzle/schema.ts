@@ -1551,6 +1551,19 @@ export const websiteListingClocks = mysqlTable("website_listing_clocks", {
 export type WebsiteListingClock = typeof websiteListingClocks.$inferSelect;
 
 /**
+ * A case study's own meta title and meta description (optional; blank means
+ * the page uses the title and the excerpt). Created at startup by
+ * server/websiteCaseStudySeo.ts; the same statement is kept in
+ * drizzle/20261002_website_case_study_seo.sql for the record.
+ */
+export const websiteCaseStudySeo = mysqlTable("website_case_study_seo", {
+  caseStudyId: int("caseStudyId").primaryKey(),
+  metaTitle: varchar("metaTitle", { length: 255 }),
+  metaDescription: text("metaDescription"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/**
  * When a website listing was last switched to "Feature on the homepage".
  * The homepage shows the most recent first. Created at startup by
  * server/websiteFeaturedSchema.ts; the same statement is kept in
