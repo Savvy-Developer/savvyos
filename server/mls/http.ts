@@ -3,6 +3,7 @@ import type { MlsProvider } from "../../drizzle/mlsSchema";
 import { mlsProviderUsage } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import type { ProviderLimits } from "./adapters/types";
+import { isMlsGridCdnUrl } from "./mlsGridCdn";
 
 /**
  * One lane per credential. Provider limits apply to the token, not to one MLS,
@@ -475,7 +476,11 @@ async function withRetries<T>(
         // accessed this hour. It is an item-specific cooldown, not API throttling.
         const duplicateMedia = lane.provider === "mls_grid" && limiter === lane.media && new URL(url).hostname === "media.mlsgrid.com";
         if (duplicateMedia) throw error; // one attempt only; the media row handles the 65-minute cooldown
-        const pause = (error as RetryableHttpError).retryAfterMs ?? (lane.provider === "mls_grid" ? 15 * 60_000 : 60_000 * attempt);
+        // CDN links are reusable and outside API limits: back off briefly on
+        // the media limiter only, never the 15-minute token pause.
+        const cdnMedia = lane.provider === "mls_grid" && limiter === lane.media && isMlsGridCdnUrl(url);
+        const pause = (error as RetryableHttpError).retryAfterMs ??
+          (cdnMedia ? 30_000 * attempt : lane.provider === "mls_grid" ? 15 * 60_000 : 60_000 * attempt);
         limiter.pause(pause);
       } else {
         await sleep(Math.min(60_000, 2_000 * 2 ** (attempt - 1)));

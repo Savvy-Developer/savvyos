@@ -370,6 +370,47 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     }
   }, 60_000);
 
+  it("keeps a reusable MLS Grid CDN link through a failed download and stores from it later", async () => {
+    const ctx = (await modules.engine.loadFeedContext(feedId))!;
+    const adapter = modules.adapters.adapterFor("mls_grid");
+    const [photo] = await q("SELECT id FROM mls_media WHERE feedId = ? AND resourceKey = 'CAR100' LIMIT 1", [feedId]);
+    const cdnUrl = "https://cdn-savvystr.mlsgrid.com/images/CAR100/reusable.jpeg";
+    try {
+      await admin.query("UPDATE mls_media SET status = 'pending', sourceUrl = ?, sourceUrlExpiresAt = NULL, attempts = 0, nextAttemptAt = NULL WHERE id = ?", [cdnUrl, photo.id]);
+      const lane = modules.http.getLane("mls_grid", ctx.feed.credentialRef, adapter.limits(ctx.feed));
+      const failed = await modules.media.runMediaBatch(lane, [ctx], "cdn-e2e", {
+        batchSize: 2, refreshLimit: 0, fetchImpl: async () => new Response(null, { status: 503 }),
+      });
+      expect(failed.claimed).toBe(1);
+      expect(failed.expired).toBe(0);
+      const [retry] = await q("SELECT status, sourceUrl, sourceUrlExpiresAt, nextAttemptAt > UTC_TIMESTAMP() AS backingOff FROM mls_media WHERE id = ?", [photo.id]);
+      expect(retry.status).toBe("pending");
+      expect(retry.sourceUrl).toBe(cdnUrl);
+      expect(retry.sourceUrlExpiresAt).toBeNull();
+      expect(Number(retry.backingOff)).toBe(1);
+      expect(lane.api.snapshot().pausedForMs).toBe(0);
+
+      // The same link still works later; no API call for a new one.
+      await admin.query("UPDATE mls_media SET nextAttemptAt = NULL WHERE id = ?", [photo.id]);
+      const requested: string[] = [];
+      const ok = await modules.media.runMediaBatch(lane, [ctx], "cdn-e2e", {
+        batchSize: 2, refreshLimit: 0,
+        fetchImpl: async (input: any) => {
+          requested.push(String(input));
+          return new Response(Buffer.from([0xff, 0xd8, 0xff, 0xd9]), { status: 200, headers: { "content-type": "image/jpeg" } });
+        },
+      });
+      expect(ok.stored).toBe(1);
+      expect(ok.refreshed).toBe(0);
+      expect(requested).toEqual([cdnUrl]);
+      const [stored] = await q("SELECT status, sourceUrl FROM mls_media WHERE id = ?", [photo.id]);
+      expect(stored.status).toBe("stored");
+      expect(stored.sourceUrl).toBeNull();
+    } finally {
+      await admin.query("UPDATE mls_media SET status = 'stored', sourceUrl = NULL, nextAttemptAt = NULL WHERE id = ?", [photo.id]);
+    }
+  }, 60_000);
+
   it("records price changes and deletes listings that lose display rights", async () => {
     state.properties = state.properties.map(row => {
       if (row.ListingKey === "CAR100") return { ...row, ListPrice: 475000, ModificationTimestamp: "2026-09-26T09:00:00.000Z" };

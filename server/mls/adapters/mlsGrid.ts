@@ -1,5 +1,6 @@
 import type { MlsFeed } from "../../../drizzle/mlsSchema";
 import { readCredential } from "../credentials";
+import { isMlsGridCdnUrl } from "../mlsGridCdn";
 import {
   buildODataUrl,
   extractResoMedia,
@@ -222,7 +223,9 @@ export const mlsGridAdapter: MlsAdapter = {
     return extractResoMedia(record, ["Media"]);
   },
   mediaUrlExpiresAt(_url, receivedAt) {
-    // Documented one hour lifetime; keep a safety margin.
+    // CDN links do not expire. Standard links have a documented one-hour
+    // lifetime; keep a safety margin.
+    if (isMlsGridCdnUrl(_url)) return null;
     return new Date(receivedAt.getTime() + 55 * 60_000);
   },
 };

@@ -8,6 +8,7 @@ import { mlsGridBatchUrl } from "./adapters/mlsGrid";
 import { parseODataPage, type FeedContext } from "./adapters/types";
 import { galleryMarkerCondition, isGalleryMarker } from "./gallery";
 import { downloadMedia, FatalHttpError, RetryableHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
+import { isMlsGridCdnUrl } from "./mlsGridCdn";
 import { MARKET_STATUSES } from "./normalize/enums";
 import { withMlsPhotoListingId } from "./photoUrl";
 import { processRecords } from "./store";
@@ -344,7 +345,10 @@ export async function runMediaBatch(
     }
     const ctx = feeds.get(row.feedId)!;
     const adapter = adapterFor(ctx.feed.provider);
-    const singleUse = adapter.capabilities.mediaUrlsExpire;
+    // MLS Grid CDN links are reusable: a failed download keeps its link and
+    // retries after a backoff instead of spending an API call on a new one.
+    const cdn = ctx.feed.provider === "mls_grid" && isMlsGridCdnUrl(row.sourceUrl);
+    const singleUse = adapter.capabilities.mediaUrlsExpire && !cdn;
     try {
       const { data, contentType } = await downloadMedia(lane, row.sourceUrl!, await adapter.mediaHeaders(ctx), {
         signal: options.signal,
@@ -390,9 +394,11 @@ export async function runMediaBatch(
     } catch (error) {
       const message = redactUrl(String(error instanceof Error ? error.message : error)).slice(0, 512);
       const gone = error instanceof FatalHttpError && [403, 404, 410].includes(error.status);
-      if (singleUse) {
+      if (singleUse || (cdn && gone)) {
         // A 429 on the old host means THIS image was already accessed. Even a
         // freshly queried URL for the same MediaKey cannot be used this hour.
+        // A CDN link the CDN no longer serves is re-linked from the API, which
+        // also drops the photo if the listing no longer has that MediaKey.
         const duplicate429 = ctx.feed.provider === "mls_grid" && error instanceof RetryableHttpError &&
           error.status === 429 && new URL(row.sourceUrl!).hostname === "media.mlsgrid.com";
         await db
