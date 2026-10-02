@@ -84,6 +84,7 @@ import {
   setApproval as setDailyEmailApproval,
 } from "../websiteDailyEmail";
 import { listResendSegments } from "../_core/resendMarketingBroadcast";
+import { getSignupSegmentId, saveSignupSegmentId } from "../websiteSignupAudience";
 import { moveWebsiteImages } from "../websiteImageRehost";
 import { ZillowLookupInputError, extractZillowDescription, extractZillowPhotoUrls, fetchAddressSuggestions, fetchZillowListing } from "../externalApis";
 import { allowSeoWrite, writeSeoText } from "../websiteSeoWriter";
@@ -3884,16 +3885,18 @@ export const websiteRouter = router({
     await requireWebsitePermission(ctx, "canManageWebsiteSettings");
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    const [settings, queue, analytics, segments, priceDropsOn, priceDrops] = await Promise.all([
+    const [settings, queue, analytics, segments, priceDropsOn, priceDrops, signupSegmentId] = await Promise.all([
       getDailyEmailSettings(db),
       loadDailyEmailQueue(db),
       loadDailyEmailAnalytics(db),
       listResendSegments(),
       priceDropAlertsEnabled(db),
       loadRecentPriceDrops(db),
+      getSignupSegmentId(db),
     ]);
     return {
       priceDropAlerts: { enabled: priceDropsOn, recent: priceDrops },
+      signupAudience: { segmentId: signupSegmentId },
       settings,
       masterSwitch: dailyEmailMasterSwitchOn(),
       queue,
@@ -3965,6 +3968,40 @@ export const websiteRouter = router({
     }).catch(() => undefined);
     return result;
   }),
+
+  /**
+   * Which Resend list a new website account joins when someone signs up.
+   * null turns it off. The id must be one of the account's real lists.
+   */
+  setSignupAudience: protectedProcedure
+    .input(z.object({ segmentId: z.string().trim().min(1).max(255).nullable() }))
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteSettings");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      if (input.segmentId) {
+        const segments = await listResendSegments();
+        if (!segments.success) {
+          throw new TRPCError({
+            code: "BAD_GATEWAY",
+            message: "Could not load the lists from Resend, so the choice was not saved. Try again in a minute.",
+          });
+        }
+        if (!segments.data.some(segment => segment.id === input.segmentId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That list is not in Resend any more. Pick another." });
+        }
+      }
+      try {
+        await saveSignupSegmentId(db, input.segmentId, ctx.user.id);
+      } catch (error) {
+        console.error("[website] could not save the sign-up list", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "The sign-up list could not be saved. Ask the tech team to check the website_signup_audience table.",
+        });
+      }
+      return { success: true };
+    }),
 
   setPriceDropAlerts: protectedProcedure
     .input(z.object({ enabled: z.boolean() }))

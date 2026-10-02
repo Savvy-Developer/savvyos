@@ -16,6 +16,7 @@ import {
 } from "../../drizzle/schema";
 import { getDb, logActivity } from "../db";
 import { TOO_MANY_ATTEMPTS, allowAccountAttempt, clientIp } from "../websiteAccountThrottle";
+import { addSignupToResendAudience } from "../websiteSignupAudience";
 import {
   adminProcedure,
   publicProcedure,
@@ -176,6 +177,15 @@ export const websiteAccountRouter = router({
       await db.insert(websiteAccountPreferences).values({
         accountId,
         marketProfileIds: [],
+      });
+
+      // Join the email list chosen in Website Studio > Daily Email, as the old
+      // site did on registration. Not awaited and never throws: a Resend
+      // problem must not slow down or fail the sign-up.
+      void addSignupToResendAudience(db, {
+        email,
+        firstName: input.firstName || null,
+        lastName: input.lastName || null,
       });
 
       setCookie(ctx, await sessionCookieFor(ctx.req as any, accountId));

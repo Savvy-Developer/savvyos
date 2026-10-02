@@ -190,6 +190,18 @@ export function DailyEmailPanel() {
     },
     onError: error => toast.error(error.message),
   });
+  // ── New sign-ups list ──────────────────────────────────────────────────────
+  const setSignupAudience = trpc.website.setSignupAudience.useMutation({
+    onSuccess: (_result, variables) => {
+      toast.success(variables.segmentId ? "New sign-ups will join that list" : "New sign-ups no longer join a list");
+      void utils.website.dailyEmailOverview.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const signupSegmentId = data?.signupAudience?.segmentId ?? null;
+  // A saved list that Resend no longer returns still shows, so it is not
+  // silently swapped for "off".
+  const signupSegmentKnown = !signupSegmentId || (data?.segments ?? []).some(segment => segment.id === signupSegmentId);
   const [priceTestTo, setPriceTestTo] = useState("");
   const sendPriceTest = trpc.website.sendPriceDropTest.useMutation({
     onSuccess: result => (result.sent ? toast.success(result.message) : toast.error(result.message)),
@@ -808,6 +820,59 @@ export function DailyEmailPanel() {
                 </div>
               ))}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── New sign-ups list ──────────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>New sign-ups</CardTitle>
+          <CardDescription>
+            When someone creates an account on the website, add them to this
+            Resend email list, the way the old site did. Leave it off and
+            nothing is sent to Resend. People who unsubscribed stay
+            unsubscribed. Accounts created before a list was chosen are not
+            added.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="max-w-md space-y-1">
+            <Label>Add new accounts to</Label>
+            <Select
+              value={signupSegmentId ?? "off"}
+              disabled={setSignupAudience.isPending}
+              onValueChange={value =>
+                setSignupAudience.mutate({ segmentId: value === "off" ? null : value })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="off">Off (no list)</SelectItem>
+                {(data?.segments ?? []).map(segment => (
+                  <SelectItem key={segment.id} value={segment.id}>
+                    {segment.name}
+                  </SelectItem>
+                ))}
+                {signupSegmentId && !signupSegmentKnown && (
+                  <SelectItem value={signupSegmentId}>
+                    {data?.segmentsError ? "Saved list" : "Saved list (not found in Resend)"}
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          {data?.segmentsError && (
+            <p className="text-xs text-amber-700">
+              Could not load the lists from Resend: {data.segmentsError}
+            </p>
+          )}
+          {signupSegmentId && !signupSegmentKnown && !data?.segmentsError && (
+            <p className="text-xs text-amber-700">
+              The saved list was not found in Resend. If it was deleted, new sign-ups are not being added. Pick another list.
+            </p>
           )}
         </CardContent>
       </Card>
