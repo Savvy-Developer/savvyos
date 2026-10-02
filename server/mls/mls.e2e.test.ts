@@ -127,6 +127,7 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     http: typeof import("./http");
     adapters: typeof import("./adapters");
     db: typeof import("../db");
+    store: typeof import("./store");
   };
   let admin: mysql.Connection;
   let feedId = 0;
@@ -166,6 +167,7 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       http: await import("./http"),
       adapters: await import("./adapters"),
       db: await import("../db"),
+      store: await import("./store"),
     };
     await modules.schema.applyMlsSchema(admin as any);
     // Idempotent: a second pass changes nothing.
@@ -334,6 +336,37 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(plan.find(row => row.table === "m")?.key).toBe("mls_media_listing_idx");
   }, 60_000);
 
+  it("does not redownload an immutable MLS Grid MediaKey or bypass a duplicate-image cooldown", async () => {
+    const ctx = (await modules.engine.loadFeedContext(feedId))!;
+    const adapter = modules.adapters.adapterFor("mls_grid");
+    const record = withMediaUrls(state.properties.find(row => row.ListingKey === "CAR100")!);
+    record.Media = record.Media.map((item: Record_) => ({ ...item, MediaModificationTimestamp: "2026-09-26T05:00:00Z" }));
+    await modules.store.processRecords(ctx, adapter, "Property", [record], { overrides: [], metadataLocalFields: null, force: true });
+    const first = await q("SELECT status FROM mls_media WHERE feedId = ? AND resourceKey = 'CAR100'", [feedId]);
+    expect(first.every(row => row.status === "stored")).toBe(true);
+
+    const [photo] = await q("SELECT id FROM mls_media WHERE feedId = ? AND resourceKey = 'CAR100' LIMIT 1", [feedId]);
+    try {
+      await admin.query("UPDATE mls_media SET status = 'pending', sourceUrl = 'https://media.mlsgrid.com/images/already-used.jpg', attempts = 0, nextAttemptAt = NULL WHERE id = ?", [photo.id]);
+      const lane = modules.http.getLane("mls_grid", ctx.feed.credentialRef, adapter.limits(ctx.feed));
+      const duplicate = await modules.media.runMediaBatch(lane, [ctx], "duplicate-e2e", {
+        batchSize: 2, refreshLimit: 0, fetchImpl: async () => new Response(null, { status: 429 }),
+      });
+      expect(duplicate.expired).toBe(1);
+      expect(lane.api.snapshot().pausedForMs).toBe(0);
+      await modules.store.processRecords(ctx, adapter, "Property", [record], { overrides: [], metadataLocalFields: null, force: true });
+      const [cooling] = await q("SELECT status, nextAttemptAt, nextAttemptAt > UTC_TIMESTAMP() AS stillCooling FROM mls_media WHERE id = ?", [photo.id]);
+      expect(cooling.status).toBe("expired");
+      expect(cooling.nextAttemptAt).not.toBeNull();
+      expect(Number(cooling.stillCooling)).toBe(1);
+      const batch = await modules.media.runMediaBatch(lane, [ctx], "cooldown-e2e", { batchSize: 2 });
+      expect(batch.claimed).toBe(0);
+      expect(batch.refreshed).toBe(0);
+    } finally {
+      await admin.query("UPDATE mls_media SET status = 'stored', sourceUrl = NULL, nextAttemptAt = NULL WHERE id = ?", [photo.id]);
+    }
+  }, 60_000);
+
   it("records price changes and deletes listings that lose display rights", async () => {
     state.properties = state.properties.map(row => {
       if (row.ListingKey === "CAR100") return { ...row, ListPrice: 475000, ModificationTimestamp: "2026-09-26T09:00:00.000Z" };
@@ -460,10 +493,10 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const limits = modules.adapters.adapterFor("mls_grid").limits({ options: null } as any);
     const lane = modules.http.getLane("mls_grid", "RESTARTTEST", limits);
     await lane.ready();
-    // 46,000 requests this hour exceed the temporary 6,500 cap. A restart
-    // cannot reset either data or photo usage.
+    // 24,000 API requests still exceed the 6,500/hour API cap after restart.
+    // The 22,000 media requests are recorded separately, not charged to API.
     expect(lane.api.nextWaitMs()).toBeGreaterThan(0);
-    expect(lane.media.nextWaitMs()).toBeGreaterThan(0);
+    expect(lane.media.nextWaitMs(Date.now() + 1000)).toBe(0);
     const untouched = modules.http.getLane("mls_grid", "OTHERTOKEN", limits);
     await untouched.ready();
     expect(untouched.api.nextWaitMs()).toBe(0);

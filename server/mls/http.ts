@@ -9,11 +9,11 @@ import type { ProviderLimits } from "./adapters/types";
  * so every feed that shares a credential shares one lane, one limiter, and one
  * sequential replication queue.
  *
- * MLS Grid meters the token as a whole: photo downloads count toward the same
- * request and byte caps as API pages. For providers with a tokenBudget, the
- * media limiter is chained onto the API limiter, so both draw from one budget,
- * and media alone may use at most `mediaShare` of it. Other providers meter
- * media separately and keep separate limiters.
+ * MLS Grid clarified Oct 2, 2026 that media.mlsgrid.com is not subject to the
+ * api.mlsgrid.com rate limits. Its old media URLs are instead one download per
+ * image per hour; CDN URLs are also outside the API quotas. Keep a bounded
+ * independent media pace, but never charge images to the MLS Grid API limiter.
+ * Other providers with tokenBudget still use a shared API/media limiter.
  *
  * Budgets are seeded from mls_provider_usage when a lane starts, so a restart
  * or deploy never resets the rolling hour and 24-hour windows.
@@ -260,7 +260,11 @@ export class ProviderLane {
       } : undefined
     );
     const mediaInterval = intervalMs(Math.max(1, Number(process.env.MLS_MEDIA_REQUESTS_PER_SECOND ?? 10)));
-    if (budget) {
+    if (provider === "mls_grid") {
+      // Provider-confirmed: media GETs do not consume the API token's RPS/hour/day
+      // or byte quotas. Concurrency is bounded separately in the worker.
+      this.media = new SlidingLimiter(mediaInterval, []);
+    } else if (budget) {
       const share = Math.min(1, Math.max(0.1, budget.mediaShare));
       const part = (value: number | null) => (value ? Math.floor(value * share) : null);
       const own = new SlidingLimiter(
@@ -323,8 +327,9 @@ export class ProviderLane {
       // Hourly buckets: place usage at the end of its hour (never in the future),
       // the conservative choice for when it ages out of each window.
       const at = Math.min(new Date(row.windowStart).getTime() + HOUR_MS - 1, now);
-      const requests = Number(row.requests ?? 0) + Number(row.mediaRequests ?? 0);
-      const bytes = Number(row.bytes ?? 0) + Number(row.mediaBytes ?? 0);
+      const sharedMedia = this.provider !== "mls_grid";
+      const requests = Number(row.requests ?? 0) + (sharedMedia ? Number(row.mediaRequests ?? 0) : 0);
+      const bytes = Number(row.bytes ?? 0) + (sharedMedia ? Number(row.mediaBytes ?? 0) : 0);
       this.api.seed(at, requests, bytes);
       this.media.seed(at, Number(row.mediaRequests ?? 0), Number(row.mediaBytes ?? 0));
     }
@@ -466,7 +471,10 @@ async function withRetries<T>(
       const status = error instanceof RetryableHttpError ? error.status : 0;
       if (status === 429) {
         lane.countThrottle();
-        // MLS Grid suspends tokens that keep exceeding limits: back off hard.
+        // Old MLS Grid media links return 429 when the same image was already
+        // accessed this hour. It is an item-specific cooldown, not API throttling.
+        const duplicateMedia = lane.provider === "mls_grid" && limiter === lane.media && new URL(url).hostname === "media.mlsgrid.com";
+        if (duplicateMedia) throw error; // one attempt only; the media row handles the 65-minute cooldown
         const pause = (error as RetryableHttpError).retryAfterMs ?? (lane.provider === "mls_grid" ? 15 * 60_000 : 60_000 * attempt);
         limiter.pause(pause);
       } else {

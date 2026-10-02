@@ -7,14 +7,15 @@ import { adapterFor } from "./adapters";
 import { mlsGridBatchUrl } from "./adapters/mlsGrid";
 import { parseODataPage, type FeedContext } from "./adapters/types";
 import { galleryMarkerCondition } from "./gallery";
-import { downloadMedia, FatalHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
+import { downloadMedia, FatalHttpError, RetryableHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
 import { MARKET_STATUSES } from "./normalize/enums";
 import { withMlsPhotoListingId } from "./photoUrl";
 import { processRecords } from "./store";
 /**
  * Media pipeline. Listing photos are copied to our S3 bucket and served from
- * there; provider URLs are never shown to users (MLS Grid forbids hotlinking,
- * and its URLs are single use and expire in an hour).
+ * there; old MLS Grid media.mlsgrid.com URLs are never shown to users because
+ * they are single-use and expire in an hour. A provisioned CDN has different
+ * URL rules, but licensed display gates remain mandatory either way.
  *
  * Queue order: primary photo of market listings first, then their gallery,
  * then off-market primaries. Removed photos are deleted from S3 as well.
@@ -123,6 +124,7 @@ async function refreshExpiredUrls(
     .innerJoin(mlsListings, and(eq(mlsListings.feedId, mlsMedia.feedId), eq(mlsListings.providerListingKey, mlsMedia.resourceKey)))
     .where(and(
       inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS),
+      or(isNull(mlsMedia.nextAttemptAt), lt(mlsMedia.nextAttemptAt, new Date())),
       options.priority === "gallery" || options.priority === "active_gallery"
         ? and(galleryMarkerCondition(), options.priority === "active_gallery" ? eq(mlsListings.standardStatus, "active") : undefined, isNull(mlsListings.removedFromFeedAt))
         : options.priority === "active"
@@ -355,10 +357,17 @@ export async function runMediaBatch(
       const message = redactUrl(String(error instanceof Error ? error.message : error)).slice(0, 512);
       const gone = error instanceof FatalHttpError && [403, 404, 410].includes(error.status);
       if (singleUse) {
-        // The URL is spent either way; a fresh one comes from a record refresh.
+        // A 429 on the old host means THIS image was already accessed. Even a
+        // freshly queried URL for the same MediaKey cannot be used this hour.
+        const duplicate429 = ctx.feed.provider === "mls_grid" && error instanceof RetryableHttpError &&
+          error.status === 429 && new URL(row.sourceUrl!).hostname === "media.mlsgrid.com";
         await db
           .update(mlsMedia)
-          .set({ status: row.attempts >= MAX_ATTEMPTS ? "failed" : "expired", sourceUrl: null, claimedBy: null, lastError: message })
+          .set({
+            status: row.attempts >= MAX_ATTEMPTS ? "failed" : "expired",
+            sourceUrl: null, claimedBy: null, lastError: message,
+            nextAttemptAt: duplicate429 ? new Date(Date.now() + 65 * 60_000) : null,
+          })
           .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken)));
         if (row.attempts >= MAX_ATTEMPTS) result.failed += 1;
         else result.expired += 1;
