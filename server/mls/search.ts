@@ -83,17 +83,55 @@ function boundsCondition(bounds: z.infer<typeof boundsSchema>): SQL[] {
   return conditions;
 }
 
+/** Covering indexes let map clusters and counts read only index pages, never
+ * full listing rows. They build online in the background (schema.ts), so the
+ * queries use them only once MySQL reports them; FORCE INDEX on a missing
+ * index is an error. */
+export const SEARCH_COVER_INDEX = "mls_listings_search_cover_idx";
+export const SOURCE_NUMBER_FEED_INDEX = "mls_listings_source_number_feed_idx";
+export type SearchIndexAvailability = { searchCover: boolean; sourceNumberFeed: boolean };
+const INDEX_RECHECK_MS = 60_000;
+let searchIndexes: SearchIndexAvailability & { checkedAt: number } = { searchCover: false, sourceNumberFeed: false, checkedAt: 0 };
+
+export function searchIndexAvailability(): SearchIndexAvailability {
+  return { searchCover: searchIndexes.searchCover, sourceNumberFeed: searchIndexes.sourceNumberFeed };
+}
+
+export function resetSearchIndexAvailability() {
+  searchIndexes = { searchCover: false, sourceNumberFeed: false, checkedAt: 0 };
+}
+
+/** Cheap and cached: once both indexes exist this never queries again. */
+export async function refreshSearchIndexAvailability(db: Db, now = Date.now()): Promise<SearchIndexAvailability> {
+  if ((searchIndexes.searchCover && searchIndexes.sourceNumberFeed) || now - searchIndexes.checkedAt < INDEX_RECHECK_MS) {
+    return searchIndexAvailability();
+  }
+  try {
+    const [rows] = (await db.execute(sql`SELECT DISTINCT INDEX_NAME AS name FROM information_schema.statistics
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mls_listings'
+        AND INDEX_NAME IN (${SEARCH_COVER_INDEX}, ${SOURCE_NUMBER_FEED_INDEX})`)) as unknown as [Array<{ name: string }>];
+    const names = new Set(rows.map(row => String(row.name)));
+    searchIndexes = { searchCover: names.has(SEARCH_COVER_INDEX), sourceNumberFeed: names.has(SOURCE_NUMBER_FEED_INDEX), checkedAt: now };
+  } catch {
+    searchIndexes = { ...searchIndexes, checkedAt: now };
+  }
+  return searchIndexAvailability();
+}
+
 /** Keep IDX rows available until the matching BBO listing actually arrives.
  * Both feed rows, media, raw records and license flags remain independent.
  * This read-only preference is shared by cards, map pins and exact totals. */
-export function preferMarisBboCondition(): SQL {
+export function preferMarisBboCondition(indexes: SearchIndexAvailability = searchIndexAvailability()): SQL {
+  // The covering (sourceId, listingNumber, feedId, removedFromFeedAt) index
+  // answers this per-listing check without reading the candidate row.
+  const candidateIndex = indexes.sourceNumberFeed ? SOURCE_NUMBER_FEED_INDEX : "mls_listings_source_number_idx";
   return sql.raw(`(CASE WHEN mls_listings.feedId = COALESCE((
       SELECT idx.id FROM mls_feeds AS idx
       JOIN mls_sources AS source ON source.id = idx.sourceId AND source.code = 'maris'
       WHERE idx.provider = 'mls_grid' AND idx.feedType = 'idx' LIMIT 1
     ), -1)
     THEN NOT EXISTS (
-      SELECT 1 FROM mls_listings AS candidate FORCE INDEX (mls_listings_source_number_idx)
+      SELECT 1 FROM mls_listings AS candidate FORCE INDEX (${candidateIndex})
       WHERE candidate.sourceId = mls_listings.sourceId
         AND candidate.listingNumber = mls_listings.listingNumber
         AND candidate.feedId = COALESCE((
@@ -309,14 +347,17 @@ export function withIndexableStatuses(filters: SearchFilters): SearchFilters {
 /** Map and count scans must start from a status-leading index. Left to choose,
  * MySQL can answer the approved-feed `feedId IN (...)` check by walking every
  * listing of each feed through (feedId, providerListingKey): fine for a small
- * box, minutes for a city-wide map or an unbounded Active count. */
-export function scanIndexFor(filters: SearchFilters, geo: boolean): { forceIndex: string[] } {
+ * box, minutes for a city-wide map or an unbounded Active count. The covering
+ * index, once built, serves both without reading listing rows. */
+export function scanIndexFor(filters: SearchFilters, geo: boolean, indexes: SearchIndexAvailability = searchIndexAvailability()): { forceIndex: string[] } {
   if (useExactMlsNumberIndex(filters)) return { forceIndex: ["mls_listings_source_number_idx"] };
+  if (indexes.searchCover) return { forceIndex: [SEARCH_COVER_INDEX] };
   return { forceIndex: [geo ? "mls_listings_status_geo_idx" : "mls_listings_status_entry_idx"] };
 }
 
 /** Exact count is a separate request: never make the first page await it. */
 export async function countListings(db: Db, filters: SearchFilters): Promise<number> {
+  await refreshSearchIndexAvailability(db);
   const scan = withIndexableStatuses(filters);
   const [{ total }] = await db.select({ total: sql<number>`/*+ MAX_EXECUTION_TIME(${sql.raw(String(COUNT_QUERY_TIMEOUT_MS))}) */ count(*)` })
     .from(mlsListings, scanIndexFor(scan, !!(filters.bounds || filters.area)))
@@ -391,6 +432,7 @@ export async function mapPoints(
   // Even 49 price pills overlap on a phone-sized neighborhood map. Zoom into
   // clusters first, then show individual listings once the viewport is usable.
   const pinLimit = input.pinLimit ?? 20;
+  await refreshSearchIndexAvailability(db);
   const scan = withIndexableStatuses(input.filters);
   const where = searchConditions({ ...scan, bounds: input.bounds });
   const scanIndex = scanIndexFor(scan, true);

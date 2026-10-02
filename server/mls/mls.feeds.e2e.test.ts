@@ -143,7 +143,11 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
 
       const dedup = new MySqlDialect().sqlToQuery(search.preferMarisBboCondition()).sql;
       const [plan]: any = await admin.query(`EXPLAIN SELECT id FROM mls_listings WHERE sourceId = ? AND ${dedup} LIMIT 12`, [marisIdx.sourceId]);
-      expect(plan.find((row: any) => row.table === "candidate")?.key).toBe("mls_listings_source_number_idx");
+      // mapPoints above confirmed the covering index exists, so the per-listing
+      // BBO check reads it alone, never the candidate row.
+      const candidate = plan.find((row: any) => row.table === "candidate");
+      expect(candidate?.key).toBe("mls_listings_source_number_feed_idx");
+      expect(String(candidate?.Extra)).toContain("Using index");
 
       await admin.query("UPDATE mls_feeds SET options = JSON_SET(options, '$.license.approved', false) WHERE id = ?", [marisBbo.id]);
       const afterRevocation = await search.searchListings(db as any, { filters: marisFilters, sort: "newest", page: 1, pageSize: 12, countMode: "none" });

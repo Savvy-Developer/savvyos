@@ -15,7 +15,7 @@ import { mapAreaSchema, validPolygon } from "./mapGeometry";
 import { CANONICAL_STATUSES, normalizePropertyType, normalizeStatus } from "./normalize/enums";
 import { normalizeListing } from "./normalize/normalizeListing";
 import { propertyIdentity } from "./normalize/propertyIdentity";
-import { scanIndexFor, searchConditions, useBoundedNewestCandidateIndex, useExactMlsNumberIndex, useNewestFeedIndex, useRecentFeedIndex, withIndexableStatuses } from "./search";
+import { preferMarisBboCondition, scanIndexFor, searchConditions, useBoundedNewestCandidateIndex, useExactMlsNumberIndex, useNewestFeedIndex, useRecentFeedIndex, withIndexableStatuses } from "./search";
 import { licenseError } from "./license";
 import { summarize } from "./status";
 import { mediaClientConfig, privateMlsStorageError } from "./privateMedia";
@@ -100,6 +100,16 @@ describe("Active-gallery queue and default search", () => {
     expect(withIndexableStatuses({ statuses: [] }).statuses).toEqual([...CANONICAL_STATUSES]);
     expect(withIndexableStatuses({ statuses: ["pending"] }).statuses).toEqual(["pending"]);
     expect(normalizeStatus("Something New")).toBe("unknown");
+  });
+  it("switches map, count and MARIS BBO checks to the covering indexes only once they exist", () => {
+    const ready = { searchCover: true, sourceNumberFeed: true }, missing = { searchCover: false, sourceNumberFeed: false };
+    expect(scanIndexFor({ statuses: ["active"] }, true, ready)).toEqual({ forceIndex: ["mls_listings_search_cover_idx"] });
+    expect(scanIndexFor({ statuses: ["active"] }, false, ready)).toEqual({ forceIndex: ["mls_listings_search_cover_idx"] });
+    expect(scanIndexFor({ statuses: ["active"] }, true, missing)).toEqual({ forceIndex: ["mls_listings_status_geo_idx"] });
+    expect(scanIndexFor({ statuses: ["active"], sourceIds: [4], q: "4428731" }, true, ready)).toEqual({ forceIndex: ["mls_listings_source_number_idx"] });
+    const dialect = new MySqlDialect();
+    expect(dialect.sqlToQuery(preferMarisBboCondition(ready)).sql).toContain("FORCE INDEX (mls_listings_source_number_feed_idx)");
+    expect(dialect.sqlToQuery(preferMarisBboCondition(missing)).sql).toContain("FORCE INDEX (mls_listings_source_number_idx)");
   });
   it("seeks a single MLS number before evaluating saved viewport or polygon predicates", () => {
     const sourceIds = [4], bounds = { north: 39, south: 38, west: -91, east: -90 };

@@ -427,6 +427,13 @@ export const mlsListings = mysqlTable(
     index("mls_listings_source_status_price_idx").on(table.sourceId, table.standardStatus, table.listPrice),
     index("mls_listings_status_price_idx").on(table.standardStatus, table.listPrice),
     index("mls_listings_status_entry_idx").on(table.standardStatus, table.originalEntryAt),
+    // Covering indexes for map clusters, exact counts and the MARIS BBO-over-IDX
+    // check; built online in the background by server/mls/schema.ts.
+    index("mls_listings_search_cover_idx").on(
+      table.standardStatus, table.latitude, table.longitude, table.feedId, table.propertyType,
+      table.removedFromFeedAt, table.listPrice, table.sourceId, table.listingNumber
+    ),
+    index("mls_listings_source_number_feed_idx").on(table.sourceId, table.listingNumber, table.feedId, table.removedFromFeedAt),
     index("mls_listings_postal_idx").on(table.postalCode),
     index("mls_listings_city_idx").on(table.city, table.stateOrProvince),
     index("mls_listings_modified_idx").on(table.sourceModifiedAt),

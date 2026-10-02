@@ -315,6 +315,32 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     }
   });
 
+  it("searches without the covering indexes, then online-builds them and counts from the index alone", async () => {
+    const db = (await modules.db.getDb())!;
+    const bounds = { north: 36, south: 35, east: -81.5, west: -84 };
+    const filters = { statuses: ["active"] as ["active"], listingIntent: "sale" as const };
+    await admin.query("ALTER TABLE mls_listings DROP INDEX mls_listings_search_cover_idx, DROP INDEX mls_listings_source_number_feed_idx");
+    modules.search.resetSearchIndexAvailability();
+    try {
+      // Still being built in production: fall back to the status indexes, never error.
+      expect(await modules.search.countListings(db, filters)).toBe(2);
+      expect((await modules.search.mapPoints(db, { filters, bounds, zoom: 8 })).total).toBe(2);
+      expect(modules.search.searchIndexAvailability()).toEqual({ searchCover: false, sourceNumberFeed: false });
+      expect(await modules.schema.applySearchCoverIndexes(admin as any)).toEqual(["mls_listings_search_cover_idx", "mls_listings_source_number_feed_idx"]);
+      expect(await modules.schema.applySearchCoverIndexes(admin as any)).toEqual([]);
+    } finally {
+      // Restore the indexes even if an assertion failed, for the rest of the suite.
+      await modules.schema.applySearchCoverIndexes(admin as any);
+    }
+    modules.search.resetSearchIndexAvailability();
+    expect(await modules.search.countListings(db, filters)).toBe(2);
+    expect(modules.search.searchIndexAvailability()).toEqual({ searchCover: true, sourceNumberFeed: true });
+    expect((await modules.search.mapPoints(db, { filters, bounds, zoom: 8 })).total).toBe(2);
+    const [plan] = await q("EXPLAIN SELECT count(*) FROM mls_listings FORCE INDEX (mls_listings_search_cover_idx) WHERE standardStatus IN ('active') AND removedFromFeedAt IS NULL AND propertyType IN ('residential') AND feedId IN (1, 2) AND latitude BETWEEN 35 AND 36 AND longitude BETWEEN -84 AND -81.5");
+    expect(plan.key).toBe("mls_listings_search_cover_idx");
+    expect(String(plan.Extra)).toContain("Using index");
+  });
+
   it("downloads photos into our storage with the token as User-Agent", async () => {
     const pending = await q("SELECT COUNT(*) AS count FROM mls_media WHERE status = 'pending'");
     expect(Number(pending[0].count)).toBe(6);
