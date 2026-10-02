@@ -295,11 +295,32 @@ function timedOut(error: unknown): boolean {
   return false;
 }
 
+/** Stop a runaway map or count query instead of holding a connection for minutes. */
+export const MAP_QUERY_TIMEOUT_MS = 8_000;
+export const COUNT_QUERY_TIMEOUT_MS = 10_000;
+
+/** Every stored listing has a canonical status (unrecognized values become
+ * "unknown"), so naming all of them filters nothing but lets MySQL range-scan
+ * a status-leading index when the user picked "All" statuses. */
+export function withIndexableStatuses(filters: SearchFilters): SearchFilters {
+  return filters.statuses?.length ? filters : { ...filters, statuses: [...CANONICAL_STATUSES] };
+}
+
+/** Map and count scans must start from a status-leading index. Left to choose,
+ * MySQL can answer the approved-feed `feedId IN (...)` check by walking every
+ * listing of each feed through (feedId, providerListingKey): fine for a small
+ * box, minutes for a city-wide map or an unbounded Active count. */
+export function scanIndexFor(filters: SearchFilters, geo: boolean): { forceIndex: string[] } {
+  if (useExactMlsNumberIndex(filters)) return { forceIndex: ["mls_listings_source_number_idx"] };
+  return { forceIndex: [geo ? "mls_listings_status_geo_idx" : "mls_listings_status_entry_idx"] };
+}
+
 /** Exact count is a separate request: never make the first page await it. */
 export async function countListings(db: Db, filters: SearchFilters): Promise<number> {
-  const [{ total }] = await db.select({ total: sql<number>`count(*)` })
-    .from(mlsListings, useExactMlsNumberIndex(filters) ? { forceIndex: ["mls_listings_source_number_idx"] } : undefined)
-    .where(searchConditions(filters));
+  const scan = withIndexableStatuses(filters);
+  const [{ total }] = await db.select({ total: sql<number>`/*+ MAX_EXECUTION_TIME(${sql.raw(String(COUNT_QUERY_TIMEOUT_MS))}) */ count(*)` })
+    .from(mlsListings, scanIndexFor(scan, !!(filters.bounds || filters.area)))
+    .where(searchConditions(scan));
   return Number(total);
 }
 
@@ -370,11 +391,13 @@ export async function mapPoints(
   // Even 49 price pills overlap on a phone-sized neighborhood map. Zoom into
   // clusters first, then show individual listings once the viewport is usable.
   const pinLimit = input.pinLimit ?? 20;
-  const where = searchConditions({ ...input.filters, bounds: input.bounds });
-  const numberIndex = useExactMlsNumberIndex(input.filters) ? { forceIndex: ["mls_listings_source_number_idx"] } : undefined;
+  const scan = withIndexableStatuses(input.filters);
+  const where = searchConditions({ ...scan, bounds: input.bounds });
+  const scanIndex = scanIndexFor(scan, true);
+  const guard = sql.raw(`/*+ MAX_EXECUTION_TIME(${MAP_QUERY_TIMEOUT_MS}) */`);
   const pins = await db
     .select({
-      id: mlsListings.id,
+      id: sql<number>`${guard} ${mlsListings.id}`,
       latitude: mlsListings.latitude,
       longitude: mlsListings.longitude,
       listPrice: mlsListings.listPrice,
@@ -388,7 +411,7 @@ export async function mapPoints(
       primaryPhotoUrl: mlsListings.primaryPhotoUrl,
       sourceShortName: mlsSources.shortName,
     })
-    .from(mlsListings, numberIndex)
+    .from(mlsListings, scanIndex)
     .innerJoin(mlsSources, eq(mlsSources.id, mlsListings.sourceId))
     .where(where)
     .limit(pinLimit + 1);
@@ -397,7 +420,7 @@ export async function mapPoints(
       mode: "pins" as const,
       total: pins.length,
       pins: pins.map(pin => ({
-        id: pin.id,
+        id: Number(pin.id),
         lat: Number(pin.latitude),
         lng: Number(pin.longitude),
         price: num(pin.standardStatus === "closed" ? pin.closePrice ?? pin.listPrice : pin.listPrice),
@@ -407,7 +430,7 @@ export async function mapPoints(
         state: pin.stateOrProvince,
         beds: pin.bedroomsTotal,
         baths: num(pin.bathroomsTotal),
-      photoUrl: withMlsPhotoListingId(pin.primaryPhotoUrl, pin.id),
+      photoUrl: withMlsPhotoListingId(pin.primaryPhotoUrl, Number(pin.id)),
       source: pin.sourceShortName,
       })),
       clusters: [],
@@ -419,7 +442,7 @@ export async function mapPoints(
   const latCell = sql.raw(String(cell));
   const rows = await db
     .select({
-      latBucket: sql<number>`FLOOR(${mlsListings.latitude} / ${latCell})`,
+      latBucket: sql<number>`${guard} FLOOR(${mlsListings.latitude} / ${latCell})`,
       lngBucket: sql<number>`FLOOR(${mlsListings.longitude} / ${latCell})`,
       count: sql<number>`count(*)`,
       lat: sql<number>`AVG(${mlsListings.latitude})`,
@@ -427,7 +450,7 @@ export async function mapPoints(
       minPrice: sql<number>`MIN(${mlsListings.listPrice})`,
       maxPrice: sql<number>`MAX(${mlsListings.listPrice})`,
     })
-    .from(mlsListings, numberIndex)
+    .from(mlsListings, scanIndex)
     .where(where)
     .groupBy(sql`1`, sql`2`)
     .limit(2000);
@@ -435,7 +458,7 @@ export async function mapPoints(
   // a separate count when the 2,000-cell cap could have truncated the result.
   let count = rows.reduce((sum, row) => sum + Number(row.count), 0);
   if (rows.length === 2000) {
-    const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings, numberIndex).where(where);
+    const [{ total }] = await db.select({ total: sql<number>`${guard} count(*)` }).from(mlsListings, scanIndex).where(where);
     count = Number(total);
   }
   return {
