@@ -181,8 +181,9 @@ export class MlsIngestionScheduler {
     try {
       while (Date.now() < until && !this.controller.signal.aborted) {
         if (!(await hasPendingMedia(feedIds))) return;
+        const started = Date.now();
         const result = await runMediaBatch(lane, feeds, this.workerId, { signal: this.controller.signal });
-        this.lastActivity[`media:${key}`] = { at: new Date().toISOString(), ...result };
+        this.lastActivity[`media:${key}`] = { at: new Date().toISOString(), ms: Date.now() - started, ...result };
         if (result.claimed === 0 && result.deleted === 0 && result.refreshed === 0) return;
       }
     } catch (error) {

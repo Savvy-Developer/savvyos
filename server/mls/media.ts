@@ -300,10 +300,14 @@ export async function runMediaBatch(
   if (!rows.length || rows.length < batchSize) {
     // Automatically requested Active galleries run after Active covers, before
     // under-contract covers or explicit non-Active galleries. A trickle of new
-    // covers must not starve galleries: fill the batch with ready gallery
-    // photos (no extra API call), and refresh gallery links only when idle.
-    if (!rows.length) await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active_gallery" });
+    // covers (or one feed's cover backlog on a shared token) must not starve
+    // galleries: fill the batch with ready gallery photos first, and fetch new
+    // gallery links only once those run out, so ready links never pile up.
     rows = await claim(db, feedIds, claimToken, batchSize - rows.length, "active_gallery"); // claim returns every row under this token
+    if (!rows.length || rows.length < batchSize) {
+      await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active_gallery" });
+      rows = await claim(db, feedIds, claimToken, batchSize - rows.length, "active_gallery");
+    }
   }
   if (!rows.length) {
     await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "gallery" });
