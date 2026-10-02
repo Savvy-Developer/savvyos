@@ -82,9 +82,33 @@ function boundsCondition(bounds: z.infer<typeof boundsSchema>): SQL[] {
   return conditions;
 }
 
+/** Keep IDX rows available until the matching BBO listing actually arrives.
+ * Both feed rows, media, raw records and license flags remain independent.
+ * This read-only preference is shared by cards, map pins and exact totals. */
+export function preferMarisBboCondition(): SQL {
+  return sql.raw(`(
+    mls_listings.sourceId <> COALESCE((SELECT s.id FROM mls_sources AS s WHERE s.code = 'maris' LIMIT 1), -1)
+    OR NOT EXISTS (
+      SELECT 1 FROM mls_feeds AS currentFeed
+      JOIN mls_listings AS candidate FORCE INDEX (mls_listings_source_number_idx)
+        ON candidate.sourceId = mls_listings.sourceId
+       AND candidate.listingNumber = mls_listings.listingNumber
+      JOIN mls_feeds AS candidateFeed
+        ON candidateFeed.id = candidate.feedId
+       AND candidateFeed.provider = 'mls_grid'
+       AND candidateFeed.feedType = 'bbo'
+      WHERE currentFeed.id = mls_listings.feedId
+        AND currentFeed.provider = 'mls_grid'
+        AND currentFeed.feedType = 'idx'
+        AND candidate.removedFromFeedAt IS NULL
+        AND ${approvedFeedSql("candidateLicense", "candidate.feedId")}
+    )
+  )`);
+}
+
 export function searchConditions(filters: SearchFilters, now = new Date()): SQL | undefined {
   // Unlicensed, expired, or unapproved-retention feeds never appear in any admin read.
-  const conditions: SQL[] = [sql.raw(approvedFeedSql())];
+  const conditions: SQL[] = [sql.raw(approvedFeedSql()), preferMarisBboCondition()];
   if (!filters.includeRemoved) conditions.push(isNull(mlsListings.removedFromFeedAt));
   if (filters.sourceIds?.length) conditions.push(inArray(mlsListings.sourceId, filters.sourceIds));
   if (filters.statuses?.length) conditions.push(inArray(mlsListings.standardStatus, filters.statuses));
