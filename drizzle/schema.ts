@@ -47,7 +47,7 @@ export const users = mysqlTable("users", {
     .default("full_user")
     .notNull(),
   // Deliberately nullable for pre-existing records; manual user creation requires an explicit selection.
-  employmentType: mysqlEnum("employmentType", ["w2", "1099"]),
+  employmentType: mysqlEnum("employmentType", ["w2", "1099", "contract_labor"]),
   role: mysqlEnum("role", ["admin", "agent", "isa", "agent_support"])
     .default("agent")
     .notNull(),

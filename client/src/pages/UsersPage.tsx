@@ -71,7 +71,7 @@ type UserRow = {
   createdAt: Date;
   lastSignedIn: Date;
   loginMethod: string | null;
-  employmentType: "w2" | "1099" | null;
+  employmentType: "w2" | "1099" | "contract_labor" | null;
 };
 
 type MarketRow = { id: number; name: string };
@@ -96,7 +96,7 @@ type FormState = {
   name: string;
   email: string;
   role: "admin" | "agent" | "isa" | "agent_support";
-  employmentType: "" | "w2" | "1099";
+  employmentType: "" | "w2" | "1099" | "contract_labor";
   phone: string;
   title: string;
   reportsToId: string; // string for select
@@ -543,7 +543,9 @@ export default function UsersPage() {
                 setForm(f => ({
                   ...f,
                   employmentType:
-                    value === "__untagged__" ? "" : (value as "w2" | "1099"),
+                    value === "__untagged__"
+                      ? ""
+                      : (value as "w2" | "1099" | "contract_labor"),
                 }))
               }
             >
@@ -558,6 +560,7 @@ export default function UsersPage() {
                 )}
                 <SelectItem value="w2">W-2 Employee</SelectItem>
                 <SelectItem value="1099">1099 Contractor</SelectItem>
+                <SelectItem value="contract_labor">Contract Labor</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
@@ -1480,12 +1483,14 @@ export default function UsersPage() {
                         </TableCell>
                         <TableCell>
                           <span
-                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.employmentType === "w2" ? "bg-emerald-100 text-emerald-800" : u.employmentType === "1099" ? "bg-slate-100 text-slate-700" : "bg-amber-100 text-amber-800"}`}
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.employmentType === "w2" ? "bg-emerald-100 text-emerald-800" : u.employmentType === "1099" ? "bg-slate-100 text-slate-700" : u.employmentType === "contract_labor" ? "bg-violet-100 text-violet-800" : "bg-amber-100 text-amber-800"}`}
                           >
                             {u.employmentType === "w2"
                               ? "W-2"
                               : u.employmentType === "1099"
                                 ? "1099"
+                                : u.employmentType === "contract_labor"
+                                  ? "Contract Labor"
                                 : "Untagged"}
                           </span>
                         </TableCell>
@@ -1676,13 +1681,16 @@ export default function UsersPage() {
                     }
                     if (!form.employmentType) {
                       toast.error(
-                        "Choose W-2 or 1099 before adding a team member."
+                        "Choose W-2, 1099, or Contract Labor before adding a team member."
                       );
                       return;
                     }
                     createMutation.mutate({
                       ...buildMutationPayload(),
-                      employmentType: form.employmentType as "w2" | "1099",
+                      employmentType: form.employmentType as
+                        | "w2"
+                        | "1099"
+                        | "contract_labor",
                     });
                   }}
                   disabled={

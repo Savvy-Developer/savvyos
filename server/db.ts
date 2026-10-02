@@ -2117,7 +2117,7 @@ export async function getLeadSourceBreakdown() {
 }
 
 // ─── User Management ──────────────────────────────────────────────────────────
-export async function createUser(data: { name: string; email: string; role: "admin" | "agent" | "isa" | "agent_support"; employmentType: "w2" | "1099"; phone?: string | null; title?: string | null; reportsToId?: number | null; marketProfileId?: number | null }) {
+export async function createUser(data: { name: string; email: string; role: "admin" | "agent" | "isa" | "agent_support"; employmentType: "w2" | "1099" | "contract_labor"; phone?: string | null; title?: string | null; reportsToId?: number | null; marketProfileId?: number | null }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   // Generate a placeholder openId so the user can be created before they log in
@@ -2139,12 +2139,12 @@ export async function createUser(data: { name: string; email: string; role: "adm
   return (result as any).insertId as number;
 }
 
-export async function updateUser(id: number, data: { name?: string; email?: string; role?: "admin" | "agent" | "isa" | "agent_support"; employmentType?: "w2" | "1099" | null; phone?: string | null; title?: string | null; reportsToId?: number | null; marketProfileId?: number | null; isActive?: boolean; allowHiddenNav?: boolean; commissionSplit?: number | null; callBookingLink?: string | null }) {
+export async function updateUser(id: number, data: { name?: string; email?: string; role?: "admin" | "agent" | "isa" | "agent_support"; employmentType?: "w2" | "1099" | "contract_labor" | null; phone?: string | null; title?: string | null; reportsToId?: number | null; marketProfileId?: number | null; isActive?: boolean; allowHiddenNav?: boolean; commissionSplit?: number | null; callBookingLink?: string | null }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const normalizedData = normalizePhoneFields(data, ["phone"]);
   await db.update(users)
-    .set({ ...normalizedData, ...(normalizedData.employmentType === "1099" ? { ptoDepartmentId: null } : {}) })
+    .set({ ...normalizedData, ...(normalizedData.employmentType !== undefined && normalizedData.employmentType !== "w2" ? { ptoDepartmentId: null } : {}) })
     .where(eq(users.id, id));
 }
 

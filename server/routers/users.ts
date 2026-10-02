@@ -506,7 +506,7 @@ export const usersRouter = router({
         name: z.string().min(1),
         email: z.string().email(),
         role: z.enum(["admin", "agent", "isa", "agent_support"]),
-        employmentType: z.enum(["w2", "1099"]),
+        employmentType: z.enum(["w2", "1099", "contract_labor"]),
         phone: z.string().optional().nullable(),
         title: z.string().optional().nullable(),
         reportsToId: z.number().optional().nullable(),
@@ -583,7 +583,10 @@ export const usersRouter = router({
         name: z.string().min(1).optional(),
         email: z.string().email().optional(),
         role: z.enum(["admin", "agent", "isa", "agent_support"]).optional(),
-        employmentType: z.enum(["w2", "1099"]).optional().nullable(),
+        employmentType: z
+          .enum(["w2", "1099", "contract_labor"])
+          .optional()
+          .nullable(),
         phone: z.string().optional().nullable(),
         title: z.string().optional().nullable(),
         reportsToId: z.number().optional().nullable(),

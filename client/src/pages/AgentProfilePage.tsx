@@ -152,7 +152,7 @@ export default function AgentProfilePage() {
   const [editFeedbackId, setEditFeedbackId] = useState<number | null>(null);
    const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [editProfileForm, setEditProfileForm] = useState({
-    name: "", title: "", email: "", phone: "", commissionSplit: "", callBookingLink: "", employmentType: "" as "" | "w2" | "1099",
+    name: "", title: "", email: "", phone: "", commissionSplit: "", callBookingLink: "", employmentType: "" as "" | "w2" | "1099" | "contract_labor",
   });
   // Admin Permissions dialog state
   const [permissionsDialogOpen, setPermissionsDialogOpen] = useState(false);
@@ -566,7 +566,7 @@ export default function AgentProfilePage() {
                   </span>
                 )}
                 <span className="flex items-center gap-1.5">
-                  Employment <Badge variant="outline" className={(agentData as any).employmentType === "w2" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : (agentData as any).employmentType === "1099" ? "border-slate-200 bg-slate-50 text-slate-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{(agentData as any).employmentType === "w2" ? "W-2" : (agentData as any).employmentType === "1099" ? "1099" : "Untagged"}</Badge>
+                  Employment <Badge variant="outline" className={(agentData as any).employmentType === "w2" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : (agentData as any).employmentType === "1099" ? "border-slate-200 bg-slate-50 text-slate-700" : (agentData as any).employmentType === "contract_labor" ? "border-violet-200 bg-violet-50 text-violet-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{(agentData as any).employmentType === "w2" ? "W-2" : (agentData as any).employmentType === "1099" ? "1099" : (agentData as any).employmentType === "contract_labor" ? "Contract Labor" : "Untagged"}</Badge>
                 </span>
               </div>
             </div>
@@ -1809,9 +1809,9 @@ export default function AgentProfilePage() {
             </div>
             <div>
               <Label>Employment Type</Label>
-              <Select value={editProfileForm.employmentType || "__untagged__"} onValueChange={(value) => setEditProfileForm((form) => ({ ...form, employmentType: value === "__untagged__" ? "" : value as "w2" | "1099" }))}>
+              <Select value={editProfileForm.employmentType || "__untagged__"} onValueChange={(value) => setEditProfileForm((form) => ({ ...form, employmentType: value === "__untagged__" ? "" : value as "w2" | "1099" | "contract_labor" }))}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Select employment type" /></SelectTrigger>
-                <SelectContent><SelectItem value="__untagged__">Untagged (legacy)</SelectItem><SelectItem value="w2">W-2 Employee</SelectItem><SelectItem value="1099">1099 Contractor</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="__untagged__">Untagged (legacy)</SelectItem><SelectItem value="w2">W-2 Employee</SelectItem><SelectItem value="1099">1099 Contractor</SelectItem><SelectItem value="contract_labor">Contract Labor</SelectItem></SelectContent>
               </Select>
               <p className="mt-1 text-xs text-muted-foreground">Only W-2 users can access PTO.</p>
             </div>
