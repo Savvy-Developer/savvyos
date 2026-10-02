@@ -97,10 +97,41 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
         );
         ids.set(name, Number(result.insertId));
       }
+      for (const order of [0, 1]) {
+        const key = `mls/maris-test/idx-${order}.jpg`;
+        await admin.query(`INSERT INTO mls_media
+          (feedId, listingId, resourceKey, mediaKey, status, sortOrder, isPrimary, s3Key, url)
+          VALUES (?, ?, 'test-A-IDX', ?, 'stored', ?, ?, ?, ?)`,
+          [marisIdx.id, ids.get("A-IDX"), `maris-test-${order}`, order, order === 0, key,
+            `/api/mls/media?key=${encodeURIComponent(key)}`]);
+      }
+      await admin.query("UPDATE mls_listings SET primaryPhotoUrl = ? WHERE id = ?",
+        [`/api/mls/media?key=${encodeURIComponent('mls/maris-test/idx-0.jpg')}`, ids.get("A-IDX")]);
       const marisFilters = { sourceIds: [marisIdx.sourceId], statuses: ["active"] as ["active"] };
       const page = await search.searchListings(db as any, { filters: marisFilters, sort: "newest", page: 1, pageSize: 12, countMode: "none" });
       expect(page.items.map(item => item.listingNumber).sort()).toEqual(["MARIS-TEST-A", "MARIS-TEST-B", "MARIS-TEST-C"]);
       expect(page.items.find(item => item.listingNumber === "MARIS-TEST-A")?.id).toBe(ids.get("A-BBO"));
+      expect(page.items.find(item => item.listingNumber === "MARIS-TEST-A")?.primaryPhotoUrl)
+        .toContain(`listingId=${ids.get("A-IDX")}`);
+      const { licensedIdxPhotoFallbacks } = await import("./photoFallback");
+      const alternate = await licensedIdxPhotoFallbacks(db as any, [{
+        id: ids.get("A-BBO")!, propertyId: 9001, sourceId: marisBbo.sourceId,
+        feedId: marisBbo.id, listingNumber: "MARIS-TEST-A", standardStatus: "active",
+      }]);
+      expect(alternate.get(ids.get("A-BBO")!)?.media).toHaveLength(2);
+      expect(alternate.get(ids.get("A-BBO")!)?.media.every(photo => photo.url.includes(`listingId=${ids.get("A-IDX")}`))).toBe(true);
+      // A disabled or revoked IDX license cannot lend its photos to BBO.
+      await admin.query("UPDATE mls_feeds SET options = JSON_SET(options, '$.license.approved', false) WHERE id = ?", [marisIdx.id]);
+      expect((await licensedIdxPhotoFallbacks(db as any, [{
+        id: ids.get("A-BBO")!, propertyId: 9001, sourceId: marisBbo.sourceId,
+        feedId: marisBbo.id, listingNumber: "MARIS-TEST-A", standardStatus: "active",
+      }])).size).toBe(0);
+      await admin.query("UPDATE mls_feeds SET options = JSON_SET(options, '$.license.approved', true), enabled = false WHERE id = ?", [marisIdx.id]);
+      expect((await licensedIdxPhotoFallbacks(db as any, [{
+        id: ids.get("A-BBO")!, propertyId: 9001, sourceId: marisBbo.sourceId,
+        feedId: marisBbo.id, listingNumber: "MARIS-TEST-A", standardStatus: "active",
+      }])).size).toBe(0);
+      await admin.query("UPDATE mls_feeds SET enabled = true WHERE id = ?", [marisIdx.id]);
       expect(await search.countListings(db as any, marisFilters)).toBe(3);
       expect(await search.countListings(db as any, { statuses: ["active"] })).toBe(4); // Canopy stays untouched.
       const map = await search.mapPoints(db as any, {
@@ -123,7 +154,9 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
       const afterRemoval = await search.searchListings(db as any, { filters: marisFilters, sort: "newest", page: 1, pageSize: 12, countMode: "none" });
       expect(afterRemoval.items.find(item => item.listingNumber === "MARIS-TEST-A")?.id).toBe(ids.get("A-IDX"));
     } finally {
+      await admin.query("UPDATE mls_feeds SET enabled = true, options = JSON_SET(options, '$.license.approved', true) WHERE id = ?", [marisIdx.id]);
       await admin.query("UPDATE mls_feeds SET options = JSON_SET(options, '$.license.approved', true) WHERE id = ?", [marisBbo.id]);
+      await admin.query("DELETE FROM mls_media WHERE mediaKey LIKE 'maris-test-%'");
       await admin.query("DELETE FROM mls_listings WHERE listingNumber LIKE 'MARIS-TEST-%'");
     }
   }, 60_000);

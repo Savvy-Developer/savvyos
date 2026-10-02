@@ -52,6 +52,7 @@ import { ensureMlsSchema } from "../mls/schema";
 import { countListings, mapPoints, SEARCH_SORTS, searchFiltersSchema, searchListings, boundsSchema } from "../mls/search";
 import { UNRESOLVED_MARKETS } from "../mls/sources";
 import { withMlsPhotoListingId } from "../mls/photoUrl";
+import { licensedIdxPhotoFallbacks } from "../mls/photoFallback";
 import { canAdminUsePermission } from "./permissions";
 /**
  * MLS Properties (admin). Deliberately separate from the existing Properties
@@ -388,11 +389,14 @@ export const mlsPropertiesRouter = router({
     if (listing.internetAvmDisplayYN === false) optOuts.push("Seller opted out of automated valuations next to this listing.");
     if (listing.internetConsumerCommentYN === false) optOuts.push("Seller opted out of consumer comments.");
     const canManage = await canAdminUsePermission(ctx.user as any, "canManageMlsFeeds");
+    const storedMedia = media.filter(item => item.status === "stored" && item.url);
+    const alternate = storedMedia.length ? undefined : (await licensedIdxPhotoFallbacks(db, [listing])).get(listing.id);
 
     return {
       listing: {
         ...listing,
-        primaryPhotoUrl: withMlsPhotoListingId(listing.primaryPhotoUrl, listing.id),
+        primaryPhotoUrl: storedMedia.length ? withMlsPhotoListingId(listing.primaryPhotoUrl, listing.id)
+          : alternate?.media[0]?.url ?? null,
         localFields,
         listPrice: num(listing.listPrice),
         originalListPrice: num(listing.originalListPrice),
@@ -447,8 +451,10 @@ export const mlsPropertiesRouter = router({
             optOuts,
           }
         : null,
-      media: media.filter(item => item.status === "stored" && item.url)
-        .map(item => ({ ...item, url: withMlsPhotoListingId(item.url, listing.id) })),
+      media: storedMedia.length
+        ? storedMedia.map(item => ({ ...item, url: withMlsPhotoListingId(item.url, listing.id) }))
+        : alternate?.media ?? [],
+      mediaProvenance: alternate ? { feedType: "idx" as const, listingId: alternate.listingId } : null,
       galleryQueued: media.some(item =>
         (isGalleryMarker(item.mediaKey) || item.priority === 0) &&
         ["pending", "expired", "downloading"].includes(item.status)

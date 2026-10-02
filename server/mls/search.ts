@@ -5,6 +5,7 @@ import { mlsListings, mlsSources } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { CANONICAL_PROPERTY_TYPES, CANONICAL_STATUSES } from "./normalize/enums";
 import { withMlsPhotoListingId } from "./photoUrl";
+import { licensedIdxPhotoFallbacks } from "./photoFallback";
 import { mapAreaConditions, mapAreaSchema } from "./mapGeometry";
 
 /**
@@ -197,6 +198,7 @@ export const listingCardColumns = {
   id: mlsListings.id,
   propertyId: mlsListings.propertyId,
   sourceId: mlsListings.sourceId,
+  feedId: mlsListings.feedId,
   listingNumber: mlsListings.listingNumber,
   standardStatus: mlsListings.standardStatus,
   mlsStatus: mlsListings.mlsStatus,
@@ -330,7 +332,13 @@ export async function searchListings(
     .innerJoin(mlsSources, eq(mlsSources.id, mlsListings.sourceId))
     .where(and(where, inArray(mlsListings.id, pageIds))) : [];
   const byId = new Map(rows.map(row => [Number(row.id), row]));
-  const items = pageIds.flatMap(id => { const row = byId.get(id); return row ? [toCard(row)] : []; });
+  const alternate = await licensedIdxPhotoFallbacks(db, rows.filter(row => !row.primaryPhotoUrl));
+  const items = pageIds.flatMap(id => {
+    const row = byId.get(id);
+    if (!row) return [];
+    const card = toCard(row);
+    return [{ ...card, primaryPhotoUrl: card.primaryPhotoUrl ?? alternate.get(id)?.media[0]?.url ?? null }];
+  });
   if (input.countMode === "none") {
     return { items, total: null, hasMore: ids.length > input.pageSize, page: input.page, pageSize: input.pageSize };
   }
