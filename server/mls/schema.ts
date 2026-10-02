@@ -68,6 +68,64 @@ export async function applyMlsSchema(connection: Connection) {
   await seedMlsSources(connection);
 }
 
+/** Covering indexes for map clusters, exact counts and the MARIS BBO-over-IDX
+ * check. They are large, so they build online in the background and never
+ * hold up MLS requests (which await ensureMlsSchema). Search code forces them
+ * only after MySQL lists them. */
+export const SEARCH_COVER_INDEX_DDL = [
+  {
+    name: "mls_listings_search_cover_idx",
+    columns: "standardStatus, latitude, longitude, feedId, propertyType, removedFromFeedAt, listPrice, sourceId, listingNumber",
+  },
+  {
+    name: "mls_listings_source_number_feed_idx",
+    columns: "sourceId, listingNumber, feedId, removedFromFeedAt",
+  },
+] as const;
+
+/** Returns the indexes it built. When another process (web or worker) holds
+ * the build lock it returns immediately; the next start retries anything
+ * still missing, and an interrupted online build simply rolls back. */
+export async function applySearchCoverIndexes(connection: Connection): Promise<string[]> {
+  const lockName = "savvyos_mls_search_cover_idx_v1";
+  const [lock] = await connection.query<any[]>("SELECT GET_LOCK(?, 0) AS acquired", [lockName]);
+  if (Number(lock[0]?.acquired) !== 1) return [];
+  const built: string[] = [];
+  try {
+    for (const index of SEARCH_COVER_INDEX_DDL) {
+      const [existing] = await connection.query<any[]>("SHOW INDEX FROM mls_listings WHERE Key_name = ?", [index.name]);
+      if (existing.length) continue;
+      await connection.query(`ALTER TABLE mls_listings ADD INDEX ${index.name} (${index.columns}), ALGORITHM=INPLACE, LOCK=NONE`);
+      built.push(index.name);
+    }
+  } finally {
+    await connection.query("SELECT RELEASE_LOCK(?)", [lockName]);
+  }
+  return built;
+}
+
+async function buildSearchCoverIndexes(databaseUrl: string) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    let connection: Connection | null = null;
+    try {
+      connection = await mysql.createConnection(databaseUrl);
+      // The online build briefly needs an exclusive metadata lock at the end.
+      // Give up after 20 s rather than queueing every MLS query behind a
+      // long-running read; the build rolls back and is retried.
+      await connection.query("SET SESSION lock_wait_timeout = 20");
+      const started = Date.now();
+      const built = await applySearchCoverIndexes(connection);
+      if (built.length) console.log(`[mlsSchema] built ${built.join(", ")} in ${Math.round((Date.now() - started) / 1000)}s`);
+      return;
+    } catch (error) {
+      console.error(`[mlsSchema] could not build MLS search covering indexes (attempt ${attempt}/3)`, error);
+    } finally {
+      await connection?.end().catch(() => undefined);
+    }
+    await new Promise(resolve => setTimeout(resolve, 60_000));
+  }
+}
+
 export async function seedMlsSources(connection: Connection) {
   const [rows] = await connection.query<any[]>("SELECT code FROM `mls_sources`");
   const existing = new Set(rows.map(row => String(row.code)));
@@ -114,6 +172,7 @@ async function ensure() {
     await connection?.end().catch(() => undefined);
     return;
   }
+  if (process.env.MLS_SEARCH_COVER_INDEXES !== "off") void buildSearchCoverIndexes(databaseUrl);
   try {
     if (process.env.MLS_DECLARED_FEEDS !== "off") await ensureDeclaredMlsFeeds(connection);
   } catch (error) {
