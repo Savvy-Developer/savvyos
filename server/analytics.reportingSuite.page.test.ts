@@ -130,9 +130,9 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(transactions).toContain('setClosingDateFrom(`${today.slice(0, 4)}-01-01`)');
     expect(adminDashboard()).toContain("const closedTransactionsQuery = new URLSearchParams");
     expect(adminDashboard()).toContain("navigate(`/transactions?${closedTransactionsQuery}`)");
-    expect(commandCenter).toContain("const reportingPeriodContractScope");
-    expect(commandCenter).toContain("t.contractDate >= ${filters.dateFrom}");
-    expect(adminDashboard()).toContain("Under contract in selected period:");
+    expect(commandCenter).toContain("const selectedPeriodContractScope");
+    expect(commandCenter).toContain("t.closingDate >= ${filters.dateFrom}");
+    expect(adminDashboard()).toContain("Selected Period");
     expect(agentLeaderboardService()).toContain("companyTotal");
     expect(agentLeaderboardPage()).toContain("Company {isClosed ? \"closed total\" : \"under-contract total\"}");
     expect(agentLeaderboardPresentation()).toContain("COMPANY VOLUME");

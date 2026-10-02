@@ -264,10 +264,13 @@ export async function getAdminCommandCenter(input: {
   const connectionCohortScope = connectionScope(filters, { applyDate: true, includeTerminal: true });
   const allConnectionScope = connectionScope(filters, { applyDate: false, includeTerminal: true });
   const activeContractScope = transactionScope(filters, { status: "under_contract", applyDate: false });
-  const reportingPeriodContractScope = sqlAnd([
+  // This is a near-term production view, not a contract-signing cohort. Keep
+  // the live status requirement, then place each active deal into the selected
+  // reporting period by its expected closing date.
+  const selectedPeriodContractScope = sqlAnd([
     activeContractScope,
-    sql`t.contractDate >= ${filters.dateFrom}`,
-    sql`t.contractDate <= ${filters.dateTo}`,
+    sql`t.closingDate >= ${filters.dateFrom}`,
+    sql`t.closingDate <= ${filters.dateTo}`,
   ]);
   const currentYear = filters.dateTo.getUTCFullYear();
   const now = new Date();
@@ -294,7 +297,7 @@ export async function getAdminCommandCenter(input: {
         WHERE ${activeContractScope}`),
       db.execute(sql`SELECT COUNT(*) AS units, COALESCE(SUM(t.purchasePrice), 0) AS volume, COALESCE(SUM(t.grossCommissionIncome), 0) AS gci
         FROM transactions t LEFT JOIN users owner ON owner.id = t.agentId LEFT JOIN contacts contact ON contact.id = t.primaryContactId
-        WHERE ${reportingPeriodContractScope}`),
+        WHERE ${selectedPeriodContractScope}`),
       db.execute(sql`SELECT DATE_FORMAT(t.closingDate, '%Y-%m') AS period,
           COUNT(CASE WHEN t.status = 'closed' THEN 1 END) AS closedUnits,
           COALESCE(SUM(CASE WHEN t.status = 'closed' THEN t.purchasePrice ELSE 0 END), 0) AS closedVolume,
