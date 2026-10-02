@@ -105,6 +105,19 @@ async function deleteRemovedMedia(db: Db, feedIds: number[], result: MediaBatchR
   }
 }
 
+/** An empty refresh stage has to scan the whole expired backlog (100k+ rows on
+ * a large feed) to prove there is nothing to do; production saw 140-second
+ * batches. Skip that stage briefly after an empty result. Read per call so
+ * tests can disable it. */
+const emptyRefreshUntil = new Map<string, number>();
+function emptyRefreshTtlMs() {
+  const value = Number(process.env.MLS_MEDIA_EMPTY_REFRESH_TTL_MS ?? 120_000);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+export function resetEmptyRefreshCache() {
+  emptyRefreshUntil.clear();
+}
+
 /** Refresh expired URLs in batches, including gallery requests. All provider
  * calls run here in the worker, not from the web process, so they share the
  * same token rate and byte budget as replication and photo downloads. */
@@ -116,7 +129,9 @@ async function refreshExpiredUrls(
   options: { signal?: AbortSignal; fetchImpl?: typeof fetch; limit: number; priority: "active" | "active_gallery" | "gallery" | "market" }
 ) {
   const feedIds = Array.from(feeds.keys()).filter(id => adapterFor(feeds.get(id)!.feed.provider).capabilities.mediaUrlsExpire);
-  if (!feedIds.length) return;
+  if (!feedIds.length || options.limit <= 0) return;
+  const stageKey = `${feedIds.slice().sort((a, b) => a - b).join(",")}:${options.priority}`;
+  if ((emptyRefreshUntil.get(stageKey) ?? 0) > Date.now()) return;
   const gridOnly = feedIds.every(id => feeds.get(id)!.feed.provider === "mls_grid");
   const rows = await db
     .selectDistinct({ feedId: mlsMedia.feedId, resourceKey: mlsMedia.resourceKey, listingNumber: mlsListings.listingNumber })
@@ -137,6 +152,9 @@ async function refreshExpiredUrls(
           : gridOnly ? and(eq(mlsMedia.isPrimary, true), inArray(mlsListings.standardStatus, MARKET_STATUSES), isNull(mlsListings.removedFromFeedAt)) : undefined
     ))
     .limit(options.limit);
+  const ttl = emptyRefreshTtlMs();
+  if (!rows.length && ttl) emptyRefreshUntil.set(stageKey, Date.now() + ttl);
+  else emptyRefreshUntil.delete(stageKey);
   const groups = new Map<string, typeof rows>();
   for (const row of rows) {
     const key = feeds.get(row.feedId)!.feed.provider === "mls_grid" ? String(row.feedId) : `${row.feedId}:${row.resourceKey}`;

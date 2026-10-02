@@ -99,6 +99,7 @@ Provider notes and source links are in `server/mls/adapters/*.ts` headers and th
 | `MLS_INGESTION_IN_WEB=on` | Web | Run ingestion inside the web process (small deployments only) |
 | `MLS_WORKER_TICK_MS` | Worker | Scheduler tick, default 15,000 |
 | `MLS_MEDIA_REQUESTS_PER_SECOND` | Worker | Global media request ceiling, default 10 |
+| `MLS_MEDIA_EMPTY_REFRESH_TTL_MS` | Worker | After a photo-link refresh stage finds nothing, skip it for this long (default 120,000) instead of rescanning the whole expired backlog every batch. `0` disables. |
 | `MLS_SCHEMA_ENSURE=on` | Non-production | Run the schema guard outside production |
 | `MAPBOX_PUBLIC_TOKEN` | Web service only | Public Mapbox `pk.` browser token, served only to authorized MLS users at runtime. Restrict it to `os.savvy-agents.com` in Mapbox; never use an `sk.` token. |
 
