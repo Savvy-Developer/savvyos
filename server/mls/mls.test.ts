@@ -75,16 +75,17 @@ describe("Active-gallery queue and default search", () => {
     expect(useNewestFeedIndex({ statuses: ["active", "pending"] }, "newest", 1)).toBe(false);
     expect(useNewestFeedIndex({ statuses: ["active"] }, "updated", 1)).toBe(false);
   });
-  it("time-caps recent Active candidates for broad viewports and one selected MLS", () => {
+  it("time-caps recent Active candidates for viewports, drawn areas and one selected MLS", () => {
     const bounds = { north: 36, south: 35, east: -81.5, west: -84 };
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"], listingIntent: "sale", bounds }, "newest", 1)).toBe(true);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"], sourceIds: [4], listingIntent: "sale" }, "newest", 1)).toBe(true);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds, sourceIds: [4] }, "newest", 1)).toBe(true);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], area: { kind: "circle", center: { lat: 35.59, lng: -82.55 }, radiusMeters: 1500 } }, "newest", 1)).toBe(true);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds, q: "28801" }, "newest", 1)).toBe(false);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"], sourceIds: [4], q: "28801" }, "newest", 1)).toBe(false);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"], sourceIds: [1, 4] }, "newest", 1)).toBe(false);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"] }, "newest", 1)).toBe(false);
-    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds, area: { kind: "circle", center: { lat: 35.59, lng: -82.55 }, radiusMeters: 1500 } }, "newest", 1)).toBe(false);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds, area: { kind: "circle", center: { lat: 35.59, lng: -82.55 }, radiusMeters: 1500 } }, "newest", 1)).toBe(true);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active", "pending"], bounds }, "newest", 1)).toBe(false);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds }, "updated", 1)).toBe(false);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds }, "newest", 11)).toBe(false);
@@ -411,6 +412,8 @@ describe("license and isolation guards", () => {
     expect(query.sql).toContain("$.license.approved");
     expect(query.sql).toContain("$.license.internalUse");
     expect(query.sql).toContain("$.license.retainHistory");
+    expect(query.sql).toContain("mls_listings.feedId IN (SELECT scope.id");
+    expect(query.sql).toContain("CASE WHEN mls_listings.feedId");
   });
 
   it("keeps MLS tables out of the general read-only MCP endpoint", () => {

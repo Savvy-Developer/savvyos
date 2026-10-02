@@ -1,4 +1,4 @@
-import { approvedFeedSql } from "./license";
+import { approvedFeedSetSql, approvedFeedSql } from "./license";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { mlsListings, mlsSources } from "../../drizzle/mlsSchema";
@@ -86,13 +86,12 @@ function boundsCondition(bounds: z.infer<typeof boundsSchema>): SQL[] {
  * Both feed rows, media, raw records and license flags remain independent.
  * This read-only preference is shared by cards, map pins and exact totals. */
 export function preferMarisBboCondition(): SQL {
-  return sql.raw(`(
-    mls_listings.feedId <> COALESCE((
+  return sql.raw(`(CASE WHEN mls_listings.feedId = COALESCE((
       SELECT idx.id FROM mls_feeds AS idx
       JOIN mls_sources AS source ON source.id = idx.sourceId AND source.code = 'maris'
       WHERE idx.provider = 'mls_grid' AND idx.feedType = 'idx' LIMIT 1
     ), -1)
-    OR NOT EXISTS (
+    THEN NOT EXISTS (
       SELECT 1 FROM mls_listings AS candidate FORCE INDEX (mls_listings_source_number_idx)
       WHERE candidate.sourceId = mls_listings.sourceId
         AND candidate.listingNumber = mls_listings.listingNumber
@@ -105,12 +104,12 @@ export function preferMarisBboCondition(): SQL {
         ), -1)
         AND candidate.removedFromFeedAt IS NULL
     )
-  )`);
+    ELSE TRUE END)`);
 }
 
 export function searchConditions(filters: SearchFilters, now = new Date()): SQL | undefined {
   // Unlicensed, expired, or unapproved-retention feeds never appear in any admin read.
-  const conditions: SQL[] = [sql.raw(approvedFeedSql()), preferMarisBboCondition()];
+  const conditions: SQL[] = [sql.raw(approvedFeedSetSql()), preferMarisBboCondition()];
   if (!filters.includeRemoved) conditions.push(isNull(mlsListings.removedFromFeedAt));
   if (filters.sourceIds?.length) conditions.push(inArray(mlsListings.sourceId, filters.sourceIds));
   if (filters.statuses?.length) conditions.push(inArray(mlsListings.standardStatus, filters.statuses));
@@ -262,15 +261,15 @@ export function useNewestFeedIndex(filters: SearchFilters, sort: (typeof SEARCH_
   return !Object.entries(filters).some(([key, value]) => !["statuses", "listingIntent"].includes(key) && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
 }
 
-/** A broad viewport or selected MLS can scan recent Active IDs until 13 match,
- * avoiding a full source/geo scan and filesort. Cap that probe because an empty
- * or sparse source/area could otherwise scan every other MLS feed. */
+/** A viewport, drawn area or selected MLS can scan recent Active IDs until 13
+ * match, avoiding a full geo/source scan and filesort. Cap it because a sparse
+ * shape or source could otherwise scan every other MLS feed. */
 export function useBoundedNewestCandidateIndex(filters: SearchFilters, sort: (typeof SEARCH_SORTS)[number], page: number) {
-  if (sort !== "newest" || page > 10 || filters.includeRemoved || (!filters.bounds && filters.sourceIds?.length !== 1) || filters.area ||
+  if (sort !== "newest" || page > 10 || filters.includeRemoved || (!filters.bounds && !filters.area && filters.sourceIds?.length !== 1) ||
       filters.statuses?.length !== 1 || filters.statuses[0] !== "active") return false;
   if (filters.sourceIds && filters.sourceIds.length !== 1) return false;
   return !Object.entries(filters).some(([key, value]) =>
-    !["statuses", "listingIntent", "bounds", "sourceIds"].includes(key) && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
+    !["statuses", "listingIntent", "bounds", "area", "sourceIds"].includes(key) && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
 }
 
 function timedOut(error: unknown): boolean {
@@ -315,9 +314,9 @@ export async function searchListings(
       ids = await fetchIds(true);
     } catch (error) {
       if (!timedOut(error)) throw error;
-      // A source-only fallback must not force the geographic index when no
-      // latitude/longitude predicate exists; leave its source index to MySQL.
-      ids = await fetchIds(false, !!input.filters.bounds);
+      // A source-only fallback must not force a geographic index. A drawn
+      // shape does have a latitude bounding predicate even without bounds.
+      ids = await fetchIds(false, !!(input.filters.bounds || input.filters.area));
     }
   } else {
     ids = await fetchIds(false);
