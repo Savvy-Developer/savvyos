@@ -104,10 +104,24 @@ export function MlsSearchMapbox(props: Props) {
     map.on("moveend", () => { if (!disposed) { setMoving(false); report(resizeHappening ? "resize" : "move"); } });
     map.on("load", () => { if (!disposed) { setReady(true); report("resize"); } });
     map.on("error", () => { if (!map.isStyleLoaded() && !disposed) setMapFailed(true); });
-    initialLoadTimeout = setTimeout(() => { if (!map.loaded() && !disposed) setMapFailed(true); }, 15_000);
+    // Fall back to Leaflet only if the style itself never loads while the tab is
+    // visible. Hidden tabs pause rendering, and slow tiles are not a failure.
+    const armLoadTimeout = () => {
+      if (initialLoadTimeout) clearTimeout(initialLoadTimeout);
+      initialLoadTimeout = setTimeout(() => {
+        if (disposed || map.isStyleLoaded()) return;
+        if (document.visibilityState === "visible") setMapFailed(true);
+      }, 15_000);
+    };
+    const onVisibility = () => { if (document.visibilityState === "visible" && !disposed && !map.isStyleLoaded()) armLoadTimeout(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    armLoadTimeout();
 
     map.once("style.load", () => {
       if (disposed) return;
+      // Bounds are known once the style loads; search without waiting for tiles.
+      setReady(true);
+      report("resize");
       const draw = new TerraDraw({
         adapter: new TerraDrawMapboxGLAdapter({ map }),
         modes: [
@@ -189,6 +203,7 @@ export function MlsSearchMapbox(props: Props) {
       markersRef.current = [];
       drawRef.current?.stop();
       drawRef.current = null;
+      document.removeEventListener("visibilitychange", onVisibility);
       map.remove();
       mapRef.current = null;
     };

@@ -75,6 +75,10 @@ function ViewportReporter({ onChange }: { onChange: (viewport: MapViewport, reas
     };
     const observer = new ResizeObserver(resize);
     observer.observe(map.getContainer());
+    // Report the first viewport now: background tabs never run animation
+    // frames, which left the map on "Finding properties" until clicked.
+    const size = map.getSize();
+    if (size.x > 0 && size.y > 0) report("resize");
     resize();
     return () => {
       observer.disconnect();
