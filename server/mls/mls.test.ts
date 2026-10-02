@@ -9,6 +9,7 @@ import { keysetFilter, trestleAdapter } from "./adapters/trestle";
 import { buildComplianceProfile, feedFreshness, fillComplianceTemplate } from "./compliance";
 import { credentialStatus } from "./credentials";
 import { galleryMarkerKey, isGalleryMarker } from "./gallery";
+import { withMlsPhotoListingId } from "./photoUrl";
 import { normalizePropertyType, normalizeStatus } from "./normalize/enums";
 import { normalizeListing } from "./normalize/normalizeListing";
 import { propertyIdentity } from "./normalize/propertyIdentity";
@@ -67,7 +68,18 @@ describe("Active-gallery queue and default search", () => {
     expect(useRecentFeedIndex({ statuses: ["active"] }, "updated", 11)).toBe(false);
   });
 });
-
+describe("indexed private MLS photo URLs", () => {
+  const stored = "/api/mls/media?key=mls%2Fcanopy%2F1%2FCAR123%2Fphoto.jpg";
+  it("upgrades a previously stored photo URL and replaces a stale listing hint", () => {
+    expect(withMlsPhotoListingId(stored, 42)).toBe(`${stored}&listingId=42`);
+    expect(withMlsPhotoListingId(`${stored}&listingId=17`, 42)).toBe(`${stored}&listingId=42`);
+  });
+  it("never rewrites other photo hosts or accepts a missing listing identifier", () => {
+    expect(withMlsPhotoListingId("https://cdn.test/photo.jpg", 42)).toBe("https://cdn.test/photo.jpg");
+    expect(withMlsPhotoListingId(null, 42)).toBeNull();
+    expect(withMlsPhotoListingId(stored, 0)).toBeNull();
+  });
+});
 function canopyRecord(overrides: Record<string, unknown> = {}) {
   return {
     "@odata.id": "https://api.mlsgrid.com/v2/Property('CAR4123456')",

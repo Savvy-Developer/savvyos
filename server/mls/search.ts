@@ -4,6 +4,7 @@ import { z } from "zod";
 import { mlsListings, mlsSources } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { CANONICAL_PROPERTY_TYPES, CANONICAL_STATUSES } from "./normalize/enums";
+import { withMlsPhotoListingId } from "./photoUrl";
 
 /**
  * Admin search over mls_listings. Every filter maps to an indexed column
@@ -178,6 +179,7 @@ type CardRow = { [K in keyof typeof listingCardColumns]: any };
 export function toCard(row: CardRow) {
   return {
     ...row,
+    primaryPhotoUrl: withMlsPhotoListingId(row.primaryPhotoUrl, Number(row.id)),
     listPrice: num(row.listPrice),
     closePrice: num(row.closePrice),
     bathroomsTotal: num(row.bathroomsTotal),
