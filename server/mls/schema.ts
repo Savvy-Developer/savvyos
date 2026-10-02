@@ -104,10 +104,28 @@ export async function applySearchCoverIndexes(connection: Connection): Promise<s
   }
 }
 
-/** Sessions currently holding mls_listings open, as normalized statement
- * digests (MySQL replaces every literal with ?), so logs never carry values.
- * An idle holder means an open transaction: MDL lasts until it commits. */
-export async function listingLockHolders(connection: Connection): Promise<Array<{ id: number; command: string; seconds: number; digest: string }> | null> {
+/** Strip every literal from SQL text so logs never carry listing values. */
+export function scrubSql(text: string) {
+  return text
+    .replace(/'(?:[^'\\]|\\.)*'/g, "?")
+    .replace(/"(?:[^"\\]|\\.)*"/g, "?")
+    .replace(/\b\d+(?:\.\d+)?\b/g, "?")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
+export type ListingLockHolder = { id: number; command: string; seconds: number; digest: string; source: "mdl" | "processlist" };
+
+/** Sessions holding or likely holding mls_listings open. performance_schema
+ * gives exact metadata-lock owners when it is enabled; many hosted MySQL
+ * images disable it, so PROCESSLIST + INNODB_TRX also report statements on
+ * mls_listings and idle sessions with open transactions. Sessions queued
+ * behind the ALTER (victims, not blockers) are excluded. Returns null only
+ * when neither source can be read. */
+export async function listingLockHolders(connection: Connection): Promise<ListingLockHolder[] | null> {
+  const holders = new Map<number, ListingLockHolder>();
+  let readable = false;
   try {
     const [rows] = await connection.query<any[]>(`
       SELECT DISTINCT t.PROCESSLIST_ID AS id, t.PROCESSLIST_COMMAND AS command,
@@ -117,34 +135,66 @@ export async function listingLockHolders(connection: Connection): Promise<Array<
         LEFT JOIN performance_schema.events_statements_current s ON s.THREAD_ID = t.THREAD_ID
        WHERE ml.OBJECT_SCHEMA = DATABASE() AND ml.OBJECT_NAME = 'mls_listings'
          AND ml.LOCK_STATUS = 'GRANTED' AND t.PROCESSLIST_ID IS NOT NULL AND t.PROCESSLIST_ID <> CONNECTION_ID()
+         AND COALESCE(t.PROCESSLIST_STATE, '') <> 'Waiting for table metadata lock'
        ORDER BY seconds DESC LIMIT 8`);
-    return rows.map(row => ({ id: Number(row.id), command: String(row.command ?? ""), seconds: Number(row.seconds ?? 0), digest: String(row.digest ?? "") }));
+    readable = true;
+    for (const row of rows) holders.set(Number(row.id), { id: Number(row.id), command: String(row.command ?? ""), seconds: Number(row.seconds ?? 0), digest: scrubSql(String(row.digest ?? "")), source: "mdl" });
   } catch {
-    return null;
+    // performance_schema unavailable; PROCESSLIST below still answers.
   }
+  try {
+    const [rows] = await connection.query<any[]>(`
+      SELECT p.ID AS id, p.COMMAND AS command, COALESCE(p.TIME, 0) AS seconds, p.INFO AS info,
+             TIMESTAMPDIFF(SECOND, trx.trx_started, NOW()) AS trxSeconds
+        FROM information_schema.PROCESSLIST p
+        LEFT JOIN information_schema.INNODB_TRX trx ON trx.trx_mysql_thread_id = p.ID
+       WHERE p.ID <> CONNECTION_ID() AND p.DB = DATABASE()
+         AND COALESCE(p.STATE, '') <> 'Waiting for table metadata lock'
+         AND ((p.COMMAND = 'Query' AND LOWER(COALESCE(p.INFO, '')) LIKE '%mls_listings%' AND LOWER(COALESCE(p.INFO, '')) NOT LIKE 'alter table mls_listings%')
+              OR (p.COMMAND = 'Sleep' AND trx.trx_id IS NOT NULL))
+       ORDER BY p.TIME DESC LIMIT 12`);
+    readable = true;
+    for (const row of rows) {
+      const id = Number(row.id);
+      if (holders.has(id)) continue;
+      const command = String(row.command ?? "");
+      const seconds = command === "Sleep" ? Number(row.trxSeconds ?? 0) : Number(row.seconds ?? 0);
+      holders.set(id, { id, command, seconds, digest: scrubSql(String(row.info ?? "")), source: "processlist" });
+    }
+  } catch {
+    // Not readable with this account.
+  }
+  return readable ? Array.from(holders.values()).sort((a, b) => b.seconds - a.seconds) : null;
 }
 
-/** Holders that would make the ALTER wait out its lock timeout: open
- * transactions (idle holders) and statements already running for 8 s+. */
+/** Holders that would make the ALTER wait out its lock timeout: transactions
+ * left open 2 s+ (MDL lasts until commit) and statements running 8 s+. */
 export function blockingHolders<T extends { command: string; seconds: number }>(holders: T[]): T[] {
-  return holders.filter(holder => holder.command === "Sleep" || holder.seconds >= 8);
+  return holders.filter(holder => (holder.command === "Sleep" && holder.seconds >= 2) || holder.seconds >= 8);
 }
 
 const COVER_BUILD_ATTEMPTS = 90;
-const COVER_BUILD_RETRY_MS = 30_000;
+const COVER_BUILD_SKIP_RETRY_MS = 30_000;
+const COVER_BUILD_TIMEOUT_RETRY_MS = 3 * 60_000;
 
 /** Runs in the ingestion worker only. While MySQL waits for the metadata
- * lock, new queries on mls_listings queue behind it, so the build never waits
- * on a long holder: it skips that window and retries. The 12 s cap outlasts
- * the 10 s execution guard on search queries. */
+* lock, new queries on mls_listings queue behind it, so the build never waits
+ * on a visible long holder: it skips that window and retries in 30 s. A real
+ * lock timeout stalled queries for up to 10 s, so that retry waits 3 minutes.
+ * Six seconds into a wait a second connection records who is in front. */
 async function buildSearchCoverIndexes(databaseUrl: string) {
   let lastLoggedAt = 0;
   for (let attempt = 1; attempt <= COVER_BUILD_ATTEMPTS; attempt++) {
     let connection: Connection | null = null;
-    const logHolders = (reason: string, holders: Awaited<ReturnType<typeof listingLockHolders>>) => {
-      if (Date.now() - lastLoggedAt < 5 * 60_000 && attempt !== 1) return;
+    let retryMs = COVER_BUILD_SKIP_RETRY_MS;
+    const logHolders = (reason: string, holders: ListingLockHolder[] | null, force = false) => {
+      if (!force && attempt !== 1 && Date.now() - lastLoggedAt < 5 * 60_000) return;
       lastLoggedAt = Date.now();
-      const summary = holders?.length ? holders.map(holder => `#${holder.id} ${holder.command} ${holder.seconds}s ${holder.digest || "(no statement)"}`).join(" | ") : "none visible";
+      const summary = holders === null
+        ? "unreadable (no PROCESSLIST or performance_schema access)"
+        : holders.length
+          ? holders.map(holder => `#${holder.id} ${holder.source} ${holder.command} ${holder.seconds}s ${holder.digest || "(no statement)"}`).join(" | ")
+          : "none";
       console.warn(`[mlsSchema] covering index build ${reason} (attempt ${attempt}/${COVER_BUILD_ATTEMPTS}); mls_listings holders: ${summary}`);
     };
     try {
@@ -154,20 +204,38 @@ async function buildSearchCoverIndexes(databaseUrl: string) {
       if (blocking.length) {
         logHolders("waiting for long mls_listings holders", blocking);
       } else {
-        await connection.query("SET SESSION lock_wait_timeout = 12");
+        await connection.query("SET SESSION lock_wait_timeout = 10");
         const started = Date.now();
-        const built = await applySearchCoverIndexes(connection);
+        let sampled = false;
+        const sampler = setTimeout(() => {
+          void (async () => {
+            const probe = await mysql.createConnection(databaseUrl).catch(() => null);
+            if (!probe) return;
+            try {
+              logHolders("waiting 6 s for the metadata lock", await listingLockHolders(probe), !sampled);
+              sampled = true;
+            } finally {
+              await probe.end().catch(() => undefined);
+            }
+          })();
+        }, 6_000);
+        let built: string[];
+        try {
+          built = await applySearchCoverIndexes(connection);
+        } finally {
+          clearTimeout(sampler);
+        }
         if (built.length) console.log(`[mlsSchema] built ${built.join(", ")} in ${Math.round((Date.now() - started) / 1000)}s`);
         return;
       }
     } catch (error) {
       const code = String((error as any)?.code ?? "unknown");
-      const holders = connection ? await listingLockHolders(connection) : null;
-      logHolders(`failed with ${code}`, holders);
+      if (code === "ER_LOCK_WAIT_TIMEOUT") retryMs = COVER_BUILD_TIMEOUT_RETRY_MS;
+      logHolders(`failed with ${code}`, connection ? await listingLockHolders(connection) : null);
     } finally {
       await connection?.end().catch(() => undefined);
     }
-    await new Promise(resolve => setTimeout(resolve, COVER_BUILD_RETRY_MS));
+    await new Promise(resolve => setTimeout(resolve, retryMs));
   }
   console.error(`[mlsSchema] gave up building MLS search covering indexes after ${COVER_BUILD_ATTEMPTS} attempts; the next worker start retries`);
 }

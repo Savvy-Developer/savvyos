@@ -25,7 +25,7 @@ import { parseODataPage } from "./adapters/types";
 import { __testables__ as mcpTestables } from "../readOnlyMcp";
 import { MLS_SOURCE_SEEDS, seedCompliance } from "./sources";
 import { importErrorInfo, mediaWanted, payloadHash, retryOnDeadlock } from "./store";
-import { blockingHolders } from "./schema";
+import { blockingHolders, scrubSql } from "./schema";
 
 const source = {
   id: 1,
@@ -108,7 +108,10 @@ describe("Active-gallery queue and default search", () => {
       { command: "Query", seconds: 2 },
       { command: "Query", seconds: 9 },
       { command: "Sleep", seconds: 0 },
-    ])).toEqual([{ command: "Query", seconds: 9 }, { command: "Sleep", seconds: 0 }]);
+      { command: "Sleep", seconds: 3 },
+    ])).toEqual([{ command: "Query", seconds: 9 }, { command: "Sleep", seconds: 3 }]);
+    expect(scrubSql("SELECT  id FROM `mls_listings` FORCE INDEX (mls_listings_status_entry_idx)\n WHERE city = 'O\\'Neil Asheville' AND listPrice > 450000.5 AND note = \"28801\" LIMIT 25"))
+      .toBe("SELECT id FROM `mls_listings` FORCE INDEX (mls_listings_status_entry_idx) WHERE city = ? AND listPrice > ? AND note = ? LIMIT ?");
     const ready = { searchCover: true, sourceNumberFeed: true }, missing = { searchCover: false, sourceNumberFeed: false };
     expect(scanIndexFor({ statuses: ["active"] }, true, ready)).toEqual({ forceIndex: ["mls_listings_search_cover_idx"] });
     expect(scanIndexFor({ statuses: ["active"] }, false, ready)).toEqual({ forceIndex: ["mls_listings_search_cover_idx"] });

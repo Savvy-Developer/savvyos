@@ -317,20 +317,31 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
 
   it("searches without the covering indexes, then online-builds them and counts from the index alone", async () => {
     // The builder must see an open transaction (an idle metadata-lock holder)
-    // and skip that window rather than queue every MLS query behind its ALTER.
+    // or a long statement on mls_listings and skip that window rather than
+    // queue every MLS query behind its ALTER. Logged SQL never keeps literals.
     const holder = await mysql.createConnection(DATABASE_URL!);
+    const runner = await mysql.createConnection(DATABASE_URL!);
     try {
+      const [[{ id: holderId }]] = await holder.query<any[]>("SELECT CONNECTION_ID() AS id");
+      const [[{ id: runnerId }]] = await runner.query<any[]>("SELECT CONNECTION_ID() AS id");
       await holder.query("START TRANSACTION");
       await holder.query("SELECT id FROM mls_listings LIMIT 1");
-      const held = await modules.schema.listingLockHolders(admin as any);
+      const slow = runner.query("SELECT SLEEP(3) AS waited, 'Asheville 28801' AS probe FROM mls_listings LIMIT 1");
+      await new Promise(resolve => setTimeout(resolve, 2_600));
+      const held = (await modules.schema.listingLockHolders(admin as any))!;
       expect(held).not.toBeNull();
-      const blockers = modules.schema.blockingHolders(held!);
-      expect(blockers.some(row => row.command === "Sleep" && /mls_listings/.test(row.digest))).toBe(true);
-      expect(blockers.every(row => !/\b\d{2,}\b/.test(row.digest.replace(/LIMIT \?/g, "")))).toBe(true);
+      // A transaction open 2 s+ blocks; the 2 s-old statement does not yet.
+      expect(modules.schema.blockingHolders(held).map(row => row.id)).toEqual([holderId]);
+      const running = held.find(row => row.id === runnerId);
+      expect(running?.command).toBe("Query");
+      expect(running?.digest).toMatch(/mls_listings/);
+      expect(held.every(row => !/Asheville|28801|\b3\b/.test(row.digest))).toBe(true);
+      await slow;
       await holder.query("COMMIT");
       expect(modules.schema.blockingHolders((await modules.schema.listingLockHolders(admin as any))!).filter(row => row.command === "Sleep")).toEqual([]);
     } finally {
       await holder.end();
+      await runner.end();
     }
     const db = (await modules.db.getDb())!;
     const bounds = { north: 36, south: 35, east: -81.5, west: -84 };
