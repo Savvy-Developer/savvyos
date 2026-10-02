@@ -534,12 +534,12 @@ describe("MLS Grid token budget", () => {
       expect(limits.temporary?.untilMs).toBe(MLS_GRID_GRACE_UNTIL_MS);
       expect(limits.requestsPerSecond).toBe(1.8);
       expect(limits.requestsPerHour).toBe(6_500);
-      expect(limits.requestsPerDay).toBe(35_000);
+      expect(limits.requestsPerDay).toBe(39_000);
       expect(limits.mediaConcurrency).toBe(8);
-      expect(limits.tokenBudget?.mediaShare).toBe(0.85);
+      expect(limits.tokenBudget?.mediaShare).toBe(0.89);
       const lane = new ProviderLane("mls_grid:grace", "mls_grid", "grace", limits);
-      expect(lane.media.snapshot().windows.find(window => window.windowMs === 86_400_000)?.limit).toBe(29_750);
-      expect(lane.media.snapshot().windows.find(window => window.windowMs === 3_600_000)?.limit).toBe(5_525);
+      expect(lane.media.snapshot().windows.find(window => window.windowMs === 86_400_000)?.limit).toBe(34_710);
+      expect(lane.media.snapshot().windows.find(window => window.windowMs === 3_600_000)?.limit).toBe(5_785);
       lane.api.seed(before - 10 * 60_000, 6_000, 4_000_000_000);
       expect(lane.api.nextWaitMs(before)).toBe(0);
       expect(lane.api.nextWaitMs(MLS_GRID_GRACE_UNTIL_MS + 1)).toBeGreaterThan(0);

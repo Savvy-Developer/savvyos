@@ -154,12 +154,14 @@ export const mlsGridAdapter: MlsAdapter = {
       // Stay below the published two-RPS and 7,200/hour warning thresholds until
       // MLS Grid confirms the media CDN and both tokens are actually uncapped.
       // Keep eight concurrent photo transfers to overlap storage/network latency.
-      // Active metadata prefill is complete; reserve 15% of the existing daily
-      // request ceiling for live updates and history while draining Active photos.
+      // Both media lanes exhausted their 29,750/day allowance by Oct 2 midday
+      // while recent provider usage showed no 429s. Release a little more room
+      // for Active photos without crossing the 40,000/day warning threshold;
+      // keep 11% for API updates and leave the 1.8-RPS pace unchanged.
       requestsPerSecond: 1.8,
       requestsPerHour: 6_500,
-      requestsPerDay: 35_000,
-      tokenBudget: { bytesPerHour: 24_000_000_000, bytesPerDay: 500_000_000_000, mediaShare: 0.85 },
+      requestsPerDay: 39_000,
+      tokenBudget: { bytesPerHour: 24_000_000_000, bytesPerDay: 500_000_000_000, mediaShare: 0.89 },
       mediaConcurrency: 8,
       temporary: { untilMs: MLS_GRID_GRACE_UNTIL_MS, baseline },
     };
