@@ -3,7 +3,7 @@ import { MySqlDialect } from "drizzle-orm/mysql-core";
 import type { MlsFeed, MlsSource } from "../../drizzle/mlsSchema";
 import { MLS_GRID_GRACE_UNTIL_MS, MLS_GRID_LIMITS, mlsGridAdapter } from "./adapters/mlsGrid";
 import type { ProviderLimits } from "./adapters/types";
-import { ProviderLane, wireBytes } from "./http";
+import { ProviderLane, downloadMedia, requestJson, wireBytes } from "./http";
 import { sparkAdapter } from "./adapters/spark";
 import { keysetFilter, trestleAdapter } from "./adapters/trestle";
 import { buildComplianceProfile, feedFreshness, fillComplianceTemplate } from "./compliance";
@@ -538,19 +538,18 @@ describe("MLS Grid token budget", () => {
       expect(limits.mediaConcurrency).toBe(8);
       expect(limits.tokenBudget?.mediaShare).toBe(0.89);
       const lane = new ProviderLane("mls_grid:grace", "mls_grid", "grace", limits);
-      expect(lane.media.snapshot().windows.find(window => window.windowMs === 86_400_000)?.limit).toBe(34_710);
-      expect(lane.media.snapshot().windows.find(window => window.windowMs === 3_600_000)?.limit).toBe(5_785);
+      expect(lane.media.snapshot().windows).toEqual([]); // photo host is not under the API quota
       lane.api.seed(before - 10 * 60_000, 6_000, 4_000_000_000);
       expect(lane.api.nextWaitMs(before)).toBe(0);
       expect(lane.api.nextWaitMs(MLS_GRID_GRACE_UNTIL_MS + 1)).toBeGreaterThan(0);
       clock.mockReturnValue(MLS_GRID_GRACE_UNTIL_MS + 1);
-      expect(lane.media.snapshot().windows.find(window => window.windowMs === 86_400_000)?.limit).toBe(24_000);
+      expect(lane.media.snapshot().windows).toEqual([]); // still independent after the API waiver ends
       expect(mlsGridAdapter.limits(gridFeed(null)).temporary).toBeUndefined();
     } finally { clock.mockRestore(); }
   });
 
-  it("counts photo downloads against the same request budget as API pages", async () => {
-    const lane = new ProviderLane("mls_grid:T1", "mls_grid", "T1", tiny());
+  it("retains a shared token budget for providers that actually meter API and media together", async () => {
+    const lane = new ProviderLane("trestle:T1", "trestle", "T1", tiny());
     await lane.media.acquire();
     await lane.media.acquire();
     expect(lane.media.nextWaitMs(soon())).toBeGreaterThan(0); // photos used their half
@@ -560,13 +559,46 @@ describe("MLS Grid token budget", () => {
     expect(lane.api.nextWaitMs(soon())).toBeGreaterThan(30 * 60_000); // 2 photos + 2 pages = the token's 4/hour
   });
 
-  it("counts API page bytes and photo bytes in one hourly byte cap", () => {
-    const lane = new ProviderLane("mls_grid:T2", "mls_grid", "T2", tiny());
+  it("retains the shared byte cap for providers that actually meter it", () => {
+    const lane = new ProviderLane("trestle:T2", "trestle", "T2", tiny());
     lane.countApi(600);
     expect(lane.api.nextWaitMs(soon())).toBe(0);
     lane.countMedia(500);
     expect(lane.api.nextWaitMs(soon())).toBeGreaterThan(30 * 60_000);
     expect(lane.media.nextWaitMs(soon())).toBeGreaterThan(30 * 60_000);
+  });
+
+  it("does not charge MLS Grid photos to API request or byte quotas", async () => {
+    const lane = new ProviderLane("mls_grid:MEDIAONLY", "mls_grid", "MEDIAONLY", tiny());
+    await lane.media.acquire();
+    lane.countMedia(2_000);
+    expect(lane.api.nextWaitMs(soon())).toBe(0);
+    expect(lane.api.snapshot().byteWindows[0].used).toBe(0);
+    expect(lane.media.snapshot().windows).toEqual([]);
+    lane.media.pause(15 * 60_000);
+    expect(lane.api.snapshot().pausedForMs).toBe(0);
+  });
+
+  it("does not freeze the MLS Grid API when an old image URL returns item-specific 429", async () => {
+    const lane = new ProviderLane("mls_grid:ONCE", "mls_grid", "ONCE", tiny());
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 429 }));
+    await expect(downloadMedia(lane, "https://media.mlsgrid.com/images/once.jpg", {}, {
+      fetchImpl,
+    })).rejects.toMatchObject({ status: 429 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(lane.media.snapshot().pausedForMs).toBe(0);
+    expect(lane.api.snapshot().pausedForMs).toBe(0);
+    await expect(requestJson(lane, "https://api.mlsgrid.com/v2/Property", async () => ({}), {
+      fetchImpl: async () => new Response("{}", { status: 200 }),
+    })).resolves.toMatchObject({ body: {} });
+  });
+
+  it("still pauses the API lane for a real api.mlsgrid.com 429", async () => {
+    const lane = new ProviderLane("mls_grid:API429", "mls_grid", "API429", tiny());
+    await expect(requestJson(lane, "https://api.mlsgrid.com/v2/Property", async () => ({}), {
+      maxAttempts: 1, fetchImpl: async () => new Response(null, { status: 429 }),
+    })).rejects.toMatchObject({ status: 429 });
+    expect(lane.api.snapshot().pausedForMs).toBeGreaterThan(14 * 60_000);
   });
 
   it("honors usage recorded before a restart, and lets day-old usage age out", () => {

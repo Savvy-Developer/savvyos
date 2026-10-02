@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, isNull, lte, sql } from "drizzle-orm";
 import { gunzipSync, gzipSync } from "zlib";
 import {
   mlsImportExceptions,
@@ -240,7 +240,7 @@ async function syncListingMedia(
   const compliance = readComplianceProfile(ctx.source.compliance, ctx.source.providerRoute);
   const closedPrimaryOnly = compliance.closedListingPhotos === "primary_only";
   const existing = await tx
-    .select()
+    .select({ ...getTableColumns(mlsMedia), cooldownActive: sql<number>`${mlsMedia.nextAttemptAt} > UTC_TIMESTAMP()` })
     .from(mlsMedia)
     .where(and(eq(mlsMedia.feedId, ctx.feed.id), eq(mlsMedia.resourceKey, providerListingKey)));
   const byKey = new Map(existing.map(row => [row.mediaKey, row]));
@@ -256,11 +256,17 @@ async function syncListingMedia(
       && mediaWanted(item, status, ctx.feed.mediaPolicy, closedPrimaryOnly)
     ));
     if (!wanted && !current && readOption(ctx.feed, "fastImportV1", false)) continue;
-    const changedAtSource =
-      !current || (item.sourceModifiedAt?.getTime() ?? 0) !== (current.sourceModifiedAt?.getTime() ?? 0);
+    // MLS Grid never replaces an image in place: a changed image has a new
+    // MediaKey. Its property/media timestamps must not requeue a stored key,
+    // since downloading the same image again in the hour returns HTTP 429.
+    const changedAtSource = !current || (ctx.feed.provider !== "mls_grid" &&
+      (item.sourceModifiedAt?.getTime() ?? 0) !== (current.sourceModifiedAt?.getTime() ?? 0));
+    // The database stores UTC DATETIME; comparing a deserialized Date in JS
+    // can shift it by the worker host's timezone offset.
+    const coolingOff = ctx.feed.provider === "mls_grid" && current?.status === "expired" && !!current.cooldownActive;
     // Expired URLs get refreshed; failures retry only while attempts remain.
     const retryable = current?.status === "expired" || (current?.status === "failed" && current.attempts < 5);
-    const changed = changedAtSource || retryable;
+    const changed = !coolingOff && (changedAtSource || retryable);
     let nextStatus = current?.status ?? "pending";
     if (!wanted) nextStatus = current?.status === "stored" ? "delete_pending" : "skipped";
     else if (changed || current?.status === "skipped" || current?.status === "delete_pending") nextStatus = "pending";
@@ -286,7 +292,9 @@ async function syncListingMedia(
       nextAttemptAt: null,
       lastError: needsUrl ? null : current?.lastError ?? null,
     };
-    await tx.insert(mlsMedia).values(values).onDuplicateKeyUpdate({ set: values });
+    await tx.insert(mlsMedia).values(values).onDuplicateKeyUpdate({
+      set: coolingOff ? { ...values, nextAttemptAt: sql`${mlsMedia.nextAttemptAt}` } : values,
+    });
   }
 
   const removed = existing.filter(row => !incoming.has(row.mediaKey) && row.status !== "delete_pending");
