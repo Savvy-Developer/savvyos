@@ -111,6 +111,7 @@ import { ensureWebsitePriceDropSchema } from "../websitePriceDropSchema";
 import { ensureWebsiteSoldSweepSchema } from "../websiteSoldSweepSchema";
 import { ensureWebsiteListingExpirySchema } from "../websiteListingExpirySchema";
 import { ensureWebsiteFeaturedSchema } from "../websiteFeaturedSchema";
+import { ensureWebsiteCaseStudySeoSchema } from "../websiteCaseStudySeo";
 import { ensureWebsiteSignupAudienceSchema } from "../websiteSignupAudience";
 import { ensureVendorListsMultiSchema } from "../vendorListsMultiSchema";
 import { ensureTransactionTerminationTextSchema } from "../transactionTerminationTextSchema";
@@ -165,6 +166,7 @@ async function startServer() {
   await ensureWebsiteLinkForwardingSchema();
   await ensureWebsiteListingExpirySchema();
   await ensureWebsiteFeaturedSchema();
+  await ensureWebsiteCaseStudySeoSchema();
   await ensureWebsiteSignupAudienceSchema();
   await ensureVendorListsMultiSchema();
   await ensureTransactionTerminationTextSchema();

@@ -10,7 +10,11 @@
  */
 import { invokeLLM } from "./_core/llm";
 
-export type SeoKind = "property" | "post" | "case";
+/**
+ * "case" writes a case study's excerpt (one field); "caseSeo" writes its meta
+ * title and meta description, like a property or a post.
+ */
+export type SeoKind = "property" | "post" | "case" | "caseSeo";
 
 /** Search engines cut titles near 60 characters and descriptions near 155. */
 export const SEO_TITLE_MAX = 60;
@@ -68,14 +72,18 @@ export function buildSeoMessages(context: SeoContext) {
       ? "a short-term rental property listed for sale on Savvy STR Agents (savvy-agents.com)"
       : context.kind === "post"
         ? "a blog article on Savvy STR Agents (savvy-agents.com), a real estate team for short-term rental investors"
-        : "a client case study on Savvy STR Agents (savvy-agents.com), a real estate team for short-term rental investors";
+        : "a client case study on Savvy STR Agents (savvy-agents.com), a real estate team for short-term rental investors. Never name the client or give a street address";
   const ask =
     context.kind === "case"
       ? `Return JSON: {"metaTitle": "", "metaDescription": "<a ${CASE_EXCERPT_MAX}-character-or-shorter excerpt: 1 to 2 sentences that make an investor want to read the story, leading with the result>"}.`
       : `Return JSON: {"metaTitle": "<at most ${SEO_TITLE_MAX} characters${
           context.kind === "property" ? ", include the city and state" : ""
         }>", "metaDescription": "<${SEO_DESCRIPTION_MAX - 25} to ${SEO_DESCRIPTION_MAX} characters, one or two sentences${
-          context.kind === "property" ? ", mention the projected revenue or return when given" : ""
+          context.kind === "property"
+            ? ", mention the projected revenue or return when given"
+            : context.kind === "caseSeo"
+              ? ", lead with the result the client got"
+              : ""
         }>"}.`;
   return [
     {

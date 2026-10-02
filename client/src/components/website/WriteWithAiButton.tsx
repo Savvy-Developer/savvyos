@@ -20,7 +20,8 @@ export function WriteWithAiButton({
   onWritten,
   label = "Write with AI",
 }: {
-  kind: "property" | "post" | "case";
+  /** "case" writes a case study's excerpt; "caseSeo" its meta title and description. */
+  kind: "property" | "post" | "case" | "caseSeo";
   propertyId?: number | null;
   sourceProformaId?: number | null;
   /** Called on click, so it reads the form as it is right then. */

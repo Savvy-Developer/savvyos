@@ -177,7 +177,7 @@ describe("Write with AI", () => {
     expect(writer.indexOf("propertyWebsiteAccess")).toBeLessThan(writer.indexOf("writeSeoText"));
     expect(writer.indexOf("requireContentAuthor")).toBeLessThan(writer.indexOf("writeSeoText"));
     expect(websiteTab.match(/<WriteWithAiButton/g)?.length).toBe(2);
-    expect(editor.match(/<WriteWithAiButton/g)?.length).toBe(3);
+    expect(editor.match(/<WriteWithAiButton/g)?.length).toBe(5);
   });
 });
 

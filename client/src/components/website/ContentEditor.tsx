@@ -112,9 +112,26 @@ export function ContentEditor({
     onClose();
   };
   const onError = (error: { message: string }) => toast.error(error.message);
-  const saveCaseStudio = trpc.website.saveCaseStudy.useMutation({ onSuccess: () => saved("Case study"), onError });
+  // The meta fields are stored separately; say so if only they failed.
+  const seoWarning = (result: { seoSaved?: boolean }) => {
+    if (result?.seoSaved === false)
+      toast.warning("Saved, but the meta title and description could not be saved. Open it and save again in a minute.");
+  };
+  const saveCaseStudio = trpc.website.saveCaseStudy.useMutation({
+    onSuccess: async result => {
+      await saved("Case study");
+      seoWarning(result);
+    },
+    onError,
+  });
   const savePostStudio = trpc.website.savePost.useMutation({ onSuccess: () => saved("Blog post"), onError });
-  const saveCaseAgent = trpc.website.saveMyCaseStudy.useMutation({ onSuccess: r => saved("Case study", r.status), onError });
+  const saveCaseAgent = trpc.website.saveMyCaseStudy.useMutation({
+    onSuccess: async r => {
+      await saved("Case study", r.status);
+      seoWarning(r);
+    },
+    onError,
+  });
   const savePostAgent = trpc.website.saveMyPost.useMutation({ onSuccess: r => saved("Blog post", r.status), onError });
   const saveCase = isAgent ? saveCaseAgent : saveCaseStudio;
   const savePost = isAgent ? savePostAgent : savePostStudio;
@@ -131,6 +148,7 @@ export function ContentEditor({
           primaryMetric: [draft.primaryMetricLabel, draft.primaryMetricValue].filter(Boolean).join(": "),
           secondaryMetric: [draft.secondaryMetricLabel, draft.secondaryMetricValue].filter(Boolean).join(": "),
           investmentAmount: draft.investmentAmount,
+          excerpt: draft.excerpt,
         }
       : {
           title: draft.title,
@@ -170,6 +188,8 @@ export function ContentEditor({
           investmentNumber != null && Number.isFinite(investmentNumber)
             ? investmentNumber
             : null,
+        metaTitle: draft.metaTitle || null,
+        metaDescription: draft.metaDescription || null,
       } as any);
     else
       savePost.mutate({
@@ -330,6 +350,36 @@ export function ContentEditor({
                 label="Investment amount ($, usually the purchase price)"
                 value={draft.investmentAmount || ""}
                 onChange={value => set("investmentAmount", value)}
+              />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field
+                label="Meta title"
+                value={draft.metaTitle || ""}
+                onChange={value => set("metaTitle", value)}
+                hint="The blue link in Google results. Up to about 60 characters. Left blank, Google gets the title."
+                action={
+                  <WriteWithAiButton
+                    kind="caseSeo"
+                    propertyId={draft.propertyId ? Number(draft.propertyId) : null}
+                    content={aiContent}
+                    onWritten={written => written.metaTitle && set("metaTitle", written.metaTitle)}
+                  />
+                }
+              />
+              <Field
+                label="Meta description"
+                value={draft.metaDescription || ""}
+                onChange={value => set("metaDescription", value)}
+                hint="The text under the link in Google results. About 140 to 155 characters. Left blank, Google gets the excerpt."
+                action={
+                  <WriteWithAiButton
+                    kind="caseSeo"
+                    propertyId={draft.propertyId ? Number(draft.propertyId) : null}
+                    content={aiContent}
+                    onWritten={written => written.metaDescription && set("metaDescription", written.metaDescription)}
+                  />
+                }
               />
             </div>
           </>
