@@ -14,7 +14,7 @@ import { mapAreaSchema, validPolygon } from "./mapGeometry";
 import { normalizePropertyType, normalizeStatus } from "./normalize/enums";
 import { normalizeListing } from "./normalize/normalizeListing";
 import { propertyIdentity } from "./normalize/propertyIdentity";
-import { searchConditions, useBoundedNewestViewportIndex, useNewestFeedIndex, useRecentFeedIndex } from "./search";
+import { searchConditions, useBoundedNewestCandidateIndex, useNewestFeedIndex, useRecentFeedIndex } from "./search";
 import { licenseError } from "./license";
 import { summarize } from "./status";
 import { mediaClientConfig, privateMlsStorageError } from "./privateMedia";
@@ -75,15 +75,19 @@ describe("Active-gallery queue and default search", () => {
     expect(useNewestFeedIndex({ statuses: ["active", "pending"] }, "newest", 1)).toBe(false);
     expect(useNewestFeedIndex({ statuses: ["active"] }, "updated", 1)).toBe(false);
   });
-  it("tries a time-capped chronological seek only for Active/Newest map viewports", () => {
+  it("time-caps recent Active candidates for broad viewports and one selected MLS", () => {
     const bounds = { north: 36, south: 35, east: -81.5, west: -84 };
-    expect(useBoundedNewestViewportIndex({ statuses: ["active"], listingIntent: "sale", bounds }, "newest", 1)).toBe(true);
-    expect(useBoundedNewestViewportIndex({ statuses: ["active"], bounds, q: "28801" }, "newest", 1)).toBe(false);
-    expect(useBoundedNewestViewportIndex({ statuses: ["active"], bounds, sourceIds: [1] }, "newest", 1)).toBe(false);
-    expect(useBoundedNewestViewportIndex({ statuses: ["active"], bounds, area: { kind: "circle", center: { lat: 35.59, lng: -82.55 }, radiusMeters: 1500 } }, "newest", 1)).toBe(false);
-    expect(useBoundedNewestViewportIndex({ statuses: ["active", "pending"], bounds }, "newest", 1)).toBe(false);
-    expect(useBoundedNewestViewportIndex({ statuses: ["active"], bounds }, "updated", 1)).toBe(false);
-    expect(useBoundedNewestViewportIndex({ statuses: ["active"], bounds }, "newest", 11)).toBe(false);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], listingIntent: "sale", bounds }, "newest", 1)).toBe(true);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], sourceIds: [4], listingIntent: "sale" }, "newest", 1)).toBe(true);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds, sourceIds: [4] }, "newest", 1)).toBe(true);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds, q: "28801" }, "newest", 1)).toBe(false);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], sourceIds: [4], q: "28801" }, "newest", 1)).toBe(false);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], sourceIds: [1, 4] }, "newest", 1)).toBe(false);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"] }, "newest", 1)).toBe(false);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds, area: { kind: "circle", center: { lat: 35.59, lng: -82.55 }, radiusMeters: 1500 } }, "newest", 1)).toBe(false);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active", "pending"], bounds }, "newest", 1)).toBe(false);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds }, "updated", 1)).toBe(false);
+    expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds }, "newest", 11)).toBe(false);
   });
 });
 describe("indexed private MLS photo URLs", () => {
