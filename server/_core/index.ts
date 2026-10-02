@@ -115,6 +115,7 @@ import { ensureVendorListsMultiSchema } from "../vendorListsMultiSchema";
 import { ensureTransactionTerminationTextSchema } from "../transactionTerminationTextSchema";
 import { ensureTransactionCustomFieldsSchema } from "../transactionCustomFieldsSchema";
 import { ensureOnboardingLifecycleSchema } from "../onboardingLifecycleSchema";
+import { ensureUserEmploymentTypeSchema } from "../userEmploymentTypeSchema";
 import { ensureOrganicSocialLeadSources } from "../organicSocialLeadSources";
 import { ensureWebsiteLeadSources } from "../websiteLeadSources";
 import { ensureMarketStateFix } from "../marketStateFix";
@@ -166,6 +167,7 @@ async function startServer() {
   await ensureVendorListsMultiSchema();
   await ensureTransactionTerminationTextSchema();
   await ensureTransactionCustomFieldsSchema();
+  await ensureUserEmploymentTypeSchema();
   // Onboarding queries select lifecycle columns, so repair the legacy schema
   // before any request can incorrectly present the active cohort as empty.
   await ensureOnboardingLifecycleSchema();
