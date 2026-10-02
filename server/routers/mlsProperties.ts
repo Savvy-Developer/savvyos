@@ -518,6 +518,9 @@ export const mlsPropertiesRouter = router({
     let lastMediaActivity: { at: string; claimed: number; stored: number; failed: number; expired: number; refreshed: number } | null = null;
     type UsageWindow = { windowMs: number; limit: number; used: number };
     let laneUsage: Array<{ key: string; downloading: boolean; mediaDay: UsageWindow | null; mediaHour: UsageWindow | null; sharedDay: UsageWindow | null; pausedForMs: number }> = [];
+    // Per-lane last batch and per-feed gallery scan, so a starved lane is visible.
+    const mediaLanes: Array<{ key: string; at: string; ms: number | null; claimed: number; stored: number; failed: number; expired: number; refreshed: number; error: string | null }> = [];
+    const galleryActivity: Array<{ feedId: number; at: string; scanned: number; queued: number }> = [];
     try {
       const detail = JSON.parse(worker?.detail ?? "null");
       if (typeof detail?.photoStorage?.configurationValid === "boolean") {
@@ -539,6 +542,20 @@ export const mlsPropertiesRouter = router({
         }));
       }
       for (const [key, value] of Object.entries(detail?.lastActivity ?? {})) {
+        if (value && typeof value === "object" && typeof (value as any).at === "string") {
+          const item = value as Record<string, unknown>;
+          if (key.startsWith("media:")) {
+            mediaLanes.push({
+              key: key.slice(6), at: String(item.at), ms: Number.isFinite(Number(item.ms)) ? Number(item.ms) : null,
+              claimed: Number(item.claimed) || 0, stored: Number(item.stored) || 0, failed: Number(item.failed) || 0,
+              expired: Number(item.expired) || 0, refreshed: Number(item.refreshed) || 0,
+              // Never surface a signed provider URL from an error message.
+              error: typeof item.error === "string" ? item.error.replace(/https?:\/\/\S+/g, "[url]").slice(0, 200) : null,
+            });
+          } else if (key.startsWith("gallery:")) {
+            galleryActivity.push({ feedId: Number(key.slice(8)) || 0, at: String(item.at), scanned: Number(item.scanned) || 0, queued: Number(item.queued) || 0 });
+          }
+        }
         if (!key.startsWith("media:") || !value || typeof value !== "object") continue;
         const activity = value as Record<string, unknown>;
         if (typeof activity.at !== "string") continue;
@@ -561,6 +578,8 @@ export const mlsPropertiesRouter = router({
       photoStorage,
       lastMediaActivity,
       laneUsage,
+      mediaLanes,
+      galleryActivity,
     };
   }),
 

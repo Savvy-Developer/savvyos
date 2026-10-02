@@ -658,6 +658,19 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       const filled = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6, refreshLimit: 0 });
       expect(filled.claimed).toBe(3);
       expect(filled.stored).toBe(3);
+
+      // Shared token: one listing has a fresh cover ready while another
+      // listing's gallery is stranded. The cover must not block the re-link.
+      const [second] = await q<any>("SELECT listingId FROM mls_media WHERE feedId=? AND listingId<>? AND status='stored' LIMIT 1", [feed.id, first.listingId]);
+      await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL, nextAttemptAt=NULL WHERE feedId=? AND listingId=?", [feed.id, second.listingId]);
+      await admin.query(
+        "UPDATE mls_media SET status='pending', sourceUrl=CONCAT(?, '/media/', mediaKey, '.jpg'), sourceUrlExpiresAt=UTC_TIMESTAMP() + INTERVAL 30 MINUTE WHERE feedId=? AND listingId=? AND isPrimary=1",
+        [base, feed.id, first.listingId]
+      );
+      const fair = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6 });
+      expect(fair.refreshed).toBe(1);
+      expect(fair.claimed).toBe(4);
+      expect(fair.stored).toBe(4);
     } finally {
       state.properties = original;
     }
