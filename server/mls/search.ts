@@ -87,21 +87,23 @@ function boundsCondition(bounds: z.infer<typeof boundsSchema>): SQL[] {
  * This read-only preference is shared by cards, map pins and exact totals. */
 export function preferMarisBboCondition(): SQL {
   return sql.raw(`(
-    mls_listings.sourceId <> COALESCE((SELECT s.id FROM mls_sources AS s WHERE s.code = 'maris' LIMIT 1), -1)
+    mls_listings.feedId <> COALESCE((
+      SELECT idx.id FROM mls_feeds AS idx
+      JOIN mls_sources AS source ON source.id = idx.sourceId AND source.code = 'maris'
+      WHERE idx.provider = 'mls_grid' AND idx.feedType = 'idx' LIMIT 1
+    ), -1)
     OR NOT EXISTS (
-      SELECT 1 FROM mls_feeds AS currentFeed
-      JOIN mls_listings AS candidate FORCE INDEX (mls_listings_source_number_idx)
-        ON candidate.sourceId = mls_listings.sourceId
-       AND candidate.listingNumber = mls_listings.listingNumber
-      JOIN mls_feeds AS candidateFeed
-        ON candidateFeed.id = candidate.feedId
-       AND candidateFeed.provider = 'mls_grid'
-       AND candidateFeed.feedType = 'bbo'
-      WHERE currentFeed.id = mls_listings.feedId
-        AND currentFeed.provider = 'mls_grid'
-        AND currentFeed.feedType = 'idx'
+      SELECT 1 FROM mls_listings AS candidate FORCE INDEX (mls_listings_source_number_idx)
+      WHERE candidate.sourceId = mls_listings.sourceId
+        AND candidate.listingNumber = mls_listings.listingNumber
+        AND candidate.feedId = COALESCE((
+          SELECT bbo.id FROM mls_feeds AS bbo
+          JOIN mls_sources AS source ON source.id = bbo.sourceId AND source.code = 'maris'
+          WHERE bbo.provider = 'mls_grid' AND bbo.feedType = 'bbo'
+            AND ${approvedFeedSql("candidateLicense", "bbo.id")}
+          LIMIT 1
+        ), -1)
         AND candidate.removedFromFeedAt IS NULL
-        AND ${approvedFeedSql("candidateLicense", "candidate.feedId")}
     )
   )`);
 }
@@ -260,14 +262,15 @@ export function useNewestFeedIndex(filters: SearchFilters, sort: (typeof SEARCH_
   return !Object.entries(filters).some(([key, value]) => !["statuses", "listingIntent"].includes(key) && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
 }
 
-/** A broad viewport can scan recent Active IDs until 13 match, avoiding a
- * geo-index scan + filesort of thousands of wide rows. Cap that probe because
- * an empty or distant viewport could otherwise scan the entire feed. */
-export function useBoundedNewestViewportIndex(filters: SearchFilters, sort: (typeof SEARCH_SORTS)[number], page: number) {
-  if (sort !== "newest" || page > 10 || filters.includeRemoved || !filters.bounds || filters.area ||
+/** A broad viewport or selected MLS can scan recent Active IDs until 13 match,
+ * avoiding a full source/geo scan and filesort. Cap that probe because an empty
+ * or sparse source/area could otherwise scan every other MLS feed. */
+export function useBoundedNewestCandidateIndex(filters: SearchFilters, sort: (typeof SEARCH_SORTS)[number], page: number) {
+  if (sort !== "newest" || page > 10 || filters.includeRemoved || (!filters.bounds && filters.sourceIds?.length !== 1) || filters.area ||
       filters.statuses?.length !== 1 || filters.statuses[0] !== "active") return false;
+  if (filters.sourceIds && filters.sourceIds.length !== 1) return false;
   return !Object.entries(filters).some(([key, value]) =>
-    !["statuses", "listingIntent", "bounds"].includes(key) && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
+    !["statuses", "listingIntent", "bounds", "sourceIds"].includes(key) && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
 }
 
 function timedOut(error: unknown): boolean {
@@ -307,12 +310,14 @@ export async function searchListings(
     .limit(input.pageSize + (input.countMode === "none" ? 1 : 0))
     .offset(offset);
   let ids: Awaited<ReturnType<typeof fetchIds>>;
-  if (useBoundedNewestViewportIndex(input.filters, input.sort, input.page)) {
+  if (useBoundedNewestCandidateIndex(input.filters, input.sort, input.page)) {
     try {
       ids = await fetchIds(true);
     } catch (error) {
       if (!timedOut(error)) throw error;
-      ids = await fetchIds(false, true);
+      // A source-only fallback must not force the geographic index when no
+      // latitude/longitude predicate exists; leave its source index to MySQL.
+      ids = await fetchIds(false, !!input.filters.bounds);
     }
   } else {
     ids = await fetchIds(false);
