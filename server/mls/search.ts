@@ -264,6 +264,14 @@ export function useNewestFeedIndex(filters: SearchFilters, sort: (typeof SEARCH_
   return !Object.entries(filters).some(([key, value]) => !["statuses", "listingIntent"].includes(key) && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
 }
 
+/** A single selected MLS and an unambiguous exact listing number should seek
+ * `(sourceId, listingNumber)` first, even inside a viewport or drawn area. A
+ * five-digit ZIP also matches addresses and must not use this hint. */
+export function useExactMlsNumberIndex(filters: SearchFilters): boolean {
+  const q = filters.q?.trim();
+  return filters.sourceIds?.length === 1 && !!q && /^(?:[A-Za-z]{1,4}\d[\w-]{2,}|\d{6,})$/.test(q);
+}
+
 /** A viewport, drawn area or selected MLS can scan recent Active IDs until 13
  * match, avoiding a full geo/source scan and filesort. Cap it because a sparse
  * shape or source could otherwise scan every other MLS feed. */
@@ -289,7 +297,9 @@ function timedOut(error: unknown): boolean {
 
 /** Exact count is a separate request: never make the first page await it. */
 export async function countListings(db: Db, filters: SearchFilters): Promise<number> {
-  const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings).where(searchConditions(filters));
+  const [{ total }] = await db.select({ total: sql<number>`count(*)` })
+    .from(mlsListings, useExactMlsNumberIndex(filters) ? { forceIndex: ["mls_listings_source_number_idx"] } : undefined)
+    .where(searchConditions(filters));
   return Number(total);
 }
 
@@ -299,7 +309,9 @@ export async function searchListings(
 ) {
   const where = searchConditions(input.filters);
   const offset = (input.page - 1) * input.pageSize;
-  const indexHint = useNewestFeedIndex(input.filters, input.sort, input.page)
+  const indexHint = useExactMlsNumberIndex(input.filters)
+    ? { forceIndex: ["mls_listings_source_number_idx"] }
+    : useNewestFeedIndex(input.filters, input.sort, input.page)
     ? { forceIndex: ["mls_listings_status_entry_idx"] }
     : useRecentFeedIndex(input.filters, input.sort, input.page)
       ? { forceIndex: ["mls_listings_modified_idx"] }
@@ -359,6 +371,7 @@ export async function mapPoints(
   // clusters first, then show individual listings once the viewport is usable.
   const pinLimit = input.pinLimit ?? 20;
   const where = searchConditions({ ...input.filters, bounds: input.bounds });
+  const numberIndex = useExactMlsNumberIndex(input.filters) ? { forceIndex: ["mls_listings_source_number_idx"] } : undefined;
   const pins = await db
     .select({
       id: mlsListings.id,
@@ -375,7 +388,7 @@ export async function mapPoints(
       primaryPhotoUrl: mlsListings.primaryPhotoUrl,
       sourceShortName: mlsSources.shortName,
     })
-    .from(mlsListings)
+    .from(mlsListings, numberIndex)
     .innerJoin(mlsSources, eq(mlsSources.id, mlsListings.sourceId))
     .where(where)
     .limit(pinLimit + 1);
@@ -394,8 +407,8 @@ export async function mapPoints(
         state: pin.stateOrProvince,
         beds: pin.bedroomsTotal,
         baths: num(pin.bathroomsTotal),
-        photoUrl: withMlsPhotoListingId(pin.primaryPhotoUrl, pin.id),
-        source: pin.sourceShortName,
+      photoUrl: withMlsPhotoListingId(pin.primaryPhotoUrl, pin.id),
+      source: pin.sourceShortName,
       })),
       clusters: [],
     };
@@ -414,7 +427,7 @@ export async function mapPoints(
       minPrice: sql<number>`MIN(${mlsListings.listPrice})`,
       maxPrice: sql<number>`MAX(${mlsListings.listPrice})`,
     })
-    .from(mlsListings)
+    .from(mlsListings, numberIndex)
     .where(where)
     .groupBy(sql`1`, sql`2`)
     .limit(2000);
@@ -422,7 +435,7 @@ export async function mapPoints(
   // a separate count when the 2,000-cell cap could have truncated the result.
   let count = rows.reduce((sum, row) => sum + Number(row.count), 0);
   if (rows.length === 2000) {
-    const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings).where(where);
+    const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings, numberIndex).where(where);
     count = Number(total);
   }
   return {

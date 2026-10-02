@@ -14,7 +14,7 @@ import { mapAreaSchema, validPolygon } from "./mapGeometry";
 import { normalizePropertyType, normalizeStatus } from "./normalize/enums";
 import { normalizeListing } from "./normalize/normalizeListing";
 import { propertyIdentity } from "./normalize/propertyIdentity";
-import { searchConditions, useBoundedNewestCandidateIndex, useNewestFeedIndex, useRecentFeedIndex } from "./search";
+import { searchConditions, useBoundedNewestCandidateIndex, useExactMlsNumberIndex, useNewestFeedIndex, useRecentFeedIndex } from "./search";
 import { licenseError } from "./license";
 import { summarize } from "./status";
 import { mediaClientConfig, privateMlsStorageError } from "./privateMedia";
@@ -89,6 +89,15 @@ describe("Active-gallery queue and default search", () => {
     expect(useBoundedNewestCandidateIndex({ statuses: ["active", "pending"], bounds }, "newest", 1)).toBe(false);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds }, "updated", 1)).toBe(false);
     expect(useBoundedNewestCandidateIndex({ statuses: ["active"], bounds }, "newest", 11)).toBe(false);
+  });
+  it("seeks a single MLS number before evaluating saved viewport or polygon predicates", () => {
+    const sourceIds = [4], bounds = { north: 39, south: 38, west: -91, east: -90 };
+    expect(useExactMlsNumberIndex({ sourceIds, q: "26063536", bounds, statuses: ["active"] })).toBe(true);
+    expect(useExactMlsNumberIndex({ sourceIds, q: "MIS26063536", area: { kind: "circle", center: { lat: 38.6, lng: -90.2 }, radiusMeters: 5000 } })).toBe(true);
+    expect(useExactMlsNumberIndex({ sourceIds, q: "28803", bounds })).toBe(false); // ZIP/address branch.
+    expect(useExactMlsNumberIndex({ sourceIds, q: "3949 Utah", bounds })).toBe(false);
+    expect(useExactMlsNumberIndex({ sourceIds: [1, 4], q: "26063536", bounds })).toBe(false);
+    expect(useExactMlsNumberIndex({ q: "26063536", bounds })).toBe(false);
   });
 });
 describe("indexed private MLS photo URLs", () => {

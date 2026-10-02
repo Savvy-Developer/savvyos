@@ -161,6 +161,32 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
     }
   }, 60_000);
 
+  it("seeks a selected MLS's exact listing number inside a saved map area", async () => {
+    const search = await import("./search");
+    const db = drizzle(admin);
+    const [[maris]]: any = await admin.query("SELECT id, sourceId FROM mls_feeds WHERE originatingSystemName = 'maris2' AND feedType = 'bbo'");
+    const number = "MIS26063536";
+    const [inserted]: any = await admin.query(`INSERT INTO mls_listings
+      (propertyId, sourceId, feedId, listingNumber, listingKey, providerListingKey,
+       standardStatus, propertyType, listPrice, originalEntryAt, latitude, longitude, firstSeenAt, lastSyncedAt)
+      VALUES (9008, ?, ?, ?, ?, ?, 'active', 'residential', 425000, '2026-09-30 12:00:00', 38.59, -90.26, UTC_TIMESTAMP(), UTC_TIMESTAMP())`,
+      [maris.sourceId, maris.id, number, `test-${number}`, `test-${number}`]);
+    try {
+      const bounds = { north: 38.9, south: 38.4, west: -90.7, east: -89.9 };
+      const filters = { q: number, sourceIds: [maris.sourceId], statuses: ["active"] as ["active"], bounds };
+      const page = await search.searchListings(db as any, { filters, sort: "newest", page: 1, pageSize: 12, countMode: "none" });
+      expect(page.items.map(item => item.id)).toEqual([Number(inserted.insertId)]);
+      expect(await search.countListings(db as any, filters)).toBe(1);
+      expect((await search.mapPoints(db as any, { filters, bounds, zoom: 12 })).total).toBe(1);
+      expect(await search.countListings(db as any, { ...filters, bounds: { north: 36, south: 35, west: -83, east: -82 } })).toBe(0);
+      const [plan]: any = await admin.query(`EXPLAIN SELECT id FROM mls_listings FORCE INDEX (mls_listings_source_number_idx)
+        WHERE sourceId = ? AND listingNumber = ? AND latitude BETWEEN 38.4 AND 38.9 LIMIT 12`, [maris.sourceId, number]);
+      expect(plan[0].key).toBe("mls_listings_source_number_idx");
+    } finally {
+      await admin.query("DELETE FROM mls_listings WHERE id = ?", [inserted.insertId]);
+    }
+  }, 60_000);
+
   it("never overwrites an admin's later changes", async () => {
     // Simulate a feed created by the previous release, before fastImportV1.
     await admin.query("UPDATE mls_feeds SET options = JSON_REMOVE(options, '$.fastImportV1'), mediaPolicy = 'active_all_else_primary', syncIntervalMinutes = 15 WHERE feedType = 'bbo' AND sourceId = (SELECT id FROM mls_sources WHERE code = 'canopy')");
