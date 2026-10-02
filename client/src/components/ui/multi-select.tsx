@@ -31,6 +31,7 @@ interface MultiSelectProps {
   searchPlaceholder?: string;
   emptyText?: string;
   className?: string;
+  popoverClassName?: string;
   disabled?: boolean;
   /** Max badges shown inline before collapsing to "+N more" */
   maxDisplay?: number;
@@ -44,6 +45,7 @@ export function MultiSelect({
   searchPlaceholder = "Search…",
   emptyText = "No results found.",
   className,
+  popoverClassName,
   disabled = false,
   maxDisplay = 3,
 }: MultiSelectProps) {
@@ -123,7 +125,7 @@ export function MultiSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="p-0 max-h-[--radix-popover-content-available-height]"
+        className={cn("p-0 max-h-[--radix-popover-content-available-height]", popoverClassName)}
         style={{ width: "auto", minWidth: "var(--radix-popover-trigger-width)", maxWidth: "420px" }}
         align="start"
       >

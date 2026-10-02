@@ -8,11 +8,17 @@ MLS Properties is a standalone admin module for ingesting, normalizing, searchin
 
 | Area | Location | Notes |
 |---|---|---|
-| Property search | `/mls-properties` | Filters, sort, results list, map with price pins and server-side clusters, split, list, and map views, "search as I move the map" |
+| Property search | `/mls-properties` | Active/For sale/Newest defaults; responsive List and Split cards; map with photo previews, radius/polygon drawing, source-aware filters and shared map/list area |
 | Listing detail | `/mls-properties/listings/:id` | Gallery, facts, features, property history across transactions, other listings at the same property, open houses, seller opt-out notices, attribution and disclaimer, field lineage, raw payload (managers only) |
 | Feeds and mappings | `/mls-properties/feeds` | Sources (29 MLSs seeded), feeds, sync runs, field mappings, worker health and provider usage |
 | Permissions | `canViewMlsProperties`, `canManageMlsFeeds` | Both default off. Grant in Super Permissions. Manage depends on view: revoking view also revokes manage. |
 | Ingestion worker | `server/mlsIngestionWorker.ts` | Separate Railway process (`SAVVYOS_PROCESS=mlsIngestionWorker`) |
+
+### Admin search and map
+
+List, Split, and Map use the same filters. **Search as I move the map** defaults on. Moving the map selects a viewport for the list, even after returning to List; the map retains its center and zoom instead of resetting to Asheville. An area chip clears the selected viewport without clearing the other filters. If auto-search is turned off, **Search this area** explicitly applies the current viewport. Drawing a radius or polygon replaces the prior shape, filters both list and map via indexed latitude/longitude bounds plus an exact MySQL spatial predicate, and remains available after switching views. Only one shape is active at a time. Polygon inputs reject self-crossing and excessive vertices. Map pin popups show the licensed listing's privately stored image and key facts; cluster bubbles are deliberately coarser than before so they do not blanket the tiles. The OSM basemap remains human-viewport-only with visible attribution, not a prefetching or public MLS display feature.
+
+The default **Newest** sort uses original MLS entry date, not the last sync time. An additive online `mls_listings_status_entry_idx` is created under a MySQL advisory lock on existing databases; the same index is in the Drizzle schema and fresh-install DDL. The default Active/For sale search uses that ordered index so it does not sort millions of imported rows. Filters include for sale/rent, price, beds, baths, size, lot, year, garage, pool, waterfront, photos actually stored, new construction, listing recency and days on market. Selecting exactly one licensed MLS loads its actual Active property subtypes, native MLS statuses and counties, and clears source-specific choices when the selection changes. These facets are derived from licensed canonical listings, never raw payloads or restricted local fields.
 
 ## Data model
 
@@ -97,7 +103,7 @@ Provider notes and source links are in `server/mls/adapters/*.ts` headers and th
 
 ## Scale notes
 
-Built for millions of listings on the existing MySQL: payloads are gzipped, unchanged records are skipped by hash, paging is keyset-based, search and map queries use composite indexes, and the map clusters server-side above 500 pins. Watch these as volume grows:
+Built for millions of listings on the existing MySQL: payloads are gzipped, unchanged records are skipped by hash, ingestion paging is keyset-based, search and map queries use composite indexes, and the map clusters server-side above 20 pins. Watch these as volume grows:
 
 - Past roughly 5 to 10 million listings, move free-text and geo search to a dedicated index (OpenSearch or similar) fed from `mls_listings`.
 - Raw records are the largest table. Consider a separate database or object storage for `mls_raw_records` once it passes a few hundred GB.
@@ -130,7 +136,7 @@ Until a token variable is set, that feed shows "Credentials not configured" and 
 
 ## MLS Grid usage budget
 
-MLS Grid meters each access token as a whole: API pages, single-listing photo-link refreshes, and photo downloads from media.mlsgrid.com all count toward the same request and byte caps. `server/mls/adapters/mlsGrid.ts` (`MLS_GRID_LIMITS`) records the published limits and the warning and suspension thresholds from MLS Grid's Sept 30, 2026 notice. **Tyler confirmed that MLS Grid waived its limits through Friday, Oct 2, 2026 at 4 p.m. ET (20:00 UTC).** Until that instant, SavvyOS uses a controlled 4 RPS, 20,000 requests/hour, 250,000 requests/day and 12 GB/hour, with photos held to a 10% share so listing changes win. This is intentionally not unlimited. The in-process limiters return to the normal caps at the deadline without needing a restart. After the waiver the adapter caps each token at `rateSafety` (default 0.8, never above 0.9) of the lower of published and warning:
+MLS Grid meters each access token as a whole: API pages, single-listing photo-link refreshes, and photo downloads from media.mlsgrid.com all count toward the same request and byte caps. `server/mls/adapters/mlsGrid.ts` (`MLS_GRID_LIMITS`) records the published limits and the warning and suspension thresholds from MLS Grid's Sept 30, 2026 notice. **Tyler confirmed that MLS Grid waived its limits through Friday, Oct 2, 2026 at 4 p.m. ET (20:00 UTC).** Since both 8 and 4 RPS still produced provider 429s, SavvyOS currently uses a conservative **1.8 RPS, 6,500 requests/hour and 35,000 requests/rolling day per token**, with at most **85%** of the request budget available to photos. See the observed throttling and Active-gallery details below. This is intentionally not unlimited. The in-process limiters return to the normal caps at the deadline without needing a restart. After the waiver the adapter caps each token at `rateSafety` (default 0.8, never above 0.9) of the lower of published and warning:
 
 | Per token | Cap at 0.8 |
 |---|---|

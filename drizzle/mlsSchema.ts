@@ -426,6 +426,7 @@ export const mlsListings = mysqlTable(
     index("mls_listings_status_geo_idx").on(table.standardStatus, table.latitude, table.longitude),
     index("mls_listings_source_status_price_idx").on(table.sourceId, table.standardStatus, table.listPrice),
     index("mls_listings_status_price_idx").on(table.standardStatus, table.listPrice),
+    index("mls_listings_status_entry_idx").on(table.standardStatus, table.originalEntryAt),
     index("mls_listings_postal_idx").on(table.postalCode),
     index("mls_listings_city_idx").on(table.city, table.stateOrProvince),
     index("mls_listings_modified_idx").on(table.sourceModifiedAt),

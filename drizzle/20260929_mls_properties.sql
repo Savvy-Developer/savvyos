@@ -293,6 +293,7 @@ CREATE TABLE IF NOT EXISTS `mls_listings` (
   KEY `mls_listings_status_geo_idx` (`standardStatus`,`latitude`,`longitude`),
   KEY `mls_listings_source_status_price_idx` (`sourceId`,`standardStatus`,`listPrice`),
   KEY `mls_listings_status_price_idx` (`standardStatus`,`listPrice`),
+  KEY `mls_listings_status_entry_idx` (`standardStatus`,`originalEntryAt`),
   KEY `mls_listings_postal_idx` (`postalCode`),
   KEY `mls_listings_city_idx` (`city`,`stateOrProvince`),
   KEY `mls_listings_modified_idx` (`sourceModifiedAt`),
