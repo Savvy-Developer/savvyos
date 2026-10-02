@@ -47,6 +47,6 @@ export function RockMeetingRoutingSelector({
         }} />
         <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-1.5"><span className="font-medium">{meeting.name}</span><span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{meetingTypeLabel(meeting.label)}</span>{checked ? <CheckCircle2 className="h-3.5 w-3.5 text-primary" /> : null}</span>{meeting.purpose ? <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{meeting.purpose}</span> : null}</span>
       </label>;
-    })}</div> : <p className="mt-2 rounded-md border border-dashed px-2.5 py-2 text-xs leading-4 text-muted-foreground">No authorized active Pulse meetings are available to route this Rock to. Meeting routing appears when you have access to manage an L10 or meeting.</p>}
+    })}</div> : <p className="mt-2 rounded-md border border-dashed px-2.5 py-2 text-xs leading-4 text-muted-foreground">No active Pulse meetings are available. You can route this Rock to any active meeting you belong to.</p>}
   </div>;
 }

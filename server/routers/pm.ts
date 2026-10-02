@@ -46,7 +46,6 @@ import {
   wouldCreateMilestoneDependencyCycle,
 } from "../projectMilestoneDependencies";
 import { visible_meeting_ids } from "../pulse/access";
-import { hasPulseCapability } from "../pulse/authorization";
 import { hasDatedProjectRockMilestone } from "@shared/projectRockMilestones";
 import { getProjectWeeklyUpdatePeriod } from "../projectWeeklyUpdateCadence";
 import { buildProjectWeeklyUpdateSnapshot } from "../projectWeeklyUpdateSnapshot";
@@ -114,16 +113,16 @@ function uniqueMeetingIds(meetingIds: string[]) {
 
 async function assertAuthorisedRockRouting(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
-  user: { id: number; role: string; email?: string | null },
+  user: { id: number },
   meetingIds: string[],
 ) {
-  if (!await hasPulseCapability(db, user, "manage_l10s")) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Your Pulse permissions do not allow Rock routing changes." });
-  }
   const requestedMeetingIds = uniqueMeetingIds(meetingIds);
   const visibleMeetingIds = await visible_meeting_ids(db, user.id);
   if (requestedMeetingIds.some((meetingId) => !visibleMeetingIds.includes(meetingId))) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "You can route this Rock only to meetings you are authorized to access." });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You can route this Rock only to active Pulse meetings you belong to.",
+    });
   }
   return requestedMeetingIds;
 }
@@ -672,7 +671,6 @@ export const pmRouter = router({
       assertPmAccess(ctx);
       const db = await getDb();
       if (!db) return [];
-      if (!await hasPulseCapability(db, ctx.user, "manage_l10s")) return [];
       const visibleMeetingIds = await visible_meeting_ids(db, ctx.user.id);
       if (!visibleMeetingIds.length) return [];
       return db.select({ id: pulseMeetings.id, name: pulseMeetings.name, label: pulseMeetings.label, purpose: pulseMeetings.purpose })
