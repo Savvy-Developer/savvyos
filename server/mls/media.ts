@@ -119,6 +119,32 @@ export function resetEmptyRefreshCache() {
   emptyRefreshUntil.clear();
 }
 
+/** Server-side cap on the refresh candidate scan. It joins mls_listings, so a
+ * long run holds that table's metadata lock (blocking online index builds) and
+ * outlives a restarted worker. A stage that hits the cap rests 10 minutes. */
+const REFRESH_SCAN_TIMEOUT_MS = 15_000;
+const REFRESH_SCAN_TIMEOUT_REST_MS = 10 * 60_000;
+const refreshTimeoutLoggedAt = new Map<string, number>();
+
+export function isQueryTimeout(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current && depth < 5; depth++) {
+    const errno = (current as { errno?: unknown }).errno;
+    const code = (current as { code?: unknown }).code;
+    if (errno === 3024 || code === "ER_QUERY_TIMEOUT") return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** Media priority bands (store.ts mediaPriority): 0 Active gallery and gallery
+ * markers, 1 Active cover, 10/20/30 coming soon / under contract / pending
+ * covers; older builds queued every cover at 10, so the Active-cover stage
+ * reads up to 10 and the listing join keeps only Active. Bounding each stage
+ * by priority keeps the scan a short range on
+ * mls_media_queue_idx (status, priority, nextAttemptAt) instead of a walk over
+ * the whole expired backlog. */
+export const REFRESH_STAGE_MAX_PRIORITY = { active_gallery: 0, gallery: 0, active: 10, market: 30 } as const;
+
 /** Refresh expired URLs in batches, including gallery requests. All provider
  * calls run here in the worker, not from the web process, so they share the
  * same token rate and byte budget as replication and photo downloads. */
@@ -134,25 +160,43 @@ async function refreshExpiredUrls(
   const stageKey = `${feedIds.slice().sort((a, b) => a - b).join(",")}:${options.priority}`;
   if ((emptyRefreshUntil.get(stageKey) ?? 0) > Date.now()) return;
   const gridOnly = feedIds.every(id => feeds.get(id)!.feed.provider === "mls_grid");
-  const rows = await db
-    .selectDistinct({ feedId: mlsMedia.feedId, resourceKey: mlsMedia.resourceKey, listingNumber: mlsListings.listingNumber })
-    .from(mlsMedia)
-    .innerJoin(mlsListings, and(eq(mlsListings.feedId, mlsMedia.feedId), eq(mlsListings.providerListingKey, mlsMedia.resourceKey)))
-    .where(and(
-      inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS),
-      or(isNull(mlsMedia.nextAttemptAt), lt(mlsMedia.nextAttemptAt, new Date())),
-      // Active galleries: scanner markers AND gallery photos whose one-hour
-      // link lapsed before download. Both are priority 0 (index: status,priority);
-      // without the photos here they would be stranded and block the scanner.
-      options.priority === "active_gallery"
-        ? and(eq(mlsMedia.priority, 0), eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
-        : options.priority === "gallery"
-        ? and(galleryMarkerCondition(), isNull(mlsListings.removedFromFeedAt))
-        : options.priority === "active"
-          ? and(eq(mlsMedia.isPrimary, true), eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
-          : gridOnly ? and(eq(mlsMedia.isPrimary, true), inArray(mlsListings.standardStatus, MARKET_STATUSES), isNull(mlsListings.removedFromFeedAt)) : undefined
-    ))
-    .limit(options.limit);
+  const maxPriority = REFRESH_STAGE_MAX_PRIORITY[options.priority];
+  let rows: Array<{ feedId: number; resourceKey: string; listingNumber: string }>;
+  try {
+    rows = await db
+      .select({
+        // Optimizer hints must follow SELECT, so DISTINCT rides inside the hinted field.
+        feedId: sql<number>`/*+ MAX_EXECUTION_TIME(${sql.raw(String(REFRESH_SCAN_TIMEOUT_MS))}) */ DISTINCT ${mlsMedia.feedId}`.mapWith(Number),
+        resourceKey: mlsMedia.resourceKey,
+        listingNumber: mlsListings.listingNumber,
+      })
+      .from(mlsMedia)
+      .innerJoin(mlsListings, and(eq(mlsListings.feedId, mlsMedia.feedId), eq(mlsListings.providerListingKey, mlsMedia.resourceKey)))
+      .where(and(
+        inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS),
+        options.priority === "market" && !gridOnly ? undefined : sql`${mlsMedia.priority} <= ${maxPriority}`,
+        or(isNull(mlsMedia.nextAttemptAt), lt(mlsMedia.nextAttemptAt, new Date())),
+        // Active galleries: scanner markers AND gallery photos whose one-hour
+        // link lapsed before download. Both are priority 0; without the photos
+        // here they would be stranded and block the scanner.
+        options.priority === "active_gallery"
+          ? and(eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
+          : options.priority === "gallery"
+          ? and(galleryMarkerCondition(), isNull(mlsListings.removedFromFeedAt))
+          : options.priority === "active"
+            ? and(eq(mlsMedia.isPrimary, true), eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
+            : gridOnly ? and(eq(mlsMedia.isPrimary, true), inArray(mlsListings.standardStatus, MARKET_STATUSES), isNull(mlsListings.removedFromFeedAt)) : undefined
+      ))
+      .limit(options.limit);
+  } catch (error) {
+    if (!isQueryTimeout(error)) throw error;
+    emptyRefreshUntil.set(stageKey, Date.now() + REFRESH_SCAN_TIMEOUT_REST_MS);
+    if (Date.now() - (refreshTimeoutLoggedAt.get(stageKey) ?? 0) > 30 * 60_000) {
+      refreshTimeoutLoggedAt.set(stageKey, Date.now());
+      console.warn(`[mlsMedia] ${options.priority} link-refresh scan for feeds ${feedIds.join(",")} hit its ${REFRESH_SCAN_TIMEOUT_MS / 1000}s cap; resting that stage 10 minutes`);
+    }
+    return;
+  }
   const ttl = emptyRefreshTtlMs();
   if (!rows.length && ttl) emptyRefreshUntil.set(stageKey, Date.now() + ttl);
   else emptyRefreshUntil.delete(stageKey);
