@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { getGoalStatus, type GoalStatusResult } from "@shared/goalProgress";
 import {
   Dialog,
   DialogContent,
@@ -92,83 +91,58 @@ function StatCard({
   );
 }
 
-function PaceChip({ result }: { result: GoalStatusResult }) {
-  if (result.status === "hit") return null; // already showing "Goal hit!"
+function PaceChip({ pct, expectedPct }: { pct: number; expectedPct: number }) {
+  if (pct >= 100) return null; // already showing "Goal hit!"
+  const diff = pct - expectedPct;
+  const absDiff = Math.abs(Math.round(diff));
 
-  if (result.status === "on_track_with_pending") {
-    return (
-      <span className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-600">
-        <TrendingUp className="h-3 w-3" /> on track with pending
-      </span>
-    );
-  }
-  if (result.status === "on_pace") {
+  if (absDiff <= 3) {
+    // within 3 percentage points = on pace
     return (
       <span className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-600">
         <Minus className="h-3 w-3" /> on pace
       </span>
     );
   }
-  if (result.status === "ahead") {
+  if (diff > 0) {
     return (
       <span className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-600">
-        <TrendingUp className="h-3 w-3" /> {result.paceGap}% ahead
+        <TrendingUp className="h-3 w-3" /> {absDiff}% ahead
       </span>
     );
   }
-  // behind (closed production vs. elapsed time, and pending doesn't cover the gap)
-  const severity = result.paceGap > 20 ? "text-rose-500" : "text-amber-500";
+  // behind
+  const severity = absDiff > 20 ? "text-rose-500" : "text-amber-500";
   return (
     <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${severity}`}>
-      <TrendingDown className="h-3 w-3" /> {result.paceGap}% behind
+      <TrendingDown className="h-3 w-3" /> {absDiff}% behind
     </span>
   );
 }
 
 function ProjectionLine({
-  result,
+  pct,
   actual,
-  pending,
   target,
+  expectedPct,
   period,
   year,
   currentMonth,
   formatValue,
 }: {
-  result: GoalStatusResult;
+  pct: number;
   actual: number;
-  pending: number;
   target: number;
+  expectedPct: number;
   period: "annual" | "monthly";
   year: number;
   currentMonth: number;
   formatValue: (n: number) => string;
 }) {
-  if (result.status === "hit") return null;
-
-  // Pending deals already cover the goal: show what closed + pending adds up to
-  // instead of a straight-line projection of closed production.
-  if (result.status === "on_track_with_pending") {
-    return (
-      <p className="text-xs text-emerald-600 font-medium">
-        Closed + pending → {formatValue(Math.round(result.combined))} ({result.combinedPct}% of goal)
-      </p>
-    );
-  }
-
-  if (actual === 0) {
-    if (pending === 0) return null;
-    return (
-      <p className="text-xs text-muted-foreground">
-        Closed + pending → {formatValue(Math.round(result.combined))} ({result.combinedPct}% of goal)
-      </p>
-    );
-  }
+  if (pct >= 100) return null;
+  if (actual === 0) return null;
 
   const now = new Date();
-  const periodLabel = period === "annual" ? "year-end" : "month-end";
-  let projectedFinal: number;
-  let hitDate: Date | null = null;
 
   if (period === "annual") {
     const startOfYear = new Date(year, 0, 1);
@@ -176,43 +150,61 @@ function ProjectionLine({
     const elapsedMs = now.getTime() - startOfYear.getTime();
     const totalMs = endOfYear.getTime() - startOfYear.getTime();
     const elapsedFraction = elapsedMs / totalMs; // 0..1
+
     if (elapsedFraction <= 0) return null;
-    projectedFinal = actual / elapsedFraction;
-    if (projectedFinal >= target) {
-      hitDate = new Date(startOfYear.getTime() + (target / actual) * elapsedMs);
+
+    // Project final value at year-end at current velocity
+    const projectedFinal = actual / elapsedFraction;
+    const projectedPct = Math.round((projectedFinal / target) * 100);
+
+    if (projectedPct >= 100) {
+      // Will hit goal — estimate the date
+      const msToHitGoal = (target / actual) * elapsedMs;
+      const hitDate = new Date(startOfYear.getTime() + msToHitGoal);
+      const hitStr = hitDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      return (
+        <p className="text-xs text-emerald-600 font-medium">
+          On track to hit goal by {hitStr}
+        </p>
+      );
+    } else {
+      return (
+        <p className="text-xs text-muted-foreground">
+          At current pace → {formatValue(Math.round(projectedFinal))} by year-end ({projectedPct}% of goal)
+        </p>
+      );
     }
   } else {
+    // Monthly
     const daysInMonth = new Date(year, currentMonth, 0).getDate();
     const dayOfMonth = now.getDate();
     if (dayOfMonth <= 0) return null;
-    projectedFinal = actual * (daysInMonth / dayOfMonth);
-    if (projectedFinal >= target) {
-      hitDate = new Date(year, currentMonth - 1, Math.ceil((target / actual) * dayOfMonth));
+
+    const projectedFinal = actual * (daysInMonth / dayOfMonth);
+    const projectedPct = Math.round((projectedFinal / target) * 100);
+
+    if (projectedPct >= 100) {
+      const daysToHit = Math.ceil((target / actual) * dayOfMonth);
+      const hitDate = new Date(year, currentMonth - 1, daysToHit);
+      const hitStr = hitDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      return (
+        <p className="text-xs text-emerald-600 font-medium">
+          On track to hit goal by {hitStr}
+        </p>
+      );
+    } else {
+      return (
+        <p className="text-xs text-muted-foreground">
+          At current pace → {formatValue(Math.round(projectedFinal))} by month-end ({projectedPct}% of goal)
+        </p>
+      );
     }
   }
-
-  if (hitDate) {
-    const hitStr = hitDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    return (
-      <p className="text-xs text-emerald-600 font-medium">
-        On track to hit goal by {hitStr}
-      </p>
-    );
-  }
-
-  const projectedPct = Math.round((projectedFinal / target) * 100);
-  return (
-    <p className="text-xs text-muted-foreground">
-      Closed-only pace → {formatValue(Math.round(projectedFinal))} by {periodLabel} ({projectedPct}% of goal)
-      {pending > 0 && <> · Closed + pending → {formatValue(Math.round(result.combined))} ({result.combinedPct}%)</>}
-    </p>
-  );
 }
 
 function GoalBar({
   label,
   actual,
-  pending,
   target,
   pct,
   expectedPct,
@@ -220,13 +212,11 @@ function GoalBar({
   year,
   currentMonth,
   formatActual,
-  formatPending,
   formatTarget,
   formatValue,
 }: {
   label: string;
   actual: number;
-  pending: number;
   target: number;
   pct: number;
   expectedPct: number;
@@ -234,14 +224,11 @@ function GoalBar({
   year: number;
   currentMonth: number;
   formatActual: string;
-  formatPending: string;
   formatTarget: string;
   formatValue: (n: number) => string;
 }) {
-  const result = getGoalStatus({ actual, pending, target, expectedPct });
   const capped = Math.min(pct, 100);
   const isComplete = pct >= 100;
-  const onTrackWithPending = result.status === "on_track_with_pending";
   const barColor = isComplete
     ? "bg-emerald-500"
     : pct >= 75
@@ -249,9 +236,6 @@ function GoalBar({
     : pct >= 40
     ? "bg-amber-500"
     : "bg-rose-400";
-  // Pending segment sits after the closed segment, capped at the end of the bar.
-  const pendingWidth = isComplete ? 0 : Math.max(Math.min(result.combinedPct, 100) - capped, 0);
-  const pendingColor = onTrackWithPending ? "bg-emerald-500/40" : `${barColor} opacity-40`;
 
   return (
     <div className="space-y-1.5">
@@ -259,8 +243,7 @@ function GoalBar({
         <span className="font-medium text-foreground">{label}</span>
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground text-xs">
-            {formatActual} closed
-            {pending > 0 && <> + {formatPending} pending</>} / {formatTarget}
+            {formatActual} / {formatTarget}
           </span>
           {isComplete ? (
             <Badge className="text-xs px-1.5 py-0 bg-emerald-100 text-emerald-700 border-emerald-200">
@@ -271,19 +254,12 @@ function GoalBar({
           )}
         </div>
       </div>
-      {/* Progress bar: closed segment + lighter pending segment, with expected-pace tick */}
+      {/* Progress bar with expected-pace tick mark */}
       <div className="relative h-2.5 rounded-full bg-muted overflow-visible">
         <div
-          className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${barColor}`}
+          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
           style={{ width: `${capped}%` }}
         />
-        {pendingWidth > 0 && (
-          <div
-            className={`absolute inset-y-0 rounded-r-full transition-all duration-500 ${pendingColor}`}
-            style={{ left: `${capped}%`, width: `${pendingWidth}%` }}
-            title={`Pending: ${formatPending}`}
-          />
-        )}
         {/* Expected pace tick */}
         {!isComplete && expectedPct > 0 && expectedPct < 100 && (
           <div
@@ -295,18 +271,18 @@ function GoalBar({
       </div>
       {/* Pace label + projection */}
       {!isComplete && (
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between">
           <ProjectionLine
-            result={result}
+            pct={pct}
             actual={actual}
-            pending={pending}
             target={target}
+            expectedPct={expectedPct}
             period={period}
             year={year}
             currentMonth={currentMonth}
             formatValue={formatValue}
           />
-          <PaceChip result={result} />
+          <PaceChip pct={pct} expectedPct={expectedPct} />
         </div>
       )}
     </div>
@@ -454,7 +430,6 @@ function MyGoalsCard({ year }: { year: number }) {
           <GoalBar
             label="GCI"
             actual={data.gci}
-            pending={data.pendingGci}
             target={data.gciTarget}
             pct={data.gciPct}
             expectedPct={expectedPct}
@@ -462,7 +437,6 @@ function MyGoalsCard({ year }: { year: number }) {
             year={year}
             currentMonth={currentMonth}
             formatActual={fmt(data.gci)}
-            formatPending={fmt(data.pendingGci)}
             formatTarget={fmt(data.gciTarget)}
             formatValue={fmt}
           />
@@ -471,7 +445,6 @@ function MyGoalsCard({ year }: { year: number }) {
           <GoalBar
             label="Closings"
             actual={data.closings}
-            pending={data.pendingClosings}
             target={data.closingsTarget}
             pct={data.closingsPct}
             expectedPct={expectedPct}
@@ -479,7 +452,6 @@ function MyGoalsCard({ year }: { year: number }) {
             year={year}
             currentMonth={currentMonth}
             formatActual={String(data.closings)}
-            formatPending={String(data.pendingClosings)}
             formatTarget={String(data.closingsTarget)}
             formatValue={(n) => String(Math.round(n))}
           />
@@ -488,7 +460,6 @@ function MyGoalsCard({ year }: { year: number }) {
           <GoalBar
             label="Volume"
             actual={data.volume}
-            pending={data.pendingVolume}
             target={data.volumeTarget}
             pct={data.volumePct}
             expectedPct={expectedPct}
@@ -496,7 +467,6 @@ function MyGoalsCard({ year }: { year: number }) {
             year={year}
             currentMonth={currentMonth}
             formatActual={fmt(data.volume)}
-            formatPending={fmt(data.pendingVolume)}
             formatTarget={fmt(data.volumeTarget)}
             formatValue={fmt}
           />
