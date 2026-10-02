@@ -57,9 +57,23 @@ function ViewportReporter({ onChange }: { onChange: (viewport: MapViewport) => v
     }
   };
   useEffect(() => {
-    const frame = requestAnimationFrame(() => { map.invalidateSize(); report(); });
-    return () => cancelAnimationFrame(frame);
-  }, [map]); // Initial viewport; Leaflet events handle subsequent moves.
+    let frame: number | undefined;
+    const resize = () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        map.invalidateSize({ pan: false });
+        report();
+      });
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(map.getContainer());
+    resize();
+    return () => {
+      observer.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, [map]); // Split/Map switches and responsive layout can resize the same Leaflet instance.
   return null;
 }
 
