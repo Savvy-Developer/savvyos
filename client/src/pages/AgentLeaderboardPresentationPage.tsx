@@ -37,6 +37,11 @@ type AgentEntry = {
   marketState: string | null;
 };
 
+type CompanyTotal = {
+  units: number;
+  volume: number;
+};
+
 type Milestone = {
   agentId: number;
   agentName: string;
@@ -176,8 +181,12 @@ export default function AgentLeaderboardPresentationPage() {
   const leaderboard = (data?.leaderboard ?? []) as AgentEntry[];
   const topThree = leaderboard.slice(0, 3);
   const remainingLeaders = leaderboard.slice(3, 8);
-  const totalVolume = leaderboard.reduce((sum, entry) => sum + entry.volume, 0);
-  const totalUnits = leaderboard.reduce((sum, entry) => sum + entry.units, 0);
+  const companyTotal = (data?.companyTotal ?? leaderboard.reduce<CompanyTotal>((total, entry) => ({
+    units: total.units + entry.units,
+    volume: total.volume + entry.volume,
+  }), { units: 0, volume: 0 })) as CompanyTotal;
+  const totalVolume = companyTotal.volume;
+  const totalUnits = companyTotal.units;
   const activeAgentCount = data?.activeAgentCount ?? leaderboard.length;
   const periodLabel =
     data?.periodLabel ??
@@ -432,7 +441,7 @@ export default function AgentLeaderboardPresentationPage() {
               <div className="rounded-2xl border border-white/10 bg-white/[0.055] px-4 py-4 shadow-lg shadow-black/10">
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] font-black tracking-[0.15em] text-slate-400">
-                    {isUnitsRanked ? "TEAM UNITS" : "TEAM VOLUME"}
+                    {isUnitsRanked ? "COMPANY UNITS" : "COMPANY VOLUME"}
                   </p>
                   <Trophy className="h-4 w-4 text-amber-300" />
                 </div>
@@ -446,7 +455,7 @@ export default function AgentLeaderboardPresentationPage() {
               <div className="rounded-2xl border border-white/10 bg-white/[0.055] px-4 py-4 shadow-lg shadow-black/10">
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] font-black tracking-[0.15em] text-slate-400">
-                    {isUnitsRanked ? "TEAM VOLUME" : (isClosed ? "CLOSED DEALS" : "LIVE DEALS")}
+                    {isUnitsRanked ? "COMPANY VOLUME" : (isClosed ? "CLOSED DEALS" : "LIVE DEALS")}
                   </p>
                   <Target className="h-4 w-4 text-sky-300" />
                 </div>

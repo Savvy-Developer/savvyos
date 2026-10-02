@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAgentLeaderboardPeriodRange, sortAgentLeaderboardEntries } from "./db-analytics";
+import { getAgentLeaderboardPeriodRange, isEligibleForAgentLeaderboard, sortAgentLeaderboardEntries } from "./db-analytics";
 
 const now = new Date("2026-08-14T15:30:00.000Z");
 
@@ -40,5 +40,13 @@ describe("agent leaderboard period ranges", () => {
       .toEqual(["Units First", "Unit Tie", "Volume First"]);
     expect(sortAgentLeaderboardEntries(entries, "volume").map((entry) => entry.agentName))
       .toEqual(["Unit Tie", "Volume First", "Units First"]);
+  });
+
+  it("excludes non-production profiles from agent-facing standings only", () => {
+    expect(isEligibleForAgentLeaderboard("Elana Leah")).toBe(false);
+    expect(isEligibleForAgentLeaderboard(" New Test Onboarding ")).toBe(false);
+    expect(isEligibleForAgentLeaderboard("SavvyOS App Review")).toBe(false);
+    expect(isEligibleForAgentLeaderboard("Test Agent (Dhruv)")).toBe(false);
+    expect(isEligibleForAgentLeaderboard("Production Agent")).toBe(true);
   });
 });

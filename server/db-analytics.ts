@@ -63,6 +63,25 @@ type LeaderboardMilestone = {
   date?: string;
 };
 
+export const AGENT_LEADERBOARD_EXCLUDED_NAMES = [
+  "savvy agent",
+  "elana leah",
+  "new test onboarding",
+  "savvyos app review",
+  "test agent (dhruv)",
+] as const;
+
+export function isEligibleForAgentLeaderboard(name: string | null | undefined) {
+  return !(AGENT_LEADERBOARD_EXCLUDED_NAMES as readonly string[]).includes((name ?? "").trim().toLowerCase());
+}
+
+function excludeAgentLeaderboardNames() {
+  return sql`LOWER(TRIM(COALESCE(${users.name}, ''))) NOT IN (${sql.join(
+    AGENT_LEADERBOARD_EXCLUDED_NAMES.map((name) => sql`${name}`),
+    sql`, `,
+  )})`;
+}
+
 function excludeReferralTransactions() {
   return sql`${transactions.referralId} IS NULL AND NOT EXISTS (
     SELECT 1 FROM \`referral_transaction_links\` rtl
@@ -332,6 +351,17 @@ export async function getAgentLeaderboard(opts: {
         dateTo ? lte(transactions.closingDate, dateTo) : undefined,
       )
     : and(excludeReferralTransactions(), eq(transactions.status, "under_contract"));
+  const leaderboardAgentWhere = excludeAgentLeaderboardNames();
+
+  // Company totals deliberately include all company production. The exclusions below
+  // apply only to the agent-facing standings and their associated milestones.
+  const [companyTotal] = await db
+    .select({
+      units: sql<number>`COUNT(*)`,
+      volume: sql<string>`COALESCE(SUM(${transactions.purchasePrice}), 0)`,
+    })
+    .from(transactions)
+    .where(transactionWhere);
 
   const activeAgents = await db
     .select({
@@ -349,7 +379,7 @@ export async function getAgentLeaderboard(opts: {
     .where(and(
       eq(users.role, "agent"),
       eq(users.isActive, true),
-      sql`LOWER(TRIM(COALESCE(${users.name}, ''))) <> 'savvy agent'`,
+      leaderboardAgentWhere,
     ))
     .orderBy(users.name);
 
@@ -404,7 +434,7 @@ export async function getAgentLeaderboard(opts: {
     .from(transactions)
     .innerJoin(users, eq(users.id, transactions.agentId))
     .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
-    .where(and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true)));
+    .where(and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true), leaderboardAgentWhere));
 
   const normalizedMilestones = milestoneRows
     .filter((row) => !isClosed || Boolean(row.performanceDate))
@@ -461,6 +491,7 @@ export async function getAgentLeaderboard(opts: {
         lte(transactions.closingDate, utcDate(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), true)),
         eq(users.role, "agent"),
         eq(users.isActive, true),
+        leaderboardAgentWhere,
       ))
     : [];
 
@@ -494,6 +525,10 @@ export async function getAgentLeaderboard(opts: {
     hasDateFilters: isClosed,
     rankBy,
     activeAgentCount: activeAgents.length,
+    companyTotal: {
+      units: Number(companyTotal?.units ?? 0),
+      volume: Number(companyTotal?.volume ?? 0),
+    },
     leaderboard,
     myEntry: leaderboard.find((entry) => entry.agentId === opts.viewerAgentId) ?? null,
     milestones: {

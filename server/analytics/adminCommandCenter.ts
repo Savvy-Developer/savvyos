@@ -264,7 +264,11 @@ export async function getAdminCommandCenter(input: {
   const connectionCohortScope = connectionScope(filters, { applyDate: true, includeTerminal: true });
   const allConnectionScope = connectionScope(filters, { applyDate: false, includeTerminal: true });
   const activeContractScope = transactionScope(filters, { status: "under_contract", applyDate: false });
-  const activeContractDateScope = transactionScope(filters, { status: "under_contract", applyDate: true });
+  const reportingPeriodContractScope = sqlAnd([
+    activeContractScope,
+    sql`t.contractDate >= ${filters.dateFrom}`,
+    sql`t.contractDate <= ${filters.dateTo}`,
+  ]);
   const currentYear = filters.dateTo.getUTCFullYear();
   const now = new Date();
   const next7 = new Date(now.getTime() + 7 * 86_400_000);
@@ -288,6 +292,9 @@ export async function getAdminCommandCenter(input: {
       db.execute(sql`SELECT COUNT(*) AS units, COALESCE(SUM(t.purchasePrice), 0) AS volume, COALESCE(SUM(t.grossCommissionIncome), 0) AS gci
         FROM transactions t LEFT JOIN users owner ON owner.id = t.agentId LEFT JOIN contacts contact ON contact.id = t.primaryContactId
         WHERE ${activeContractScope}`),
+      db.execute(sql`SELECT COUNT(*) AS units, COALESCE(SUM(t.purchasePrice), 0) AS volume, COALESCE(SUM(t.grossCommissionIncome), 0) AS gci
+        FROM transactions t LEFT JOIN users owner ON owner.id = t.agentId LEFT JOIN contacts contact ON contact.id = t.primaryContactId
+        WHERE ${reportingPeriodContractScope}`),
       db.execute(sql`SELECT DATE_FORMAT(t.closingDate, '%Y-%m') AS period,
           COUNT(CASE WHEN t.status = 'closed' THEN 1 END) AS closedUnits,
           COALESCE(SUM(CASE WHEN t.status = 'closed' THEN t.purchasePrice ELSE 0 END), 0) AS closedVolume,
@@ -497,7 +504,8 @@ export async function getAdminCommandCenter(input: {
   const currentClosed = financialResult ? toMetric(rows<QueryRow>(financialResult[0])[0]) : null;
   const priorClosed = financialResult ? toMetric(rows<QueryRow>(financialResult[1])[0]) : null;
   const activeContracts = financialResult ? toMetric(rows<QueryRow>(financialResult[2])[0]) : null;
-  const trend = financialResult ? rows<QueryRow>(financialResult[3]).map((row) => ({
+  const reportingPeriodContracts = financialResult ? toMetric(rows<QueryRow>(financialResult[3])[0]) : null;
+  const trend = financialResult ? rows<QueryRow>(financialResult[4]).map((row) => ({
     period: String(row.period),
     closedUnits: number(row.closedUnits),
     closedVolume: number(row.closedVolume),
@@ -763,6 +771,7 @@ export async function getAdminCommandCenter(input: {
       closed: currentClosed,
       priorClosed,
       activeContracts,
+      reportingPeriodContracts,
       goalProgress: {
         gci: goalProgress(currentClosed.gci, settingValues.companyGciGoal, filters),
         volume: goalProgress(currentClosed.volume, settingValues.companyVolumeGoal, filters),

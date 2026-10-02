@@ -15,6 +15,9 @@ const transactionsPage = () => readFileSync("client/src/pages/TransactionsPage.t
 const adminDashboard = () => readFileSync("client/src/pages/admin/AdminDashboard.tsx", "utf-8");
 const transactionsDb = () => readFileSync("server/db.ts", "utf-8");
 const workspaceService = () => readFileSync("server/analytics/workspace.ts", "utf-8");
+const agentLeaderboardService = () => readFileSync("server/db-analytics.ts", "utf-8");
+const agentLeaderboardPage = () => readFileSync("client/src/pages/AgentLeaderboardPage.tsx", "utf-8");
+const agentLeaderboardPresentation = () => readFileSync("client/src/pages/AgentLeaderboardPresentationPage.tsx", "utf-8");
 
 describe("Reporting suite — stable decision and evidence contract", () => {
   it("keeps the Agent Performance report centered on production, financial contribution, and operational attention", () => {
@@ -127,6 +130,12 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(transactions).toContain('setClosingDateFrom(`${today.slice(0, 4)}-01-01`)');
     expect(adminDashboard()).toContain("const closedTransactionsQuery = new URLSearchParams");
     expect(adminDashboard()).toContain("navigate(`/transactions?${closedTransactionsQuery}`)");
+    expect(commandCenter).toContain("const reportingPeriodContractScope");
+    expect(commandCenter).toContain("t.contractDate >= ${filters.dateFrom}");
+    expect(adminDashboard()).toContain("Under contract in selected period:");
+    expect(agentLeaderboardService()).toContain("companyTotal");
+    expect(agentLeaderboardPage()).toContain("Company {isClosed ? \"closed total\" : \"under-contract total\"}");
+    expect(agentLeaderboardPresentation()).toContain("COMPANY VOLUME");
   });
 
   it("keeps referral lifecycle and referral-fee reporting separate from transaction reporting", () => {

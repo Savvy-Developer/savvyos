@@ -53,6 +53,11 @@ type AgentEntry = {
   phone: string | null;
 };
 
+type CompanyTotal = {
+  units: number;
+  volume: number;
+};
+
 type Milestone = {
   agentId: number;
   agentName: string;
@@ -213,6 +218,10 @@ export default function AgentLeaderboardPage() {
 
   const isClosed = dealType === "closed";
   const leaderboard = (data?.leaderboard ?? []) as AgentEntry[];
+  const companyTotal = (data?.companyTotal ?? leaderboard.reduce<CompanyTotal>((total, entry) => ({
+    units: total.units + entry.units,
+    volume: total.volume + entry.volume,
+  }), { units: 0, volume: 0 })) as CompanyTotal;
   const myEntry = (data?.myEntry ?? null) as AgentEntry | null;
   const isUnitsRanked = rankBy === "units";
   const topAgent = leaderboard.find((entry) => isUnitsRanked ? entry.units > 0 : entry.volume > 0) ?? null;
@@ -313,23 +322,30 @@ export default function AgentLeaderboardPage() {
           <p className="text-sm font-semibold">Rank the board by</p>
           <p className="text-xs text-muted-foreground">Highlights, leader cards, and standings update to match.</p>
         </div>
-        <div className="inline-flex rounded-lg border bg-muted/35 p-1" role="group" aria-label="Leaderboard ranking metric">
-          <button
-            type="button"
-            onClick={() => setRankBy("volume")}
-            aria-pressed={!isUnitsRanked}
-            className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${!isUnitsRanked ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            Volume
-          </button>
-          <button
-            type="button"
-            onClick={() => setRankBy("units")}
-            aria-pressed={isUnitsRanked}
-            className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${isUnitsRanked ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            Units
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="rounded-lg border border-primary/15 bg-primary/5 px-3 py-1.5">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-primary">Company {isClosed ? "closed total" : "under-contract total"}</p>
+            <p className="mt-0.5 text-sm font-bold tabular-nums text-foreground">{compactCurrency(companyTotal.volume)} <span className="font-medium text-muted-foreground">· {companyTotal.units} {companyTotal.units === 1 ? "unit" : "units"}</span></p>
+            <p className="text-[10px] text-muted-foreground">{isClosed ? `Closed in ${periodLabel}` : "All active contracts"}</p>
+          </div>
+          <div className="inline-flex rounded-lg border bg-muted/35 p-1" role="group" aria-label="Leaderboard ranking metric">
+            <button
+              type="button"
+              onClick={() => setRankBy("volume")}
+              aria-pressed={!isUnitsRanked}
+              className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${!isUnitsRanked ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Volume
+            </button>
+            <button
+              type="button"
+              onClick={() => setRankBy("units")}
+              aria-pressed={isUnitsRanked}
+              className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${isUnitsRanked ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Units
+            </button>
+          </div>
         </div>
       </div>
 
@@ -444,8 +460,8 @@ export default function AgentLeaderboardPage() {
                   <p className="text-sm font-semibold">How this board works</p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     {isClosed
-                      ? `Every active agent is included. Closed rankings use ${isUnitsRanked ? "units first, then production volume" : "production volume first, then units"}. The Power Month headline always finds the strongest single closed month in the current calendar year.`
-                      : `Every active agent is included. This is a live view of all current under-contract deals, so it has no date filters. Rankings use ${isUnitsRanked ? "units first, then under-contract volume" : "under-contract volume first, then units"}.`}
+                      ? `Eligible active agents are included. Closed rankings use ${isUnitsRanked ? "units first, then production volume" : "production volume first, then units"}. The Power Month headline always finds the strongest single closed month in the current calendar year.`
+                      : `Eligible active agents are included. This is a live view of all current under-contract deals, so it has no date filters. Rankings use ${isUnitsRanked ? "units first, then under-contract volume" : "under-contract volume first, then units"}.`}
                   </p>
                 </div>
               </CardContent>

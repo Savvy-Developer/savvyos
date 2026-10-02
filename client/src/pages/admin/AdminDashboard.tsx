@@ -150,6 +150,7 @@ function MetricCard({
   title,
   value,
   goal,
+  submetric,
   change,
   status,
   description,
@@ -160,6 +161,7 @@ function MetricCard({
   title: string;
   value: string;
   goal?: string;
+  submetric?: { label: string; value: string };
   change?: number | null;
   status?: string;
   description: string;
@@ -191,6 +193,7 @@ function MetricCard({
               )}
               {status && <Badge className={`border-0 px-1.5 py-0 text-[10px] ${statusColor(status)}`}>{status.replace(/_/g, " ")}</Badge>}
             </div>
+            {submetric && <div className="mt-2 border-t border-slate-100 pt-2 text-xs"><span className="font-medium text-slate-600">{submetric.label}</span><span className="ml-1 text-slate-500">{submetric.value}</span></div>}
           </div>
           <div className="rounded-xl bg-slate-100 p-2.5 text-slate-700"><Icon className="h-5 w-5" /></div>
         </div>
@@ -329,7 +332,7 @@ export default function AdminDashboard() {
               <MetricCard title="Closed GCI" value={currency(executive.closed.gci)} goal={executive.goalProgress.gci.goal ? `${percent(executive.goalProgress.gci.percent)} of pace goal` : "Goal not configured"} change={executive.changes.gci} status={executive.goalProgress.gci.status} description="Gross commission income from transactions with a closing date in the selected period." trend={trend.map((row) => ({ ...row, gci: row.closedGci }))} icon={DollarSign} onClick={() => navigate(`/transactions?${closedTransactionsQuery}`)} />
               <MetricCard title="Closed volume" value={currency(executive.closed.volume, true)} goal={executive.goalProgress.volume.goal ? `${percent(executive.goalProgress.volume.percent)} of pace goal` : "Goal not configured"} change={executive.changes.volume} status={executive.goalProgress.volume.status} description="Purchase price volume on closed transactions dated in the selected period." trend={trend.map((row) => ({ ...row, gci: row.closedVolume }))} icon={LineChartIcon} onClick={() => navigate(`/transactions?${closedTransactionsQuery}`)} />
               <MetricCard title="Closed units" value={integer(executive.closed.units)} goal={executive.goalProgress.units.goal ? `${percent(executive.goalProgress.units.percent)} of pace goal` : "Goal not configured"} change={executive.changes.units} status={executive.goalProgress.units.status} description="Count of closed transactions with a closing date in the selected period." trend={trend.map((row) => ({ ...row, gci: row.closedUnits }))} icon={Target} onClick={() => navigate(`/transactions?${closedTransactionsQuery}`)} />
-              <MetricCard title="Active under contract" value={currency(executive.activeContracts.volume, true)} goal={`${integer(executive.activeContracts.units)} units`} description="Current under-contract sales volume, regardless of selected date, limited by the active dashboard filters." icon={Gauge} onClick={() => navigate(`/transaction-reporting?${actionQuery}&status=under_contract`)} />
+              <MetricCard title="Active under contract" value={currency(executive.activeContracts.volume, true)} goal={`${integer(executive.activeContracts.units)} units currently`} submetric={{ label: "Under contract in selected period:", value: `${currency(executive.reportingPeriodContracts?.volume, true)} · ${integer(executive.reportingPeriodContracts?.units)} units` }} description="The main total includes every active under-contract transaction, regardless of date. The selected-period line includes active contracts with a contract date in the dashboard reporting period." icon={Gauge} onClick={() => navigate(`/transaction-reporting?${actionQuery}&status=under_contract`)} />
             </div>
           </section> : <RestrictedSection title="Executive performance snapshot" message="Financial production is hidden because the simulated or current administrator does not have both Transactions and Commission & Payouts access." />}
 
