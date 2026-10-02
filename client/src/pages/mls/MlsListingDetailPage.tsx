@@ -1,12 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "wouter";
-import { AlertTriangle, ArrowLeft, Bath, BedDouble, CalendarDays, ChevronLeft, ChevronRight, Clock, Code2, ExternalLink, History, ImageOff, Loader2, MapPin, Ruler, Trees } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bath, BedDouble, CalendarDays, ChevronLeft, ChevronRight, Clock, Code2, ExternalLink, History, ImageOff, Loader2, MapPin, Maximize2, Ruler, Trees } from "lucide-react";
 import { CircleMarker, MapContainer, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
 import {
@@ -40,9 +41,9 @@ const EVENT_LABELS: Record<string, string> = {
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   if (value === null || value === undefined || value === "" || value === "N/A") return null;
   return (
-    <div className="flex justify-between gap-3 border-b py-1.5 text-sm last:border-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium">{value}</span>
+    <div className="grid min-w-0 grid-cols-[minmax(0,40%)_minmax(0,1fr)] items-start gap-3 border-b py-1.5 text-sm last:border-0">
+      <span className="min-w-0 break-words text-muted-foreground [overflow-wrap:anywhere]">{label}</span>
+      <span className="min-w-0 break-words text-right font-medium [overflow-wrap:anywhere]">{value}</span>
     </div>
   );
 }
@@ -51,7 +52,32 @@ const yesNo = (value: boolean | null | undefined) => (value === null || value ==
 
 function Gallery({ media, alt }: { media: MlsListingDetail["media"]; alt: string }) {
   const [index, setIndex] = useState(0);
-  const photos = media.filter(item => item.url);
+  const [fullScreen, setFullScreen] = useState(false);
+  const [firstPhotoReady, setFirstPhotoReady] = useState(false);
+  const [visibleThumbs, setVisibleThumbs] = useState<Set<number>>(() => new Set());
+  const reel = useRef<HTMLDivElement>(null);
+  const photos = useMemo(() => media.filter(item => item.url), [media]);
+  const currentIndex = Math.min(index, Math.max(photos.length - 1, 0));
+  useEffect(() => {
+    const strip = reel.current;
+    const thumb = strip?.children.item(currentIndex) as HTMLElement | null;
+    if (strip && thumb) strip.scrollTo({ left: thumb.offsetLeft - (strip.clientWidth - thumb.clientWidth) / 2, behavior: "smooth" });
+  }, [currentIndex, photos.length]);
+  useEffect(() => {
+    const strip = reel.current;
+    if (!firstPhotoReady || !strip) return;
+    const observer = new IntersectionObserver(entries => {
+      const shown = entries.filter(entry => entry.isIntersecting).map(entry => Number((entry.target as HTMLElement).dataset.photoIndex));
+      if (!shown.length) return;
+      setVisibleThumbs(previous => {
+        if (shown.every(index => previous.has(index))) return previous;
+        return new Set([...Array.from(previous), ...shown]);
+      });
+    }, { root: strip, rootMargin: "0px 40px" });
+    for (const button of Array.from(strip.children)) observer.observe(button);
+    return () => observer.disconnect();
+  }, [firstPhotoReady, photos.length]);
+  const go = (step: number) => setIndex(current => (current + step + photos.length) % photos.length);
   if (!photos.length) {
     return (
       <div className="flex aspect-[16/9] w-full flex-col items-center justify-center gap-2 rounded-lg bg-muted text-sm text-muted-foreground">
@@ -60,31 +86,45 @@ function Gallery({ media, alt }: { media: MlsListingDetail["media"]; alt: string
       </div>
     );
   }
-  const current = photos[Math.min(index, photos.length - 1)];
+  const current = photos[currentIndex];
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       <div className="relative aspect-[16/9] w-full overflow-hidden rounded-lg bg-black">
-        <img src={current.url!} alt={current.caption ?? alt} className="h-full w-full object-contain" />
+        <img src={current.url!} alt={current.caption ?? alt} loading="eager" fetchPriority="high" decoding="async" onLoad={() => setFirstPhotoReady(true)} className="h-full w-full object-contain" />
         {photos.length > 1 ? (
           <>
-            <button type="button" className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-1.5 shadow" onClick={() => setIndex((index - 1 + photos.length) % photos.length)} aria-label="Previous photo">
+            <button type="button" className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-1.5 shadow" onClick={() => go(-1)} aria-label="Previous photo">
               <ChevronLeft className="h-5 w-5" />
             </button>
-            <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-1.5 shadow" onClick={() => setIndex((index + 1) % photos.length)} aria-label="Next photo">
+            <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-1.5 shadow" onClick={() => go(1)} aria-label="Next photo">
               <ChevronRight className="h-5 w-5" />
             </button>
           </>
         ) : null}
-        <span className="absolute bottom-2 right-2 rounded bg-black/70 px-2 py-0.5 text-xs text-white">{index + 1} / {photos.length}</span>
+        <Button type="button" size="sm" variant="secondary" onClick={() => setFullScreen(true)} className="absolute right-2 top-2 gap-1.5 bg-white/90 text-slate-900 hover:bg-white"><Maximize2 className="h-3.5 w-3.5" />Full screen</Button>
+        <span className="absolute bottom-2 right-2 rounded bg-black/70 px-2 py-0.5 text-xs text-white">{currentIndex + 1} / {photos.length}</span>
         {current.caption ? <span className="absolute bottom-2 left-2 max-w-[70%] truncate rounded bg-black/70 px-2 py-0.5 text-xs text-white">{current.caption}</span> : null}
       </div>
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
+      <div ref={reel} className="relative flex gap-1.5 overflow-x-auto scroll-smooth pb-1" aria-label="Listing photo thumbnails">
         {photos.map((photo, photoIndex) => (
-          <button key={photo.id} type="button" aria-label={`Show photo ${photoIndex + 1} of ${photos.length}`} aria-current={photoIndex === index ? "true" : undefined} onClick={() => setIndex(photoIndex)} className={`h-14 w-20 shrink-0 overflow-hidden rounded border-2 ${photoIndex === index ? "border-primary" : "border-transparent"}`}>
-            <img src={photo.url!} alt="" loading="lazy" className="h-full w-full object-cover" />
+          <button key={photo.id} data-photo-index={photoIndex} type="button" aria-label={`Show photo ${photoIndex + 1} of ${photos.length}`} aria-current={photoIndex === currentIndex ? "true" : undefined} onClick={() => setIndex(photoIndex)} className={`h-14 w-20 shrink-0 overflow-hidden rounded border-2 bg-slate-100 ${photoIndex === currentIndex ? "border-primary" : "border-transparent"}`}>
+            {firstPhotoReady && visibleThumbs.has(photoIndex) ? <img src={photo.url!} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover" /> : <span className="text-xs text-slate-500">{photoIndex + 1}</span>}
           </button>
         ))}
       </div>
+      <Dialog open={fullScreen} onOpenChange={setFullScreen}>
+        <DialogContent className="flex h-[min(94dvh,960px)] w-[96vw] max-w-none flex-col gap-2 overflow-hidden border-slate-700 bg-slate-950 p-3 text-white sm:max-w-[min(96vw,1600px)]" onKeyDown={event => { if (event.key === "ArrowRight") go(1); if (event.key === "ArrowLeft") go(-1); }}>
+          <DialogTitle className="pr-10 text-sm font-semibold">{alt} · Photo {currentIndex + 1} of {photos.length}</DialogTitle>
+          <div className="relative flex min-h-0 flex-1 items-center justify-center">
+            <img src={current.url!} alt={current.caption ?? `${alt}, photo ${currentIndex + 1}`} loading="eager" fetchPriority="high" decoding="async" className="max-h-full max-w-full object-contain" />
+            {photos.length > 1 ? <>
+              <button type="button" aria-label="Previous photo" onClick={() => go(-1)} className="absolute left-1 top-1/2 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white"><ChevronLeft className="h-6 w-6" /></button>
+              <button type="button" aria-label="Next photo" onClick={() => go(1)} className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white"><ChevronRight className="h-6 w-6" /></button>
+            </> : null}
+          </div>
+          {current.caption ? <p className="truncate text-center text-xs text-slate-200">{current.caption}</p> : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -112,7 +152,7 @@ function RawPayload({ listingId }: { listingId: number }) {
         {raw.isLoading ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <pre className="max-h-[480px] overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(raw.data?.payload ?? null, null, 2)}</pre>
+          <pre className="max-h-[480px] max-w-full overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(raw.data?.payload ?? null, null, 2)}</pre>
         )}
       </CollapsibleContent>
     </Collapsible>
@@ -163,6 +203,8 @@ export default function MlsListingDetailPage() {
   const expectedPhotos = Number(listing.photosCount ?? 0);
   const galleryComplete = expectedPhotos > 0 && storedPhotos >= expectedPhotos;
   const galleryQueued = data.galleryQueued;
+  const informationalOptOuts = display?.optOuts.filter(text => /consumer comments|automated valuations/i.test(text)) ?? [];
+  const urgentOptOuts = display?.optOuts.filter(text => !/consumer comments|automated valuations/i.test(text)) ?? [];
 
   return (
     <div className="space-y-4 pb-10">
@@ -173,9 +215,9 @@ export default function MlsListingDetailPage() {
           <AlertTriangle className="h-4 w-4" />Removed from the {source?.shortName} feed {formatDate(listing.removedFromFeedAt)} ({listing.removalReason}). Kept for history only.
         </div>
       ) : null}
-      {display?.optOuts.length ? (
+      {urgentOptOuts.length ? (
         <div className="space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          {display.optOuts.map(text => <div key={text} className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" />{text}</div>)}
+          {urgentOptOuts.map(text => <div key={text} className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" />{text}</div>)}
         </div>
       ) : null}
 
@@ -198,8 +240,8 @@ export default function MlsListingDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <div className="space-y-4">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.85fr)]">
+        <div className="min-w-0 space-y-4">
           <Gallery media={data.media} alt={addressLine(listing)} />
           <div className="flex flex-wrap items-center gap-2">
             {galleryComplete ? <span className="text-sm text-muted-foreground">All {storedPhotos} available photos stored</span> : galleryQueued ? (
@@ -235,124 +277,9 @@ export default function MlsListingDetailPage() {
             </Card>
           ) : null}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-base">Property</CardTitle></CardHeader>
-              <CardContent>
-                <Fact label="Type" value={listing.propertySubType ?? prettyKey(listing.propertyType ?? "")} />
-                <Fact label="Full / half baths" value={listing.bathroomsFull !== null || listing.bathroomsHalf !== null ? `${listing.bathroomsFull ?? 0} / ${listing.bathroomsHalf ?? 0}` : null} />
-                <Fact label="Above grade finished" value={listing.aboveGradeFinishedArea ? `${formatNumber(listing.aboveGradeFinishedArea)} sqft` : null} />
-                <Fact label="Below grade finished" value={listing.belowGradeFinishedArea ? `${formatNumber(listing.belowGradeFinishedArea)} sqft` : null} />
-                <Fact label="Lot" value={listing.lotSizeSquareFeet ? `${formatNumber(listing.lotSizeSquareFeet)} sqft` : null} />
-                <Fact label="Stories" value={listing.storiesTotal} />
-                <Fact label="Garage spaces" value={listing.garageSpaces} />
-                <Fact label="Parking" value={listing.parkingTotal} />
-                <Fact label="Furnished" value={listing.furnished} />
-                <Fact label="Private pool" value={yesNo(listing.poolPrivateYN)} />
-                <Fact label="Waterfront" value={yesNo(listing.waterfrontYN)} />
-                <Fact label="View" value={yesNo(listing.viewYN)} />
-                <Fact label="Fireplace" value={yesNo(listing.fireplaceYN)} />
-                <Fact label="New construction" value={yesNo(listing.newConstructionYN)} />
-                <Fact label="Zoning" value={listing.zoning} />
-                <Fact label="Subdivision" value={listing.subdivisionName} />
-                <Fact label="Area" value={listing.mlsAreaMajor} />
-                <Fact label="Parcel" value={listing.parcelNumber} />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-base">Listing, HOA and tax</CardTitle></CardHeader>
-              <CardContent>
-                <Fact label="Listed" value={formatDate(listing.onMarketDate ?? listing.listingContractDate)} />
-                <Fact label="Days on market" value={listing.daysOnMarket} />
-                <Fact label="Cumulative DOM" value={listing.cumulativeDaysOnMarket} />
-                <Fact label="Under contract" value={listing.purchaseContractDate ? formatDate(listing.purchaseContractDate) : null} />
-                <Fact label="Closed" value={listing.closeDate ? formatDate(listing.closeDate) : null} />
-                <Fact label="Close price" value={listing.closePrice ? formatPrice(listing.closePrice) : null} />
-                <Fact label="HOA" value={listing.associationYN === null ? null : listing.associationYN ? listing.associationName ?? "Yes" : "No"} />
-                <Fact label="HOA fee" value={listing.associationFee ? `${formatPrice(listing.associationFee)}${listing.associationFeeFrequency ? ` / ${listing.associationFeeFrequency}` : ""}` : null} />
-                <Fact label="Annual tax" value={listing.taxAnnualAmount ? `${formatPrice(listing.taxAnnualAmount)}${listing.taxYear ? ` (${listing.taxYear})` : ""}` : null} />
-                <Fact label="Assessed value" value={listing.taxAssessedValue ? formatPrice(listing.taxAssessedValue) : null} />
-                <Fact label="Elementary" value={listing.elementarySchool} />
-                <Fact label="Middle" value={listing.middleSchool} />
-                <Fact label="High" value={listing.highSchool} />
-                {listing.virtualTourUrl ? (
-                  <Fact label="Virtual tour" value={<a className="inline-flex items-center gap-1 text-primary hover:underline" href={listing.virtualTourUrl} target="_blank" rel="noreferrer">Open<ExternalLink className="h-3 w-3" /></a>} />
-                ) : null}
-              </CardContent>
-            </Card>
-          </div>
-
-          {features.length ? (
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-base">Features</CardTitle></CardHeader>
-              <CardContent className="grid gap-3 sm:grid-cols-2">
-                {features.map(([name, values]) => (
-                  <div key={name}>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{prettyKey(name)}</div>
-                    <div className="text-sm">{values.join(", ")}</div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><History className="h-4 w-4" />Property history</CardTitle></CardHeader>
-            <CardContent>
-              {history.length ? (
-                <ol className="space-y-2">
-                  {history.map(event => (
-                    <li key={event.id} className="flex items-start justify-between gap-3 border-b pb-2 text-sm last:border-0">
-                      <div>
-                        <div className="font-medium">{EVENT_LABELS[event.eventType] ?? event.eventType}{event.listingId !== listing.id ? <span className="ml-1 text-xs text-muted-foreground">(other listing)</span> : null}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {event.fromStatus && event.toStatus && event.fromStatus !== event.toStatus ? `${statusStyle(event.fromStatus).label} to ${statusStyle(event.toStatus).label}` : event.toStatus ? statusStyle(event.toStatus).label : ""}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-medium">{event.fromPrice && event.toPrice ? `${formatPrice(event.fromPrice)} to ${formatPrice(event.toPrice)}` : event.toPrice ? formatPrice(event.toPrice) : ""}</div>
-                        <div className="text-xs text-muted-foreground">{formatDate(event.eventAt)}</div>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="text-sm text-muted-foreground">History builds as the feed reports changes.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {localFields.length ? (
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-base">{source?.shortName} local fields ({localFields.length})</CardTitle></CardHeader>
-              <CardContent>
-                <Collapsible>
-                  <CollapsibleTrigger asChild><Button variant="ghost" size="sm">Show fields not in the RESO standard</Button></CollapsibleTrigger>
-                  <CollapsibleContent className="mt-2 grid gap-x-6 sm:grid-cols-2">
-                    {localFields.map(([key, value]) => <Fact key={key} label={key} value={Array.isArray(value) ? value.join(", ") : typeof value === "object" ? JSON.stringify(value) : String(value)} />)}
-                  </CollapsibleContent>
-                </Collapsible>
-              </CardContent>
-            </Card>
-          ) : null}
-
-          {data.canManage ? (
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-base">Data lineage</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid gap-x-6 text-xs sm:grid-cols-2">
-                  {Object.entries((listing.fieldProvenance ?? {}) as Record<string, string>).map(([field, sourceField]) => (
-                    <div key={field} className="flex justify-between gap-2 border-b py-1"><span className="font-mono">{field}</span><span className="font-mono text-muted-foreground">{sourceField}</span></div>
-                  ))}
-                </div>
-                <div className="text-xs text-muted-foreground">Mapping v{listing.mappingVersion} · provider key {listing.providerListingKey} · last synced {formatDateTime(listing.lastSyncedAt)} · media {Object.entries(data.mediaStatus).map(([key, value]) => `${key} ${value}`).join(", ") || "none"}</div>
-                <RawPayload listingId={listing.id} />
-              </CardContent>
-            </Card>
-          ) : null}
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {listing.latitude && listing.longitude ? <MiniMap lat={listing.latitude} lng={listing.longitude} /> : (
             <div className="flex h-56 items-center justify-center gap-2 rounded-lg bg-muted text-sm text-muted-foreground"><MapPin className="h-4 w-4" />No coordinates from the MLS</div>
           )}
@@ -408,6 +335,120 @@ export default function MlsListingDetailPage() {
             </CardContent>
           </Card>
 
+        </div>
+      </div>
+
+          <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Property</CardTitle></CardHeader>
+              <CardContent>
+                <Fact label="Type" value={listing.propertySubType ?? prettyKey(listing.propertyType ?? "")} />
+                <Fact label="Full / half baths" value={listing.bathroomsFull !== null || listing.bathroomsHalf !== null ? `${listing.bathroomsFull ?? 0} / ${listing.bathroomsHalf ?? 0}` : null} />
+                <Fact label="Above grade finished" value={listing.aboveGradeFinishedArea ? `${formatNumber(listing.aboveGradeFinishedArea)} sqft` : null} />
+                <Fact label="Below grade finished" value={listing.belowGradeFinishedArea ? `${formatNumber(listing.belowGradeFinishedArea)} sqft` : null} />
+                <Fact label="Lot" value={listing.lotSizeSquareFeet ? `${formatNumber(listing.lotSizeSquareFeet)} sqft` : null} />
+                <Fact label="Stories" value={listing.storiesTotal} />
+                <Fact label="Garage spaces" value={listing.garageSpaces} />
+                <Fact label="Parking" value={listing.parkingTotal} />
+                <Fact label="Furnished" value={listing.furnished} />
+                <Fact label="Private pool" value={yesNo(listing.poolPrivateYN)} />
+                <Fact label="Waterfront" value={yesNo(listing.waterfrontYN)} />
+                <Fact label="View" value={yesNo(listing.viewYN)} />
+                <Fact label="Fireplace" value={yesNo(listing.fireplaceYN)} />
+                <Fact label="New construction" value={yesNo(listing.newConstructionYN)} />
+                <Fact label="Zoning" value={listing.zoning} />
+                <Fact label="Subdivision" value={listing.subdivisionName} />
+                <Fact label="Area" value={listing.mlsAreaMajor} />
+                <Fact label="Parcel" value={listing.parcelNumber} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Listing, HOA and tax</CardTitle></CardHeader>
+              <CardContent>
+                <Fact label="Listed" value={formatDate(listing.onMarketDate ?? listing.listingContractDate)} />
+                <Fact label="Days on market" value={listing.daysOnMarket} />
+                <Fact label="Cumulative DOM" value={listing.cumulativeDaysOnMarket} />
+                <Fact label="Under contract" value={listing.purchaseContractDate ? formatDate(listing.purchaseContractDate) : null} />
+                <Fact label="Closed" value={listing.closeDate ? formatDate(listing.closeDate) : null} />
+                <Fact label="Close price" value={listing.closePrice ? formatPrice(listing.closePrice) : null} />
+                <Fact label="HOA" value={listing.associationYN === null ? null : listing.associationYN ? listing.associationName ?? "Yes" : "No"} />
+                <Fact label="HOA fee" value={listing.associationFee ? `${formatPrice(listing.associationFee)}${listing.associationFeeFrequency ? ` / ${listing.associationFeeFrequency}` : ""}` : null} />
+                <Fact label="Annual tax" value={listing.taxAnnualAmount ? `${formatPrice(listing.taxAnnualAmount)}${listing.taxYear ? ` (${listing.taxYear})` : ""}` : null} />
+                <Fact label="Assessed value" value={listing.taxAssessedValue ? formatPrice(listing.taxAssessedValue) : null} />
+                <Fact label="Elementary" value={listing.elementarySchool} />
+                <Fact label="Middle" value={listing.middleSchool} />
+                <Fact label="High" value={listing.highSchool} />
+                {listing.virtualTourUrl ? (
+                  <Fact label="Virtual tour" value={<a className="inline-flex items-center gap-1 text-primary hover:underline" href={listing.virtualTourUrl} target="_blank" rel="noreferrer">Open<ExternalLink className="h-3 w-3" /></a>} />
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+
+          {features.length ? (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Features</CardTitle></CardHeader>
+              <CardContent className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))]">
+                {features.map(([name, values]) => (
+                  <div key={name} className="min-w-0 break-words [overflow-wrap:anywhere]">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{prettyKey(name)}</div>
+                    <div className="text-sm">{values.join(", ")}</div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><History className="h-4 w-4" />Property history</CardTitle></CardHeader>
+            <CardContent>
+              {history.length ? (
+                <ol className="space-y-2">
+                  {history.map(event => (
+                    <li key={event.id} className="flex items-start justify-between gap-3 border-b pb-2 text-sm last:border-0">
+                      <div>
+                        <div className="font-medium">{EVENT_LABELS[event.eventType] ?? event.eventType}{event.listingId !== listing.id ? <span className="ml-1 text-xs text-muted-foreground">(other listing)</span> : null}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {event.fromStatus && event.toStatus && event.fromStatus !== event.toStatus ? `${statusStyle(event.fromStatus).label} to ${statusStyle(event.toStatus).label}` : event.toStatus ? statusStyle(event.toStatus).label : ""}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-medium">{event.fromPrice && event.toPrice ? `${formatPrice(event.fromPrice)} to ${formatPrice(event.toPrice)}` : event.toPrice ? formatPrice(event.toPrice) : ""}</div>
+                        <div className="text-xs text-muted-foreground">{formatDate(event.eventAt)}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-sm text-muted-foreground">History builds as the feed reports changes.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {localFields.length ? (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">{source?.shortName} local fields ({localFields.length})</CardTitle></CardHeader>
+              <CardContent className="grid min-w-0 gap-x-8 lg:grid-cols-2">
+                {localFields.map(([key, value]) => <Fact key={key} label={key} value={Array.isArray(value) ? value.join(", ") : typeof value === "object" ? JSON.stringify(value) : String(value)} />)}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {data.canManage ? (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Data lineage</CardTitle></CardHeader>
+              <CardContent className="min-w-0 space-y-3">
+                <div className="grid min-w-0 gap-x-8 text-xs lg:grid-cols-2">
+                  {Object.entries((listing.fieldProvenance ?? {}) as Record<string, string>).map(([field, sourceField]) => (
+                    <div key={field} className="grid min-w-0 grid-cols-[minmax(0,40%)_minmax(0,1fr)] gap-3 border-b py-1"><span className="min-w-0 font-mono [overflow-wrap:anywhere]">{field}</span><span className="min-w-0 text-right font-mono text-muted-foreground [overflow-wrap:anywhere]">{sourceField}</span></div>
+                  ))}
+                </div>
+                <div className="min-w-0 text-xs text-muted-foreground [overflow-wrap:anywhere]">Mapping v{listing.mappingVersion} · provider key {listing.providerListingKey} · last synced {formatDateTime(listing.lastSyncedAt)} · media {Object.entries(data.mediaStatus).map(([key, value]) => `${key} ${value}`).join(", ") || "none"}</div>
+                <RawPayload listingId={listing.id} />
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">Source and display rules</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-xs text-muted-foreground">
@@ -421,13 +462,12 @@ export default function MlsListingDetailPage() {
                 <>
                   <p className="font-medium text-foreground">{display.attribution}</p>
                   <p>{display.disclaimer}</p>
+                  {informationalOptOuts.length ? <p>Seller display preferences: {informationalOptOuts.join(" ")}</p> : null}
                   {display.basis !== "signed_license" ? <p className="text-amber-700">Rules shown are the provider baseline. Update the source with the signed license terms before any public display.</p> : null}
                 </>
               ) : null}
             </CardContent>
           </Card>
-        </div>
-      </div>
     </div>
   );
 }

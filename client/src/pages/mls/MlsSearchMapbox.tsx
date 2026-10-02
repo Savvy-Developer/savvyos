@@ -47,7 +47,12 @@ export function MlsSearchMapbox(props: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const drawRef = useRef<TerraDraw | null>(null);
+  const popupRef = useRef<mapboxgl.Popup | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const lastViewport = useRef<MapViewport | null>(null);
+  const lastCountReport = useRef("");
+  const lastAppliedArea = useRef(JSON.stringify(area ?? null));
+  lastAppliedArea.current = JSON.stringify(area ?? null);
   const callbacks = useRef({ onOpen, onPreview, onAreaChange, onViewportChange, onVisibleTotal, searchAsMove });
   callbacks.current = { onOpen, onPreview, onAreaChange, onViewportChange, onVisibleTotal, searchAsMove };
   const [ready, setReady] = useState(false);
@@ -56,6 +61,7 @@ export function MlsSearchMapbox(props: Props) {
   const [drawMode, setDrawMode] = useState<"select" | "circle" | "polygon">("select");
   const [viewport, setViewport] = useState<MapViewport | null>(null);
   const [queryViewport, setQueryViewport] = useState<MapViewport | null>(null);
+  const [moving, setMoving] = useState(false);
   const query = trpc.mlsProperties.mapPoints.useQuery(
     { filters: { ...filters, area: area ?? undefined } as any, bounds: queryViewport?.bounds ?? { north: 0, south: 0, east: 0, west: 0 }, zoom: queryViewport?.zoom ?? initialZoom },
     { enabled: ready && !!queryViewport && !mapFailed, placeholderData: previous => previous, staleTime: 30_000, refetchOnWindowFocus: false }
@@ -67,7 +73,10 @@ export function MlsSearchMapbox(props: Props) {
     let resizeFrame: number | undefined;
     let resizeReset: ReturnType<typeof setTimeout> | undefined;
     let initialLoadTimeout: ReturnType<typeof setTimeout> | undefined;
+    let editTimer: ReturnType<typeof setTimeout> | undefined;
     let resizeHappening = false;
+    let lastWidth = 0;
+    let lastHeight = 0;
     const map = new mapboxgl.Map({
       accessToken: mapboxToken,
       container: container.current,
@@ -82,11 +91,17 @@ export function MlsSearchMapbox(props: Props) {
     const report = (reason: "move" | "resize") => {
       if (disposed) return;
       const next = viewportOf(map);
+      const previous = lastViewport.current;
+      if (previous && Math.abs(previous.center.lat - next.center.lat) < 1e-7 && Math.abs(previous.center.lng - next.center.lng) < 1e-7 && Math.abs(previous.zoom - next.zoom) < 1e-4 &&
+        Math.abs(previous.bounds.north - next.bounds.north) < 1e-7 && Math.abs(previous.bounds.east - next.bounds.east) < 1e-7 &&
+        Math.abs(previous.bounds.south - next.bounds.south) < 1e-7 && Math.abs(previous.bounds.west - next.bounds.west) < 1e-7) return;
+      lastViewport.current = next;
       setViewport(next);
       if (callbacks.current.searchAsMove) setQueryViewport(next);
       callbacks.current.onViewportChange(next, reason);
     };
-    map.on("moveend", () => report(resizeHappening ? "resize" : "move"));
+    map.on("movestart", () => { if (!disposed && callbacks.current.searchAsMove && !resizeHappening) setMoving(true); });
+    map.on("moveend", () => { if (!disposed) { setMoving(false); report(resizeHappening ? "resize" : "move"); } });
     map.on("load", () => { if (!disposed) { setReady(true); report("resize"); } });
     map.on("error", () => { if (!map.isStyleLoaded() && !disposed) setMapFailed(true); });
     initialLoadTimeout = setTimeout(() => { if (!map.loaded() && !disposed) setMapFailed(true); }, 15_000);
@@ -109,6 +124,12 @@ export function MlsSearchMapbox(props: Props) {
       drawRef.current = draw;
       // Restoring only the user-selected shape keeps every other map view clean.
       if (area) draw.addFeatures([featureFromArea(area)]);
+      const applyArea = (next: MapArea | null) => {
+        const signature = JSON.stringify(next);
+        if (lastAppliedArea.current === signature) return;
+        lastAppliedArea.current = signature;
+        callbacks.current.onAreaChange(next);
+      };
       draw.on("finish", (id) => {
         const feature = draw.getSnapshotFeature(id);
         const next = areaFromFeature(feature);
@@ -119,13 +140,21 @@ export function MlsSearchMapbox(props: Props) {
         }
         const others = draw.getSnapshot().filter(item => item.id !== id && (item.properties.mode === "circle" || item.properties.mode === "polygon"));
         if (others.length) draw.removeFeatures(others.map(item => item.id!));
-        callbacks.current.onAreaChange(next);
+        applyArea(next);
         draw.setMode("select");
         setDrawMode("select");
       });
       draw.on("change", (_ids, type) => {
-        if (type === "delete" && !draw.getSnapshot().some(item => item.properties.mode === "circle" || item.properties.mode === "polygon")) {
-          callbacks.current.onAreaChange(null);
+        const shape = draw.getSnapshot().find(item => item.properties.mode === "circle" || item.properties.mode === "polygon");
+        if (type === "delete" && !shape) {
+          if (editTimer) clearTimeout(editTimer);
+          applyArea(null);
+        } else if (type === "update" && shape) {
+          if (editTimer) clearTimeout(editTimer);
+          editTimer = setTimeout(() => {
+            const updated = areaFromFeature(shape);
+            if (updated) applyArea(updated);
+          }, 250);
         }
       });
     });
@@ -134,6 +163,11 @@ export function MlsSearchMapbox(props: Props) {
       if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
       resizeFrame = requestAnimationFrame(() => {
         resizeFrame = undefined;
+        const width = container.current?.clientWidth ?? 0;
+        const height = container.current?.clientHeight ?? 0;
+        if (!width || !height || (width === lastWidth && height === lastHeight)) return;
+        lastWidth = width;
+        lastHeight = height;
         resizeHappening = true;
         map.resize();
         if (map.loaded()) report("resize");
@@ -148,6 +182,9 @@ export function MlsSearchMapbox(props: Props) {
       if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
       if (resizeReset) clearTimeout(resizeReset);
       if (initialLoadTimeout) clearTimeout(initialLoadTimeout);
+      if (editTimer) clearTimeout(editTimer);
+      popupRef.current?.remove();
+      popupRef.current = null;
       for (const marker of markersRef.current) marker.remove();
       markersRef.current = [];
       drawRef.current?.stop();
@@ -165,12 +202,20 @@ export function MlsSearchMapbox(props: Props) {
     else if (!draw.getSnapshot().some(item => item.properties.mode === "circle" || item.properties.mode === "polygon")) draw.addFeatures([featureFromArea(area)]);
   }, [area, ready]);
   useEffect(() => {
-    if (!area && queryViewport && query.data && !query.isPlaceholderData && !query.isFetching) callbacks.current.onVisibleTotal(query.data.total, queryViewport.bounds);
+    if (!area && queryViewport && query.data && !query.isPlaceholderData && !query.isFetching) {
+      const key = `${query.data.total}:${JSON.stringify(queryViewport.bounds)}`;
+      if (lastCountReport.current !== key) {
+        lastCountReport.current = key;
+        callbacks.current.onVisibleTotal(query.data.total, queryViewport.bounds);
+      }
+    }
   }, [area, queryViewport, query.data, query.isPlaceholderData, query.isFetching]);
   useEffect(() => { if (!drawError) return; const timer = setTimeout(() => setDrawError(null), 5000); return () => clearTimeout(timer); }, [drawError]);
 
   useEffect(() => {
     const map = mapRef.current;
+    popupRef.current?.remove();
+    popupRef.current = null;
     for (const marker of markersRef.current) marker.remove();
     markersRef.current = [];
     if (!map || !ready || !query.data || mapFailed) return;
@@ -181,6 +226,7 @@ export function MlsSearchMapbox(props: Props) {
         element.dataset.listingId = String(pin.id);
         element.addEventListener("click", event => {
           event.stopPropagation();
+          popupRef.current?.remove();
           callbacks.current.onPreview(pin.id);
           const content = document.createElement("div");
           content.className = "overflow-hidden rounded-lg text-slate-900";
@@ -208,7 +254,7 @@ export function MlsSearchMapbox(props: Props) {
           open.className = "mt-2 rounded-md bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-800";
           open.addEventListener("click", () => callbacks.current.onOpen(pin.id));
           content.append(price, address, details, open);
-          new mapboxgl.Popup({ offset: 18, maxWidth: "270px" }).setLngLat([pin.lng, pin.lat]).setDOMContent(content).addTo(map);
+          popupRef.current = new mapboxgl.Popup({ offset: 18, maxWidth: "270px", focusAfterOpen: false }).setLngLat([pin.lng, pin.lat]).setDOMContent(content).addTo(map);
         });
         markersRef.current.push(new mapboxgl.Marker({ element, anchor: "bottom" }).setLngLat([pin.lng, pin.lat]).addTo(map));
       }
@@ -221,7 +267,7 @@ export function MlsSearchMapbox(props: Props) {
         markersRef.current.push(new mapboxgl.Marker({ element }).setLngLat([cluster.lng, cluster.lat]).addTo(map));
       }
     }
-    return () => { for (const marker of markersRef.current) marker.remove(); markersRef.current = []; };
+    return () => { popupRef.current?.remove(); popupRef.current = null; for (const marker of markersRef.current) marker.remove(); markersRef.current = []; };
   }, [query.data, ready, mapFailed]);
   useEffect(() => {
     for (const marker of markersRef.current) {
@@ -238,8 +284,8 @@ export function MlsSearchMapbox(props: Props) {
   return <div className={`relative isolate z-0 overflow-hidden rounded-xl border bg-slate-100 shadow-sm ${className ?? ""}`} data-testid="mls-mapbox">
     <div ref={container} className="h-full w-full" role="application" aria-label="MLS property map" />
     <div className="pointer-events-none absolute right-3 top-3 z-20 flex max-w-[65%] items-center gap-1.5 rounded-lg border bg-white/95 px-3 py-2 text-xs font-semibold text-slate-800 shadow-md">
-      {query.isFetching ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <MapPin className="h-3.5 w-3.5 shrink-0 text-teal-700" />}
-      {query.isError ? "Map results delayed" : query.data ? `${query.data.total.toLocaleString()} in view${query.data.mode === "clusters" ? " · zoom for pins" : ""}` : "Finding properties"}
+      {query.isFetching || moving ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <MapPin className="h-3.5 w-3.5 shrink-0 text-teal-700" />}
+      {query.isError ? "Map results delayed" : moving || query.isFetching || query.isPlaceholderData ? "Updating count…" : query.data ? `${query.data.total.toLocaleString()} in view${query.data.mode === "clusters" ? " · zoom for pins" : ""}` : "Finding properties"}
     </div>
     <div className="absolute left-3 top-24 z-20 flex flex-col gap-1.5 rounded-lg border bg-white/95 p-1 shadow-md" aria-label="Draw a map search area">
       <button type="button" aria-label="Draw radius" title="Draw radius" aria-pressed={drawMode === "circle"} onClick={() => setMode("circle")} className={`rounded p-2 hover:bg-teal-50 ${drawMode === "circle" ? "bg-teal-100 text-teal-800" : "text-slate-700"}`}><Circle className="h-4 w-4" /></button>

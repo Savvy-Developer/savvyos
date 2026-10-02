@@ -32,23 +32,23 @@ export const searchFiltersSchema = z.object({
   propertySubTypes: z.array(z.string().trim().min(1).max(96)).max(20).optional(),
   mlsStatuses: z.array(z.string().trim().min(1).max(64)).max(20).optional(),
   counties: z.array(z.string().trim().min(1).max(128)).max(20).optional(),
-  minPrice: z.number().nonnegative().optional(),
-  maxPrice: z.number().nonnegative().optional(),
-  minBeds: z.number().int().nonnegative().optional(),
-  maxBeds: z.number().int().nonnegative().optional(),
-  minBaths: z.number().nonnegative().optional(),
-  maxBaths: z.number().nonnegative().optional(),
-  minSqft: z.number().nonnegative().optional(),
-  maxSqft: z.number().nonnegative().optional(),
-  minYearBuilt: z.number().int().optional(),
-  maxYearBuilt: z.number().int().optional(),
-  minAcres: z.number().nonnegative().optional(),
-  maxAcres: z.number().nonnegative().optional(),
+  minPrice: z.number().nonnegative().max(1_000_000_000).optional(),
+  maxPrice: z.number().nonnegative().max(1_000_000_000).optional(),
+  minBeds: z.number().int().nonnegative().max(30).optional(),
+  maxBeds: z.number().int().nonnegative().max(30).optional(),
+  minBaths: z.number().nonnegative().max(40).optional(),
+  maxBaths: z.number().nonnegative().max(40).optional(),
+  minSqft: z.number().nonnegative().max(10_000_000).optional(),
+  maxSqft: z.number().nonnegative().max(10_000_000).optional(),
+  minYearBuilt: z.number().int().min(1700).max(2100).optional(),
+  maxYearBuilt: z.number().int().min(1700).max(2100).optional(),
+  minAcres: z.number().nonnegative().max(1_000_000).optional(),
+  maxAcres: z.number().nonnegative().max(1_000_000).optional(),
   minGarage: z.number().int().nonnegative().optional(),
   newConstruction: z.boolean().optional(),
   hasPhotos: z.boolean().optional(),
   listedWithinDays: z.number().int().positive().max(3650).optional(),
-  maxDaysOnMarket: z.number().int().nonnegative().optional(),
+  maxDaysOnMarket: z.number().int().nonnegative().max(3650).optional(),
   city: z.string().trim().max(128).optional(),
   stateOrProvince: z.string().trim().max(32).optional(),
   postalCode: z.string().trim().max(16).optional(),
@@ -153,9 +153,10 @@ export function searchConditions(filters: SearchFilters, now = new Date()): SQL 
     const prefix = `${escapeLike(q)}%`;
     if (/^\d{5}$/.test(q)) {
       conditions.push(or(eq(mlsListings.postalCode, q), eq(mlsListings.listingNumber, q), like(mlsListings.unparsedAddress, prefix))!);
-    } else if (/^[A-Za-z]{0,4}\d[\w-]{2,}$/.test(q)) {
-      // Looks like an MLS number.
-      conditions.push(or(eq(mlsListings.listingNumber, q), eq(mlsListings.listingNumber, q.toUpperCase()), like(mlsListings.unparsedAddress, prefix))!);
+    } else if (/^(?:[A-Za-z]{1,4}\d[\w-]{2,}|\d{6,})$/.test(q)) {
+      // Exact MLS number. Do not OR an unindexed address prefix into this
+      // branch; it turned an indexed source/listing-number lookup into a scan.
+      conditions.push(eq(mlsListings.listingNumber, q.toUpperCase()));
     } else {
       conditions.push(
         or(
