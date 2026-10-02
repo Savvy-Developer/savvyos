@@ -15,8 +15,9 @@ import { trpc } from "@/lib/trpc";
 import type { MapArea, MapViewport } from "./MlsSearchMap";
 import { addressLine, cityLine, displayPrice, formatNumber, formatPrice, statusStyle, type MlsListingCard } from "./mlsFormat";
 
-// List stays quick: Leaflet, Geoman and map requests load only when Map or Split opens.
-const MlsSearchMap = lazy(() => import("./MlsSearchMap").then(module => ({ default: module.MlsSearchMap })));
+// Neither map engine loads on the main List view. Leaflet remains a safe fallback.
+const MlsLeafletMap = lazy(() => import("./MlsSearchMap").then(module => ({ default: module.MlsSearchMap })));
+const MlsMapboxMap = lazy(() => import("./MlsSearchMapbox").then(module => ({ default: module.MlsSearchMapbox })));
 
 type Filters = {
   q?: string;
@@ -181,6 +182,8 @@ export default function MlsPropertiesPage() {
   const filtersSettled = JSON.stringify(settledMapFilters) === JSON.stringify(listFilters);
   const searchTextPending = (queryText.trim() || undefined) !== (filters.q?.trim() || undefined);
   const options = trpc.mlsProperties.filterOptions.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const mapConfig = trpc.mlsProperties.mapConfig.useQuery(undefined, { enabled: view !== "list", staleTime: 5 * 60_000, retry: false, refetchOnWindowFocus: false });
+  const MapComponent = mapConfig.data?.publicToken ? MlsMapboxMap : MlsLeafletMap;
   const singleSourceId = filters.sourceIds?.length === 1 ? filters.sourceIds[0] : null;
   const facets = trpc.mlsProperties.sourceFacets.useQuery({ sourceId: singleSourceId ?? 0 }, { enabled: !!singleSourceId, staleTime: 5 * 60_000 });
   const singleSource = options.data?.sources.find(source => source.id === singleSourceId);
@@ -341,9 +344,10 @@ export default function MlsPropertiesPage() {
           </div>
           {!searching && !results.isError && results.data && (page > 1 || results.data.items.length > 0) ? <div className="flex items-center justify-between border-t pt-2 text-sm"><Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft className="mr-1 h-4 w-4" />Prev</Button><span className="text-muted-foreground">Page {page} out of {pages?.toLocaleString() ?? (totals.isError ? "unavailable" : "…")}</span><Button variant="ghost" size="sm" disabled={!hasMore} onClick={() => setPage(page + 1)}>Next<ChevronRight className="ml-1 h-4 w-4" /></Button></div> : null}
         </div> : null}
-        {view !== "list" ? <Suspense fallback={<Skeleton className="h-[380px] w-full rounded-xl" />}><MlsSearchMap
+        {view !== "list" ? mapConfig.isPending ? <Skeleton className="h-[380px] w-full rounded-xl" /> : <Suspense fallback={<Skeleton className="h-[380px] w-full rounded-xl" />}><MapComponent
           key={(filters.sourceIds ?? []).join(",") || "all"}
           className={view === "map" ? "h-[70vh] lg:h-[calc(100vh-240px)]" : "order-last h-[420px] lg:h-[calc(100vh-240px)] lg:min-h-[500px]"}
+          mapboxToken={mapConfig.data?.publicToken ?? undefined}
           filters={cleaned}
           area={area}
           searchAsMove={searchInMap}
