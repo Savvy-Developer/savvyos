@@ -96,6 +96,7 @@ function TaskColumn({
   saving,
   onAddTodo,
   children,
+  isRock,
 }: {
   section: SectionRow | null;
   taskIds: number[];
@@ -103,6 +104,7 @@ function TaskColumn({
   saving: boolean;
   onAddTodo: () => void;
   children: ReactNode;
+  isRock: boolean;
 }) {
   const sortable = useSortable({
     id: section
@@ -129,7 +131,8 @@ function TaskColumn({
         transition: sortable.transition,
       }
     : undefined;
-  const label = section?.title ?? "No section";
+  const sectionLabel = isRock ? "milestone" : "section";
+  const label = section?.title ?? `No ${sectionLabel}`;
   const dueDate = section?.dueDate ? new Date(section.dueDate) : null;
 
   return (
@@ -149,8 +152,8 @@ function TaskColumn({
             {...sortable.attributes}
             {...sortable.listeners}
             className="flex h-7 w-5 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing"
-            aria-label={`Drag ${section.title} section`}
-            title="Drag section"
+            aria-label={`Drag ${section.title} ${sectionLabel}`}
+            title={`Drag ${sectionLabel}`}
           >
             <GripVertical className="h-4 w-4" />
           </button>
@@ -218,6 +221,7 @@ export default function ProjectTodoKanbanBoard({
   onAddTodo,
   onLayoutChange,
   saving,
+  isRock,
 }: {
   sections: SectionRow[];
   todos: TodoRow[];
@@ -226,6 +230,7 @@ export default function ProjectTodoKanbanBoard({
   onAddTodo: (sectionId: number | null) => void;
   onLayoutChange: (layout: ProjectTodoLayoutItem[]) => Promise<unknown>;
   saving: boolean;
+  isRock: boolean;
 }) {
   const incomingLayout = useMemo(
     () => buildProjectTodoLayout(sections, todos),
@@ -312,6 +317,7 @@ export default function ProjectTodoKanbanBoard({
         activeTask={activeDrag?.type === "task"}
         saving={saving}
         onAddTodo={() => onAddTodo(section?.id ?? null)}
+        isRock={isRock}
       >
         {visibleTaskIds.length
           ? visibleTaskIds.map(taskId => {
@@ -330,10 +336,10 @@ export default function ProjectTodoKanbanBoard({
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Drag a To-Do to another section to move it. Drag section headers to
+        Drag a To-Do to another {isRock ? "milestone" : "section"} to move it. Drag {isRock ? "milestone" : "section"} headers to
         order columns. Use{" "}
         <span className="font-medium text-foreground">List View</span> to edit,
-        add, or delete sections.
+        add, or delete {isRock ? "milestones" : "sections"}.
       </p>
       <DndContext
         sensors={sensors}
@@ -361,7 +367,7 @@ export default function ProjectTodoKanbanBoard({
                 return section ? column(section, item.taskIds) : null;
               })}
               <div className="flex w-[20rem] shrink-0 items-center justify-center rounded-lg border border-dashed border-border px-5 text-center text-sm text-muted-foreground">
-                Create sections in List View to add more board columns.
+                Create {isRock ? "milestones" : "sections"} in List View to add more board columns.
               </div>
             </div>
           </SortableContext>

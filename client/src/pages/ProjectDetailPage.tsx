@@ -121,6 +121,17 @@ const ACTION_LABELS: Record<string, string> = {
   weekly_update_submitted: "submitted a weekly update",
 };
 
+const ROCK_SECTION_ACTION_LABELS: Record<string, string> = {
+  section_created: "created a milestone",
+  section_updated: "updated a milestone",
+  section_moved: "reordered a milestone",
+  section_deleted: "deleted a milestone",
+};
+
+function projectActivityLabel(action: string, isRock: boolean) {
+  return (isRock ? ROCK_SECTION_ACTION_LABELS[action] : undefined) ?? ACTION_LABELS[action] ?? action;
+}
+
 const NO_SECTION_VALUE = "no-section";
 
 function ProjectQuickWorkControls({ task, adminUsers, onUpdate }: { task: any; adminUsers: any[]; onUpdate: (id: number, data: any) => void }) {
@@ -542,7 +553,7 @@ export default function ProjectDetailPage({
   }
 
   const createSection = trpc.pm.sections.create.useMutation({
-    onSuccess: () => { toast.success("Section added"); refetch(); setShowAddSection(false); setSectionTitle(""); setSectionDescription(""); setSectionDueDate(""); },
+    onSuccess: () => { toast.success(project?.isRock ? "Milestone added" : "Section added"); refetch(); setShowAddSection(false); setSectionTitle(""); setSectionDescription(""); setSectionDueDate(""); },
     onError: (e) => toast.error(e.message),
   });
   const updateSection = trpc.pm.sections.update.useMutation({
@@ -556,7 +567,7 @@ export default function ProjectDetailPage({
       } : current);
       return { previousProject };
     },
-    onSuccess: () => { toast.success("Section updated"); },
+    onSuccess: () => { toast.success(project?.isRock ? "Milestone updated" : "Section updated"); },
     onError: (e, _input, context) => {
       if (context?.previousProject) utils.pm.projects.getById.setData({ id: projectId }, context.previousProject);
       toast.error(e.message);
@@ -568,7 +579,7 @@ export default function ProjectDetailPage({
     onError: (e) => toast.error(e.message),
   });
   const deleteSection = trpc.pm.sections.delete.useMutation({
-    onSuccess: () => { toast.success("Section deleted; its todos returned to the main list"); refetch(); },
+    onSuccess: () => { toast.success(project?.isRock ? "Milestone deleted; its todos returned to the main list" : "Section deleted; its todos returned to the main list"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -739,7 +750,7 @@ export default function ProjectDetailPage({
       return;
     }
     if (becomingRock && (project.todoSections ?? []).some((section: any) => !section.dueDate)) {
-      toast.error("Add a due date to every existing section before converting this project into a Rock");
+      toast.error("Each existing section becomes a milestone when this Project turns into a Rock, so add a due date to each one first");
       return;
     }
     if (becomingRock && new Set(rockMilestones.map((milestone) => milestone.title.toLocaleLowerCase())).size !== rockMilestones.length) {
@@ -834,6 +845,9 @@ export default function ProjectDetailPage({
   const projectActivity = project.activity as any[];
   const tasks = project.tasks ?? [];
   const todoSections = project.todoSections ?? [];
+  const isRock = Boolean(project.isRock);
+  const sectionLabel = isRock ? "milestone" : "section";
+  const sectionLabelTitle = isRock ? "Milestone" : "Section";
   const topLevelTodos = tasks.filter((task: any) => !task.parentTaskId);
   const subTodosByParent = new Map<number, any[]>();
   tasks.filter((task: any) => task.parentTaskId).forEach((task: any) => {
@@ -863,7 +877,7 @@ export default function ProjectDetailPage({
   function renderTodoForm() {
     return (
             <form onSubmit={handleAddTask} className="bg-card border border-primary/30 rounded-lg p-4 space-y-3">
-              {parentTodo && <div className="rounded-md bg-primary/5 px-3 py-2 text-xs text-primary">Adding a sub-todo under <strong>{parentTodo.title}</strong>. It will stay in the same section as its parent.</div>}
+              {parentTodo && <div className="rounded-md bg-primary/5 px-3 py-2 text-xs text-primary">Adding a sub-todo under <strong>{parentTodo.title}</strong>. It will stay in the same {sectionLabel} as its parent.</div>}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="sm:col-span-2 lg:col-span-3">
                   <Label className="text-xs">Todo Title *</Label>
@@ -875,11 +889,11 @@ export default function ProjectDetailPage({
                   />
                 </div>
                 {!parentTodo && todoSections.length > 0 && <div>
-                  <Label className="text-xs">Section (optional)</Label>
+                  <Label className="text-xs">{sectionLabelTitle} (optional)</Label>
                   <Select value={taskForm.sectionId} onValueChange={value => setTaskForm(form => ({ ...form, sectionId: value }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NO_SECTION_VALUE}>No section</SelectItem>
+                      <SelectItem value={NO_SECTION_VALUE}>No {sectionLabel}</SelectItem>
                       {(todoSections as any[]).map((section: any) => <SelectItem key={section.id} value={String(section.id)}>{section.title}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -983,14 +997,14 @@ export default function ProjectDetailPage({
               </div>
               <div className="sm:col-span-2 xl:col-span-4 rounded-lg border border-primary/20 bg-primary/[0.025] p-2.5">
                 <div className="flex items-center gap-2"><Checkbox id="edit-project-rock" checked={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isRock: checked === true, rockMilestones: checked === true && !f.rockMilestones?.length ? [{ title: "", dueDate: "", description: "" }] : f.rockMilestones }))} /><Label htmlFor="edit-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label></div>
-                {editForm.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label>Quarter *</Label><ProjectRockQuarterSelect value={editForm.rockQuarter} onValueChange={rockQuarter => setEditForm((f: any) => ({ ...f, rockQuarter }))} /></div><div><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div>{!project.isRock ? <div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each dated milestone becomes a project section after you save, ready for to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: [...(f.rockMilestones ?? []), { title: "", dueDate: "", description: "" }] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-3">{(editForm.rockMilestones ?? []).map((milestone: { title: string; dueDate: string; description: string }, index: number) => <div key={`rock-milestone-${index}`} className="rounded-md border border-border/70 p-2"><div className="grid grid-cols-[minmax(0,1fr)_9.5rem_2rem] gap-2"><Input value={milestone.title} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string; description: string }, position: number) => position === index ? { ...value, title: event.target.value } : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Input type="date" value={milestone.dueDate} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string; description: string }, position: number) => position === index ? { ...value, dueDate: event.target.value } : value) }))} aria-label={`Due date for milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={(editForm.rockMilestones ?? []).length === 1} onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).filter((_: { title: string; dueDate: string; description: string }, position: number) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div><Textarea value={milestone.description} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string; description: string }, position: number) => position === index ? { ...value, description: event.target.value } : value) }))} placeholder="Milestone description, dependencies, and external dependencies" rows={3} maxLength={8_000} className="mt-2" aria-label={`Description for milestone ${index + 1}`} /></div>)}</div></div> : <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">Rock milestones are managed as project sections below, where their to-dos live.</p>}<RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={editForm.routedMeetingIds ?? []} onChange={(routedMeetingIds) => setEditForm((f: any) => ({ ...f, routedMeetingIds, routesTouched: true }))} /></div> : null}
+                {editForm.isRock ? <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label>Quarter *</Label><ProjectRockQuarterSelect value={editForm.rockQuarter} onValueChange={rockQuarter => setEditForm((f: any) => ({ ...f, rockQuarter }))} /></div><div><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div>{!project.isRock ? <div className="rounded-md border border-border bg-background p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><Label>Milestones *</Label><p className="mt-1 text-xs text-muted-foreground">Each dated milestone becomes a project section after you save, ready for to-dos.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: [...(f.rockMilestones ?? []), { title: "", dueDate: "", description: "" }] }))}><Plus className="mr-1 h-3.5 w-3.5" />Add milestone</Button></div><div className="mt-3 space-y-3">{(editForm.rockMilestones ?? []).map((milestone: { title: string; dueDate: string; description: string }, index: number) => <div key={`rock-milestone-${index}`} className="rounded-md border border-border/70 p-2"><div className="grid grid-cols-[minmax(0,1fr)_9.5rem_2rem] gap-2"><Input value={milestone.title} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string; description: string }, position: number) => position === index ? { ...value, title: event.target.value } : value) }))} placeholder={`Milestone ${index + 1}`} aria-label={`Rock milestone ${index + 1}`} /><Input type="date" value={milestone.dueDate} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string; description: string }, position: number) => position === index ? { ...value, dueDate: event.target.value } : value) }))} aria-label={`Due date for milestone ${index + 1}`} /><Button type="button" size="icon" variant="ghost" className="shrink-0" disabled={(editForm.rockMilestones ?? []).length === 1} onClick={() => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).filter((_: { title: string; dueDate: string; description: string }, position: number) => position !== index) }))} aria-label={`Remove milestone ${index + 1}`}><X className="h-4 w-4" /></Button></div><Textarea value={milestone.description} onChange={event => setEditForm((f: any) => ({ ...f, rockMilestones: (f.rockMilestones ?? []).map((value: { title: string; dueDate: string; description: string }, position: number) => position === index ? { ...value, description: event.target.value } : value) }))} placeholder="Milestone description, dependencies, and external dependencies" rows={3} maxLength={8_000} className="mt-2" aria-label={`Description for milestone ${index + 1}`} /></div>)}</div></div> : <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">Rock milestones are managed in List View below. Use Add Milestone to add another deliverable, then place To-Dos beneath it.</p>}<RockMeetingRoutingSelector meetings={routingOptions as any[]} selectedMeetingIds={editForm.routedMeetingIds ?? []} onChange={(routedMeetingIds) => setEditForm((f: any) => ({ ...f, routedMeetingIds, routesTouched: true }))} /></div> : null}
               </div>
               <div className="sm:col-span-2 xl:col-span-4 rounded-lg border bg-muted/20 p-2.5">
                 <div className="flex items-center gap-2">
                   <Checkbox id="edit-project-weekly-updates" checked={editForm.isRock || editForm.weeklyUpdatesEnabled} disabled={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, weeklyUpdatesEnabled: checked === true }))} />
                   <Label htmlFor="edit-project-weekly-updates" className="cursor-pointer font-medium">Weekly Project Updates {editForm.isRock ? "(required for Rocks)" : ""}</Label>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">{editForm.isRock ? "This Rock will have one weekly owner update, using its dated sections as milestones." : "Turn this on only when this Project needs a weekly owner update."}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{editForm.isRock ? "This Rock will have one weekly owner update, using its dated milestones." : "Turn this on only when this Project needs a weekly owner update."}</p>
                 {(editForm.isRock || editForm.weeklyUpdatesEnabled) ? <div className="mt-3 max-w-sm"><Label>Reporting Owner</Label><SearchableSelect className="mt-1 w-full" options={(adminUsers as any[]).filter((user: any) => user.id === Number(editForm.ownerId) || (collaborators as any[]).some((collaborator: any) => collaborator.userId === user.id)).map((user: any) => ({ value: String(user.id), label: user.name ?? user.email ?? `User #${user.id}` }))} value={editForm.weeklyReportingOwnerId} onValueChange={value => setEditForm((f: any) => ({ ...f, weeklyReportingOwnerId: value }))} placeholder="Defaults to Project owner" searchPlaceholder="Search users…" /></div> : null}
               </div>
               <div>
@@ -1248,7 +1262,7 @@ export default function ProjectDetailPage({
                 <Label htmlFor="show-completed-todos" className="cursor-pointer text-xs text-muted-foreground">Show completed</Label>
               </div>
               <Button size="sm" variant="outline" onClick={() => setShowAddSection(value => !value)}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add Section
+                <Plus className="h-3.5 w-3.5 mr-1" /> {isRock ? "Add Milestone" : "Add Section"}
               </Button>
               <Button size="sm" variant="outline" onClick={() => openAddTodo(null)}>
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add Todo
@@ -1259,19 +1273,19 @@ export default function ProjectDetailPage({
           {showAddSection && (
             <form onSubmit={event => { event.preventDefault(); if (!sectionTitle.trim()) return; if (project.isRock && !sectionDueDate) { toast.error("Every Rock milestone section needs a due date"); return; } createSection.mutate({ projectId, title: sectionTitle.trim(), description: sectionDescription.trim() || null, dueDate: sectionDueDate ? new Date(sectionDueDate) : null }); }} className="grid gap-2 rounded-lg border border-primary/30 bg-card p-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end">
               <div className="min-w-0">
-                <Label htmlFor="project-todo-section-title" className="mb-1.5 block text-xs">Section Title *</Label>
-                <Input id="project-todo-section-title" value={sectionTitle} onChange={event => setSectionTitle(event.target.value)} placeholder="Such as Launch tasks" maxLength={128} required autoFocus />
+                <Label htmlFor="project-todo-section-title" className="mb-1.5 block text-xs">{sectionLabelTitle} Title *</Label>
+                <Input id="project-todo-section-title" value={sectionTitle} onChange={event => setSectionTitle(event.target.value)} placeholder={isRock ? "Such as Finalize launch plan" : "Such as Launch tasks"} maxLength={128} required autoFocus />
               </div>
               <div className="sm:w-40">
                 <Label htmlFor="project-todo-section-due-date" className="mb-1.5 block text-xs">Due Date {project.isRock ? "*" : "(optional)"}</Label>
                 <Input id="project-todo-section-due-date" type="date" value={sectionDueDate} onChange={event => setSectionDueDate(event.target.value)} required={project.isRock} />
               </div>
               <div className="sm:col-span-2">
-                <Label htmlFor="project-todo-section-description" className="mb-1.5 block text-xs">Description (optional)</Label>
-                <Textarea id="project-todo-section-description" value={sectionDescription} onChange={event => setSectionDescription(event.target.value)} placeholder={project.isRock ? "Include Depends on and External dependency details" : "Add context for this section"} rows={3} maxLength={8_000} />
+                <Label htmlFor="project-todo-section-description" className="mb-1.5 block text-xs">{isRock ? "Milestone Description (optional)" : "Description (optional)"}</Label>
+                <Textarea id="project-todo-section-description" value={sectionDescription} onChange={event => setSectionDescription(event.target.value)} placeholder={isRock ? "Describe the deliverable, dependencies, and external dependencies" : "Add context for this section"} rows={3} maxLength={8_000} />
               </div>
               <div className="flex shrink-0 gap-2">
-                <Button type="submit" size="sm" disabled={!sectionTitle.trim() || (project.isRock && !sectionDueDate) || createSection.isPending}>{createSection.isPending ? "Adding…" : "Add Section"}</Button>
+                <Button type="submit" size="sm" disabled={!sectionTitle.trim() || (project.isRock && !sectionDueDate) || createSection.isPending}>{createSection.isPending ? "Adding…" : isRock ? "Add Milestone" : "Add Section"}</Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddSection(false); setSectionTitle(""); setSectionDescription(""); setSectionDueDate(""); }}>Cancel</Button>
               </div>
             </form>
@@ -1283,11 +1297,11 @@ export default function ProjectDetailPage({
           {tasks.length === 0 && todoSections.length === 0 && !showAddTask ? (
             <div className="text-center py-10 text-muted-foreground">
               <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">No todos yet. Add a todo, or create a titled section to organize the work.</p>
+              <p className="text-sm">No todos yet. Add a To-Do, or create a titled {sectionLabel} to organize the work.</p>
             </div>
           ) : (
             <>
-              <p className="text-xs text-muted-foreground">Use <span className="font-medium text-foreground">Move to section</span> inside an expanded To-Do to choose its destination clearly. Drag handles are optional when you only want to fine-tune the order within the main list or a section.</p>
+              <p className="text-xs text-muted-foreground">Use <span className="font-medium text-foreground">Move to {sectionLabel}</span> inside an expanded To-Do to choose its destination clearly. Drag handles are optional when you only want to fine-tune the order within the main list or a {sectionLabel}.</p>
               <ProjectTodoBoard
                 sections={todoSections as any[]}
                 todos={topLevelTodos as any[]}
@@ -1317,8 +1331,7 @@ export default function ProjectDetailPage({
                 Board View
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Sections become board columns. Drag a To-Do from one column to
-                another to update its section.
+                {isRock ? "Milestones become board columns. Drag a To-Do from one column to another to update its milestone." : "Sections become board columns. Drag a To-Do from one column to another to update its section."}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -1351,7 +1364,7 @@ export default function ProjectDetailPage({
             <div className="text-center py-10 text-muted-foreground">
               <Columns3 className="h-8 w-8 mx-auto mb-2 opacity-30" />
               <p className="text-sm">
-                No board items yet. Add a To-Do or create a section in List
+                No board items yet. Add a To-Do or create a {sectionLabel} in List
                 View.
               </p>
             </div>
@@ -1369,6 +1382,7 @@ export default function ProjectDetailPage({
                 saveTodoLayout.mutateAsync({ projectId, layout })
               }
               saving={saveTodoLayout.isPending}
+              isRock={isRock}
             />
           )}
         </TabsContent>
@@ -1594,7 +1608,7 @@ export default function ProjectDetailPage({
                     <span className="text-sm">
                       <span className="font-medium">{a.actorName ?? "Unknown"}</span>
                       {" "}
-                      <span className="text-muted-foreground">{ACTION_LABELS[a.action] ?? a.action}</span>
+                      <span className="text-muted-foreground">{projectActivityLabel(a.action, isRock)}</span>
                       {a.detail && <span className="text-muted-foreground"> — {a.detail}</span>}
                     </span>
                   </div>

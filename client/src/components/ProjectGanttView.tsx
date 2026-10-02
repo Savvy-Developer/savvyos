@@ -251,6 +251,8 @@ export default function ProjectGanttView({
   );
 
   const allTasks = (project.tasks ?? []) as GanttTask[];
+  const sectionLabel = project.isRock ? "milestone" : "section";
+  const sectionLabelTitle = project.isRock ? "Milestone" : "Section";
   const unscheduledTasks = useMemo(
     () => allTasks.filter(task => !task.completed && !task.dueDate),
     [allTasks]
@@ -619,7 +621,7 @@ export default function ProjectGanttView({
             Plan active Project To-Dos from start to due date. Drag a bar to
             move its schedule, or select it to update dates, status, and
             assignee. Dependency arrows show work that must finish first.
-            Milestone diamonds label milestone-to-milestone dependencies.
+            {project.isRock ? " Milestone diamonds label milestone-to-milestone dependencies." : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -708,8 +710,8 @@ export default function ProjectGanttView({
 
       <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-amber-500" />
-          Milestone
+          <span className={cn("h-2.5 w-2.5", project.isRock ? "rotate-45 rounded-[2px] bg-amber-500" : "rounded-full bg-slate-500")} />
+          {sectionLabelTitle}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-violet-600" />
@@ -731,10 +733,10 @@ export default function ProjectGanttView({
           <GitBranch className="h-3.5 w-3.5 text-primary" />
           To-Do dependency
         </span>
-        <span className="inline-flex items-center gap-1.5">
+        {project.isRock ? <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rotate-45 rounded-[1px] border border-primary bg-primary/10" />
           Milestone dependency
-        </span>
+        </span> : null}
         <span className="ml-auto">
           {format(start, "MMM d, yyyy")} – {format(end, "MMM d, yyyy")}
         </span>
@@ -747,7 +749,7 @@ export default function ProjectGanttView({
       ) ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
           This project has no scheduled work yet. Add due dates to Project
-          To-Dos or milestones to build its timeline.
+          To-Dos or {sectionLabel}s to build its timeline.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
@@ -815,7 +817,7 @@ export default function ProjectGanttView({
               }
 
               if (row.type === "section") {
-                const isMilestone = !!row.section?.dueDate;
+                const isMilestone = project.isRock;
                 return (
                   <div
                     key={row.id}
@@ -857,8 +859,8 @@ export default function ProjectGanttView({
                       row.dueDate >= start &&
                       row.dueDate <= end ? (
                         <span
-                          title={`${row.title} milestone · due ${format(row.dueDate, "MMM d, yyyy")}${row.section?.predecessors?.length ? ` · depends on ${row.section.predecessors.map(predecessor => `${predecessor.projectTitle} / ${predecessor.title}`).join(", ")}` : ""}`}
-                          className="absolute top-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] border-2 border-card bg-amber-500 shadow-sm"
+                          title={`${row.title} ${sectionLabel} · due ${format(row.dueDate, "MMM d, yyyy")}${row.section?.predecessors?.length ? ` · depends on ${row.section.predecessors.map(predecessor => `${predecessor.projectTitle} / ${predecessor.title}`).join(", ")}` : ""}`}
+                          className={cn("absolute top-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 border-2 border-card shadow-sm", project.isRock ? "rotate-45 rounded-[2px] bg-amber-500" : "rounded-full bg-slate-500")}
                           style={{ left: markerPosition(row.dueDate) }}
                         />
                       ) : null}

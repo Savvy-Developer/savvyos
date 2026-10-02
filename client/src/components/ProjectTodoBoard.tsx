@@ -479,9 +479,11 @@ function SortableSectionRow({
 
 function RootTodoContainer({
   activeDrag,
+  isRock,
   children,
 }: {
   activeDrag: ProjectTodoDragData | null;
+  isRock: boolean;
   children: ReactNode;
 }) {
   const droppable = useDroppable({
@@ -507,7 +509,7 @@ function RootTodoContainer({
             droppable.isOver && "border-primary bg-primary/5 text-primary"
           )}
         >
-          Drop here to keep this todo outside a section
+          Drop here to keep this To-Do outside a {isRock ? "milestone" : "section"}
         </div>
       ) : null}
     </div>
@@ -749,7 +751,7 @@ export function ProjectTodoBoard({
       onDragEnd={handleDragEnd}
     >
       <SortableContext items={visibleRootIds} strategy={rectSortingStrategy}>
-        <RootTodoContainer activeDrag={activeDrag}>
+        <RootTodoContainer activeDrag={activeDrag} isRock={isRock}>
           {layout.map((item, rootIndex) => (
             <div className="relative" key={`${item.type}-${item.id}`}>
               <RootDropSlot index={rootIndex} position="before" activeDrag={activeDrag} />

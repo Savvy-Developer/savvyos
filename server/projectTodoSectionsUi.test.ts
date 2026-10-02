@@ -53,7 +53,9 @@ describe("project todo section UI", () => {
   });
 
   it("provides drag handles for section rows and top-level todos", () => {
-    expect(sectionComponent).toContain("Drag ${section.title} section");
+    expect(sectionComponent).toContain(
+      "Drag ${section.title} ${sectionLabel}"
+    );
     expect(sectionComponent).toContain("dragHandle.setActivatorNodeRef");
     expect(projectDetailPage).toContain("Drag ${task.title}");
     expect(projectDetailPage).toContain("dragHandle.setActivatorNodeRef");
@@ -84,7 +86,7 @@ describe("project todo section UI", () => {
   });
 
   it("requires a non-empty title for every created section", () => {
-    expect(projectDetailPage).toContain("Section Title *");
+    expect(projectDetailPage).toContain("{sectionLabelTitle} Title *");
     expect(projectDetailPage).toContain('id="project-todo-section-title"');
     expect(projectDetailPage).toContain(
       "disabled={!sectionTitle.trim() || (project.isRock && !sectionDueDate) || createSection.isPending}"
@@ -124,8 +126,8 @@ describe("project todo section UI", () => {
     expect(projectDetailPage).toContain(
       'utils.pm.projects.getById.invalidate({ id: projectId })'
     );
-    expect(sectionComponent).toContain(
-      'onUpdate({ title: section.title, description: section.description ?? null, dueDate: null })'
+    expect(sectionComponent).toMatch(
+      /onUpdate\(\{\s*title: section\.title,\s*description: section\.description \?\? null,\s*dueDate: null,?\s*\}\)/
     );
   });
 
@@ -193,7 +195,27 @@ describe("project todo section UI", () => {
   it("reveals the one authoritative title in the expanded Project to-do area", () => {
     expect(projectDetailPage).toContain('aria-label="Full To-Do title"');
     expect(projectDetailPage).toContain('"whitespace-pre-wrap break-words text-sm font-medium"');
-    expect(projectDetailPage).toContain("{task.title}</p> : null}");
+    expect(projectDetailPage).toMatch(/\{task\.title\}\s*<\/p>/);
+  });
+
+  it("uses milestone terminology only when a Project is a Rock", () => {
+    expect(projectDetailPage).toContain(
+      'const sectionLabel = isRock ? "milestone" : "section"'
+    );
+    expect(projectDetailPage).toContain('"Add Milestone" : "Add Section"');
+    expect(projectDetailPage).toContain(
+      "Each existing section becomes a milestone when this Project turns into a Rock"
+    );
+    expect(sectionComponent).toContain(
+      'const sectionLabelTitle = isRock ? "Milestone" : "Section"'
+    );
+    expect(todoBoard).toContain('isRock ? "milestone" : "section"');
+    expect(projectBoard).toContain(
+      'const sectionLabel = isRock ? "milestone" : "section"'
+    );
+    expect(projectGantt).toContain(
+      'const sectionLabel = project.isRock ? "milestone" : "section"'
+    );
   });
 
   it("makes the production schema ready before serving the new workflow", () => {

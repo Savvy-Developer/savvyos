@@ -66,6 +66,8 @@ export function ProjectTodoSection({
   const [description, setDescription] = useState(section.description ?? "");
   const dueDateValue = section.dueDate ? new Date(section.dueDate).toISOString().slice(0, 10) : "";
   const [dueDate, setDueDate] = useState(dueDateValue);
+  const sectionLabel = isRock ? "milestone" : "section";
+  const sectionLabelTitle = isRock ? "Milestone" : "Section";
   const headerDrop = useDroppable({
     id: `section-header-${section.id}`,
     data: { type: "section-header", sectionId: section.id },
@@ -116,8 +118,8 @@ export function ProjectTodoSection({
           {...dragHandle.attributes}
           {...dragHandle.listeners}
           className="flex h-7 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 active:cursor-grabbing"
-          aria-label={`Drag ${section.title} section`}
-          title="Drag section"
+          aria-label={`Drag ${section.title} ${sectionLabel}`}
+          title={`Drag ${sectionLabel}`}
         >
           <GripVertical className="h-4 w-4" />
         </button>
@@ -134,16 +136,16 @@ export function ProjectTodoSection({
                 className="h-7 max-w-sm bg-background text-sm font-semibold"
                 autoFocus
               />
-              <Input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className="h-7 w-32 shrink-0 bg-background text-xs" aria-label="Section due date" required={isRock} />
+              <Input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className="h-7 w-32 shrink-0 bg-background text-xs" aria-label={`${sectionLabelTitle} due date`} required={isRock} />
             </div>
-            <Textarea value={description} onChange={event => setDescription(event.target.value)} rows={3} maxLength={8_000} className="bg-background text-sm" placeholder={isRock ? "Milestone description, dependencies, and external dependencies" : "Optional section description"} aria-label="Section description" />
+            <Textarea value={description} onChange={event => setDescription(event.target.value)} rows={3} maxLength={8_000} className="bg-background text-sm" placeholder={isRock ? "Milestone description, dependencies, and external dependencies" : "Optional section description"} aria-label={`${sectionLabelTitle} description`} />
           </div>
         ) : (
           <CollapsibleTrigger asChild>
             <button
               type="button"
               className="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              aria-label={`${expanded ? "Collapse" : "Expand"} ${section.title} section`}
+              aria-label={`${expanded ? "Collapse" : "Expand"} ${section.title} ${sectionLabel}`}
             >
               <ChevronDown
                 className={cn(
@@ -179,8 +181,8 @@ export function ProjectTodoSection({
                 className="h-7 w-7"
                 onClick={saveSection}
                 disabled={!title.trim() || (isRock && !dueDate)}
-                aria-label="Save section"
-                title="Save section"
+                aria-label={`Save ${sectionLabel}`}
+                title={`Save ${sectionLabel}`}
               >
                 <Check className="h-3.5 w-3.5" />
               </Button>
@@ -190,7 +192,7 @@ export function ProjectTodoSection({
                 variant="ghost"
                 className="h-7 w-7"
                 onClick={cancelEditing}
-                aria-label="Cancel section title edit"
+                aria-label={`Cancel ${sectionLabel} title edit`}
                 title="Cancel"
               >
                 <X className="h-3.5 w-3.5" />
@@ -206,7 +208,7 @@ export function ProjectTodoSection({
                 className="h-7 w-7"
                 onClick={() => setEditing(true)}
                 aria-label={`Edit ${section.title}`}
-                title="Edit section"
+                title={`Edit ${sectionLabel}`}
               >
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
@@ -217,7 +219,7 @@ export function ProjectTodoSection({
                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
                 onClick={onDelete}
                 aria-label={`Delete ${section.title}`}
-                title="Delete section"
+                title={`Delete ${sectionLabel}`}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
@@ -245,8 +247,8 @@ export function ProjectTodoSection({
         ) : (
           <p className="px-3 py-2 text-xs text-muted-foreground">
             {todoCount > 0
-              ? "No open todos in this section. Turn on Show completed to view them."
-              : "No todos in this section yet."}
+              ? `No open todos in this ${sectionLabel}. Turn on Show completed to view them.`
+              : `No todos in this ${sectionLabel} yet.`}
           </p>
         )}
       </CollapsibleContent>
