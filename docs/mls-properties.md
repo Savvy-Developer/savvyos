@@ -105,6 +105,8 @@ Provider notes and source links are in `server/mls/adapters/*.ts` headers and th
 
 Built for millions of listings on the existing MySQL: payloads are gzipped, unchanged records are skipped by hash, ingestion paging is keyset-based, search and map queries use composite indexes, and the map clusters server-side above 20 pins. Watch these as volume grows:
 
+- Active/Newest searches load ordered IDs first, then hydrate only the selected 12 cards. For a broad map viewport with no other selective filter, a chronological-index probe has an 800-ms SQL deadline and falls back to the geographic index for sparse/empty areas. Map view preloads the first list page after the viewport settles. Resizing between Map and Split preserves the selected search area; only an actual pan/zoom or explicit area action changes the List query.
+- Exact totals and page counts run through a separate licensed query **after** the first cards load. When no shape is drawn, the map's exact count for the same viewport can be reused immediately. Until an uncached count finishes, show "calculating total" rather than blocking cards or inventing a number. Counts are browser-cached for 30 seconds and may change as new listings arrive. Avoid expecting arbitrary MySQL radius/polygon counts over millions of rows to be instant.
 - Past roughly 5 to 10 million listings, move free-text and geo search to a dedicated index (OpenSearch or similar) fed from `mls_listings`.
 - Raw records are the largest table. Consider a separate database or object storage for `mls_raw_records` once it passes a few hundred GB.
 - Run one worker per provider credential lane before adding more. Limits are per credential, so extra workers on the same credential do not go faster.

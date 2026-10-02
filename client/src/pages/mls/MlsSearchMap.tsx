@@ -26,8 +26,9 @@ type Props = {
   onOpen: (id: number) => void;
   onPreview: (id: number) => void;
   onAreaChange: (area: MapArea | null) => void;
-  onViewportChange: (viewport: MapViewport) => void;
+  onViewportChange: (viewport: MapViewport, reason: "move" | "resize") => void;
   onSearchArea: (viewport: MapViewport) => void;
+  onVisibleTotal: (total: number, bounds: MapViewport["bounds"]) => void;
   initialCenter: { lat: number; lng: number };
   initialZoom: number;
   className?: string;
@@ -43,27 +44,32 @@ function viewportOf(map: L.Map): MapViewport {
   };
 }
 
-function ViewportReporter({ onChange }: { onChange: (viewport: MapViewport) => void }) {
+function ViewportReporter({ onChange }: { onChange: (viewport: MapViewport, reason: "move" | "resize") => void }) {
   const callback = useRef(onChange);
   const previous = useRef("");
+  const resizing = useRef(false);
   callback.current = onChange;
-  const map = useMapEvents({ moveend: () => report(), zoomend: () => report() });
-  const report = () => {
+  const map = useMapEvents({ moveend: () => report(resizing.current ? "resize" : "move"), zoomend: () => report(resizing.current ? "resize" : "move") });
+  const report = (reason: "move" | "resize") => {
     const next = viewportOf(map);
     const key = [next.zoom, ...Object.values(next.bounds).map(value => value.toFixed(6))].join(":");
     if (key !== previous.current) {
       previous.current = key;
-      callback.current(next);
+      callback.current(next, reason);
     }
   };
   useEffect(() => {
     let frame: number | undefined;
+    let resetFrame: number | undefined;
     const resize = () => {
       if (frame !== undefined) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         frame = undefined;
+        resizing.current = true;
         map.invalidateSize({ pan: false });
-        report();
+        report("resize");
+        if (resetFrame !== undefined) cancelAnimationFrame(resetFrame);
+        resetFrame = requestAnimationFrame(() => { resizing.current = false; resetFrame = undefined; });
       });
     };
     const observer = new ResizeObserver(resize);
@@ -72,6 +78,8 @@ function ViewportReporter({ onChange }: { onChange: (viewport: MapViewport) => v
     return () => {
       observer.disconnect();
       if (frame !== undefined) cancelAnimationFrame(frame);
+      if (resetFrame !== undefined) cancelAnimationFrame(resetFrame);
+      resizing.current = false;
     };
   }, [map]); // Split/Map switches and responsive layout can resize the same Leaflet instance.
   return null;
@@ -190,20 +198,30 @@ function ClusterPin({ cluster }: { cluster: { lat: number; lng: number; count: n
 }
 
 /** Licensed admin map. Only human-visible OSM tiles load, with permanent attribution. */
-export function MlsSearchMap({ filters, area, searchAsMove, selectedId, hoveredId, onOpen, onPreview, onAreaChange, onViewportChange, onSearchArea, initialCenter, initialZoom, className }: Props) {
+export function MlsSearchMap({ filters, area, searchAsMove, selectedId, hoveredId, onOpen, onPreview, onAreaChange, onViewportChange, onSearchArea, onVisibleTotal, initialCenter, initialZoom, className }: Props) {
   const [viewport, setViewport] = useState<MapViewport | null>(null);
   const [queryViewport, setQueryViewport] = useState<MapViewport | null>(null);
   const [drawError, setDrawError] = useState<string | null>(null);
+  const totalCallback = useRef(onVisibleTotal);
+  totalCallback.current = onVisibleTotal;
   const query = trpc.mlsProperties.mapPoints.useQuery(
     { filters: { ...filters, area: area ?? undefined } as any, bounds: queryViewport?.bounds ?? { north: 0, south: 0, east: 0, west: 0 }, zoom: queryViewport?.zoom ?? initialZoom },
     { enabled: !!queryViewport, placeholderData: previous => previous, staleTime: 30_000, refetchOnWindowFocus: false }
   );
-  const handleViewport = (next: MapViewport) => {
+  const handleViewport = (next: MapViewport, reason: "move" | "resize") => {
     setViewport(next);
     if (searchAsMove) setQueryViewport(next);
-    onViewportChange(next);
+    onViewportChange(next, reason);
   };
   useEffect(() => { if (searchAsMove && viewport) setQueryViewport(viewport); }, [searchAsMove, viewport]);
+  useEffect(() => {
+    // Map's grouped scan already gives an exact total for these same bounds.
+    // A drawn circle/polygon can extend beyond the viewport, so it must use
+    // the independent exact count instead of this visible-only count.
+    if (!area && queryViewport && query.data && !query.isPlaceholderData && !query.isFetching) {
+      totalCallback.current(query.data.total, queryViewport.bounds);
+    }
+  }, [area, queryViewport, query.data, query.isPlaceholderData, query.isFetching]);
   useEffect(() => { if (!drawError) return; const timer = setTimeout(() => setDrawError(null), 5000); return () => clearTimeout(timer); }, [drawError]);
   const needsManualSearch = !searchAsMove && viewport && JSON.stringify(viewport.bounds) !== JSON.stringify(queryViewport?.bounds);
   const areaLabel = area?.kind === "circle" ? `${(area.radiusMeters / 1609.344).toFixed(1)} mi radius` : area ? "Polygon search" : null;

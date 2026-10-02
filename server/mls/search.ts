@@ -236,6 +236,34 @@ export function useNewestFeedIndex(filters: SearchFilters, sort: (typeof SEARCH_
   return !Object.entries(filters).some(([key, value]) => !["statuses", "listingIntent"].includes(key) && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
 }
 
+/** A broad viewport can scan recent Active IDs until 13 match, avoiding a
+ * geo-index scan + filesort of thousands of wide rows. Cap that probe because
+ * an empty or distant viewport could otherwise scan the entire feed. */
+export function useBoundedNewestViewportIndex(filters: SearchFilters, sort: (typeof SEARCH_SORTS)[number], page: number) {
+  if (sort !== "newest" || page > 10 || filters.includeRemoved || !filters.bounds || filters.area ||
+      filters.statuses?.length !== 1 || filters.statuses[0] !== "active") return false;
+  return !Object.entries(filters).some(([key, value]) =>
+    !["statuses", "listingIntent", "bounds"].includes(key) && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
+}
+
+function timedOut(error: unknown): boolean {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const cause = current as { code?: string; errno?: number; cause?: unknown };
+    if (cause.code === "ER_QUERY_TIMEOUT" || cause.errno === 3024) return true;
+    current = cause.cause;
+  }
+  return false;
+}
+
+/** Exact count is a separate request: never make the first page await it. */
+export async function countListings(db: Db, filters: SearchFilters): Promise<number> {
+  const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings).where(searchConditions(filters));
+  return Number(total);
+}
+
 export async function searchListings(
   db: Db,
   input: { filters: SearchFilters; sort: (typeof SEARCH_SORTS)[number]; page: number; pageSize: number; countMode?: "exact" | "none" }
@@ -247,19 +275,38 @@ export async function searchListings(
     : useRecentFeedIndex(input.filters, input.sort, input.page)
       ? { forceIndex: ["mls_listings_modified_idx"] }
       : undefined;
-  const rows = await db
-    .select(listingCardColumns)
-    .from(mlsListings, indexHint)
-    .innerJoin(mlsSources, eq(mlsSources.id, mlsListings.sourceId))
+  const fetchIds = (bounded: boolean, geoFallback = false) => db
+    .select({ id: bounded ? sql<number>`/*+ MAX_EXECUTION_TIME(800) */ ${mlsListings.id}` : mlsListings.id })
+    .from(mlsListings, bounded ? { forceIndex: ["mls_listings_status_entry_idx"] } : geoFallback ? { forceIndex: ["mls_listings_status_geo_idx"] } : indexHint)
     .where(where)
     .orderBy(...sortOrder(input.sort))
     .limit(input.pageSize + (input.countMode === "none" ? 1 : 0))
     .offset(offset);
-  if (input.countMode === "none") {
-    return { items: rows.slice(0, input.pageSize).map(toCard), total: null, hasMore: rows.length > input.pageSize, page: input.page, pageSize: input.pageSize };
+  let ids: Awaited<ReturnType<typeof fetchIds>>;
+  if (useBoundedNewestViewportIndex(input.filters, input.sort, input.page)) {
+    try {
+      ids = await fetchIds(true);
+    } catch (error) {
+      if (!timedOut(error)) throw error;
+      ids = await fetchIds(false, true);
+    }
+  } else {
+    ids = await fetchIds(false);
   }
-  const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(mlsListings).where(where);
-  return { items: rows.map(toCard), total: Number(total), hasMore: offset + rows.length < Number(total), page: input.page, pageSize: input.pageSize };
+  const pageIds = ids.slice(0, input.pageSize).map(row => Number(row.id));
+  // Only hydrate the chosen page. Recheck licensing in case a feed was revoked
+  // between the ID query and this read; never expose its former card data.
+  const rows = pageIds.length ? await db.select(listingCardColumns)
+    .from(mlsListings)
+    .innerJoin(mlsSources, eq(mlsSources.id, mlsListings.sourceId))
+    .where(and(where, inArray(mlsListings.id, pageIds))) : [];
+  const byId = new Map(rows.map(row => [Number(row.id), row]));
+  const items = pageIds.flatMap(id => { const row = byId.get(id); return row ? [toCard(row)] : []; });
+  if (input.countMode === "none") {
+    return { items, total: null, hasMore: ids.length > input.pageSize, page: input.page, pageSize: input.pageSize };
+  }
+  const total = await countListings(db, input.filters);
+  return { items, total, hasMore: offset + ids.length < total, page: input.page, pageSize: input.pageSize };
 }
 
 /**
