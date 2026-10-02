@@ -724,7 +724,7 @@ export default function MlsFeedsPage() {
                         <div className="font-medium">{source.name}</div>
                         <div className="text-[11px] text-muted-foreground">{source.originatingSystemName ? `OSN ${source.originatingSystemName}` : ""}{source.keyPrefix ? ` · prefix ${source.keyPrefix}` : ""}</div>
                       </TableCell>
-                      <TableCell className="max-w-[240px] text-xs">{source.territory}</TableCell>
+                      <TableCell className="min-w-[140px] max-w-[240px] whitespace-normal break-words text-xs [overflow-wrap:anywhere]">{source.territory}</TableCell>
                       <TableCell className="text-xs">{source.routeLabel}<div className="max-w-[220px] truncate text-[11px] text-muted-foreground" title={source.routeNote ?? ""}>{source.routeNote}</div></TableCell>
                       <TableCell><span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${ONBOARDING_STYLES[source.onboardingStatus] ?? ""}`}>{source.onboardingStatus}</span></TableCell>
                       <TableCell className="text-xs">

@@ -370,6 +370,15 @@ describe("search filters", () => {
     expect(query.params).toContain("Main\\_St\\%%");
   });
 
+  it("keeps exact MLS numbers on the indexed source/number path, not an address scan", () => {
+    const number = render({ q: "26063536", sourceIds: [2] })!;
+    expect(number.sql).toContain("`listingNumber` = ?");
+    expect(number.sql).not.toContain("`unparsedAddress` like ?");
+    expect(number.params).toContain("26063536");
+    const address = render({ q: "3949 Utah", sourceIds: [2] })!;
+    expect(address.params).toContain("3949 Utah%");
+  });
+
   it("parameterizes source facets and limits an indexed circle before measuring distance", () => {
     const query = render({ sourceIds: [1], listingIntent: "sale", propertySubTypes: ["Single Family"], counties: ["Buncombe"], area: { kind: "circle", center: { lat: 35.59, lng: -82.55 }, radiusMeters: 1609 } })!;
     expect(query.sql).toContain("ST_Distance_Sphere");

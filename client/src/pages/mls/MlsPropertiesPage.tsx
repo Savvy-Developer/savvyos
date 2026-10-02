@@ -14,6 +14,7 @@ import { usePersistentState } from "@/hooks/usePersistentState";
 import { trpc } from "@/lib/trpc";
 import type { MapArea, MapViewport } from "./MlsSearchMap";
 import { addressLine, cityLine, displayPrice, formatNumber, formatPrice, statusStyle, type MlsListingCard } from "./mlsFormat";
+import { formatNumericFilter, parseNumericFilter, sanitizeNumericInput, type NumericKind } from "./filterNumbers";
 
 // Neither map engine loads on the main List view. Leaflet remains a safe fallback.
 const MlsLeafletMap = lazy(() => import("./MlsSearchMap").then(module => ({ default: module.MlsSearchMap })));
@@ -62,6 +63,15 @@ const SORT_LABELS: Record<string, string> = {
 const DEFAULT_CENTER = { lat: 35.5951, lng: -82.5515 }; // Asheville
 const DEFAULT_FILTERS: Filters = { statuses: ["active"], listingIntent: "sale" };
 const PAGE_SIZE = 12;
+const NUMERIC_LIMITS: Partial<Record<keyof Filters, { min: number; max: number }>> = {
+  minPrice: { min: 0, max: 1_000_000_000 }, maxPrice: { min: 0, max: 1_000_000_000 },
+  minBeds: { min: 0, max: 30 }, maxBeds: { min: 0, max: 30 },
+  minBaths: { min: 0, max: 40 }, maxBaths: { min: 0, max: 40 },
+  minSqft: { min: 0, max: 10_000_000 }, maxSqft: { min: 0, max: 10_000_000 },
+  minAcres: { min: 0, max: 1_000_000 }, maxAcres: { min: 0, max: 1_000_000 },
+  minYearBuilt: { min: 1700, max: 2100 }, maxYearBuilt: { min: 1700, max: 2100 },
+  maxDaysOnMarket: { min: 0, max: 3650 },
+};
 
 function useDebounced<T>(value: T, delay = 350) {
   const [debounced, setDebounced] = useState(value);
@@ -70,13 +80,6 @@ function useDebounced<T>(value: T, delay = 350) {
     return () => clearTimeout(timer);
   }, [value, delay]);
   return debounced;
-}
-
-function numberOrUndefined(value: string) {
-  const cleaned = value.replace(/[^0-9.]/g, "");
-  if (!cleaned) return undefined;
-  const parsed = Number(cleaned);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function clean(filters: Filters): Filters {
@@ -89,8 +92,29 @@ function clean(filters: Filters): Filters {
   return out as Filters;
 }
 
-function NumberField({ label, value, onChange, placeholder }: { label: string; value?: number; onChange: (value: number | undefined) => void; placeholder?: string }) {
-  return <div className="min-w-0"><Label className="mb-1 block text-xs text-slate-600">{label}</Label><Input key={`${label}-${value ?? ""}`} inputMode="decimal" defaultValue={value ?? ""} onBlur={event => onChange(numberOrUndefined(event.target.value))} placeholder={placeholder} className="h-9" /></div>;
+function NumberField({ label, value, onChange, placeholder, kind = "integer", min = 0, max }: {
+  label: string; value?: number; onChange: (value: number | undefined) => void;
+  placeholder?: string; kind?: NumericKind; min?: number; max: number;
+}) {
+  const [draft, setDraft] = useState(() => formatNumericFilter(value, kind));
+  const [error, setError] = useState("");
+  useEffect(() => { setDraft(formatNumericFilter(value, kind)); setError(""); }, [value, kind]);
+  const commit = () => {
+    const result = parseNumericFilter(draft, kind, min, max);
+    if (result.error) { setError(result.error); return; }
+    setError("");
+    setDraft(formatNumericFilter(result.value, kind));
+    if (result.value !== value) onChange(result.value);
+  };
+  return <div className="min-w-0">
+    <Label className="mb-1 block text-xs text-slate-600">{label}</Label>
+    <Input type="text" inputMode={kind === "integer" ? "numeric" : "decimal"} autoComplete="off" aria-label={label} aria-invalid={!!error}
+      value={draft} onFocus={() => setDraft(value === undefined ? "" : String(value))}
+      onChange={event => { setDraft(sanitizeNumericInput(event.target.value, kind)); setError(""); }}
+      onBlur={commit} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }}
+      placeholder={placeholder} className="h-9" />
+    {error ? <p role="alert" className="mt-1 text-xs text-red-700">{error}</p> : null}
+  </div>;
 }
 
 function ListingCard({ listing, selected, onHover, onOpen, priority = false, split = false }: {
@@ -166,6 +190,21 @@ export default function MlsPropertiesPage() {
   const [queryText, setQueryText] = useState(filters.q ?? "");
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  useEffect(() => {
+    setFilters(current => {
+      let invalid = false;
+      const next = { ...current };
+      for (const [key, limits] of Object.entries(NUMERIC_LIMITS) as [keyof Filters, { min: number; max: number }][]) {
+        const value = current[key];
+        if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < limits.min || value > limits.max)) {
+          delete next[key];
+          invalid = true;
+        }
+      }
+      return invalid ? next : current;
+    });
+  }, []); // Normalize previously saved filters once; changing them on every render would loop.
 
   const debouncedText = useDebounced(queryText);
   useEffect(() => {
@@ -261,8 +300,9 @@ export default function MlsPropertiesPage() {
         <MultiSelect className="w-[155px] sm:w-[190px]" options={(options.data?.statuses ?? []).map(status => ({ value: status.value, label: status.label }))} value={filters.statuses ?? []} onValueChange={value => update({ statuses: value })} placeholder="Any status" maxDisplay={1} />
         <Popover>
           <PopoverTrigger asChild><Button variant="outline" size="sm" className="h-9"><SlidersHorizontal className="mr-1.5 h-4 w-4" />Filters{activeCount ? ` (${activeCount})` : ""}</Button></PopoverTrigger>
-          <PopoverContent className="z-[2200] max-h-[80vh] w-[430px] max-w-[calc(100vw-2rem)] space-y-4 overflow-y-auto p-4" align="start">
-            <div className="flex items-center justify-between"><strong className="text-base">Refine your search</strong><Button variant="ghost" size="sm" onClick={clearAll}>Reset</Button></div>
+          <PopoverContent className="z-[2200] flex min-h-0 w-[430px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden p-0" style={{ maxHeight: "min(75dvh, var(--radix-popover-content-available-height, 75dvh))" }} align="start" sideOffset={8}>
+            <div className="flex shrink-0 items-center justify-between border-b bg-white px-4 py-2"><strong className="text-base">Refine your search</strong><Button variant="ghost" size="sm" onClick={clearAll}>Reset</Button></div>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 pb-4" role="region" aria-label="MLS filters" tabIndex={0}>
             <section className="space-y-2 border-t pt-3">
               <h3 className="text-sm font-semibold">MLS and location</h3>
               <div><Label className="mb-1 block text-xs text-slate-600">MLS</Label><MultiSelect options={sourceOptions} value={(filters.sourceIds ?? []).map(String)} onValueChange={changeSources} placeholder="All licensed MLSs" maxDisplay={1} popoverClassName="z-[2400]" /></div>
@@ -277,21 +317,21 @@ export default function MlsPropertiesPage() {
             <section className="space-y-2 border-t pt-3">
               <h3 className="text-sm font-semibold">Price and property</h3>
               <div className="grid grid-cols-2 gap-2">
-                <NumberField label="Min price" value={filters.minPrice} onChange={value => update({ minPrice: value })} placeholder="$" />
-                <NumberField label="Max price" value={filters.maxPrice} onChange={value => update({ maxPrice: value })} placeholder="$" />
+                <NumberField label="Min price" value={filters.minPrice} onChange={value => update({ minPrice: value })} kind="currency" max={1_000_000_000} placeholder="$0.00" />
+                <NumberField label="Max price" value={filters.maxPrice} onChange={value => update({ maxPrice: value })} kind="currency" max={1_000_000_000} placeholder="$0.00" />
               </div>
               <div><Label className="mb-1 block text-xs text-slate-600">Property type</Label><MultiSelect options={propertyTypes.map(type => ({ value: type.value, label: type.label }))} value={filters.propertyTypes ?? []} onValueChange={value => update({ propertyTypes: value })} placeholder="Any property type" maxDisplay={1} popoverClassName="z-[2400]" /></div>
               <div className="grid grid-cols-2 gap-2">
-                <NumberField label="Min beds" value={filters.minBeds} onChange={value => update({ minBeds: value })} />
-                <NumberField label="Max beds" value={filters.maxBeds} onChange={value => update({ maxBeds: value })} />
-                <NumberField label="Min baths" value={filters.minBaths} onChange={value => update({ minBaths: value })} />
-                <NumberField label="Max baths" value={filters.maxBaths} onChange={value => update({ maxBaths: value })} />
-                <NumberField label="Min sqft" value={filters.minSqft} onChange={value => update({ minSqft: value })} />
-                <NumberField label="Max sqft" value={filters.maxSqft} onChange={value => update({ maxSqft: value })} />
-                <NumberField label="Min acres" value={filters.minAcres} onChange={value => update({ minAcres: value })} />
-                <NumberField label="Max acres" value={filters.maxAcres} onChange={value => update({ maxAcres: value })} />
-                <NumberField label="Built after" value={filters.minYearBuilt} onChange={value => update({ minYearBuilt: value })} />
-                <NumberField label="Built before" value={filters.maxYearBuilt} onChange={value => update({ maxYearBuilt: value })} />
+                <NumberField label="Min beds" value={filters.minBeds} onChange={value => update({ minBeds: value })} max={30} />
+                <NumberField label="Max beds" value={filters.maxBeds} onChange={value => update({ maxBeds: value })} max={30} />
+                <NumberField label="Min baths" value={filters.minBaths} onChange={value => update({ minBaths: value })} kind="decimal" max={40} />
+                <NumberField label="Max baths" value={filters.maxBaths} onChange={value => update({ maxBaths: value })} kind="decimal" max={40} />
+                <NumberField label="Min sqft" value={filters.minSqft} onChange={value => update({ minSqft: value })} max={10_000_000} />
+                <NumberField label="Max sqft" value={filters.maxSqft} onChange={value => update({ maxSqft: value })} max={10_000_000} />
+                <NumberField label="Min acres" value={filters.minAcres} onChange={value => update({ minAcres: value })} kind="decimal" max={1_000_000} />
+                <NumberField label="Max acres" value={filters.maxAcres} onChange={value => update({ maxAcres: value })} kind="decimal" max={1_000_000} />
+                <NumberField label="Built after" value={filters.minYearBuilt} onChange={value => update({ minYearBuilt: value })} min={1700} max={2100} />
+                <NumberField label="Built before" value={filters.maxYearBuilt} onChange={value => update({ maxYearBuilt: value })} min={1700} max={2100} />
               </div>
             </section>
             <section className="space-y-2 border-t pt-3">
@@ -299,7 +339,7 @@ export default function MlsPropertiesPage() {
               <div className="grid grid-cols-2 gap-2">
                 <div><Label className="mb-1 block text-xs">Garage spaces</Label><Select value={String(filters.minGarage ?? "any")} onValueChange={value => update({ minGarage: value === "any" ? undefined : Number(value) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent className="z-[2400]"><SelectItem value="any">Any</SelectItem>{[1, 2, 3, 4].map(count => <SelectItem key={count} value={String(count)}>{count}+</SelectItem>)}</SelectContent></Select></div>
                 <div><Label className="mb-1 block text-xs">Listed within</Label><Select value={String(filters.listedWithinDays ?? "any")} onValueChange={value => update({ listedWithinDays: value === "any" ? undefined : Number(value) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent className="z-[2400]"><SelectItem value="any">Any time</SelectItem>{[1, 3, 7, 14, 30, 90].map(days => <SelectItem key={days} value={String(days)}>{days} days</SelectItem>)}</SelectContent></Select></div>
-                <NumberField label="Max days on market" value={filters.maxDaysOnMarket} onChange={value => update({ maxDaysOnMarket: value })} />
+                <NumberField label="Max days on market" value={filters.maxDaysOnMarket} onChange={value => update({ maxDaysOnMarket: value })} max={3650} />
                 <div><Label className="mb-1 block text-xs">Sold within</Label><Select value={String(filters.closedWithinDays ?? "any")} onValueChange={value => update({ closedWithinDays: value === "any" ? undefined : Number(value), statuses: value === "any" ? filters.statuses : ["closed"] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent className="z-[2400]"><SelectItem value="any">Any time</SelectItem>{[30, 90, 180, 365, 730].map(days => <SelectItem key={days} value={String(days)}>{days} days</SelectItem>)}</SelectContent></Select></div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -309,6 +349,7 @@ export default function MlsPropertiesPage() {
                 <label className="flex items-center gap-2"><Checkbox checked={!!filters.hasPhotos} onCheckedChange={value => update({ hasPhotos: value === true || undefined })} />Photo available</label>
               </div>
             </section>
+            </div>
           </PopoverContent>
         </Popover>
         <Select value={sort} onValueChange={value => { setSort(value); setPage(1); }}>
