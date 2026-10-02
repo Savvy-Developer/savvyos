@@ -16,7 +16,7 @@ import { format, isPast, isToday, addDays } from "date-fns";
 import {
   Plus, Search,
   CheckCircle2, Clock, TrendingUp, AlertTriangle,
-  User, Layers, Trash2, Flag, X, GripVertical, ListOrdered, ClipboardList, CalendarClock,
+  User, Layers, Trash2, Flag, X, GripVertical, ListOrdered, ClipboardList, CalendarClock, Archive,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -53,6 +53,7 @@ interface Project {
   rockQuarter: string | null;
   definitionOfDone: string | null;
   rockStatus: "on_track" | "at_risk" | "off_track" | "done" | "dropped";
+  archivedAt: Date | null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -494,7 +495,7 @@ export default function ProjectsPage() {
               <span className="ml-2 inline-flex items-center gap-1"><span className="font-semibold text-black">{personalTodoStats?.active ?? 0}</span><span className="font-semibold text-red-600">{personalTodoStats?.overdue ?? 0}</span></span>
             </Button>
             <ProjectNotificationsPanel />
-            {canToggleAllProjects && (
+            {canToggleAllProjects && !showArchived && (
               <Button variant="outline" size="sm" aria-pressed={showAll} onClick={() => setShowAll((current) => !current)}>
                 {showAll ? "Show Mine" : "Show All"}
               </Button>
@@ -531,7 +532,12 @@ export default function ProjectsPage() {
       {workspace === "projects" ? <>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+      {showArchived ? (
+        <div className="mb-6 flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground" role="status">
+          <Archive className="mt-0.5 h-4 w-4 shrink-0" />
+          <p><span className="font-medium text-foreground">My Archived Projects</span> shows only Projects you own. Restore a Project from its detail page when it needs to become active again.</p>
+        </div>
+      ) : <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
         {[
           { label: "Total", value: stats.total, cls: "text-foreground" },
           { label: "In Progress", value: stats.inProgress, cls: "text-blue-600" },
@@ -544,7 +550,7 @@ export default function ProjectsPage() {
             <p className="text-xs text-muted-foreground">{s.label}</p>
           </div>
         ))}
-      </div>
+      </div>}
 
       {/* Toolbar */}
       <div className="flex flex-col gap-3 mb-5">
@@ -563,14 +569,28 @@ export default function ProjectsPage() {
             variant={isArranging ? "secondary" : "outline"}
             size="sm"
             className="w-full shrink-0 sm:w-auto"
-            disabled={hasFilters}
-            title={hasFilters ? "Clear filters to arrange the full project list" : "Arrange the project list"}
+            disabled={hasFilters || showArchived}
+            title={showArchived ? "Archived Projects cannot be arranged" : hasFilters ? "Clear filters to arrange the full project list" : "Arrange the project list"}
             onClick={() => {
               setIsArranging(current => !current);
             }}
           >
             <ListOrdered className="h-4 w-4 mr-1" />
             {isArranging ? "Done" : "Arrange"}
+          </Button>
+          <Button
+            variant={showArchived ? "secondary" : "outline"}
+            size="sm"
+            className="w-full shrink-0 sm:w-auto"
+            aria-pressed={showArchived}
+            onClick={() => {
+              setShowArchived(current => !current);
+              setShowAll(false);
+              setIsArranging(false);
+            }}
+          >
+            <Archive className="mr-1 h-4 w-4" />
+            {showArchived ? "Active Projects" : "My Archived Projects"}
           </Button>
         </div>
 
@@ -662,13 +682,15 @@ export default function ProjectsPage() {
       {filtered.length === 0 && (
         <div className="text-center py-16 text-muted-foreground">
           <Layers className="h-10 w-10 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">No projects found</p>
+          <p className="font-medium">{showArchived ? "No archived Projects found" : "No projects found"}</p>
           <p className="text-sm mt-1">
-            {hasFilters
+            {showArchived
+              ? "Archived Projects you own will appear here."
+              : hasFilters
               ? "Try adjusting your filters"
               : "Create your first project to get started"}
           </p>
-          {!hasFilters && (
+          {!showArchived && !hasFilters && (
             <Button className="mt-4" size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-1" /> New Project
             </Button>
@@ -815,7 +837,9 @@ function ProjectListRow({ project }: { project: Project }) {
   const [, navigate] = useLocation();
   const statusCfg = STATUS_CONFIG[project.status];
   const priorityCfg = PRIORITY_CONFIG[project.priority];
-  const dueDateInfo = getDueDateLabel(project.dueDate, project.isOngoing);
+  const dueDateInfo = project.archivedAt
+    ? { label: `Archived ${format(new Date(project.archivedAt), "MMM d, yyyy")}`, cls: "text-muted-foreground" }
+    : getDueDateLabel(project.dueDate, project.isOngoing);
   const progress = project.taskTotal > 0
     ? Math.round((project.taskCompleted / project.taskTotal) * 100)
     : 0;
@@ -831,6 +855,7 @@ function ProjectListRow({ project }: { project: Project }) {
         <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
           <span className="min-w-0 basis-full text-sm font-medium text-foreground transition-colors group-hover:text-primary sm:basis-auto sm:flex-1">{project.title}</span>
           {project.isRock ? <span className="inline-flex shrink-0 items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary"><Flag className="h-3 w-3" />Rock{project.rockQuarter ? ` · ${project.rockQuarter}` : ""}</span> : null}
+          {project.archivedAt ? <span className="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground"><Archive className="h-3 w-3" />Archived</span> : null}
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">{project.description}</p>
       </div>

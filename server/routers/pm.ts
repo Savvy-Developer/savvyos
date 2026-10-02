@@ -272,13 +272,20 @@ export const pmRouter = router({
           .leftJoin(users, eq(pmProjects.ownerId, users.id))
           .orderBy(asc(pmProjects.sortOrder), asc(pmProjects.createdAt));
 
-        const mayShowAll = input?.showAll === true && canViewAllProjects(ctx.user);
-        const accessibleProjectIds = mayShowAll ? null : await getAccessibleProjectIds(db, ctx.user.id);
-        let filtered = accessibleProjectIds === null
-          ? allRows
-          : allRows.filter((project) => accessibleProjectIds.includes(project.id));
-        if (!input?.includeArchived) {
-          filtered = filtered.filter(r => !r.archivedAt);
+        let filtered: typeof allRows;
+        if (input?.includeArchived) {
+          // Archived work is a personal owner archive. Never broaden this view
+          // for Project leadership, collaborators, or task assignees.
+          filtered = allRows.filter(
+            project => Boolean(project.archivedAt) && project.ownerId === ctx.user.id,
+          );
+        } else {
+          const mayShowAll = input?.showAll === true && canViewAllProjects(ctx.user);
+          const accessibleProjectIds = mayShowAll ? null : await getAccessibleProjectIds(db, ctx.user.id);
+          filtered = accessibleProjectIds === null
+            ? allRows
+            : allRows.filter((project) => accessibleProjectIds.includes(project.id));
+          filtered = filtered.filter(project => !project.archivedAt);
         }
         if (input?.department) filtered = filtered.filter(r => r.department === input.department);
         if (input?.ownerId) filtered = filtered.filter(r => r.ownerId === input.ownerId);
@@ -361,6 +368,12 @@ export const pmRouter = router({
           .limit(1);
 
         if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+        if (project.archivedAt && project.ownerId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only the Project owner can view an archived Project.",
+          });
+        }
         await assertProjectAccess(db, input.id, ctx.user);
 
         const collaborators = await db
@@ -978,6 +991,35 @@ export const pmRouter = router({
         await assertProjectAccess(db, input.id, ctx.user);
         await db.update(pmProjects).set({ archivedAt: new Date() }).where(eq(pmProjects.id, input.id));
         await logActivity(input.id, ctx.user.id, "project_archived", "Project archived");
+        return { success: true };
+      }),
+
+    restore: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [project] = await db
+          .select({ ownerId: pmProjects.ownerId, archivedAt: pmProjects.archivedAt })
+          .from(pmProjects)
+          .where(eq(pmProjects.id, input.id))
+          .limit(1);
+        if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+        if (project.ownerId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only the Project owner can restore an archived Project.",
+          });
+        }
+        if (!project.archivedAt) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This Project is already active.",
+          });
+        }
+        await db.update(pmProjects).set({ archivedAt: null }).where(eq(pmProjects.id, input.id));
+        await logActivity(input.id, ctx.user.id, "project_restored", "Project restored");
         return { success: true };
       }),
 

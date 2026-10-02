@@ -21,7 +21,7 @@ import {
   ArrowLeft, ArrowRightLeft, Plus, Check, CheckCircle2, Circle, CornerDownRight, History, MessageCircle, Pencil, AlertTriangle, TrendingUp,
   Clock, Calendar, User, Edit2, Trash2, MessageSquare, Sparkles,
   ChevronDown, ChevronUp, Save, X, MoreHorizontal, Activity, Repeat2,
-  BarChart3, FileText, Paperclip, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks, GripVertical, Flag, CalendarDays, Columns3, GitBranch,
+  BarChart3, FileText, Paperclip, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks, GripVertical, Flag, CalendarDays, Columns3, GitBranch, ArchiveRestore,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -102,6 +102,7 @@ const ACTION_LABELS: Record<string, string> = {
   project_created: "created this project",
   project_updated: "updated project details",
   project_archived: "archived this project",
+  project_restored: "restored this project",
   task_created: "added a task",
   task_updated: "updated a task",
   task_reordered: "reordered todos and sections",
@@ -638,6 +639,10 @@ export default function ProjectDetailPage({
     onSuccess: () => { toast.success("Project archived"); navigate("/projects"); },
     onError: (e) => toast.error(e.message),
   });
+  const restoreProject = trpc.pm.projects.restore.useMutation({
+    onSuccess: () => { toast.success("Project restored"); navigate("/projects"); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const aiSummaryMutation = trpc.pm.dashboard.projectAiSummary.useMutation({
     onSuccess: (data) => { setAiSummary((data.summary as string) ?? null); setAiLoading(false); },
@@ -1034,8 +1039,8 @@ export default function ProjectDetailPage({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <h1 className="text-xl font-bold text-foreground">{project.title}</h1>
-                  {project.isRock ? (() => { const rockStatus = (project.rockStatus ?? "on_track") as keyof typeof ROCK_STATUS_CONFIG; const config = ROCK_STATUS_CONFIG[rockStatus] ?? ROCK_STATUS_CONFIG.on_track; return <Select value={rockStatus} onValueChange={value => updateProjectOverview.mutate({ id: projectId, rockStatus: value as any })}><SelectTrigger aria-label="Rock status" className={`h-7 w-[8.75rem] gap-1.5 border px-2 text-xs font-medium ${config.color}`} disabled={updateProjectOverview.isPending}><SelectValue /></SelectTrigger><SelectContent>{Object.entries(ROCK_STATUS_CONFIG).map(([value, option]) => <SelectItem key={value} value={value}>{option.label}</SelectItem>)}</SelectContent></Select>; })() : <Select value={project.status} onValueChange={value => updateProjectOverview.mutate({ id: projectId, status: value as Status })}>
-                  <SelectTrigger aria-label="Project status" className={`h-7 w-[8.75rem] gap-1.5 border px-2 text-xs font-medium ${statusCfg.color}`} disabled={updateProjectOverview.isPending}>
+                  {project.isRock ? (() => { const rockStatus = (project.rockStatus ?? "on_track") as keyof typeof ROCK_STATUS_CONFIG; const config = ROCK_STATUS_CONFIG[rockStatus] ?? ROCK_STATUS_CONFIG.on_track; return <Select value={rockStatus} onValueChange={value => updateProjectOverview.mutate({ id: projectId, rockStatus: value as any })}><SelectTrigger aria-label="Rock status" className={`h-7 w-[8.75rem] gap-1.5 border px-2 text-xs font-medium ${config.color}`} disabled={updateProjectOverview.isPending || Boolean(project.archivedAt)}><SelectValue /></SelectTrigger><SelectContent>{Object.entries(ROCK_STATUS_CONFIG).map(([value, option]) => <SelectItem key={value} value={value}>{option.label}</SelectItem>)}</SelectContent></Select>; })() : <Select value={project.status} onValueChange={value => updateProjectOverview.mutate({ id: projectId, status: value as Status })}>
+                  <SelectTrigger aria-label="Project status" className={`h-7 w-[8.75rem] gap-1.5 border px-2 text-xs font-medium ${statusCfg.color}`} disabled={updateProjectOverview.isPending || Boolean(project.archivedAt)}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1043,7 +1048,7 @@ export default function ProjectDetailPage({
                   </SelectContent>
                   </Select>}
                   <Select value={project.priority} onValueChange={value => updateProjectOverview.mutate({ id: projectId, priority: value as Priority })}>
-                    <SelectTrigger aria-label="Project priority" className={`h-7 w-[6.5rem] gap-1.5 border px-2 text-xs font-medium ${priorityCfg.badge}`} disabled={updateProjectOverview.isPending}>
+                    <SelectTrigger aria-label="Project priority" className={`h-7 w-[6.5rem] gap-1.5 border px-2 text-xs font-medium ${priorityCfg.badge}`} disabled={updateProjectOverview.isPending || Boolean(project.archivedAt)}>
                       <span className={`h-2 w-2 shrink-0 rounded-full ${priorityCfg.dot}`} /><SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1055,30 +1060,39 @@ export default function ProjectDetailPage({
                 <p className="text-sm text-muted-foreground">{project.description}</p>
               </div>
               <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
-                <Button size="sm" variant="outline" onClick={handleAiSummary} disabled={aiLoading}>
-                  <Sparkles className="h-3.5 w-3.5 mr-1" />
-                  {aiLoading ? "Generating..." : "AI Summary"}
-                </Button>
-                {!project.isRock && !project.isOngoing && project.dueDate ? <Button size="sm" variant="outline" onClick={() => updateProjectOverview.mutate({ id: projectId, dueDate: null })} disabled={updateProjectOverview.isPending}>
-                  <Calendar className="h-3.5 w-3.5 mr-1" /> Clear due date
-                </Button> : null}
-                <Button size="sm" variant="outline" onClick={startEditProject}>
-                  <Edit2 className="h-3.5 w-3.5 mr-1" /> Edit
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button size="sm" variant="ghost">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem className="text-destructive" onClick={() => archiveProject.mutate({ id: projectId })}>
-                      Archive Project
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {project.archivedAt ? <Button size="sm" variant="outline" onClick={() => restoreProject.mutate({ id: projectId })} disabled={restoreProject.isPending}>
+                  <ArchiveRestore className="h-3.5 w-3.5 mr-1" />
+                  {restoreProject.isPending ? "Restoring..." : "Restore Project"}
+                </Button> : <>
+                  <Button size="sm" variant="outline" onClick={handleAiSummary} disabled={aiLoading}>
+                    <Sparkles className="h-3.5 w-3.5 mr-1" />
+                    {aiLoading ? "Generating..." : "AI Summary"}
+                  </Button>
+                  {!project.isRock && !project.isOngoing && project.dueDate ? <Button size="sm" variant="outline" onClick={() => updateProjectOverview.mutate({ id: projectId, dueDate: null })} disabled={updateProjectOverview.isPending}>
+                    <Calendar className="h-3.5 w-3.5 mr-1" /> Clear due date
+                  </Button> : null}
+                  <Button size="sm" variant="outline" onClick={startEditProject}>
+                    <Edit2 className="h-3.5 w-3.5 mr-1" /> Edit
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="ghost">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem className="text-destructive" onClick={() => archiveProject.mutate({ id: projectId })}>
+                        Archive Project
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>}
               </div>
             </div>
+
+            {project.archivedAt ? <div className="mb-4 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              This Project was archived on <span className="font-medium text-foreground">{format(new Date(project.archivedAt), "MMM d, yyyy")}</span>. It is hidden from active work surfaces until you restore it.
+            </div> : null}
 
             {/* Meta row */}
             <div className="flex flex-wrap gap-4 text-sm text-muted-foreground mb-4">

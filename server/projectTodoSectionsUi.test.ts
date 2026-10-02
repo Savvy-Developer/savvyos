@@ -134,7 +134,7 @@ describe("project todo section UI", () => {
       '<SelectTrigger aria-label="Project status"'
     );
     expect(projectDetailPage).toContain(
-      'disabled={updateProjectOverview.isPending}>\n                    <SelectValue />\n                  </SelectTrigger>'
+      'disabled={updateProjectOverview.isPending || Boolean(project.archivedAt)}>\n                    <SelectValue />\n                  </SelectTrigger>'
     );
     expect(projectDetailPage).not.toContain(
       '<span className="flex items-center gap-1.5">{statusCfg.icon}<SelectValue /></span>'
