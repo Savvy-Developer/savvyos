@@ -152,6 +152,7 @@ function ListingCard({ listing, selected, onHover, onOpen, priority = false, spl
 
 export default function MlsPropertiesPage() {
   const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
   const [view, setView] = usePersistentState<"split" | "list" | "map">("mls.search.view.v3", "list");
   const [filters, setFilters] = usePersistentState<Filters>("mls.search.filters.v3", DEFAULT_FILTERS);
   const [sort, setSort] = usePersistentState<string>("mls.search.sort.v3", "newest");
@@ -176,6 +177,9 @@ export default function MlsPropertiesPage() {
     () => ({ ...cleaned, ...(area ? { area } : mapBounds ? { bounds: mapBounds } : {}) }),
     [cleaned, area, mapBounds]
   );
+  const settledMapFilters = useDebounced(listFilters, 700);
+  const filtersSettled = JSON.stringify(settledMapFilters) === JSON.stringify(listFilters);
+  const searchTextPending = (queryText.trim() || undefined) !== (filters.q?.trim() || undefined);
   const options = trpc.mlsProperties.filterOptions.useQuery(undefined, { staleTime: 5 * 60_000 });
   const singleSourceId = filters.sourceIds?.length === 1 ? filters.sourceIds[0] : null;
   const facets = trpc.mlsProperties.sourceFacets.useQuery({ sourceId: singleSourceId ?? 0 }, { enabled: !!singleSourceId, staleTime: 5 * 60_000 });
@@ -184,7 +188,16 @@ export default function MlsPropertiesPage() {
   const canManage = !!(permissions.data as any)?.canManageMlsFeeds;
   const results = trpc.mlsProperties.search.useQuery(
     { filters: listFilters as any, sort: sort as any, page, pageSize: PAGE_SIZE },
-    { enabled: view !== "map", staleTime: 30_000, refetchOnWindowFocus: false }
+    {
+      // Make Map -> List instant after the user pauses on a viewport. Do not
+      // start another search on every intermediate drag or while typing.
+      enabled: view !== "map" || (!!viewport && !searchTextPending && filtersSettled),
+      staleTime: 30_000, refetchOnWindowFocus: false,
+    }
+  );
+  const totals = trpc.mlsProperties.total.useQuery(
+    { filters: listFilters as any },
+    { enabled: view !== "map" && results.isSuccess && !results.isFetching && !searchTextPending && filtersSettled, staleTime: 30_000, retry: false, refetchOnWindowFocus: false }
   );
 
   const update = (patch: Partial<Filters>) => { setFilters(current => ({ ...current, ...patch })); setPage(1); };
@@ -203,10 +216,12 @@ export default function MlsPropertiesPage() {
   };
   const clearAll = () => { setFilters(DEFAULT_FILTERS); setQueryText(""); setMapBounds(null); setArea(null); setPage(1); };
   const openListing = (id: number) => { setSelectedId(id); navigate(`/mls-properties/listings/${id}`); };
-  const handleViewport = (next: MapViewport) => {
+  const handleViewport = (next: MapViewport, reason: "move" | "resize") => {
     setViewport(next);
     setMapCamera({ center: next.center, zoom: next.zoom });
-    if (searchInMap && !area) { setMapBounds(next.bounds); setPage(1); }
+    // Resizing the same map for Split/Map changes its visible bounds, but it
+    // does not mean the user chose a new area for the property list.
+    if (searchInMap && !area && (reason === "move" || !mapBounds)) { setMapBounds(next.bounds); setPage(1); }
   };
   const toggleMapSearch = (value: boolean) => {
     setSearchInMap(value);
@@ -215,15 +230,13 @@ export default function MlsPropertiesPage() {
   };
 
   const activeCount = Object.keys(cleaned).filter(key => !["q", "statuses", "listingIntent"].includes(key)).length;
-  const total = results.data?.total;
+  const total = totals.data?.total;
   const pages = total == null ? null : Math.max(1, Math.ceil(total / PAGE_SIZE));
   const hasMore = results.data?.hasMore ?? false;
-  const searchTextPending = (queryText.trim() || undefined) !== (filters.q?.trim() || undefined);
   const searching = searchTextPending || results.isPending;
+  const totalLabel = total == null ? totals.isError ? "total unavailable" : "calculating total…" : total.toLocaleString();
   const resultLabel = searching ? "Searching" : results.isError ? "Search is temporarily unavailable" : results.data
-    ? total == null
-      ? results.data.items.length === 0 ? "No results" : `Showing ${(page - 1) * PAGE_SIZE + 1}–${(page - 1) * PAGE_SIZE + results.data.items.length}${hasMore ? " · more available" : ""}`
-      : `${total.toLocaleString()} results`
+    ? results.data.items.length === 0 ? "No results" : `Showing ${(page - 1) * PAGE_SIZE + 1}–${(page - 1) * PAGE_SIZE + results.data.items.length} out of ${totalLabel}`
     : "Searching";
   const propertyTypes = (options.data?.propertyTypes ?? []).filter(type => filters.listingIntent === "sale" ? !type.value.endsWith("_lease") : filters.listingIntent === "rent" ? type.value.endsWith("_lease") : true);
 
@@ -312,7 +325,7 @@ export default function MlsPropertiesPage() {
           ))}
         </div>
         {area ? <Button size="sm" variant="outline" className="h-8 gap-1.5 border-teal-200 text-teal-800" onClick={() => { setArea(null); if (searchInMap && viewport) setMapBounds(viewport.bounds); }}><MapPin className="h-3.5 w-3.5" />{area.kind === "circle" ? `${(area.radiusMeters / 1609.344).toFixed(1)} mi radius` : "Polygon area"}<X className="h-3.5 w-3.5" /></Button> : mapBounds ? <Button size="sm" variant="outline" className="h-8 gap-1.5 border-teal-200 text-teal-800" onClick={() => setMapBounds(null)}><MapPin className="h-3.5 w-3.5" />Map area<X className="h-3.5 w-3.5" /></Button> : null}
-        {view === "map" ? <><label className="ml-auto flex items-center gap-2 text-xs text-slate-600"><Checkbox checked={searchInMap} onCheckedChange={value => toggleMapSearch(value === true)} />Search as I move the map</label><Button size="sm" variant="outline" onClick={() => { if (viewport && !area) setMapBounds(viewport.bounds); setView("list"); }}>Show results in list</Button></> : null}
+        {view === "map" ? <><label className="ml-auto flex items-center gap-2 text-xs text-slate-600"><Checkbox checked={searchInMap} onCheckedChange={value => toggleMapSearch(value === true)} />Search as I move the map</label><Button size="sm" variant="outline" onClick={() => { if (viewport && !area && (!searchInMap || !mapBounds)) setMapBounds(viewport.bounds); setView("list"); }}>Show results in list</Button></> : null}
       </div>
       <div className={`grid min-h-0 flex-1 gap-3 ${view === "split" ? "lg:grid-cols-[minmax(360px,0.86fr)_minmax(0,1.14fr)]" : "grid-cols-1"}`}>
         {view !== "map" ? <div className="order-first flex min-h-0 flex-col">
@@ -326,7 +339,7 @@ export default function MlsPropertiesPage() {
             {!searching && !results.isError && results.data && results.data.items.length === 0 ? <div className="col-span-full flex flex-col items-center gap-2 rounded-lg border border-dashed p-8 text-sm text-muted-foreground"><Building2 className="h-6 w-6" />No listings match. Widen the filters or move the map.</div> : null}
             {!searching && results.isError ? <div className="col-span-full rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">The listing search did not respond. <Button variant="outline" size="sm" onClick={() => void results.refetch()}>Try again</Button></div> : null}
           </div>
-          {!searching && !results.isError && results.data && (page > 1 || hasMore) ? <div className="flex items-center justify-between border-t pt-2 text-sm"><Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft className="mr-1 h-4 w-4" />Prev</Button><span className="text-muted-foreground">Page {page}{pages ? ` of ${pages.toLocaleString()}` : ""}</span><Button variant="ghost" size="sm" disabled={!hasMore} onClick={() => setPage(page + 1)}>Next<ChevronRight className="ml-1 h-4 w-4" /></Button></div> : null}
+          {!searching && !results.isError && results.data && (page > 1 || results.data.items.length > 0) ? <div className="flex items-center justify-between border-t pt-2 text-sm"><Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft className="mr-1 h-4 w-4" />Prev</Button><span className="text-muted-foreground">Page {page} out of {pages?.toLocaleString() ?? (totals.isError ? "unavailable" : "…")}</span><Button variant="ghost" size="sm" disabled={!hasMore} onClick={() => setPage(page + 1)}>Next<ChevronRight className="ml-1 h-4 w-4" /></Button></div> : null}
         </div> : null}
         {view !== "list" ? <Suspense fallback={<Skeleton className="h-[380px] w-full rounded-xl" />}><MlsSearchMap
           key={(filters.sourceIds ?? []).join(",") || "all"}
@@ -341,6 +354,9 @@ export default function MlsPropertiesPage() {
           onAreaChange={value => { setArea(value); if (!value && searchInMap && viewport) setMapBounds(viewport.bounds); setPage(1); }}
           onViewportChange={handleViewport}
           onSearchArea={next => { setMapBounds(next.bounds); setPage(1); }}
+          onVisibleTotal={(count, bounds) => {
+            if (!area) utils.mlsProperties.total.setData({ filters: { ...cleaned, bounds } as any }, { total: count });
+          }}
           initialCenter={mapCamera.center}
           initialZoom={mapCamera.zoom}
         /></Suspense> : null}

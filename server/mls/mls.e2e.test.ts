@@ -284,6 +284,32 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(plan.key).toBe("mls_listings_status_entry_idx");
   });
 
+  it("serves fast indexed map pages before counting, and never counts revoked MLS data", async () => {
+    const db = (await modules.db.getDb())!;
+    const bounds = { north: 36, south: 35, east: -81.5, west: -84 };
+    const filters = { statuses: ["active"] as ["active"], listingIntent: "sale" as const, bounds };
+    const first = await modules.search.searchListings(db, { filters, sort: "newest", page: 1, pageSize: 1, countMode: "none" });
+    expect(first.total).toBeNull();
+    expect(first.hasMore).toBe(true);
+    const second = await modules.search.searchListings(db, { filters, sort: "newest", page: 2, pageSize: 1, countMode: "none" });
+    expect(new Set([...first.items, ...second.items].map(row => row.listingNumber))).toEqual(new Set(["100", "200"]));
+    expect(await modules.search.countListings(db, filters)).toBe(2);
+    expect(await modules.search.countListings(db, { ...filters, area: { kind: "circle", center: { lat: 35.59, lng: -82.55 }, radiusMeters: 1000 } })).toBe(1);
+
+    const [feed] = await q<{ options: Record<string, any> | string }>("SELECT options FROM mls_feeds WHERE id = ?", [feedId]);
+    const originalOptions = typeof feed.options === "string" ? feed.options : JSON.stringify(feed.options);
+    try {
+      const revoked = JSON.parse(originalOptions);
+      revoked.license.approved = false;
+      await admin.query("UPDATE mls_feeds SET options = ? WHERE id = ?", [JSON.stringify(revoked), feedId]);
+      expect(await modules.search.countListings(db, filters)).toBe(0);
+      const hidden = await modules.search.searchListings(db, { filters, sort: "newest", page: 1, pageSize: 1, countMode: "none" });
+      expect(hidden.items).toHaveLength(0);
+    } finally {
+      await admin.query("UPDATE mls_feeds SET options = ? WHERE id = ?", [originalOptions, feedId]);
+    }
+  });
+
   it("downloads photos into our storage with the token as User-Agent", async () => {
     const pending = await q("SELECT COUNT(*) AS count FROM mls_media WHERE status = 'pending'");
     expect(Number(pending[0].count)).toBe(6);

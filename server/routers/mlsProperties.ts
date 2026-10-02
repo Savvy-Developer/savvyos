@@ -49,7 +49,7 @@ import { getLane, requestJson } from "../mls/http";
 import { CANONICAL_PROPERTY_TYPES, CANONICAL_STATUSES, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "../mls/normalize/enums";
 import { INSIGHT_FIELDS, LISTING_FIELD_RULES, listingRuleColumns } from "../mls/normalize/fieldMap";
 import { ensureMlsSchema } from "../mls/schema";
-import { mapPoints, SEARCH_SORTS, searchFiltersSchema, searchListings, boundsSchema } from "../mls/search";
+import { countListings, mapPoints, SEARCH_SORTS, searchFiltersSchema, searchListings, boundsSchema } from "../mls/search";
 import { UNRESOLVED_MARKETS } from "../mls/sources";
 import { withMlsPhotoListingId } from "../mls/photoUrl";
 import { canAdminUsePermission } from "./permissions";
@@ -244,6 +244,12 @@ export const mlsPropertiesRouter = router({
       const db = await requireDb();
       return searchListings(db, { ...input, countMode: "none" });
     }),
+
+  /** Exact count is intentionally independent of the latency-sensitive page query. */
+  total: viewProcedure.input(z.object({ filters: searchFiltersSchema.default({}) })).query(async ({ input }) => {
+    const db = await requireDb();
+    return { total: await countListings(db, input.filters) };
+  }),
 
   mapPoints: viewProcedure
     .input(z.object({ filters: searchFiltersSchema.default({}), bounds: boundsSchema, zoom: z.number().min(0).max(22) }))
