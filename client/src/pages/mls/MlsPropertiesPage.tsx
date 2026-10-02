@@ -190,6 +190,7 @@ export default function MlsPropertiesPage() {
   const [queryText, setQueryText] = useState(filters.q ?? "");
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   useEffect(() => {
     setFilters(current => {
@@ -224,7 +225,7 @@ export default function MlsPropertiesPage() {
   const mapConfig = trpc.mlsProperties.mapConfig.useQuery(undefined, { enabled: view !== "list", staleTime: 5 * 60_000, retry: false, refetchOnWindowFocus: false });
   const MapComponent = mapConfig.data?.publicToken ? MlsMapboxMap : MlsLeafletMap;
   const singleSourceId = filters.sourceIds?.length === 1 ? filters.sourceIds[0] : null;
-  const facets = trpc.mlsProperties.sourceFacets.useQuery({ sourceId: singleSourceId ?? 0 }, { enabled: !!singleSourceId, staleTime: 5 * 60_000 });
+  const facets = trpc.mlsProperties.sourceFacets.useQuery({ sourceId: singleSourceId ?? 0 }, { enabled: filtersOpen && !!singleSourceId, staleTime: 5 * 60_000 });
   const singleSource = options.data?.sources.find(source => source.id === singleSourceId);
   const permissions = trpc.permissions.getMyPermissions.useQuery(undefined, { staleTime: 5 * 60_000 });
   const canManage = !!(permissions.data as any)?.canManageMlsFeeds;
@@ -298,7 +299,7 @@ export default function MlsPropertiesPage() {
           {queryText ? <button type="button" className="absolute right-2 top-2.5 text-muted-foreground" onClick={() => setQueryText("")} aria-label="Clear search"><X className="h-4 w-4" /></button> : null}
         </div>
         <MultiSelect className="w-[155px] sm:w-[190px]" options={(options.data?.statuses ?? []).map(status => ({ value: status.value, label: status.label }))} value={filters.statuses ?? []} onValueChange={value => update({ statuses: value })} placeholder="Any status" maxDisplay={1} />
-        <Popover>
+        <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
           <PopoverTrigger asChild><Button variant="outline" size="sm" className="h-9"><SlidersHorizontal className="mr-1.5 h-4 w-4" />Filters{activeCount ? ` (${activeCount})` : ""}</Button></PopoverTrigger>
           <PopoverContent className="z-[2200] flex min-h-0 w-[430px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden p-0" style={{ maxHeight: "min(75dvh, var(--radix-popover-content-available-height, 75dvh))" }} align="start" sideOffset={8}>
             <div className="flex shrink-0 items-center justify-between border-b bg-white px-4 py-2"><strong className="text-base">Refine your search</strong><Button variant="ghost" size="sm" onClick={clearAll}>Reset</Button></div>
