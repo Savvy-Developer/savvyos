@@ -1,10 +1,11 @@
 import { approvedFeedSql } from "./license";
-import { and, asc, desc, eq, gte, inArray, isNull, like, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { mlsListings, mlsSources } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { CANONICAL_PROPERTY_TYPES, CANONICAL_STATUSES } from "./normalize/enums";
 import { withMlsPhotoListingId } from "./photoUrl";
+import { mapAreaConditions, mapAreaSchema } from "./mapGeometry";
 
 /**
  * Admin search over mls_listings. Every filter maps to an indexed column
@@ -26,15 +27,28 @@ export const searchFiltersSchema = z.object({
   q: z.string().trim().max(120).optional(),
   sourceIds: z.array(z.number().int()).max(50).optional(),
   statuses: z.array(z.enum(CANONICAL_STATUSES)).max(CANONICAL_STATUSES.length).optional(),
+  listingIntent: z.enum(["sale", "rent"]).optional(),
   propertyTypes: z.array(z.enum(CANONICAL_PROPERTY_TYPES)).max(CANONICAL_PROPERTY_TYPES.length).optional(),
+  propertySubTypes: z.array(z.string().trim().min(1).max(96)).max(20).optional(),
+  mlsStatuses: z.array(z.string().trim().min(1).max(64)).max(20).optional(),
+  counties: z.array(z.string().trim().min(1).max(128)).max(20).optional(),
   minPrice: z.number().nonnegative().optional(),
   maxPrice: z.number().nonnegative().optional(),
   minBeds: z.number().int().nonnegative().optional(),
+  maxBeds: z.number().int().nonnegative().optional(),
   minBaths: z.number().nonnegative().optional(),
+  maxBaths: z.number().nonnegative().optional(),
   minSqft: z.number().nonnegative().optional(),
   maxSqft: z.number().nonnegative().optional(),
   minYearBuilt: z.number().int().optional(),
+  maxYearBuilt: z.number().int().optional(),
   minAcres: z.number().nonnegative().optional(),
+  maxAcres: z.number().nonnegative().optional(),
+  minGarage: z.number().int().nonnegative().optional(),
+  newConstruction: z.boolean().optional(),
+  hasPhotos: z.boolean().optional(),
+  listedWithinDays: z.number().int().positive().max(3650).optional(),
+  maxDaysOnMarket: z.number().int().nonnegative().optional(),
   city: z.string().trim().max(128).optional(),
   stateOrProvince: z.string().trim().max(32).optional(),
   postalCode: z.string().trim().max(16).optional(),
@@ -43,6 +57,7 @@ export const searchFiltersSchema = z.object({
   closedWithinDays: z.number().int().positive().max(3650).optional(),
   includeRemoved: z.boolean().optional(),
   bounds: boundsSchema.optional(),
+  area: mapAreaSchema.optional(),
 });
 export type SearchFilters = z.infer<typeof searchFiltersSchema>;
 
@@ -73,15 +88,29 @@ export function searchConditions(filters: SearchFilters, now = new Date()): SQL 
   if (!filters.includeRemoved) conditions.push(isNull(mlsListings.removedFromFeedAt));
   if (filters.sourceIds?.length) conditions.push(inArray(mlsListings.sourceId, filters.sourceIds));
   if (filters.statuses?.length) conditions.push(inArray(mlsListings.standardStatus, filters.statuses));
+  if (filters.listingIntent === "rent") conditions.push(inArray(mlsListings.propertyType, ["residential_lease", "commercial_lease"]));
+  if (filters.listingIntent === "sale") conditions.push(inArray(mlsListings.propertyType, ["residential", "residential_income", "land", "farm", "commercial_sale", "business_opportunity", "manufactured_in_park"]));
   if (filters.propertyTypes?.length) conditions.push(inArray(mlsListings.propertyType, filters.propertyTypes));
+  if (filters.propertySubTypes?.length) conditions.push(inArray(mlsListings.propertySubType, filters.propertySubTypes));
+  if (filters.mlsStatuses?.length) conditions.push(inArray(mlsListings.mlsStatus, filters.mlsStatuses));
+  if (filters.counties?.length) conditions.push(inArray(mlsListings.countyOrParish, filters.counties));
   if (filters.minPrice !== undefined) conditions.push(gte(mlsListings.listPrice, String(filters.minPrice)));
   if (filters.maxPrice !== undefined) conditions.push(lte(mlsListings.listPrice, String(filters.maxPrice)));
   if (filters.minBeds !== undefined) conditions.push(gte(mlsListings.bedroomsTotal, filters.minBeds));
+  if (filters.maxBeds !== undefined) conditions.push(lte(mlsListings.bedroomsTotal, filters.maxBeds));
   if (filters.minBaths !== undefined) conditions.push(gte(mlsListings.bathroomsTotal, String(filters.minBaths)));
+  if (filters.maxBaths !== undefined) conditions.push(lte(mlsListings.bathroomsTotal, String(filters.maxBaths)));
   if (filters.minSqft !== undefined) conditions.push(gte(mlsListings.livingArea, String(filters.minSqft)));
   if (filters.maxSqft !== undefined) conditions.push(lte(mlsListings.livingArea, String(filters.maxSqft)));
   if (filters.minYearBuilt !== undefined) conditions.push(gte(mlsListings.yearBuilt, filters.minYearBuilt));
+  if (filters.maxYearBuilt !== undefined) conditions.push(lte(mlsListings.yearBuilt, filters.maxYearBuilt));
   if (filters.minAcres !== undefined) conditions.push(gte(mlsListings.lotSizeAcres, String(filters.minAcres)));
+  if (filters.maxAcres !== undefined) conditions.push(lte(mlsListings.lotSizeAcres, String(filters.maxAcres)));
+  if (filters.minGarage !== undefined) conditions.push(gte(mlsListings.garageSpaces, String(filters.minGarage)));
+  if (filters.newConstruction) conditions.push(eq(mlsListings.newConstructionYN, true));
+  if (filters.hasPhotos) conditions.push(isNotNull(mlsListings.primaryPhotoUrl));
+  if (filters.maxDaysOnMarket !== undefined) conditions.push(lte(mlsListings.daysOnMarket, filters.maxDaysOnMarket));
+  if (filters.listedWithinDays) conditions.push(gte(mlsListings.originalEntryAt, new Date(now.getTime() - filters.listedWithinDays * 86_400_000)));
   if (filters.city) conditions.push(eq(mlsListings.city, filters.city));
   if (filters.stateOrProvince) conditions.push(eq(mlsListings.stateOrProvince, filters.stateOrProvince.toUpperCase()));
   if (filters.postalCode) conditions.push(eq(mlsListings.postalCode, filters.postalCode));
@@ -92,6 +121,7 @@ export function searchConditions(filters: SearchFilters, now = new Date()): SQL 
     conditions.push(eq(mlsListings.standardStatus, "closed"), gte(mlsListings.closeDate, since));
   }
   if (filters.bounds) conditions.push(...boundsCondition(filters.bounds));
+  if (filters.area) conditions.push(...mapAreaConditions(filters.area));
 
   const q = filters.q?.trim();
   if (q) {
@@ -200,15 +230,23 @@ export function useRecentFeedIndex(filters: SearchFilters, sort: (typeof SEARCH_
   return !Object.entries(filters).some(([key, value]) => key !== "statuses" && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
 }
 
+/** Newest defaults to the (status, originalEntryAt) index, never a history-wide filesort. */
+export function useNewestFeedIndex(filters: SearchFilters, sort: (typeof SEARCH_SORTS)[number], page: number) {
+  if (sort !== "newest" || page > 10 || filters.includeRemoved || filters.statuses?.length !== 1 || filters.statuses[0] !== "active") return false;
+  return !Object.entries(filters).some(([key, value]) => !["statuses", "listingIntent"].includes(key) && value !== undefined && value !== false && (!Array.isArray(value) || value.length > 0));
+}
+
 export async function searchListings(
   db: Db,
   input: { filters: SearchFilters; sort: (typeof SEARCH_SORTS)[number]; page: number; pageSize: number; countMode?: "exact" | "none" }
 ) {
   const where = searchConditions(input.filters);
   const offset = (input.page - 1) * input.pageSize;
-  const indexHint = useRecentFeedIndex(input.filters, input.sort, input.page)
-    ? { forceIndex: ["mls_listings_modified_idx"] }
-    : undefined;
+  const indexHint = useNewestFeedIndex(input.filters, input.sort, input.page)
+    ? { forceIndex: ["mls_listings_status_entry_idx"] }
+    : useRecentFeedIndex(input.filters, input.sort, input.page)
+      ? { forceIndex: ["mls_listings_modified_idx"] }
+      : undefined;
   const rows = await db
     .select(listingCardColumns)
     .from(mlsListings, indexHint)
@@ -245,8 +283,16 @@ export async function mapPoints(
       listPrice: mlsListings.listPrice,
       closePrice: mlsListings.closePrice,
       standardStatus: mlsListings.standardStatus,
+      unparsedAddress: mlsListings.unparsedAddress,
+      city: mlsListings.city,
+      stateOrProvince: mlsListings.stateOrProvince,
+      bedroomsTotal: mlsListings.bedroomsTotal,
+      bathroomsTotal: mlsListings.bathroomsTotal,
+      primaryPhotoUrl: mlsListings.primaryPhotoUrl,
+      sourceShortName: mlsSources.shortName,
     })
     .from(mlsListings)
+    .innerJoin(mlsSources, eq(mlsSources.id, mlsListings.sourceId))
     .where(where)
     .limit(pinLimit + 1);
   if (pins.length <= pinLimit) {
@@ -259,13 +305,20 @@ export async function mapPoints(
         lng: Number(pin.longitude),
         price: num(pin.standardStatus === "closed" ? pin.closePrice ?? pin.listPrice : pin.listPrice),
         status: pin.standardStatus,
+        address: pin.unparsedAddress,
+        city: pin.city,
+        state: pin.stateOrProvince,
+        beds: pin.bedroomsTotal,
+        baths: num(pin.bathroomsTotal),
+        photoUrl: withMlsPhotoListingId(pin.primaryPhotoUrl, pin.id),
+        source: pin.sourceShortName,
       })),
       clusters: [],
     };
   }
-  // About 64 screen pixels per cell: a 256px tile spans 360 / 2^zoom degrees.
+  // About 128 screen pixels per cell; 64px buckets flooded compact maps with overlapping bubbles.
   const zoom = Math.max(1, Math.min(20, Math.round(input.zoom)));
-  const cell = 360 / 2 ** zoom / 4;
+  const cell = 360 / 2 ** zoom / 2;
   const latCell = sql.raw(String(cell));
   const rows = await db
     .select({

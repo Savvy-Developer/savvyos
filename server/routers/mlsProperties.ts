@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { gunzipSync } from "zlib";
 import { z } from "zod";
 import {
@@ -188,9 +188,13 @@ export const mlsPropertiesRouter = router({
   /** Everything the search page needs to render filters. */
   filterOptions: viewProcedure.query(async () => {
     const db = await requireDb();
-    const sources = await db.select().from(mlsSources).orderBy(asc(mlsSources.sortOrder));
+    const [sources, feeds] = await Promise.all([
+      db.select().from(mlsSources).orderBy(asc(mlsSources.sortOrder)),
+      db.select().from(mlsFeeds),
+    ]);
+    const licensedSources = new Set(feeds.filter(feed => !licenseError(feed)).map(feed => feed.sourceId));
     return {
-      sources: sources.map(source => ({
+      sources: sources.filter(source => licensedSources.has(source.id)).map(source => ({
         id: source.id,
         name: source.name,
         shortName: source.shortName,
@@ -200,6 +204,30 @@ export const mlsPropertiesRouter = router({
       statuses: CANONICAL_STATUSES.map(value => ({ value, label: STATUS_LABELS[value] })),
       propertyTypes: CANONICAL_PROPERTY_TYPES.map(value => ({ value, label: PROPERTY_TYPE_LABELS[value] })),
       sorts: SEARCH_SORTS,
+    };
+  }),
+
+  /** Native facets are read only from already licensed Active rows, never from raw provider payloads. */
+  sourceFacets: viewProcedure.input(z.object({ sourceId: z.number().int().positive() })).query(async ({ input }) => {
+    const db = await requireDb();
+    const scope = and(
+      eq(mlsListings.sourceId, input.sourceId),
+      eq(mlsListings.standardStatus, "active"),
+      isNull(mlsListings.removedFromFeedAt),
+      sql.raw(approvedFeedSql()),
+    );
+    const [subTypes, statuses, counties] = await Promise.all([
+      db.selectDistinct({ value: mlsListings.propertySubType }).from(mlsListings)
+        .where(and(scope, isNotNull(mlsListings.propertySubType))).orderBy(asc(mlsListings.propertySubType)).limit(60),
+      db.selectDistinct({ value: mlsListings.mlsStatus }).from(mlsListings)
+        .where(and(scope, isNotNull(mlsListings.mlsStatus))).orderBy(asc(mlsListings.mlsStatus)).limit(40),
+      db.selectDistinct({ value: mlsListings.countyOrParish }).from(mlsListings)
+        .where(and(scope, isNotNull(mlsListings.countyOrParish))).orderBy(asc(mlsListings.countyOrParish)).limit(80),
+    ]);
+    return {
+      propertySubTypes: subTypes.map(row => row.value).filter((value): value is string => !!value),
+      mlsStatuses: statuses.map(row => row.value).filter((value): value is string => !!value),
+      counties: counties.map(row => row.value).filter((value): value is string => !!value),
     };
   }),
 

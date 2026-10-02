@@ -213,6 +213,14 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(columns.length).toBe(1);
   });
 
+  it("online-adds the Newest index to an existing MLS table idempotently", async () => {
+    await admin.query("ALTER TABLE mls_listings DROP INDEX mls_listings_status_entry_idx");
+    await modules.schema.applyMlsSchema(admin as any);
+    const indexes = await q("SHOW INDEX FROM mls_listings WHERE Key_name = 'mls_listings_status_entry_idx'");
+    expect(indexes).toHaveLength(2);
+    await modules.schema.applyMlsSchema(admin as any);
+  });
+
   it("imports listings, members, offices and metadata on the first cycle", async () => {
     const summary = await modules.engine.runFeedCycle(feedId, { workerId: "e2e" });
     expect(summary.error).toBeUndefined();
@@ -257,6 +265,24 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(dataRequests[0]).toContain("MlgCanView eq true");
     expect(dataRequests.length).toBe(2); // pageSize 2, 3 viewable rows
   }, 60_000);
+
+  it("filters both list and map by an exact licensed Active radius or polygon", async () => {
+    const db = (await modules.db.getDb())!;
+    const filters = { statuses: ["active"] as ["active"], area: { kind: "circle" as const, center: { lat: 35.59, lng: -82.55 }, radiusMeters: 1000 } };
+    const results = await modules.search.searchListings(db, { filters, sort: "newest", page: 1, pageSize: 10, countMode: "none" });
+    expect(results.items.map(row => row.listingNumber)).toEqual(["100"]);
+    const bounds = { north: 35.7, south: 35.5, west: -82.7, east: -82.4 };
+    const circleMap = await modules.search.mapPoints(db, { filters, bounds, zoom: 13 });
+    expect(circleMap.total).toBe(1);
+    const polygon = { kind: "polygon" as const, points: [
+      { lat: 35.58, lng: -82.56 }, { lat: 35.60, lng: -82.56 },
+      { lat: 35.60, lng: -82.54 }, { lat: 35.58, lng: -82.54 },
+    ] };
+    const polygonMap = await modules.search.mapPoints(db, { filters: { statuses: ["active"], area: polygon }, bounds, zoom: 13 });
+    expect(polygonMap.total).toBe(1);
+    const [plan] = await q("EXPLAIN SELECT id FROM mls_listings FORCE INDEX (mls_listings_status_entry_idx) WHERE standardStatus='active' ORDER BY originalEntryAt DESC, id DESC LIMIT 12");
+    expect(plan.key).toBe("mls_listings_status_entry_idx");
+  });
 
   it("downloads photos into our storage with the token as User-Agent", async () => {
     const pending = await q("SELECT COUNT(*) AS count FROM mls_media WHERE status = 'pending'");

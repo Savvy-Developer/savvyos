@@ -10,10 +10,11 @@ import { buildComplianceProfile, feedFreshness, fillComplianceTemplate } from ".
 import { credentialStatus } from "./credentials";
 import { galleryMarkerKey, isGalleryMarker } from "./gallery";
 import { withMlsPhotoListingId } from "./photoUrl";
+import { mapAreaSchema, validPolygon } from "./mapGeometry";
 import { normalizePropertyType, normalizeStatus } from "./normalize/enums";
 import { normalizeListing } from "./normalize/normalizeListing";
 import { propertyIdentity } from "./normalize/propertyIdentity";
-import { searchConditions, useRecentFeedIndex } from "./search";
+import { searchConditions, useNewestFeedIndex, useRecentFeedIndex } from "./search";
 import { licenseError } from "./license";
 import { summarize } from "./status";
 import { mediaClientConfig, privateMlsStorageError } from "./privateMedia";
@@ -66,6 +67,13 @@ describe("Active-gallery queue and default search", () => {
     expect(useRecentFeedIndex({ statuses: ["active", "pending"] }, "updated", 1)).toBe(false);
     expect(useRecentFeedIndex({ statuses: ["active"] }, "price_desc", 1)).toBe(false);
     expect(useRecentFeedIndex({ statuses: ["active"] }, "updated", 11)).toBe(false);
+  });
+  it("uses an indexed Newest sort for the default For sale/Active pages, not narrowed searches", () => {
+    expect(useNewestFeedIndex({ statuses: ["active"], listingIntent: "sale" }, "newest", 1)).toBe(true);
+    expect(useNewestFeedIndex({ statuses: ["active"], listingIntent: "sale", q: "28801" }, "newest", 1)).toBe(false);
+    expect(useNewestFeedIndex({ statuses: ["active"], area: { kind: "circle", center: { lat: 35.59, lng: -82.55 }, radiusMeters: 1500 } }, "newest", 1)).toBe(false);
+    expect(useNewestFeedIndex({ statuses: ["active", "pending"] }, "newest", 1)).toBe(false);
+    expect(useNewestFeedIndex({ statuses: ["active"] }, "updated", 1)).toBe(false);
   });
 });
 describe("indexed private MLS photo URLs", () => {
@@ -345,6 +353,25 @@ describe("search filters", () => {
   it("escapes LIKE wildcards in free text", () => {
     const query = render({ q: "Main_St%" })!;
     expect(query.params).toContain("Main\\_St\\%%");
+  });
+
+  it("parameterizes source facets and limits an indexed circle before measuring distance", () => {
+    const query = render({ sourceIds: [1], listingIntent: "sale", propertySubTypes: ["Single Family"], counties: ["Buncombe"], area: { kind: "circle", center: { lat: 35.59, lng: -82.55 }, radiusMeters: 1609 } })!;
+    expect(query.sql).toContain("ST_Distance_Sphere");
+    expect(query.sql).toContain("`latitude` >= ?");
+    expect(query.params).toEqual(expect.arrayContaining([1, "Single Family", "Buncombe", -82.55, 1609]));
+    expect(query.sql).not.toContain("Single Family");
+  });
+
+  it("accepts a simple polygon, parameterizes its WKT, and rejects self-crossing shapes", () => {
+    const points = [{ lat: 35.58, lng: -82.57 }, { lat: 35.60, lng: -82.57 }, { lat: 35.60, lng: -82.53 }, { lat: 35.58, lng: -82.53 }];
+    expect(validPolygon(points)).toBe(true);
+    const query = render({ area: { kind: "polygon", points } })!;
+    expect(query.sql).toContain("ST_Intersects");
+    expect(query.sql).not.toContain("POLYGON((");
+    expect(query.params.some(param => String(param).startsWith("POLYGON(("))).toBe(true);
+    expect(mapAreaSchema.safeParse({ kind: "polygon", points: [points[0], points[2], points[1], points[3]] }).success).toBe(false);
+    expect(mapAreaSchema.safeParse({ kind: "circle", center: points[0], radiusMeters: 0 }).success).toBe(false);
   });
 });
 

@@ -32,6 +32,22 @@ async function columnExists(connection: Connection, table: string, column: strin
   return Number(rows[0]?.count ?? 0) > 0;
 }
 
+async function ensureNewestListingIndex(connection: Connection) {
+  // Web and ingestion worker start together; serialize the online index build.
+  // InnoDB's LOCK=NONE permits listing writes while the secondary index builds.
+  const name = "savvyos_mls_status_entry_idx_v1";
+  const [lock] = await connection.query<any[]>("SELECT GET_LOCK(?, 300) AS acquired", [name]);
+  if (Number(lock[0]?.acquired) !== 1) throw new Error("Timed out waiting for the MLS Newest-search index migration");
+  try {
+    const [indexes] = await connection.query<any[]>("SHOW INDEX FROM mls_listings WHERE Key_name = 'mls_listings_status_entry_idx'");
+    if (!indexes.length) {
+      await connection.query("ALTER TABLE mls_listings ADD INDEX mls_listings_status_entry_idx (standardStatus, originalEntryAt), ALGORITHM=INPLACE, LOCK=NONE");
+    }
+  } finally {
+    await connection.query("SELECT RELEASE_LOCK(?)", [name]);
+  }
+}
+
 export async function applyMlsSchema(connection: Connection) {
   for (const column of PERMISSION_COLUMNS) {
     if (!(await columnExists(connection, "admin_permissions", column.name))) {
@@ -48,6 +64,7 @@ export async function applyMlsSchema(connection: Connection) {
   }
   const [oldIndexes] = await connection.query<any[]>("SHOW INDEX FROM mls_listings WHERE Key_name = 'mls_listings_source_number_uq'");
   if (oldIndexes.length) await connection.query("ALTER TABLE mls_listings DROP INDEX mls_listings_source_number_uq, ADD INDEX mls_listings_source_number_idx (sourceId, listingNumber)");
+  await ensureNewestListingIndex(connection);
   await seedMlsSources(connection);
 }
 
