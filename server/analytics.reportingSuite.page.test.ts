@@ -100,6 +100,31 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(service).toContain("LIMIT ${limit} OFFSET ${offset}");
   });
 
+  it("keeps New Business Written, Scheduled Under Contract, and closed actuals distinct across reporting", () => {
+    const commandCenter = commandCenterService();
+    const reporting = reportService();
+    const reportingPage = reportPage();
+    const expansion = expansionService();
+    const expansionView = expansionViews();
+
+    expect(commandCenter).toContain("const newBusinessWrittenScope");
+    expect(commandCenter).toContain("t.contractDate >= ${filters.dateFrom}");
+    expect(commandCenter).toContain("newBusinessWritten,");
+    expect(adminDashboard()).toContain('title="New business written"');
+    expect(reporting).toContain("const selectedPeriodUnderContractScope");
+    expect(reporting).toContain('dateBasis: "closing"');
+    expect(reporting).toContain('dateBasis: "contract"');
+    expect(reporting).toContain("selectedPeriodUnderContract,");
+    expect(reporting).toContain("newBusinessWritten,");
+    expect(reportingPage).toContain('label="Scheduled under contract"');
+    expect(reportingPage).toContain('label="New business written"');
+    expect(expansion).toContain("const newBusinessWrittenWhere");
+    expect(expansion).toContain('dateBasis: "contract"');
+    expect(expansion).toContain("newBusinessWrittenVolume");
+    expect(expansionView).toContain('label="New business written"');
+    expect(expansionView).toContain('label="Written Vol."');
+  });
+
   it("keeps closed actuals and live UC inventory distinct while prioritizing actionable representation averages", () => {
     const financial = financialService();
     const view = financialView();
@@ -172,7 +197,7 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(service).toContain("AS underContractVolume");
     expect(service).toContain("closed: revenue.closings");
     expect(service).toContain("const closed = asNumber(revenue?.closings)");
-    expect(service).toContain("const [summaryRows, sourceRows, revenueRows, ucRows, appointmentRows, monthlyRows, closedMonthlyRows]");
+    expect(service).toContain("const [summaryRows, sourceRows, revenueRows, ucRows, newBusinessWrittenRows, appointmentRows, monthlyRows, closedMonthlyRows]");
     expect(service).toContain("COUNT(DISTINCT t.id) AS closed");
     expect(service).toContain("t.\\`referralId\\` IS NULL AND NOT EXISTS");
     expect(views).toContain('Metric label="Closed txns"');

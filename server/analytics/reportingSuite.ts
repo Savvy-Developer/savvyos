@@ -497,10 +497,12 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
   const priorWhere = priorFilters ? transactionScope(priorFilters, { forceStatus: "closed" }) : null;
   const periodDate = dateColumn(closedFilters);
   const underContractScope = transactionScope({ ...filters, status: "under_contract" }, { applyDate: false, forceStatus: "under_contract" });
+  const newBusinessWrittenScope = transactionScope({ ...filters, status: "all", dateBasis: "contract" });
 
-  const [productionRows, priorRows, representationRows, flagSummary, monthlyRows, underContractMonthlyRows, agentRows, flaggedTransactions, overdueTasks] = await Promise.all([
+  const [productionRows, priorRows, newBusinessWrittenRows, representationRows, flagSummary, monthlyRows, underContractMonthlyRows, agentRows, flaggedTransactions, overdueTasks] = await Promise.all([
     runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${closedWhere}`),
     priorWhere ? runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${priorWhere}`) : Promise.resolve([]),
+    runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${newBusinessWrittenScope}`),
     runRows<Row>(sql`
       SELECT
         t.\`transactionType\` AS transactionType,
@@ -550,6 +552,8 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
         COALESCE(p.grossCommission, 0) AS grossCommission,
         COALESCE(p.savvyNet, 0) AS savvyNet,
         p.averageGci AS averageGci,
+        COALESCE(written.units, 0) AS newBusinessWrittenUnits,
+        COALESCE(written.volume, 0) AS newBusinessWrittenVolume,
         COALESCE(openTx.underContract, 0) AS underContract,
         COALESCE(openTx.commissionFlags, 0) AS commissionFlags,
         COALESCE(openTx.pastExpectedCloseDate, 0) AS pastExpectedCloseDate,
@@ -569,6 +573,15 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
         ${closedWhere}
         GROUP BY t.\`agentId\`
       ) p ON p.agentId = u.\`id\`
+      LEFT JOIN (
+        SELECT
+          t.\`agentId\` AS agentId,
+          COUNT(*) AS units,
+          COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS volume
+        FROM \`transactions\` t
+        ${newBusinessWrittenScope}
+        GROUP BY t.\`agentId\`
+      ) written ON written.agentId = u.\`id\`
       LEFT JOIN (
         SELECT
           t.\`agentId\` AS agentId,
@@ -644,6 +657,7 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
 
   const production = toProduction(productionRows[0]);
   const prior = toProduction(priorRows[0]);
+  const newBusinessWritten = toProduction(newBusinessWrittenRows[0]);
   const representationAverages = {
     buyer: { units: 0, averagePurchasePrice: null as number | null, averageGci: null as number | null, commissionRateUnits: 0, averageCommissionRate: null as number | null },
     seller: { units: 0, averagePurchasePrice: null as number | null, averageGci: null as number | null, commissionRateUnits: 0, averageCommissionRate: null as number | null },
@@ -675,6 +689,7 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
     },
     production,
     prior,
+    newBusinessWritten,
     representationAverages,
     averageCommissionRate,
     change: {
@@ -705,6 +720,8 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
       grossCommission: asNumber(row.grossCommission),
       savvyNet: asNumber(row.savvyNet),
       averageGci: asNullableNumber(row.averageGci),
+      newBusinessWrittenUnits: asNumber(row.newBusinessWrittenUnits),
+      newBusinessWrittenVolume: asNumber(row.newBusinessWrittenVolume),
       underContract: asNumber(row.underContract),
       commissionFlags: asNumber(row.commissionFlags),
       pastExpectedCloseDate: asNumber(row.pastExpectedCloseDate),
@@ -803,6 +820,8 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   // by the report's historical closing/contract date range.
   const periodOutcomeScope = withCondition(scope, sql`t.\`status\` IN ('closed', 'terminated')`);
   const pipelineScope = transactionScope({ ...resolvedFilters, status: "under_contract" }, { applyDate: false, forceStatus: "under_contract" });
+  const selectedPeriodUnderContractScope = transactionScope({ ...resolvedFilters, status: "under_contract", dateBasis: "closing" }, { forceStatus: "under_contract" });
+  const newBusinessWrittenScope = transactionScope({ ...resolvedFilters, status: "all", dateBasis: "contract" });
   const monthlyPerformanceStatus = resolvedFilters.status === "terminated" ? "terminated" : "closed";
   const monthlyPerformanceScope = transactionScope({ ...resolvedFilters, status: monthlyPerformanceStatus }, { forceStatus: monthlyPerformanceStatus });
   const priorFilters = previousPeriod(resolvedFilters);
@@ -812,7 +831,7 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   const limit = Math.min(100, Math.max(10, filters.limit ?? 25));
   const offset = (page - 1) * limit;
 
-  const [summaryRows, priorRows, statusRows, pipelineRows, periodRepresentationRows, pipelineRepresentationRows, typeRows, monthlyRows, underContractMonthlyRows, agentOutcomeRows, flagsRows, evidenceRows, countRows] = await Promise.all([
+  const [summaryRows, priorRows, statusRows, pipelineRows, selectedPeriodUnderContractRows, newBusinessWrittenRows, periodRepresentationRows, pipelineRepresentationRows, typeRows, monthlyRows, underContractMonthlyRows, agentOutcomeRows, flagsRows, evidenceRows, countRows] = await Promise.all([
     runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${scope}`),
     priorScope ? runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${priorScope}`) : Promise.resolve([]),
     runRows<Row>(sql`
@@ -827,6 +846,8 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
       ORDER BY FIELD(t.\`status\`, 'closed', 'terminated')
     `),
     runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${pipelineScope}`),
+    runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${selectedPeriodUnderContractScope}`),
+    runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${newBusinessWrittenScope}`),
     runRows<Row>(sql`
       SELECT t.\`status\` AS status, t.\`transactionType\` AS transactionType, COUNT(*) AS units,
         COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS grossCommission,
@@ -937,6 +958,8 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   const summary = toProduction(summaryRows[0]);
   const prior = toProduction(priorRows[0]);
   const pipeline = toProduction(pipelineRows[0]);
+  const selectedPeriodUnderContract = toProduction(selectedPeriodUnderContractRows[0]);
+  const newBusinessWritten = toProduction(newBusinessWrittenRows[0]);
   const statuses = statusRows.map((row) => ({
     status: String(row.status ?? ""),
     units: asNumber(row.units),
@@ -980,6 +1003,8 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
       grossCommission: pipeline.grossCommission,
       savvyNet: pipeline.savvyNet,
     },
+    selectedPeriodUnderContract,
+    newBusinessWritten,
     representationByStatus: [...periodRepresentationRows, ...pipelineRepresentationRows].map((row) => ({
       status: String(row.status ?? ""),
       transactionType: String(row.transactionType ?? ""),

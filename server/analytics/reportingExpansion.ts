@@ -187,8 +187,9 @@ function agentRosterScope(filters: ExpansionFilters): SQL {
   ]);
 }
 
-function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolean; applyDate?: boolean } = {}): SQL {
+function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolean; applyDate?: boolean; dateBasis?: "closing" | "contract" } = {}): SQL {
   const status = opts.closedOnly ? "closed" : filters.status;
+  const date = opts.dateBasis === "contract" ? sql`t.\`contractDate\`` : sql`t.\`closingDate\``;
   return where([
     sql`t.\`referralId\` IS NULL AND NOT EXISTS (
       SELECT 1 FROM \`referral_transaction_links\` rtl
@@ -205,9 +206,9 @@ function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolea
     (filters.leadSourceIds?.length ? sql`t.\`transactionLeadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})` : filters.leadSourceId ? sql`t.\`transactionLeadSourceId\` = ${filters.leadSourceId}` : undefined),
     status && status !== "all" ? sql`t.\`status\` = ${status}` : undefined,
     filters.transactionType && filters.transactionType !== "all" ? sql`t.\`transactionType\` = ${filters.transactionType}` : undefined,
-    opts.applyDate === false ? undefined : sql`t.\`closingDate\` IS NOT NULL`,
-    opts.applyDate === false || !filters.dateFrom ? undefined : sql`DATE(t.\`closingDate\`) >= ${filters.dateFrom}`,
-    opts.applyDate === false || !filters.dateTo ? undefined : sql`DATE(t.\`closingDate\`) <= ${filters.dateTo}`,
+    opts.applyDate === false ? undefined : sql`${date} IS NOT NULL`,
+    opts.applyDate === false || !filters.dateFrom ? undefined : sql`DATE(${date}) >= ${filters.dateFrom}`,
+    opts.applyDate === false || !filters.dateTo ? undefined : sql`DATE(${date}) <= ${filters.dateTo}`,
   ]);
 }
 
@@ -327,6 +328,7 @@ export async function getAgentOnboardingReportingData(filters: ExpansionFilters 
 
 export async function getMarketAnalyticsReportingData(filters: ExpansionFilters = {}) {
   const transactionWhere = transactionScope(filters, { closedOnly: true });
+  const newBusinessWrittenWhere = transactionScope({ ...filters, status: "all" }, { dateBasis: "contract" });
   const pipelineWhere = where([
     sql`t.\`referralId\` IS NULL AND NOT EXISTS (
       SELECT 1 FROM \`referral_transaction_links\` rtl
@@ -361,6 +363,8 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
         COALESCE(SUM(pipeline.underContract), 0) AS underContract,
         COALESCE(SUM(pipeline.futureVolume), 0) AS futureVolume,
         COALESCE(SUM(pipeline.futureGci), 0) AS futureGci,
+        COALESCE(SUM(written.units), 0) AS newBusinessWrittenUnits,
+        COALESCE(SUM(written.volume), 0) AS newBusinessWrittenVolume,
         COALESCE(SUM(tx.volume), 0) AS volume,
         COALESCE(SUM(tx.grossCommission), 0) AS grossCommission,
         COALESCE(SUM(tx.savvyNet), 0) AS savvyNet,
@@ -401,6 +405,15 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
         ${pipelineWhere}
         GROUP BY t.\`agentId\`
       ) pipeline ON pipeline.agentId = u.id
+      LEFT JOIN (
+        SELECT
+          t.\`agentId\` AS agentId,
+          COUNT(*) AS units,
+          COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS volume
+        FROM \`transactions\` t
+        ${newBusinessWrittenWhere}
+        GROUP BY t.\`agentId\`
+      ) written ON written.agentId = u.id
       LEFT JOIN (
         SELECT
           \`marketProfileId\` AS marketProfileId,
@@ -454,6 +467,8 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
     underContract: asNumber(row.underContract),
     futureVolume: asNumber(row.futureVolume),
     futureGci: asNumber(row.futureGci),
+    newBusinessWrittenUnits: asNumber(row.newBusinessWrittenUnits),
+    newBusinessWrittenVolume: asNumber(row.newBusinessWrittenVolume),
     volume: asNumber(row.volume),
     grossCommission: asNumber(row.grossCommission),
     savvyNet: asNumber(row.savvyNet),
@@ -473,6 +488,8 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
     underContract: result.underContract + market.underContract,
     futureVolume: result.futureVolume + market.futureVolume,
     futureGci: result.futureGci + market.futureGci,
+    newBusinessWrittenUnits: result.newBusinessWrittenUnits + market.newBusinessWrittenUnits,
+    newBusinessWrittenVolume: result.newBusinessWrittenVolume + market.newBusinessWrittenVolume,
     volume: result.volume + market.volume,
     grossCommission: result.grossCommission + market.grossCommission,
     savvyNet: result.savvyNet + market.savvyNet,
@@ -483,7 +500,7 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
     availableAgents: result.availableAgents + market.availableAgents,
     currentLeadCount: result.currentLeadCount + market.currentLeadCount,
     maxLeadCapacity: result.maxLeadCapacity + market.maxLeadCapacity,
-  }), { markets: 0, agents: 0, closings: 0, underContract: 0, futureVolume: 0, futureGci: 0, volume: 0, grossCommission: 0, savvyNet: 0, buyerClosings: 0, buyerGci: 0, sellerClosings: 0, sellerGci: 0, availableAgents: 0, currentLeadCount: 0, maxLeadCapacity: 0 });
+  }), { markets: 0, agents: 0, closings: 0, underContract: 0, futureVolume: 0, futureGci: 0, newBusinessWrittenUnits: 0, newBusinessWrittenVolume: 0, volume: 0, grossCommission: 0, savvyNet: 0, buyerClosings: 0, buyerGci: 0, sellerClosings: 0, sellerGci: 0, availableAgents: 0, currentLeadCount: 0, maxLeadCapacity: 0 });
   return {
     summary: {
       ...summary,
@@ -727,6 +744,7 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
 export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}) {
   const contactsWhere = contactScope(filters);
   const closedTransactionsWhere = transactionScope(filters, { closedOnly: true });
+  const newBusinessWrittenWhere = transactionScope({ ...filters, status: "all" }, { dateBasis: "contract" });
   // Under-contract transactions scope (no closedOnly restriction, just UC status)
   const ucTransactionsWhere = where([
     sql`t.\`referralId\` IS NULL AND NOT EXISTS (
@@ -744,7 +762,7 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     (filters.leadSourceIds?.length ? sql`t.\`transactionLeadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})` : filters.leadSourceId ? sql`t.\`transactionLeadSourceId\` = ${filters.leadSourceId}` : undefined),
     sql`t.\`status\` = 'under_contract'`,
   ]);
-  const [summaryRows, sourceRows, revenueRows, ucRows, appointmentRows, monthlyRows, closedMonthlyRows] = await Promise.all([
+  const [summaryRows, sourceRows, revenueRows, ucRows, newBusinessWrittenRows, appointmentRows, monthlyRows, closedMonthlyRows] = await Promise.all([
     runRows<Row>(sql`
       SELECT
         COUNT(*) AS leads,
@@ -796,6 +814,16 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     `),
     runRows<Row>(sql`
       SELECT
+        COALESCE(t.\`transactionLeadSourceId\`, 0) AS sourceId,
+        COUNT(DISTINCT t.id) AS newBusinessWritten,
+        COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS newBusinessWrittenVolume
+      FROM \`transactions\` t
+      INNER JOIN \`contacts\` c ON c.id = t.\`primaryContactId\`
+      ${newBusinessWrittenWhere}
+      GROUP BY t.\`transactionLeadSourceId\`
+    `),
+    runRows<Row>(sql`
+      SELECT
         COALESCE(c.\`leadSourceId\`, 0) AS sourceId,
         SUM(CASE WHEN ac.\`appointmentSet\` = 1 THEN 1 ELSE 0 END) AS appointmentsSet
       FROM \`contacts\` c
@@ -827,6 +855,7 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
   const revenueBySource = new Map(revenueRows.map((row) => [asNumber(row.sourceId), row]));
   const sourcesById = new Map(sourceRows.map((row) => [asNumber(row.sourceId), row]));
   const ucBySource = new Map(ucRows.map((row) => [asNumber(row.sourceId), { underContract: asNumber(row.underContract), underContractVolume: asNumber(row.underContractVolume) }]));
+  const newBusinessWrittenBySource = new Map(newBusinessWrittenRows.map((row) => [asNumber(row.sourceId), { newBusinessWritten: asNumber(row.newBusinessWritten), newBusinessWrittenVolume: asNumber(row.newBusinessWrittenVolume) }]));
   const appointmentsBySource = new Map(appointmentRows.map((row) => [asNumber(row.sourceId), asNumber(row.appointmentsSet)]));
   // Include sources with closed production or live UC inventory even when their
   // leads were acquired outside the selected contact-created range. This keeps
@@ -835,11 +864,13 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     ...sourceRows.map((row) => asNumber(row.sourceId)),
     ...revenueRows.map((row) => asNumber(row.sourceId)),
     ...ucRows.map((row) => asNumber(row.sourceId)),
+    ...newBusinessWrittenRows.map((row) => asNumber(row.sourceId)),
   ]));
   const sources = sourceIds.map((sourceId) => {
     const row = sourcesById.get(sourceId);
     const revenue = revenueBySource.get(sourceId);
     const uc = ucBySource.get(sourceId);
+    const written = newBusinessWrittenBySource.get(sourceId);
     const leads = asNumber(row?.leads);
     const closed = asNumber(revenue?.closings);
     return {
@@ -854,6 +885,8 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
       closeRate: leads ? (closed / leads) * 100 : null,
       underContract: uc?.underContract ?? 0,
       underContractVolume: uc?.underContractVolume ?? 0,
+      newBusinessWritten: written?.newBusinessWritten ?? 0,
+      newBusinessWrittenVolume: written?.newBusinessWrittenVolume ?? 0,
       appointmentsSet: appointmentsBySource.get(sourceId) ?? 0,
       closings: asNumber(revenue?.closings),
       volume: asNumber(revenue?.volume),
@@ -873,6 +906,10 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     }),
     { closings: 0, volume: 0, grossCommission: 0, savvyNet: 0 },
   );
+  const newBusinessWritten = newBusinessWrittenRows.reduce<{ units: number; volume: number }>((result, row) => ({
+    units: result.units + asNumber(row.newBusinessWritten),
+    volume: result.volume + asNumber(row.newBusinessWrittenVolume),
+  }), { units: 0, volume: 0 });
   const monthlyByMonth = new Map<string, { month: string; leads: number; activeClients: number; closed: number }>();
   for (const row of monthlyRows) {
     const month = String(row.month ?? "");
@@ -899,6 +936,8 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
       closeRate: leads ? (revenue.closings / leads) * 100 : null,
       sourceCount: sources.filter((source) => source.sourceId !== 0).length,
       lowConversionSources: sources.filter((source) => source.leads >= 5 && source.closings === 0).length,
+      newBusinessWrittenUnits: newBusinessWritten.units,
+      newBusinessWrittenVolume: newBusinessWritten.volume,
       ...revenue,
     },
     monthly,

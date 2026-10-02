@@ -264,6 +264,14 @@ export async function getAdminCommandCenter(input: {
   const connectionCohortScope = connectionScope(filters, { applyDate: true, includeTerminal: true });
   const allConnectionScope = connectionScope(filters, { applyDate: false, includeTerminal: true });
   const activeContractScope = transactionScope(filters, { status: "under_contract", applyDate: false });
+  // New Business Written is a gross contract-signing cohort. It deliberately
+  // ignores the dashboard's current-status filter so later closing or
+  // termination does not erase business written during the selected period.
+  const newBusinessWrittenScope = sqlAnd([
+    transactionScope({ ...filters, transactionStatus: undefined }, { applyDate: false }),
+    sql`t.contractDate >= ${filters.dateFrom}`,
+    sql`t.contractDate <= ${filters.dateTo}`,
+  ]);
   // This is a near-term production view, not a contract-signing cohort. Keep
   // the live status requirement, then place each active deal into the selected
   // reporting period by its expected closing date.
@@ -295,6 +303,9 @@ export async function getAdminCommandCenter(input: {
       db.execute(sql`SELECT COUNT(*) AS units, COALESCE(SUM(t.purchasePrice), 0) AS volume, COALESCE(SUM(t.grossCommissionIncome), 0) AS gci
         FROM transactions t LEFT JOIN users owner ON owner.id = t.agentId LEFT JOIN contacts contact ON contact.id = t.primaryContactId
         WHERE ${activeContractScope}`),
+      db.execute(sql`SELECT COUNT(*) AS units, COALESCE(SUM(t.purchasePrice), 0) AS volume, COALESCE(SUM(t.grossCommissionIncome), 0) AS gci
+        FROM transactions t LEFT JOIN users owner ON owner.id = t.agentId LEFT JOIN contacts contact ON contact.id = t.primaryContactId
+        WHERE ${newBusinessWrittenScope}`),
       db.execute(sql`SELECT COUNT(*) AS units, COALESCE(SUM(t.purchasePrice), 0) AS volume, COALESCE(SUM(t.grossCommissionIncome), 0) AS gci
         FROM transactions t LEFT JOIN users owner ON owner.id = t.agentId LEFT JOIN contacts contact ON contact.id = t.primaryContactId
         WHERE ${selectedPeriodContractScope}`),
@@ -507,8 +518,9 @@ export async function getAdminCommandCenter(input: {
   const currentClosed = financialResult ? toMetric(rows<QueryRow>(financialResult[0])[0]) : null;
   const priorClosed = financialResult ? toMetric(rows<QueryRow>(financialResult[1])[0]) : null;
   const activeContracts = financialResult ? toMetric(rows<QueryRow>(financialResult[2])[0]) : null;
-  const reportingPeriodContracts = financialResult ? toMetric(rows<QueryRow>(financialResult[3])[0]) : null;
-  const trend = financialResult ? rows<QueryRow>(financialResult[4]).map((row) => ({
+  const newBusinessWritten = financialResult ? toMetric(rows<QueryRow>(financialResult[3])[0]) : null;
+  const reportingPeriodContracts = financialResult ? toMetric(rows<QueryRow>(financialResult[4])[0]) : null;
+  const trend = financialResult ? rows<QueryRow>(financialResult[5]).map((row) => ({
     period: String(row.period),
     closedUnits: number(row.closedUnits),
     closedVolume: number(row.closedVolume),
@@ -774,6 +786,7 @@ export async function getAdminCommandCenter(input: {
       closed: currentClosed,
       priorClosed,
       activeContracts,
+      newBusinessWritten,
       reportingPeriodContracts,
       goalProgress: {
         gci: goalProgress(currentClosed.gci, settingValues.companyGciGoal, filters),
