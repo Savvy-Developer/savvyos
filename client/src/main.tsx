@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { isIsolatedTrpcQuery } from "@/lib/isolatedTrpcQueries";
 import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, httpLink, splitLink, TRPCClientError } from "@trpc/client";
@@ -63,12 +64,12 @@ const authenticatedFetch = (input: RequestInfo | URL, init?: RequestInit) =>
 
 const trpcClient = trpc.createClient({
   links: [
-    // The cohort report can legitimately scan a large date range. Keep it out of
-    // the initial navigation batch so unrelated chrome (badges, profile, and nav)
-    // stays responsive even while the report is loading.
+    // Long-running reports or MLS source facets must not hold up property cards
+    // in the same HTTP batch. A split transport lets these latency-sensitive
+    // MLS reads resolve independently of slower filter and navigation queries.
     splitLink({
       condition(op) {
-        return op.path === "analytics.leadCohortConversion";
+        return isIsolatedTrpcQuery(op.path);
       },
       true: httpLink({
         url: "/api/trpc",
