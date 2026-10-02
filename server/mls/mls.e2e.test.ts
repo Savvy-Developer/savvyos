@@ -159,6 +159,9 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
 
     process.env.DATABASE_URL = DATABASE_URL;
     process.env.MLS_CRED_E2EGRID_TOKEN = TOKEN;
+    // Scenarios below rearrange expired rows between batches; the production
+    // empty-stage skip is exercised explicitly in its own assertion.
+    process.env.MLS_MEDIA_EMPTY_REFRESH_TTL_MS = "0";
     modules = {
       engine: await import("./engine"),
       media: await import("./media"),
@@ -671,6 +674,26 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       expect(fair.refreshed).toBe(1);
       expect(fair.claimed).toBe(4);
       expect(fair.stored).toBe(4);
+
+      // An empty refresh stage is skipped briefly instead of rescanning the
+      // whole expired backlog every batch, then resumes.
+      process.env.MLS_MEDIA_EMPTY_REFRESH_TTL_MS = "60000";
+      try {
+        modules.media.resetEmptyRefreshCache();
+        expect((await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6 })).refreshed).toBe(0);
+        await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL, nextAttemptAt=NULL WHERE feedId=? AND listingId=? AND isPrimary=1", [feed.id, first.listingId]);
+        const apiBefore = state.requests.filter(request => request.includes("ListingId in (")).length;
+        const skipped = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6 });
+        expect(skipped.refreshed).toBe(0);
+        expect(state.requests.filter(request => request.includes("ListingId in (")).length).toBe(apiBefore);
+        modules.media.resetEmptyRefreshCache();
+        const resumed = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6 });
+        expect(resumed.refreshed).toBe(1);
+        expect(resumed.stored).toBe(1);
+      } finally {
+        process.env.MLS_MEDIA_EMPTY_REFRESH_TTL_MS = "0";
+        modules.media.resetEmptyRefreshCache();
+      }
     } finally {
       state.properties = original;
     }
