@@ -11,7 +11,7 @@ import { allLanes, getLane, laneKey } from "./http";
 import { licenseError } from "./license";
 import { hasPendingMedia, resetStaleMediaClaims, runMediaBatch } from "./media";
 import { privateMlsStorageError } from "./privateMedia";
-import { ensureMlsSchema } from "./schema";
+import { ensureMlsSchema, startSearchCoverIndexBuild } from "./schema";
 
 /**
  * The MLS ingestion scheduler. Runs as its own Railway service
@@ -39,6 +39,9 @@ export class MlsIngestionScheduler {
 
   async start() {
     await ensureMlsSchema();
+    // Only the worker builds the large search indexes, so web and worker never
+    // queue behind each other's metadata-lock wait.
+    startSearchCoverIndexBuild();
     await resetStaleMediaClaims().catch(error => console.error("[mls] reset stale media claims failed", error));
     await this.beat();
     this.timers.push(setInterval(() => void this.beat(), HEARTBEAT_MS));

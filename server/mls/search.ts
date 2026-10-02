@@ -420,6 +420,16 @@ export async function searchListings(
   return { items, total, hasMore: offset + ids.length < total, page: input.page, pageSize: input.pageSize };
 }
 
+/** Even 49 price pills overlap on a phone-sized neighborhood map, so wide
+ * views cluster early. Zoomed in, the same count spreads out, and at the
+ * deepest zooms clusters cannot split any further (shared coordinates). */
+export function pinLimitForZoom(zoom: number): number {
+  if (zoom >= 17) return 300;
+  if (zoom >= 15) return 100;
+  if (zoom >= 13) return 40;
+  return 20;
+}
+
 /**
  * Map layer. Up to `pinLimit` listings in view come back as pins; above that
  * the viewport is bucketed into a grid sized to the zoom level and each cell
@@ -429,9 +439,7 @@ export async function mapPoints(
   db: Db,
   input: { filters: SearchFilters; bounds: z.infer<typeof boundsSchema>; zoom: number; pinLimit?: number }
 ) {
-  // Even 49 price pills overlap on a phone-sized neighborhood map. Zoom into
-  // clusters first, then show individual listings once the viewport is usable.
-  const pinLimit = input.pinLimit ?? 20;
+  const pinLimit = input.pinLimit ?? pinLimitForZoom(input.zoom);
   await refreshSearchIndexAvailability(db);
   const scan = withIndexableStatuses(input.filters);
   const where = searchConditions({ ...scan, bounds: input.bounds });

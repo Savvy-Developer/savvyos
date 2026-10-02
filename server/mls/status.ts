@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { sql } from "drizzle-orm";
 import { getDb } from "../db";
+import { SEARCH_COVER_INDEX_DDL } from "./schema";
 import { MLS_TABLE_DDL } from "./schemaDdl";
 import { MLS_SOURCE_SEEDS } from "./sources";
 
@@ -16,6 +17,8 @@ export type MlsSchemaStatus = {
   tables: { found: number; expected: number };
   permissionColumns: { found: number; expected: number };
   sources: { found: number; expected: number };
+  /** Optional search indexes built online after deploy. Never affects status. */
+  searchIndexes?: { found: number; expected: number };
   checkedAt: string;
 };
 
@@ -64,7 +67,16 @@ export async function readMlsSchemaStatus(): Promise<MlsSchemaStatus> {
       sources = 0;
     }
   }
-  return summarize({ tables, permissionColumns: Number(columnRows[0]?.count ?? 0), sources });
+  const summary = summarize({ tables, permissionColumns: Number(columnRows[0]?.count ?? 0), sources });
+  try {
+    const indexRows = rowsOf(await db.execute(sql`
+      SELECT COUNT(DISTINCT INDEX_NAME) AS count FROM information_schema.statistics
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mls_listings'
+         AND INDEX_NAME IN (${sql.join(SEARCH_COVER_INDEX_DDL.map(index => sql`${index.name}`), sql`, `)})`));
+    return { ...summary, searchIndexes: { found: Number(indexRows[0]?.count ?? 0), expected: SEARCH_COVER_INDEX_DDL.length } };
+  } catch {
+    return summary;
+  }
 }
 
 /** Public liveness only. No worker ID, feed names, MLS data, or credentials. */

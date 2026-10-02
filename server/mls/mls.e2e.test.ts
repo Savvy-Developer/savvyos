@@ -316,6 +316,22 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
   });
 
   it("searches without the covering indexes, then online-builds them and counts from the index alone", async () => {
+    // The builder must see an open transaction (an idle metadata-lock holder)
+    // and skip that window rather than queue every MLS query behind its ALTER.
+    const holder = await mysql.createConnection(DATABASE_URL!);
+    try {
+      await holder.query("START TRANSACTION");
+      await holder.query("SELECT id FROM mls_listings LIMIT 1");
+      const held = await modules.schema.listingLockHolders(admin as any);
+      expect(held).not.toBeNull();
+      const blockers = modules.schema.blockingHolders(held!);
+      expect(blockers.some(row => row.command === "Sleep" && /mls_listings/.test(row.digest))).toBe(true);
+      expect(blockers.every(row => !/\b\d{2,}\b/.test(row.digest.replace(/LIMIT \?/g, "")))).toBe(true);
+      await holder.query("COMMIT");
+      expect(modules.schema.blockingHolders((await modules.schema.listingLockHolders(admin as any))!).filter(row => row.command === "Sleep")).toEqual([]);
+    } finally {
+      await holder.end();
+    }
     const db = (await modules.db.getDb())!;
     const bounds = { north: 36, south: 35, east: -81.5, west: -84 };
     const filters = { statuses: ["active"] as ["active"], listingIntent: "sale" as const };

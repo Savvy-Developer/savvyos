@@ -15,7 +15,7 @@ import { mapAreaSchema, validPolygon } from "./mapGeometry";
 import { CANONICAL_STATUSES, normalizePropertyType, normalizeStatus } from "./normalize/enums";
 import { normalizeListing } from "./normalize/normalizeListing";
 import { propertyIdentity } from "./normalize/propertyIdentity";
-import { preferMarisBboCondition, scanIndexFor, searchConditions, useBoundedNewestCandidateIndex, useExactMlsNumberIndex, useNewestFeedIndex, useRecentFeedIndex, withIndexableStatuses } from "./search";
+import { pinLimitForZoom, preferMarisBboCondition, scanIndexFor, searchConditions, useBoundedNewestCandidateIndex, useExactMlsNumberIndex, useNewestFeedIndex, useRecentFeedIndex, withIndexableStatuses } from "./search";
 import { licenseError } from "./license";
 import { summarize } from "./status";
 import { mediaClientConfig, privateMlsStorageError } from "./privateMedia";
@@ -24,7 +24,8 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { parseODataPage } from "./adapters/types";
 import { __testables__ as mcpTestables } from "../readOnlyMcp";
 import { MLS_SOURCE_SEEDS, seedCompliance } from "./sources";
-import { importErrorInfo, mediaWanted, payloadHash } from "./store";
+import { importErrorInfo, mediaWanted, payloadHash, retryOnDeadlock } from "./store";
+import { blockingHolders } from "./schema";
 
 const source = {
   id: 1,
@@ -102,6 +103,12 @@ describe("Active-gallery queue and default search", () => {
     expect(normalizeStatus("Something New")).toBe("unknown");
   });
   it("switches map, count and MARIS BBO checks to the covering indexes only once they exist", () => {
+    expect([10, 13, 15, 17, 19].map(pinLimitForZoom)).toEqual([20, 40, 100, 300, 300]);
+    expect(blockingHolders([
+      { command: "Query", seconds: 2 },
+      { command: "Query", seconds: 9 },
+      { command: "Sleep", seconds: 0 },
+    ])).toEqual([{ command: "Query", seconds: 9 }, { command: "Sleep", seconds: 0 }]);
     const ready = { searchCover: true, sourceNumberFeed: true }, missing = { searchCover: false, sourceNumberFeed: false };
     expect(scanIndexFor({ statuses: ["active"] }, true, ready)).toEqual({ forceIndex: ["mls_listings_search_cover_idx"] });
     expect(scanIndexFor({ statuses: ["active"] }, false, ready)).toEqual({ forceIndex: ["mls_listings_search_cover_idx"] });
@@ -464,6 +471,23 @@ describe("license and isolation guards", () => {
     const wrapped = Object.assign(new Error("query failed"), { cause: Object.assign(new Error("bad value"), { code: "ER_DATA_TOO_LONG", sqlMessage: "Data too long for column 'postalCode' at row 1: 123 private address" }) });
     expect(importErrorInfo(wrapped)).toEqual({ code: "ER_DATA_TOO_LONG", column: "postalCode", transient: false });
     expect(importErrorInfo(Object.assign(new Error("deadlock"), { code: "ER_LOCK_DEADLOCK" })).transient).toBe(true);
+  });
+
+  it("replays a deadlock victim in place, but not other errors, and gives up after bounded attempts", async () => {
+    const deadlock = () => Object.assign(new Error("Failed query"), { cause: Object.assign(new Error("Deadlock found"), { code: "ER_LOCK_DEADLOCK" }) });
+    let calls = 0;
+    await expect(retryOnDeadlock(async () => { calls += 1; if (calls < 3) throw deadlock(); return "saved"; }, 4, 1)).resolves.toBe("saved");
+    expect(calls).toBe(3);
+
+    calls = 0;
+    await expect(retryOnDeadlock(async () => { calls += 1; throw deadlock(); }, 4, 1)).rejects.toThrow("Failed query");
+    expect(calls).toBe(4);
+
+    for (const code of ["ER_LOCK_WAIT_TIMEOUT", "ER_DATA_TOO_LONG"]) {
+      calls = 0;
+      await expect(retryOnDeadlock(async () => { calls += 1; throw Object.assign(new Error(code), { code }); }, 4, 1)).rejects.toThrow(code);
+      expect(calls).toBe(1);
+    }
   });
 
   it("rejects malformed OData pages instead of treating them as an empty feed", () => {
