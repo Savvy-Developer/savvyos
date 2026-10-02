@@ -200,8 +200,9 @@ export default function MlsListingDetailPage() {
   const price = displayPrice(listing);
   const freshness = feed ? FRESHNESS_STYLES[feed.freshness] : null;
   const storedPhotos = data.media.filter(photo => photo.url).length;
+  const ownStoredPhotos = data.mediaProvenance ? Number(data.mediaStatus.stored ?? 0) : storedPhotos;
   const expectedPhotos = Number(listing.photosCount ?? 0);
-  const galleryComplete = expectedPhotos > 0 && storedPhotos >= expectedPhotos;
+  const galleryComplete = expectedPhotos > 0 && ownStoredPhotos >= expectedPhotos;
   const galleryQueued = data.galleryQueued;
   const informationalOptOuts = display?.optOuts.filter(text => /consumer comments|automated valuations/i.test(text)) ?? [];
   const urgentOptOuts = display?.optOuts.filter(text => !/consumer comments|automated valuations/i.test(text)) ?? [];
@@ -244,8 +245,9 @@ export default function MlsListingDetailPage() {
         <div className="min-w-0 space-y-4">
           <Gallery media={data.media} alt={addressLine(listing)} />
           <div className="flex flex-wrap items-center gap-2">
-            {galleryComplete ? <span className="text-sm text-muted-foreground">All {storedPhotos} available photos stored</span> : galleryQueued ? (
-              <span className="text-sm text-muted-foreground">Importing photos · {storedPhotos}{expectedPhotos ? ` of ${expectedPhotos}` : ""} ready</span>
+            {data.mediaProvenance ? <span className="text-xs text-teal-800">Showing {storedPhotos} photos from the licensed {source?.shortName} IDX copy while BBO photos import.</span> : null}
+            {galleryComplete ? <span className="text-sm text-muted-foreground">All {ownStoredPhotos} available photos stored</span> : galleryQueued ? (
+              <span className="text-sm text-muted-foreground">Importing BBO photos · {ownStoredPhotos}{expectedPhotos ? ` of ${expectedPhotos}` : ""} ready</span>
             ) : (
               <Button type="button" variant="outline" size="sm" disabled={requestGallery.isPending || galleryPolling} onClick={() => requestGallery.mutate({ id })}>
                 {requestGallery.isPending ? "Queuing photos..." : galleryPolling ? "Photos requested" : listing.standardStatus === "active" ? "Prioritize photos now" : "Load available photos"}
