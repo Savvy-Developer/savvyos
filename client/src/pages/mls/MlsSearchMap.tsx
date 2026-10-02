@@ -17,7 +17,8 @@ export type MapArea =
   | { kind: "circle"; center: { lat: number; lng: number }; radiusMeters: number }
   | { kind: "polygon"; points: { lat: number; lng: number }[] };
 
-type Props = {
+export type Props = {
+  mapboxToken?: string;
   filters: Record<string, unknown>;
   area: MapArea | null;
   searchAsMove: boolean;

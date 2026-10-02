@@ -232,6 +232,9 @@ importers:
       mammoth:
         specifier: ^1.12.2
         version: 1.12.2
+      mapbox-gl:
+        specifier: 3.32.0
+        version: 3.32.0
       marked:
         specifier: ^18.0.7
         version: 18.0.7
@@ -304,6 +307,12 @@ importers:
       tailwindcss-animate:
         specifier: ^1.0.7
         version: 1.0.7(tailwindcss@4.1.14)
+      terra-draw:
+        specifier: 1.35.0
+        version: 1.35.0
+      terra-draw-mapbox-gl-adapter:
+        specifier: 1.4.0
+        version: 1.4.0(mapbox-gl@3.32.0)(terra-draw@1.35.0)
       turndown:
         specifier: ^7.2.4
         version: 7.2.4
@@ -4235,6 +4244,9 @@ packages:
     engines: {node: '>=12.0.0'}
     hasBin: true
 
+  mapbox-gl@3.32.0:
+    resolution: {integrity: sha512-+P4qrlyejQYLyz1Bfzoe+d5Ff5vAghH54RNHm1q2VeAZqkSjQ5e1XlovQoSHlf4xqpRJtJG58kn8nkLwPMQung==}
+
   markdown-it@14.1.1:
     resolution: {integrity: sha512-BuU2qnTti9YKgK5N+IeMubp14ZUKUUw7yeJbkjtosvHiP0AZ5c8IAgEMk79D0eC8F23r4Ac/q8cAIFdm2FtyoA==}
     hasBin: true
@@ -5215,6 +5227,15 @@ packages:
     resolution: {integrity: sha512-nlGpxf+hv0v7GkWBK2V9spgactGOp0qvfWRxUMjqHyzrt3SgwE48DIv/FhqPHJYLHpgW1opq3nERbz5Anq7n1g==}
     engines: {node: '>=18'}
     deprecated: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+
+  terra-draw-mapbox-gl-adapter@1.4.0:
+    resolution: {integrity: sha512-wsAkLX1asSI1XnVu39GCnEJNID1XqlHrTuPjxcBdwOCBisvhtXLsdOdeNxmBo6jtY/UWczTsQBqa2UaWIYydjA==}
+    peerDependencies:
+      mapbox-gl: ^3.9.2
+      terra-draw: ^1.0.0
+
+  terra-draw@1.35.0:
+    resolution: {integrity: sha512-uQI8lcPiUMqwVV29CexTfvT/AM4lGHtA+xWraW4njVExiM1+eGvRetYOBXmXEmgy5pL4X2dmjwMRH8JEYVtbgw==}
 
   text-segmentation@1.0.3:
     resolution: {integrity: sha512-iOiPUo/BGnZ6+54OsWxZidGCsdU8YbE4PSpdPinp7DeMtUJNJBoJ/ouUSTJjHkh1KntHaltHl/gDs2FC4i5+Nw==}
@@ -9939,6 +9960,8 @@ snapshots:
       underscore: 1.13.8
       xmlbuilder: 10.1.1
 
+  mapbox-gl@3.32.0: {}
+
   markdown-it@14.1.1:
     dependencies:
       argparse: 2.0.1
@@ -11320,6 +11343,13 @@ snapshots:
       minipass: 7.1.2
       minizlib: 3.1.0
       yallist: 5.0.0
+
+  terra-draw-mapbox-gl-adapter@1.4.0(mapbox-gl@3.32.0)(terra-draw@1.35.0):
+    dependencies:
+      mapbox-gl: 3.32.0
+      terra-draw: 1.35.0
+
+  terra-draw@1.35.0: {}
 
   text-segmentation@1.0.3:
     dependencies:

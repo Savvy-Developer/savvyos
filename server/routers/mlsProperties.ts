@@ -231,6 +231,12 @@ export const mlsPropertiesRouter = router({
     };
   }),
 
+  /** Only a Mapbox public browser token can be exposed; MLS credentials stay private. */
+  mapConfig: viewProcedure.query(() => {
+    const publicToken = process.env.MAPBOX_PUBLIC_TOKEN?.trim();
+    return { publicToken: publicToken?.startsWith("pk.") ? publicToken : null };
+  }),
+
   search: viewProcedure
     .input(
       z.object({

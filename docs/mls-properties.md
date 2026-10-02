@@ -100,6 +100,9 @@ Provider notes and source links are in `server/mls/adapters/*.ts` headers and th
 | `MLS_WORKER_TICK_MS` | Worker | Scheduler tick, default 15,000 |
 | `MLS_MEDIA_REQUESTS_PER_SECOND` | Worker | Global media request ceiling, default 10 |
 | `MLS_SCHEMA_ENSURE=on` | Non-production | Run the schema guard outside production |
+| `MAPBOX_PUBLIC_TOKEN` | Web service only | Public Mapbox `pk.` browser token, served only to authorized MLS users at runtime. Restrict it to `os.savvy-agents.com` in Mapbox; never use an `sk.` token. |
+
+Map/Split lazily loads the Mapbox GL Standard vector map and Terra Draw circle/polygon tools when that token is configured. List remains map-free. If the token is missing or the style fails to load, the existing Leaflet map remains available. Shapes still filter the licensed SavvyOS search and map APIs; MLS records and private photo URLs are not handed to Mapbox as a dataset.
 
 ## Scale notes
 
