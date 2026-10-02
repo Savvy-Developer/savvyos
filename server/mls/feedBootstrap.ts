@@ -12,8 +12,8 @@ type Connection = Awaited<ReturnType<typeof mysql.createConnection>>;
  * (disable, photo policy, license expiry) are never overwritten.
  *
  * Tokens are not here. Each credentialRef resolves to a Railway variable:
- *   MLSGRID_BBO -> MLS_CRED_MLSGRID_BBO_TOKEN (Canopy BBO subscription)
- *   MLSGRID     -> MLS_CRED_MLSGRID_TOKEN     (IDX subscription: Canopy, MARIS)
+ *   MLSGRID_BBO -> MLS_CRED_MLSGRID_BBO_TOKEN (Canopy and MARIS BBO subscription)
+ *   MLSGRID     -> MLS_CRED_MLSGRID_TOKEN     (MARIS IDX subscription)
  * Until a variable is set, the worker marks that feed "Credentials not
  * configured" and skips it.
  *
@@ -55,6 +55,18 @@ export const DECLARED_MLS_FEEDS: DeclaredMlsFeed[] = [
       approved: true,
       internalUse: true,
       reference: "MARIS IDX via MLS Grid. Access confirmed 2026-09-30; added on Tyler Coon's instruction.",
+    },
+  },
+  {
+    sourceCode: "maris",
+    name: "MARIS BBO (MLS Grid)",
+    provider: "mls_grid",
+    feedType: "bbo",
+    credentialRef: "MLSGRID_BBO",
+    license: {
+      approved: true,
+      internalUse: true,
+      reference: "MARIS (NEW) back office via MLS Grid. Two active Savvy OS licenses confirmed on the BBO subscription 2026-10-02; enabled on Tyler Coon's instruction.",
     },
   },
 ];

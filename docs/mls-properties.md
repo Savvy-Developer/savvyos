@@ -133,9 +133,12 @@ MLS_E2E_DATABASE_URL=mysql://root@127.0.0.1:3307/savvyos_mls_e2e \
 | Feed | Token variable | Why |
 |---|---|---|
 | Canopy BBO (MLS Grid), `carolina` | `MLS_CRED_MLSGRID_BBO_TOKEN` | Back office superset: 2.6M records back to 2007, including canceled and expired. Each record keeps MLS Grid's `MlgCanUse` flags in `mls_listings.permittedUses`. |
-| MARIS IDX (MLS Grid), `maris2` | `MLS_CRED_MLSGRID_TOKEN` | MARIS is open on the IDX subscription only. |
+| MARIS IDX (MLS Grid), `maris2` | `MLS_CRED_MLSGRID_TOKEN` | Existing IDX subscription; retained as a separate licensed feed and an admin-search fallback while BBO fills. |
+| MARIS BBO (MLS Grid), `maris2` | `MLS_CRED_MLSGRID_BBO_TOKEN` | Two active MARIS (NEW) Savvy OS licenses were confirmed on the existing BBO subscription Oct 2, 2026. Shares the Canopy BBO credential's rate and byte budget, not a new token lane. |
 
 There is deliberately no Canopy IDX feed. It would duplicate every Canopy listing. When the public site is built, show only listings whose `permittedUses` includes `IDX`.
+
+MARIS is different: it has separately licensed IDX and BBO feeds. Canonical rows, raw records, photos and license flags remain distinct. Admin cards, map pins and exact totals **prefer a BBO row only once a matching, licensed, non-removed BBO listing is present**, using `(sourceId, listingNumber)`; until then IDX remains visible. Revoking or removing BBO makes the matching IDX row visible again. This read preference does not authorize public use of BBO data or media; the eventual public site must apply its own feed- and listing-level IDX rights checks. Do not disable the MARIS IDX feed just to hide duplicates.
 
 Until a token variable is set, that feed shows "Credentials not configured" and the worker skips it.
 
