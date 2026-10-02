@@ -9,8 +9,8 @@ import { parseODataPage, type FeedContext } from "./adapters/types";
 import { galleryMarkerCondition } from "./gallery";
 import { downloadMedia, FatalHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
 import { MARKET_STATUSES } from "./normalize/enums";
+import { withMlsPhotoListingId } from "./photoUrl";
 import { processRecords } from "./store";
-
 /**
  * Media pipeline. Listing photos are copied to our S3 bucket and served from
  * there; provider URLs are never shown to users (MLS Grid forbids hotlinking,
@@ -324,7 +324,8 @@ export async function runMediaBatch(
         return;
       }
       const key = `mls/${safeSegment(ctx.source.code)}/${ctx.feed.id}/${safeSegment(row.resourceKey)}/${safeSegment(row.mediaKey)}-${safeSegment(claimToken)}.${ext}`;
-      const { url } = await storage.put(key, data, contentType.split(";")[0]);
+      const { url: storageUrl } = await storage.put(key, data, contentType.split(";")[0]);
+      const url = row.listingId ? withMlsPhotoListingId(storageUrl, row.listingId)! : storageUrl;
       const stored = await db
         .update(mlsMedia)
         .set({

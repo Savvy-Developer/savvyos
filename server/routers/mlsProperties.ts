@@ -51,8 +51,8 @@ import { INSIGHT_FIELDS, LISTING_FIELD_RULES, listingRuleColumns } from "../mls/
 import { ensureMlsSchema } from "../mls/schema";
 import { mapPoints, SEARCH_SORTS, searchFiltersSchema, searchListings, boundsSchema } from "../mls/search";
 import { UNRESOLVED_MARKETS } from "../mls/sources";
+import { withMlsPhotoListingId } from "../mls/photoUrl";
 import { canAdminUsePermission } from "./permissions";
-
 /**
  * MLS Properties (admin). Deliberately separate from the existing Properties
  * module: nothing here reads or writes the legacy properties tables.
@@ -352,6 +352,7 @@ export const mlsPropertiesRouter = router({
     return {
       listing: {
         ...listing,
+        primaryPhotoUrl: withMlsPhotoListingId(listing.primaryPhotoUrl, listing.id),
         localFields,
         listPrice: num(listing.listPrice),
         originalListPrice: num(listing.originalListPrice),
@@ -406,7 +407,8 @@ export const mlsPropertiesRouter = router({
             optOuts,
           }
         : null,
-      media: media.filter(item => item.status === "stored" && item.url),
+      media: media.filter(item => item.status === "stored" && item.url)
+        .map(item => ({ ...item, url: withMlsPhotoListingId(item.url, listing.id) })),
       galleryQueued: media.some(item =>
         (isGalleryMarker(item.mediaKey) || item.priority === 0) &&
         ["pending", "expired", "downloading"].includes(item.status)

@@ -277,6 +277,9 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(media.every(row => row.status === "stored" && row.sourceUrl === null && row.url?.startsWith("https://cdn.test/"))).toBe(true);
     const [listing100] = await q("SELECT primaryPhotoUrl FROM mls_listings WHERE listingNumber = '100'");
     expect(listing100.primaryPhotoUrl).toMatch(/^https:\/\/cdn\.test\//);
+    const [storedPhoto] = await q("SELECT listingId, s3Key FROM mls_media WHERE status = 'stored' LIMIT 1");
+    const plan = await q("EXPLAIN SELECT f.id FROM mls_media AS m FORCE INDEX (mls_media_listing_idx) INNER JOIN mls_listings AS l ON l.id = m.listingId INNER JOIN mls_feeds AS f ON f.id = m.feedId WHERE m.listingId = ? AND m.s3Key = ? AND m.status = 'stored' AND l.removedFromFeedAt IS NULL LIMIT 1", [storedPhoto.listingId, storedPhoto.s3Key]);
+    expect(plan.find(row => row.table === "m")?.key).toBe("mls_media_listing_idx");
   }, 60_000);
 
   it("records price changes and deletes listings that lose display rights", async () => {
