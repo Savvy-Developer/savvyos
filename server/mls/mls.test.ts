@@ -462,9 +462,10 @@ describe("MLS Grid token budget", () => {
       expect(limits.requestsPerHour).toBe(6_500);
       expect(limits.requestsPerDay).toBe(35_000);
       expect(limits.mediaConcurrency).toBe(8);
-      expect(limits.tokenBudget?.mediaShare).toBe(0.75);
+      expect(limits.tokenBudget?.mediaShare).toBe(0.85);
       const lane = new ProviderLane("mls_grid:grace", "mls_grid", "grace", limits);
-      expect(lane.media.snapshot().windows.find(window => window.windowMs === 86_400_000)?.limit).toBe(26_250);
+      expect(lane.media.snapshot().windows.find(window => window.windowMs === 86_400_000)?.limit).toBe(29_750);
+      expect(lane.media.snapshot().windows.find(window => window.windowMs === 3_600_000)?.limit).toBe(5_525);
       lane.api.seed(before - 10 * 60_000, 6_000, 4_000_000_000);
       expect(lane.api.nextWaitMs(before)).toBe(0);
       expect(lane.api.nextWaitMs(MLS_GRID_GRACE_UNTIL_MS + 1)).toBeGreaterThan(0);
