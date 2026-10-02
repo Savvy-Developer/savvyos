@@ -4,6 +4,7 @@ import type { MlsFeed, MlsSource } from "../../drizzle/mlsSchema";
 import { MLS_GRID_GRACE_UNTIL_MS, MLS_GRID_LIMITS, mlsGridAdapter } from "./adapters/mlsGrid";
 import type { ProviderLimits } from "./adapters/types";
 import { ProviderLane, downloadMedia, requestJson, wireBytes } from "./http";
+import { isMlsGridCdnUrl } from "./mlsGridCdn";
 import { sparkAdapter } from "./adapters/spark";
 import { keysetFilter, trestleAdapter } from "./adapters/trestle";
 import { buildComplianceProfile, feedFreshness, fillComplianceTemplate } from "./compliance";
@@ -599,6 +600,29 @@ describe("MLS Grid token budget", () => {
       maxAttempts: 1, fetchImpl: async () => new Response(null, { status: 429 }),
     })).rejects.toMatchObject({ status: 429 });
     expect(lane.api.snapshot().pausedForMs).toBeGreaterThan(14 * 60_000);
+  });
+
+  it("treats only MLS Grid's provisioned CDN host as reusable, non-expiring links", () => {
+    expect(isMlsGridCdnUrl("https://cdn-savvystr.mlsgrid.com/images/CAR1/a.jpeg")).toBe(true);
+    expect(isMlsGridCdnUrl("https://media.mlsgrid.com/token=x&expires=1&id=y/images/CAR1/a.jpeg")).toBe(false);
+    expect(isMlsGridCdnUrl("https://api.mlsgrid.com/v2/Media")).toBe(false);
+    expect(isMlsGridCdnUrl("https://cdn-savvystr.mlsgrid.com.evil.test/a.jpeg")).toBe(false);
+    expect(isMlsGridCdnUrl("http://cdn-savvystr.mlsgrid.com/a.jpeg")).toBe(false);
+    expect(isMlsGridCdnUrl(null)).toBe(false);
+    const now = new Date("2026-10-02T21:00:00Z");
+    expect(mlsGridAdapter.mediaUrlExpiresAt("https://cdn-savvystr.mlsgrid.com/images/CAR1/a.jpeg", now)).toBeNull();
+    expect(mlsGridAdapter.mediaUrlExpiresAt("https://media.mlsgrid.com/images/CAR1/a.jpeg", now)?.getTime()).toBe(now.getTime() + 55 * 60_000);
+  });
+
+  it("backs off a CDN 429 briefly on photos only, never the 15-minute token pause", async () => {
+    const lane = new ProviderLane("mls_grid:CDN429", "mls_grid", "CDN429", tiny());
+    await expect(downloadMedia(lane, "https://cdn-savvystr.mlsgrid.com/images/CAR1/a.jpeg", {}, {
+      fetchImpl: async () => new Response(null, { status: 429 }),
+    })).rejects.toMatchObject({ status: 429 });
+    expect(lane.api.snapshot().pausedForMs).toBe(0);
+    const paused = lane.media.snapshot().pausedForMs;
+    expect(paused).toBeGreaterThan(0);
+    expect(paused).toBeLessThanOrEqual(30_000);
   });
 
   it("honors usage recorded before a restart, and lets day-old usage age out", () => {

@@ -506,13 +506,22 @@ export const mlsPropertiesRouter = router({
   /** Photo diagnostics must not wait on a full listing/property count during import. */
   photoHealth: manageProcedure.query(async () => {
     const db = await requireDb();
-    const [queue, [worker], galleries] = await Promise.all([
+    const [queue, [worker], galleries, sourceHosts] = await Promise.all([
       db.select({ feedId: mlsMedia.feedId, status: mlsMedia.status, count: sql<number>`count(*)` })
         .from(mlsMedia).groupBy(mlsMedia.feedId, mlsMedia.status),
       db.select({ detail: mlsWorkerHeartbeats.detail, lastBeatAt: mlsWorkerHeartbeats.lastBeatAt, version: mlsWorkerHeartbeats.version })
         .from(mlsWorkerHeartbeats).orderBy(desc(mlsWorkerHeartbeats.lastBeatAt)).limit(1),
       db.select({ feedId: mlsSyncCursors.feedId, phase: mlsSyncCursors.phase, recordsSeen: mlsSyncCursors.recordsSeen, lastSuccessAt: mlsSyncCursors.lastSuccessAt })
         .from(mlsSyncCursors).where(eq(mlsSyncCursors.resource, "ActiveGallery")),
+      // Host only (never the path or signature) of links waiting to download:
+      // shows whether MLS Grid is serving standard or CDN links per feed.
+      db.select({
+        feedId: mlsMedia.feedId,
+        host: sql<string>`SUBSTRING_INDEX(SUBSTRING_INDEX(${mlsMedia.sourceUrl}, '/', 3), '/', -1)`,
+        count: sql<number>`count(*)`,
+      }).from(mlsMedia)
+        .where(and(inArray(mlsMedia.status, ["pending", "downloading"]), isNotNull(mlsMedia.sourceUrl)))
+        .groupBy(mlsMedia.feedId, sql`2`),
     ]);
     let photoStorage: { configurationValid: boolean; issue: string | null } | null = null;
     let lastMediaActivity: { at: string; claimed: number; stored: number; failed: number; expired: number; refreshed: number } | null = null;
@@ -580,6 +589,7 @@ export const mlsPropertiesRouter = router({
       laneUsage,
       mediaLanes,
       galleryActivity,
+      sourceHosts: sourceHosts.map(row => ({ feedId: row.feedId, host: String(row.host).slice(0, 80), count: Number(row.count) })),
     };
   }),
 
