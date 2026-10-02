@@ -102,6 +102,22 @@ export function importErrorInfo(error: unknown) {
   return { code: error instanceof RangeError ? "INVALID_RANGE" : "INVALID_RECORD", column: null, transient: false };
 }
 
+/** InnoDB picks a deadlock victim and rolls it back instantly. The photo worker
+ * and replication touch the same listing rows, so a page-sized backfill can lose
+ * one record to that race. Every record write is an idempotent upsert, so the
+ * victim is simply replayed. Lock-wait timeouts are not retried: each one already
+ * waited the server's full timeout. */
+export async function retryOnDeadlock<T>(write: () => Promise<T>, attempts = 4, baseDelayMs = 40): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await write();
+    } catch (error) {
+      if (attempt >= attempts || importErrorInfo(error).code !== "ER_LOCK_DEADLOCK") throw error;
+      await new Promise(resolve => setTimeout(resolve, baseDelayMs * attempt + Math.floor(Math.random() * baseDelayMs)));
+    }
+  }
+}
+
 async function loadExceptionKeys(db: Db, feedId: number, resource: MlsResource, keys: string[]) {
   const known = new Set<string>();
   for (let i = 0; i < keys.length; i += 500) {
@@ -677,59 +693,65 @@ export async function processRecords(
     }
     counts.keys.push(key);
     try {
-      if (!adapter.isViewable(record)) {
-        if (await removeRecord(db, ctx, resource, key, "not_viewable")) counts.deleted += 1;
-        continue;
-      }
-      const hash = payloadHash(record);
-      const previous = hashes.get(key);
-      // A market prefill / live cursor runs ahead of the historical cursor.
-      // Never let an older history page roll a price or status backwards.
-      if (previous?.modifiedAt && modified && Date.parse(modified) < previous.modifiedAt.getTime()) {
-        await db.update(mlsRawRecords).set({ receivedAt }).where(and(eq(mlsRawRecords.feedId, ctx.feed.id), eq(mlsRawRecords.resource, resource), eq(mlsRawRecords.providerKey, key)));
-        if (exceptionKeys.has(key)) await db.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, resource), eq(mlsImportExceptions.providerKey, key)));
-        counts.unchanged += 1;
-        continue;
-      }
-      if (!options.force && previous?.hash === hash) {
-        await db.update(mlsRawRecords).set({ receivedAt }).where(and(eq(mlsRawRecords.feedId, ctx.feed.id), eq(mlsRawRecords.resource, resource), eq(mlsRawRecords.providerKey, key)));
-        if (exceptionKeys.has(key)) await db.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, resource), eq(mlsImportExceptions.providerKey, key)));
-        counts.unchanged += 1;
-        continue;
-      }
-      const modifiedAt = modified ? new Date(modified) : null;
-      if (resource === "Property") {
-        const normalized = normalizeListing(ctx, adapter, record, {
-          overrides: options.overrides.filter(mapping => mapping.resource === "Property"),
-          metadataLocalFields: options.metadataLocalFields,
-        });
-        const result = await upsertNormalizedListing(db, ctx, adapter, normalized, hash, receivedAt);
-        counts.mediaQueued += result.mediaQueued;
-      } else if (resource === "Member") {
-        const { viewable: _viewable, ...member } = normalizeMember(ctx, adapter, record);
-        const values = { ...member, sourceId: ctx.source.id, feedId: ctx.feed.id, lastSyncedAt: receivedAt };
-        await db.insert(mlsMembers).values(values).onDuplicateKeyUpdate({ set: values });
-      } else if (resource === "Office") {
-        const { viewable: _viewable, ...office } = normalizeOffice(ctx, adapter, record);
-        const values = { ...office, sourceId: ctx.source.id, feedId: ctx.feed.id, lastSyncedAt: receivedAt };
-        await db.insert(mlsOffices).values(values).onDuplicateKeyUpdate({ set: values });
-      } else if (resource === "OpenHouse") {
-        const { viewable: _viewable, ...openHouse } = normalizeOpenHouse(ctx, adapter, record);
-        let listingId: number | null = null;
-        if (openHouse.providerListingKey) {
-          const [listing] = await db
-            .select({ id: mlsListings.id })
-            .from(mlsListings)
-            .where(and(eq(mlsListings.feedId, ctx.feed.id), eq(mlsListings.providerListingKey, openHouse.providerListingKey)))
-            .limit(1);
-          listingId = listing?.id ?? null;
+      const written = await retryOnDeadlock(async (): Promise<{ outcome: "deleted" | "kept" | "unchanged" | "upserted"; mediaQueued: number }> => {
+        if (!adapter.isViewable(record)) {
+          return { outcome: (await removeRecord(db, ctx, resource, key, "not_viewable")) ? "deleted" : "kept", mediaQueued: 0 };
         }
-        const values = { ...openHouse, listingId, feedId: ctx.feed.id, lastSyncedAt: receivedAt };
-        await db.insert(mlsOpenHouses).values(values).onDuplicateKeyUpdate({ set: values });
+        const hash = payloadHash(record);
+        const previous = hashes.get(key);
+        // A market prefill / live cursor runs ahead of the historical cursor.
+        // Never let an older history page roll a price or status backwards.
+        if (previous?.modifiedAt && modified && Date.parse(modified) < previous.modifiedAt.getTime()) {
+          await db.update(mlsRawRecords).set({ receivedAt }).where(and(eq(mlsRawRecords.feedId, ctx.feed.id), eq(mlsRawRecords.resource, resource), eq(mlsRawRecords.providerKey, key)));
+          if (exceptionKeys.has(key)) await db.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, resource), eq(mlsImportExceptions.providerKey, key)));
+          return { outcome: "unchanged", mediaQueued: 0 };
+        }
+        if (!options.force && previous?.hash === hash) {
+          await db.update(mlsRawRecords).set({ receivedAt }).where(and(eq(mlsRawRecords.feedId, ctx.feed.id), eq(mlsRawRecords.resource, resource), eq(mlsRawRecords.providerKey, key)));
+          if (exceptionKeys.has(key)) await db.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, resource), eq(mlsImportExceptions.providerKey, key)));
+          return { outcome: "unchanged", mediaQueued: 0 };
+        }
+        const modifiedAt = modified ? new Date(modified) : null;
+        let mediaQueued = 0;
+        if (resource === "Property") {
+          const normalized = normalizeListing(ctx, adapter, record, {
+            overrides: options.overrides.filter(mapping => mapping.resource === "Property"),
+            metadataLocalFields: options.metadataLocalFields,
+          });
+          const result = await upsertNormalizedListing(db, ctx, adapter, normalized, hash, receivedAt);
+          mediaQueued = result.mediaQueued;
+        } else if (resource === "Member") {
+          const { viewable: _viewable, ...member } = normalizeMember(ctx, adapter, record);
+          const values = { ...member, sourceId: ctx.source.id, feedId: ctx.feed.id, lastSyncedAt: receivedAt };
+          await db.insert(mlsMembers).values(values).onDuplicateKeyUpdate({ set: values });
+        } else if (resource === "Office") {
+          const { viewable: _viewable, ...office } = normalizeOffice(ctx, adapter, record);
+          const values = { ...office, sourceId: ctx.source.id, feedId: ctx.feed.id, lastSyncedAt: receivedAt };
+          await db.insert(mlsOffices).values(values).onDuplicateKeyUpdate({ set: values });
+        } else if (resource === "OpenHouse") {
+          const { viewable: _viewable, ...openHouse } = normalizeOpenHouse(ctx, adapter, record);
+          let listingId: number | null = null;
+          if (openHouse.providerListingKey) {
+            const [listing] = await db
+              .select({ id: mlsListings.id })
+              .from(mlsListings)
+              .where(and(eq(mlsListings.feedId, ctx.feed.id), eq(mlsListings.providerListingKey, openHouse.providerListingKey)))
+              .limit(1);
+            listingId = listing?.id ?? null;
+          }
+          const values = { ...openHouse, listingId, feedId: ctx.feed.id, lastSyncedAt: receivedAt };
+          await db.insert(mlsOpenHouses).values(values).onDuplicateKeyUpdate({ set: values });
+        }
+        await saveRaw(db, ctx.feed.id, resource, key, record, hash, modifiedAt, receivedAt);
+        if (exceptionKeys.has(key)) await db.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, resource), eq(mlsImportExceptions.providerKey, key)));
+        return { outcome: "upserted", mediaQueued };
+      });
+      if (written.outcome === "deleted") counts.deleted += 1;
+      else if (written.outcome === "unchanged") counts.unchanged += 1;
+      else if (written.outcome === "upserted") {
+        counts.upserted += 1;
+        counts.mediaQueued += written.mediaQueued;
       }
-      await saveRaw(db, ctx.feed.id, resource, key, record, hash, modifiedAt, receivedAt);
-      if (exceptionKeys.has(key)) await db.delete(mlsImportExceptions).where(and(eq(mlsImportExceptions.feedId, ctx.feed.id), eq(mlsImportExceptions.resource, resource), eq(mlsImportExceptions.providerKey, key)));
-      counts.upserted += 1;
     } catch (error) {
       const info = importErrorInfo(error);
       if (info.transient) counts.unpersisted += 1;

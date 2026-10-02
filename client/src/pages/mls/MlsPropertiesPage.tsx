@@ -318,8 +318,8 @@ export default function MlsPropertiesPage() {
             <section className="space-y-2 border-t pt-3">
               <h3 className="text-sm font-semibold">Price and property</h3>
               <div className="grid grid-cols-2 gap-2">
-                <NumberField label="Min price" value={filters.minPrice} onChange={value => update({ minPrice: value })} kind="currency" max={1_000_000_000} placeholder="$0.00" />
-                <NumberField label="Max price" value={filters.maxPrice} onChange={value => update({ maxPrice: value })} kind="currency" max={1_000_000_000} placeholder="$0.00" />
+                <NumberField label="Min price" value={filters.minPrice} onChange={value => update({ minPrice: value })} kind="currency" max={1_000_000_000} placeholder="No min" />
+                <NumberField label="Max price" value={filters.maxPrice} onChange={value => update({ maxPrice: value })} kind="currency" max={1_000_000_000} placeholder="No max" />
               </div>
               <div><Label className="mb-1 block text-xs text-slate-600">Property type</Label><MultiSelect options={propertyTypes.map(type => ({ value: type.value, label: type.label }))} value={filters.propertyTypes ?? []} onValueChange={value => update({ propertyTypes: value })} placeholder="Any property type" maxDisplay={1} popoverClassName="z-[2400]" /></div>
               <div className="grid grid-cols-2 gap-2">

@@ -83,47 +83,103 @@ export const SEARCH_COVER_INDEX_DDL = [
   },
 ] as const;
 
-/** Returns the indexes it built. When another process (web or worker) holds
- * the build lock it returns immediately; the next start retries anything
- * still missing, and an interrupted online build simply rolls back. */
+/** Returns the indexes it built. When another process holds the build lock it
+ * returns immediately. Both indexes are added in one statement: one metadata
+ * lock handshake and one table scan. An interrupted online build rolls back. */
 export async function applySearchCoverIndexes(connection: Connection): Promise<string[]> {
   const lockName = "savvyos_mls_search_cover_idx_v1";
   const [lock] = await connection.query<any[]>("SELECT GET_LOCK(?, 0) AS acquired", [lockName]);
   if (Number(lock[0]?.acquired) !== 1) return [];
-  const built: string[] = [];
   try {
+    const missing: Array<(typeof SEARCH_COVER_INDEX_DDL)[number]> = [];
     for (const index of SEARCH_COVER_INDEX_DDL) {
       const [existing] = await connection.query<any[]>("SHOW INDEX FROM mls_listings WHERE Key_name = ?", [index.name]);
-      if (existing.length) continue;
-      await connection.query(`ALTER TABLE mls_listings ADD INDEX ${index.name} (${index.columns}), ALGORITHM=INPLACE, LOCK=NONE`);
-      built.push(index.name);
+      if (!existing.length) missing.push(index);
     }
+    if (!missing.length) return [];
+    await connection.query(`ALTER TABLE mls_listings ${missing.map(index => `ADD INDEX ${index.name} (${index.columns})`).join(", ")}, ALGORITHM=INPLACE, LOCK=NONE`);
+    return missing.map(index => index.name);
   } finally {
     await connection.query("SELECT RELEASE_LOCK(?)", [lockName]);
   }
-  return built;
 }
 
+/** Sessions currently holding mls_listings open, as normalized statement
+ * digests (MySQL replaces every literal with ?), so logs never carry values.
+ * An idle holder means an open transaction: MDL lasts until it commits. */
+export async function listingLockHolders(connection: Connection): Promise<Array<{ id: number; command: string; seconds: number; digest: string }> | null> {
+  try {
+    const [rows] = await connection.query<any[]>(`
+      SELECT DISTINCT t.PROCESSLIST_ID AS id, t.PROCESSLIST_COMMAND AS command,
+             COALESCE(t.PROCESSLIST_TIME, 0) AS seconds, LEFT(COALESCE(s.DIGEST_TEXT, ''), 160) AS digest
+        FROM performance_schema.metadata_locks ml
+        JOIN performance_schema.threads t ON t.THREAD_ID = ml.OWNER_THREAD_ID
+        LEFT JOIN performance_schema.events_statements_current s ON s.THREAD_ID = t.THREAD_ID
+       WHERE ml.OBJECT_SCHEMA = DATABASE() AND ml.OBJECT_NAME = 'mls_listings'
+         AND ml.LOCK_STATUS = 'GRANTED' AND t.PROCESSLIST_ID IS NOT NULL AND t.PROCESSLIST_ID <> CONNECTION_ID()
+       ORDER BY seconds DESC LIMIT 8`);
+    return rows.map(row => ({ id: Number(row.id), command: String(row.command ?? ""), seconds: Number(row.seconds ?? 0), digest: String(row.digest ?? "") }));
+  } catch {
+    return null;
+  }
+}
+
+/** Holders that would make the ALTER wait out its lock timeout: open
+ * transactions (idle holders) and statements already running for 8 s+. */
+export function blockingHolders<T extends { command: string; seconds: number }>(holders: T[]): T[] {
+  return holders.filter(holder => holder.command === "Sleep" || holder.seconds >= 8);
+}
+
+const COVER_BUILD_ATTEMPTS = 90;
+const COVER_BUILD_RETRY_MS = 30_000;
+
+/** Runs in the ingestion worker only. While MySQL waits for the metadata
+ * lock, new queries on mls_listings queue behind it, so the build never waits
+ * on a long holder: it skips that window and retries. The 12 s cap outlasts
+ * the 10 s execution guard on search queries. */
 async function buildSearchCoverIndexes(databaseUrl: string) {
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  let lastLoggedAt = 0;
+  for (let attempt = 1; attempt <= COVER_BUILD_ATTEMPTS; attempt++) {
     let connection: Connection | null = null;
+    const logHolders = (reason: string, holders: Awaited<ReturnType<typeof listingLockHolders>>) => {
+      if (Date.now() - lastLoggedAt < 5 * 60_000 && attempt !== 1) return;
+      lastLoggedAt = Date.now();
+      const summary = holders?.length ? holders.map(holder => `#${holder.id} ${holder.command} ${holder.seconds}s ${holder.digest || "(no statement)"}`).join(" | ") : "none visible";
+      console.warn(`[mlsSchema] covering index build ${reason} (attempt ${attempt}/${COVER_BUILD_ATTEMPTS}); mls_listings holders: ${summary}`);
+    };
     try {
       connection = await mysql.createConnection(databaseUrl);
-      // The online build briefly needs an exclusive metadata lock at the end.
-      // Give up after 20 s rather than queueing every MLS query behind a
-      // long-running read; the build rolls back and is retried.
-      await connection.query("SET SESSION lock_wait_timeout = 20");
-      const started = Date.now();
-      const built = await applySearchCoverIndexes(connection);
-      if (built.length) console.log(`[mlsSchema] built ${built.join(", ")} in ${Math.round((Date.now() - started) / 1000)}s`);
-      return;
+      const holders = await listingLockHolders(connection);
+      const blocking = holders ? blockingHolders(holders) : [];
+      if (blocking.length) {
+        logHolders("waiting for long mls_listings holders", blocking);
+      } else {
+        await connection.query("SET SESSION lock_wait_timeout = 12");
+        const started = Date.now();
+        const built = await applySearchCoverIndexes(connection);
+        if (built.length) console.log(`[mlsSchema] built ${built.join(", ")} in ${Math.round((Date.now() - started) / 1000)}s`);
+        return;
+      }
     } catch (error) {
-      console.error(`[mlsSchema] could not build MLS search covering indexes (attempt ${attempt}/3)`, error);
+      const code = String((error as any)?.code ?? "unknown");
+      const holders = connection ? await listingLockHolders(connection) : null;
+      logHolders(`failed with ${code}`, holders);
     } finally {
       await connection?.end().catch(() => undefined);
     }
-    await new Promise(resolve => setTimeout(resolve, 60_000));
+    await new Promise(resolve => setTimeout(resolve, COVER_BUILD_RETRY_MS));
   }
+  console.error(`[mlsSchema] gave up building MLS search covering indexes after ${COVER_BUILD_ATTEMPTS} attempts; the next worker start retries`);
+}
+
+let coverBuild: Promise<void> | null = null;
+
+/** Start the online covering-index build once per worker process. */
+export function startSearchCoverIndexBuild() {
+  const enabled = process.env.NODE_ENV === "production" || process.env.MLS_SCHEMA_ENSURE === "on";
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!enabled || !databaseUrl || process.env.MLS_SEARCH_COVER_INDEXES === "off") return;
+  coverBuild ??= buildSearchCoverIndexes(databaseUrl);
 }
 
 export async function seedMlsSources(connection: Connection) {
@@ -172,7 +228,6 @@ async function ensure() {
     await connection?.end().catch(() => undefined);
     return;
   }
-  if (process.env.MLS_SEARCH_COVER_INDEXES !== "off") void buildSearchCoverIndexes(databaseUrl);
   try {
     if (process.env.MLS_DECLARED_FEEDS !== "off") await ensureDeclaredMlsFeeds(connection);
   } catch (error) {
