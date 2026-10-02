@@ -644,6 +644,20 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       expect(totalStored).toBe(6);
       const perListing = await q<any>("SELECT listingId, COUNT(*) AS photos FROM mls_media WHERE feedId=? AND status='stored' GROUP BY listingId ORDER BY listingId", [feed.id]);
       expect(perListing.map(row => Number(row.photos))).toEqual([3, 3]);
+
+      // Gallery links that lapsed before download (old throttle, 429 pause)
+      // stay priority 0 and expired. They must be re-linked, not stranded.
+      const [first] = await q<any>("SELECT listingId FROM mls_media WHERE feedId=? AND status='stored' ORDER BY listingId LIMIT 1", [feed.id]);
+      await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL, attempts=1, nextAttemptAt=NULL WHERE feedId=? AND listingId=?", [feed.id, first.listingId]);
+      const relinked = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 0 });
+      expect(relinked.refreshed).toBe(1);
+      const ready = await q<any>("SELECT status, priority, sourceUrl IS NOT NULL AS hasUrl FROM mls_media WHERE feedId=? AND listingId=?", [feed.id, first.listingId]);
+      expect(ready).toHaveLength(3);
+      expect(ready.every(row => row.status === "pending" && row.priority === 0 && Number(row.hasUrl) === 1)).toBe(true);
+      // One batch takes the Active cover AND fills the rest with its gallery.
+      const filled = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6, refreshLimit: 0 });
+      expect(filled.claimed).toBe(3);
+      expect(filled.stored).toBe(3);
     } finally {
       state.properties = original;
     }

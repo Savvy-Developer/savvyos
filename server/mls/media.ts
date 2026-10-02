@@ -6,7 +6,7 @@ import { loadOverrides, loadMetadataLocalFields } from "./engine";
 import { adapterFor } from "./adapters";
 import { mlsGridBatchUrl } from "./adapters/mlsGrid";
 import { parseODataPage, type FeedContext } from "./adapters/types";
-import { galleryMarkerCondition } from "./gallery";
+import { galleryMarkerCondition, isGalleryMarker } from "./gallery";
 import { downloadMedia, FatalHttpError, RetryableHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
 import { MARKET_STATUSES } from "./normalize/enums";
 import { withMlsPhotoListingId } from "./photoUrl";
@@ -125,8 +125,13 @@ async function refreshExpiredUrls(
     .where(and(
       inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS),
       or(isNull(mlsMedia.nextAttemptAt), lt(mlsMedia.nextAttemptAt, new Date())),
-      options.priority === "gallery" || options.priority === "active_gallery"
-        ? and(galleryMarkerCondition(), options.priority === "active_gallery" ? eq(mlsListings.standardStatus, "active") : undefined, isNull(mlsListings.removedFromFeedAt))
+      // Active galleries: scanner markers AND gallery photos whose one-hour
+      // link lapsed before download. Both are priority 0 (index: status,priority);
+      // without the photos here they would be stranded and block the scanner.
+      options.priority === "active_gallery"
+        ? and(eq(mlsMedia.priority, 0), eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
+        : options.priority === "gallery"
+        ? and(galleryMarkerCondition(), isNull(mlsListings.removedFromFeedAt))
         : options.priority === "active"
           ? and(eq(mlsMedia.isPrimary, true), eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
           : gridOnly ? and(eq(mlsMedia.isPrimary, true), inArray(mlsListings.standardStatus, MARKET_STATUSES), isNull(mlsListings.removedFromFeedAt)) : undefined
@@ -158,9 +163,11 @@ async function refreshExpiredUrls(
         const key = String(record[adapter.keyField("Property")] ?? "");
         if (!group.some(row => row.resourceKey === key)) continue;
         returned.add(key);
-        const gallery = await db.select({ id: mlsMedia.id }).from(mlsMedia)
-          .where(and(eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, key), eq(mlsMedia.status, "expired"), galleryMarkerCondition()))
-          .limit(1);
+        const gallery = await db.select({ id: mlsMedia.id, mediaKey: mlsMedia.mediaKey }).from(mlsMedia)
+          .where(and(
+            eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, key), eq(mlsMedia.status, "expired"),
+            or(galleryMarkerCondition(), eq(mlsMedia.priority, 0)),
+          ));
         const feed = gallery.length ? { ...ctx.feed, mediaPolicy: "all" as const, options: { ...ctx.feed.options, fastImportV1: false } } : ctx.feed;
         await processRecords({ ...ctx, feed }, adapter, "Property", [record], {
           overrides, metadataLocalFields, force: true,
@@ -168,7 +175,9 @@ async function refreshExpiredUrls(
         if (gallery.length) {
           await db.update(mlsMedia).set({ priority: 0 })
             .where(and(eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, key), inArray(mlsMedia.status, ["pending", "stored", "expired"])));
-          await db.update(mlsMedia).set({ status: "delete_pending" }).where(eq(mlsMedia.id, gallery[0].id));
+          // Retire only the request marker; real photos must stay queued.
+          const markers = gallery.filter(row => isGalleryMarker(row.mediaKey)).map(row => row.id);
+          if (markers.length) await db.update(mlsMedia).set({ status: "delete_pending" }).where(inArray(mlsMedia.id, markers));
         }
         result.refreshed += 1;
       }
@@ -282,16 +291,19 @@ export async function runMediaBatch(
   // The old queue gave every market status the same priority. A status-aware
   // claim puts Active covers first without a mass UPDATE of millions of rows.
   const claimToken = `${workerId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`.slice(0, 160);
-  let rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50, "active_cover");
+  const batchSize = options.batchSize ?? 50;
+  let rows = await claim(db, feedIds, claimToken, batchSize, "active_cover");
   if (!rows.length && (options.refreshLimit ?? 20) > 0) {
     await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active" });
-    rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50, "active_cover");
+    rows = await claim(db, feedIds, claimToken, batchSize, "active_cover");
   }
-  if (!rows.length) {
+  if (!rows.length || rows.length < batchSize) {
     // Automatically requested Active galleries run after Active covers, before
-    // under-contract covers or explicit non-Active galleries.
-    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active_gallery" });
-    rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50, "active_gallery");
+    // under-contract covers or explicit non-Active galleries. A trickle of new
+    // covers must not starve galleries: fill the batch with ready gallery
+    // photos (no extra API call), and refresh gallery links only when idle.
+    if (!rows.length) await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active_gallery" });
+    rows = await claim(db, feedIds, claimToken, batchSize - rows.length, "active_gallery"); // claim returns every row under this token
   }
   if (!rows.length) {
     await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "gallery" });
