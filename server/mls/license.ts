@@ -34,3 +34,12 @@ export function approvedFeedSql(alias = "lf", feedIdExpr = "mls_listings.feedId"
         OR STR_TO_DATE(LEFT(${alias}.options->>'$.license.expiresAt', 10), '%Y-%m-%d') > UTC_DATE())
       AND (${alias}.retentionPolicy <> 'retain_history' OR ${alias}.options->>'$.license.retainHistory' = 'true'))`;
 }
+
+/** For large search/count scans, resolve licensed feed IDs once rather than
+ * rechecking the same JSON license on every listing. Keep the exact predicate
+ * in approvedFeedSql so expiry and revocation remain fail-closed. */
+export function approvedFeedSetSql(alias = "scope", feedIdExpr = "mls_listings.feedId") {
+  // Aliases and expressions are fixed application code, never user input.
+  return `${feedIdExpr} IN (SELECT ${alias}.id FROM mls_feeds AS ${alias}
+    WHERE ${approvedFeedSql(`${alias}License`, `${alias}.id`)})`;
+}
