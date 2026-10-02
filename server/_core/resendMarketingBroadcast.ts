@@ -175,19 +175,84 @@ export async function createResendSegment(
   });
 }
 
-/** The segments in the Resend account, for choosing who gets the daily email. */
+/**
+ * The segments in the Resend account, for choosing who gets the daily email
+ * and which list new sign-ups join.
+ *
+ * Resend returns 20 per page by default and every One Time Email creates a
+ * segment, so all pages are read (100 at a time, up to 1,000 segments).
+ */
 export async function listResendSegments(): Promise<
   ResendApiResult<Array<{ id: string; name: string }>>
 > {
-  const result = await resendJson<{ data?: Array<{ id: string; name?: string }> }>(
-    "/segments"
+  const all: Array<{ id: string; name: string }> = [];
+  let after: string | null = null;
+  for (let page = 0; page < 10; page += 1) {
+    const query: string = after ? `?limit=100&after=${encodeURIComponent(after)}` : "?limit=100";
+    const result = await resendJson<{
+      data?: Array<{ id: string; name?: string }>;
+      has_more?: boolean;
+    }>(`/segments${query}`);
+    if (!result.success) return result;
+    const rows = Array.isArray(result.data?.data) ? result.data.data : [];
+    for (const row of rows) all.push({ id: row.id, name: row.name || row.id });
+    const last = rows[rows.length - 1]?.id;
+    if (!result.data?.has_more || !last || last === after) break;
+    after = last;
+  }
+  return { success: true, data: all };
+}
+
+/** The HTTP status inside an errorText() message, or null for a network error. */
+function failedStatus(error: string): number | null {
+  const match = /\((\d{3})\)/.exec(error);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Put one person on a list (segment).
+ *
+ * An address Resend already knows is added to the list and is otherwise left
+ * exactly as it is, so someone who unsubscribed stays unsubscribed. Only when
+ * Resend does not know the address is a new contact created, already on the
+ * list. `unsubscribed` is never sent.
+ *
+ * A rate limit, a Resend outage or a network error stops after the first
+ * call: retrying a different call would not help.
+ */
+export async function addResendContactToSegment(params: {
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  segmentId: string;
+}): Promise<ResendApiResult<{ id: string }>> {
+  const email = params.email.trim().toLowerCase();
+  const segmentId = params.segmentId.trim();
+  if (!email || !segmentId) return { success: false, error: "An email and a list are both needed" };
+
+  const added = await resendJson<{ id: string }>(
+    `/contacts/${encodeURIComponent(email)}/segments/${encodeURIComponent(segmentId)}`,
+    { method: "POST" }
   );
-  if (!result.success) return result;
-  const rows = Array.isArray(result.data?.data) ? result.data.data : [];
-  return {
-    success: true,
-    data: rows.map(row => ({ id: row.id, name: row.name || row.id })),
-  };
+  if (added.success) return added;
+
+  // "No such contact" comes back as a 4xx (404 today). Anything else is not a
+  // reason to create a contact.
+  const status = failedStatus(added.error);
+  const unknownContact = status !== null && status >= 400 && status < 500 && status !== 429;
+  if (!unknownContact) return added;
+
+  const created = await resendJson<{ id: string }>("/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      email,
+      ...(params.firstName?.trim() ? { first_name: params.firstName.trim() } : {}),
+      ...(params.lastName?.trim() ? { last_name: params.lastName.trim() } : {}),
+      segments: [{ id: segmentId }],
+    }),
+  });
+  if (created.success) return created;
+  return { success: false, error: `${added.error}; then ${created.error}` };
 }
 
 export async function createResendContactImport(params: {
