@@ -167,9 +167,9 @@ async function updateRun(
             status: finish.status,
             finishedAt: new Date(),
             error: finish.error ?? null,
-            detail: finish.detail ?? { errors: counts.errors ?? [], pages: counts.pages ?? 0 },
+            detail: finish.detail ?? { errors: counts.errors ?? [], pages: counts.pages ?? 0, replayed: counts.replayed ?? 0 },
           }
-        : { detail: { errors: counts.errors ?? [], pages: counts.pages ?? 0 } }),
+        : { detail: { errors: counts.errors ?? [], pages: counts.pages ?? 0, replayed: counts.replayed ?? 0 } }),
     })
     .where(eq(mlsSyncRuns.id, runId));
 }
@@ -182,6 +182,7 @@ function addCounts(total: PageCounts, page: PageCounts) {
   total.mediaQueued += page.mediaQueued;
   total.quarantined += page.quarantined;
   total.unpersisted += page.unpersisted;
+  total.replayed += page.replayed;
   total.maxModified = laterTimestamp(total.maxModified, page.maxModified);
   for (const error of page.errors) if (total.errors.length < 50) total.errors.push(error);
 }
@@ -457,14 +458,14 @@ async function replicateResource(
       }
       await saveCursor(db, cursor.id, finishedValues);
     }
-    await updateRun(db, runId, totals, { status: "succeeded", error: totals.quarantined ? `${totals.quarantined} records saved for repair; see run detail.` : null, detail: { ...detail, quarantined: totals.quarantined, errors: totals.errors, pages: totals.pages } });
+    await updateRun(db, runId, totals, { status: "succeeded", error: totals.quarantined ? `${totals.quarantined} records saved for repair; see run detail.` : null, detail: { ...detail, quarantined: totals.quarantined, replayed: totals.replayed, errors: totals.errors, pages: totals.pages } });
     return { ...totals, mode };
   } catch (error) {
     const aborted = options.signal?.aborted;
     await updateRun(db, runId, totals, {
       status: aborted ? "aborted" : "failed",
       error: sanitizeError(error),
-      detail: { ...detail, quarantined: totals.quarantined, errors: totals.errors, pages: totals.pages, url: url ? redactUrl(url) : null },
+      detail: { ...detail, quarantined: totals.quarantined, replayed: totals.replayed, errors: totals.errors, pages: totals.pages, url: url ? redactUrl(url) : null },
     });
     throw error;
   }

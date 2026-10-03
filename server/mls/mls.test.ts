@@ -23,7 +23,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { parseODataPage } from "./adapters/types";
 import { __testables__ as mcpTestables } from "../readOnlyMcp";
 import { MLS_SOURCE_SEEDS, seedCompliance } from "./sources";
-import { importErrorInfo, mediaWanted, payloadHash, retryOnDeadlock } from "./store";
+import { importErrorInfo, mediaWanted, payloadHash, retryOnDeadlock, runGrouped, type RecordTask } from "./store";
 import { REFRESH_STAGE_MAX_PRIORITY, isQueryTimeout } from "./media";
 import { blockingHolders, scrubSql } from "./schema";
 
@@ -517,6 +517,39 @@ describe("license and isolation guards", () => {
       await expect(retryOnDeadlock(async () => { calls += 1; throw Object.assign(new Error(code), { code }); }, 4, 1)).rejects.toThrow(code);
       expect(calls).toBe(1);
     }
+  });
+
+  it("replays parallel deadlock victims one at a time, keeping each group's order", async () => {
+    const log: string[] = [];
+    let running = 0;
+    let replayOverlap = false;
+    const task = (name: string, deadlocksInParallel = false): RecordTask => async final => {
+      if (final) {
+        running += 1;
+        if (running > 1) replayOverlap = true;
+        await new Promise(resolve => setTimeout(resolve, 2));
+        running -= 1;
+      }
+      if (!final && deadlocksInParallel) return true;
+      log.push(`${name}:${final ? "replay" : "parallel"}`);
+      return false;
+    };
+    const replayed = await runGrouped(
+      [
+        [task("a1"), task("a2", true), task("a3")],
+        [task("b1")],
+        [task("c1", true)],
+      ],
+      3
+    );
+    expect(replayed).toBe(3);
+    expect(replayOverlap).toBe(false);
+    expect(log.filter(entry => entry.endsWith(":parallel")).sort()).toEqual(["a1:parallel", "b1:parallel"]);
+    const replays = log.filter(entry => entry.endsWith(":replay"));
+    expect(replays.sort()).toEqual(["a2:replay", "a3:replay", "c1:replay"]);
+    // a3 never ran ahead of a2, and each record wrote exactly once.
+    expect(log.indexOf("a2:replay")).toBeLessThan(log.indexOf("a3:replay"));
+    expect(new Set(log.map(entry => entry.split(":")[0])).size).toBe(log.length);
   });
 
   it("rejects malformed OData pages instead of treating them as an empty feed", () => {

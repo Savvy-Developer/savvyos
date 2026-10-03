@@ -41,6 +41,8 @@ export type PageCounts = {
   mediaQueued: number;
   quarantined: number;
   unpersisted: number;
+  /** Deadlock victims replayed one at a time after the parallel pass. */
+  replayed: number;
   errors: Array<{ key: string; message: string }>;
   /** Greatest ModificationTimestamp on the page, verbatim. */
   maxModified: string | null;
@@ -48,7 +50,7 @@ export type PageCounts = {
 };
 
 export function emptyCounts(): PageCounts {
-  return { received: 0, upserted: 0, unchanged: 0, deleted: 0, mediaQueued: 0, quarantined: 0, unpersisted: 0, errors: [], maxModified: null, keys: [] };
+  return { received: 0, upserted: 0, unchanged: 0, deleted: 0, mediaQueued: 0, quarantined: 0, unpersisted: 0, replayed: 0, errors: [], maxModified: null, keys: [] };
 }
 
 const VOLATILE_FIELDS = new Set(["MediaURL", "MediaUrl", "@odata.etag"]);
@@ -668,16 +670,31 @@ function writeConcurrency(requested?: number) {
  * Runs groups in parallel, each group's tasks in order. Records that share a
  * key or a property identity share a group, so a page never races two writes
  * to one listing or one property summary.
+ *
+ * Different listings can still deadlock on shared secondary-index gap locks
+ * (media, history, property summaries). A task that loses its deadlock retries
+ * in the parallel pass returns true; it and the rest of its group are replayed
+ * one at a time afterwards, which is exactly the old sequential write path.
  */
-async function runGrouped(groups: Array<Array<() => Promise<void>>>, limit: number) {
+export type RecordTask = (final: boolean) => Promise<boolean>;
+
+export async function runGrouped(groups: RecordTask[][], limit: number) {
+  const replay: RecordTask[] = [];
   let next = 0;
   const lane = async () => {
     while (next < groups.length) {
       const group = groups[next++];
-      for (const task of group) await task();
+      for (let i = 0; i < group.length; i += 1) {
+        if (await group[i](false)) {
+          replay.push(...group.slice(i));
+          break;
+        }
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(limit, groups.length) }, lane));
+  for (const task of replay) await task(true);
+  return replay.length;
 }
 
 /** Process one replication page for any resource. */
@@ -696,7 +713,7 @@ export async function processRecords(
   const hashes = await loadRawHashes(db, ctx.feed.id, resource, keys);
   const exceptionKeys = await loadExceptionKeys(db, ctx.feed.id, resource, keys);
   const propertyOverrides = options.overrides.filter(mapping => mapping.resource === "Property");
-  const groups = new Map<string, Array<() => Promise<void>>>();
+  const groups = new Map<string, RecordTask[]>();
   const keyGroup = new Map<string, string>();
 
   for (const record of records) {
@@ -728,7 +745,7 @@ export async function processRecords(
     }
     const groupKey = keyGroup.get(key) ?? (normalized ? `p:${identityFor(ctx, normalized).key}` : `k:${key}`);
     keyGroup.set(key, groupKey);
-    const task = async () => { try {
+    const task: RecordTask = async final => { try {
       const written = await retryOnDeadlock(async (): Promise<{ outcome: "deleted" | "kept" | "unchanged" | "upserted"; mediaQueued: number }> => {
         if (!adapter.isViewable(record)) {
           return { outcome: (await removeRecord(db, ctx, resource, key, "not_viewable")) ? "deleted" : "kept", mediaQueued: 0 };
@@ -785,8 +802,11 @@ export async function processRecords(
         counts.upserted += 1;
         counts.mediaQueued += written.mediaQueued;
       }
+      return false;
     } catch (error) {
       const info = importErrorInfo(error);
+      // Lost the deadlock race against a parallel write: replay alone later.
+      if (!final && info.code === "ER_LOCK_DEADLOCK") return true;
       if (info.transient) counts.unpersisted += 1;
       else {
         try {
@@ -799,13 +819,14 @@ export async function processRecords(
       if (counts.errors.length < 25) {
         counts.errors.push({ key, message: `${info.code}${info.column ? ` (${info.column})` : ""}` });
       }
+      return false;
     }
     };
     const group = groups.get(groupKey);
     if (group) group.push(task);
     else groups.set(groupKey, [task]);
   }
-  await runGrouped(Array.from(groups.values()), writeConcurrency(options.concurrency));
+  counts.replayed = await runGrouped(Array.from(groups.values()), writeConcurrency(options.concurrency));
   return counts;
 }
 
