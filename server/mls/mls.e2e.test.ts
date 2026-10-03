@@ -788,6 +788,20 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
         process.env.MLS_MEDIA_EMPTY_REFRESH_TTL_MS = "0";
         modules.media.resetEmptyRefreshCache();
       }
+
+      // Priority-0 photos left by a listing that is no longer Active can never
+      // download through the Active gallery stage, so they must not count
+      // against the scanner's queue cap (they held Canopy's queue near full).
+      await admin.query("UPDATE mls_listings SET standardStatus='closed' WHERE id=?", [second.listingId]);
+      await admin.query("UPDATE mls_media SET status='expired', priority=0, sourceUrl=NULL, attempts=1, nextAttemptAt=NULL WHERE feedId=? AND listingId=?", [feed.id, second.listingId]);
+      const [missing] = await q<any>("SELECT id FROM mls_media WHERE feedId=? AND listingId=? AND status='stored' AND isPrimary=0 LIMIT 1", [feed.id, first.listingId]);
+      await admin.query("DELETE FROM mls_media WHERE id=?", [missing.id]);
+      await admin.query("DELETE FROM mls_sync_cursors WHERE feedId=? AND resource='ActiveGallery'", [feed.id]);
+      const stranded = await q<any>("SELECT COUNT(*) AS n FROM mls_media WHERE feedId=? AND listingId=? AND status='expired' AND priority=0", [feed.id, second.listingId]);
+      expect(Number(stranded[0].n)).toBe(3);
+      expect(await queueActiveGalleries(db, ctx, { maxQueued: 3 })).toEqual({ scanned: 1, queued: 1 });
+      // Real Active photos still count: the new marker fills a 1-photo cap.
+      expect(await queueActiveGalleries(db, ctx, { maxQueued: 1 })).toEqual({ scanned: 0, queued: 0 });
     } finally {
       state.properties = original;
     }

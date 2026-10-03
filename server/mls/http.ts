@@ -222,6 +222,9 @@ const intervalMs = (perSecond: number) => Math.ceil(1000 / Math.max(0.01, perSec
 export class ProviderLane {
   readonly api: SlidingLimiter;
   readonly media: Limiter;
+  /** MLS Grid CDN downloads: reusable links outside every API quota, so they
+   * get their own pace. Other providers (and old media links) use `media`. */
+  readonly cdn: Limiter;
   private usage = new Map<string, UsageBucket>();
   private seeded: Promise<void> | null = null;
 
@@ -298,6 +301,9 @@ export class ProviderLane {
         [{ limit: limits.mediaBytesPerHour, windowMs: HOUR_MS }]
       );
     }
+    this.cdn = provider === "mls_grid"
+      ? new SlidingLimiter(intervalMs(Math.max(1, Number(process.env.MLS_CDN_REQUESTS_PER_SECOND ?? 25))), [])
+      : this.media;
   }
 
   /** Loads the last 24 hours of recorded usage once, before the lane's first request. */
@@ -474,11 +480,12 @@ async function withRetries<T>(
         lane.countThrottle();
         // Old MLS Grid media links return 429 when the same image was already
         // accessed this hour. It is an item-specific cooldown, not API throttling.
-        const duplicateMedia = lane.provider === "mls_grid" && limiter === lane.media && new URL(url).hostname === "media.mlsgrid.com";
+        const photoLimiter = limiter === lane.media || limiter === lane.cdn;
+        const duplicateMedia = lane.provider === "mls_grid" && photoLimiter && new URL(url).hostname === "media.mlsgrid.com";
         if (duplicateMedia) throw error; // one attempt only; the media row handles the 65-minute cooldown
         // CDN links are reusable and outside API limits: back off briefly on
-        // the media limiter only, never the 15-minute token pause.
-        const cdnMedia = lane.provider === "mls_grid" && limiter === lane.media && isMlsGridCdnUrl(url);
+        // the CDN limiter only, never the 15-minute token pause.
+        const cdnMedia = lane.provider === "mls_grid" && photoLimiter && isMlsGridCdnUrl(url);
         const pause = (error as RetryableHttpError).retryAfterMs ??
           (cdnMedia ? 30_000 * attempt : lane.provider === "mls_grid" ? 15 * 60_000 : 60_000 * attempt);
         limiter.pause(pause);
@@ -579,7 +586,7 @@ export async function downloadMedia(
 ): Promise<{ data: Buffer; contentType: string }> {
   return withRetries(
     lane,
-    lane.media,
+    lane.provider === "mls_grid" && isMlsGridCdnUrl(url) ? lane.cdn : lane.media,
     url,
     async () => {
       const response = await send(url, headers, { ...options, timeoutMs: options.timeoutMs ?? 60_000 });

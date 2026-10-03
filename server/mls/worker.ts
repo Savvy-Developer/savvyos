@@ -141,8 +141,13 @@ export class MlsIngestionScheduler {
       }
       if (!state.media && configured.length) {
         state.media = true;
-        void this.track(this.mediaLane(key, configured)).finally(() => {
+        // A lane that stopped only because its drain window ended has more
+        // photos waiting: start the next window now (feeds and licenses are
+        // reloaded by tick) instead of idling up to TICK_MS.
+        void this.track(this.mediaLane(key, configured).finally(() => {
           state.media = false;
+        })).then(more => {
+          if (more && !this.controller.signal.aborted) void this.tick();
         });
       }
     }
@@ -175,7 +180,8 @@ export class MlsIngestionScheduler {
     }
   }
 
-  private async mediaLane(key: string, feeds: FeedContext[]) {
+  /** Returns true when the drain window ended with work still queued. */
+  private async mediaLane(key: string, feeds: FeedContext[]): Promise<boolean> {
     const provider = feeds[0].feed.provider;
     const lane = getLane(provider, feeds[0].feed.credentialRef, adapterFor(provider).limits(feeds[0].feed));
     const feedIds = feeds.map(ctx => ctx.feed.id);
@@ -183,17 +189,19 @@ export class MlsIngestionScheduler {
     const until = Date.now() + Math.max(TICK_MS * 4, 60_000);
     try {
       while (Date.now() < until && !this.controller.signal.aborted) {
-        if (!(await hasPendingMedia(feedIds))) return;
+        if (!(await hasPendingMedia(feedIds))) return false;
         const started = Date.now();
         const result = await runMediaBatch(lane, feeds, this.workerId, { signal: this.controller.signal });
         this.lastActivity[`media:${key}`] = { at: new Date().toISOString(), ms: Date.now() - started, ...result };
-        if (result.claimed === 0 && result.deleted === 0 && result.refreshed === 0) return;
+        if (result.claimed === 0 && result.deleted === 0 && result.refreshed === 0) return false;
       }
+      return !this.controller.signal.aborted;
     } catch (error) {
       // A failed batch must never take the worker down. The next tick retries,
       // and abandoned "downloading" claims are released by the stale-claim sweep.
       console.error(`[mls] media lane ${key} batch failed`, error);
       this.lastActivity[`media:${key}`] = { at: new Date().toISOString(), error: String(error instanceof Error ? error.message : error).slice(0, 300) };
+      return false;
     }
   }
 }
