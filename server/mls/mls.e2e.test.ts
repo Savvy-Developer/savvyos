@@ -738,6 +738,13 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       expect(await cdnLinks.retireLegacyGalleryQueue(db, [feed.id])).toEqual({ removed: 1, stopped: 4 });
       expect(await cdnLinks.retireLegacyGalleryQueue(db, [feed.id])).toEqual({ removed: 0, stopped: 0 });
       expect(await q("SELECT id FROM mls_sync_cursors WHERE feedId=? AND resource='ActiveGallery'", [feed.id])).toHaveLength(0);
+      // After a restart, a finished feed (no ActiveGallery cursor) is not
+      // rescanned: a stray expired gallery row stays untouched.
+      await admin.query("UPDATE mls_media SET status='expired' WHERE feedId=? AND isPrimary=0 AND mediaKey NOT LIKE '\\_\\_gallery%' LIMIT 1", [feed.id]);
+      cdnLinks.resetLegacyGalleryRetirement();
+      expect(await cdnLinks.retireLegacyGalleryQueue(db, [feed.id])).toEqual({ removed: 0, stopped: 0 });
+      expect(await q("SELECT id FROM mls_media WHERE feedId=? AND status='expired'", [feed.id])).toHaveLength(1);
+      await admin.query("UPDATE mls_media SET status='skipped' WHERE feedId=? AND status='expired'", [feed.id]);
       expect((await modules.media.runMediaBatch(lane, [ctx], "cdn-link-e2e", { batchSize: 10 })).claimed).toBe(0);
 
       // The backfill re-reads on-market listings missing links, one batched
