@@ -51,3 +51,13 @@ export async function getMlsDb() {
   }
   return db;
 }
+
+/**
+ * The raw pool behind getMlsDb (the app pool when MLS shares the app
+ * database), for session-scoped features such as named locks.
+ */
+export async function getMlsPool(): Promise<mysql.Pool | null> {
+  const mlsDb = await getMlsDb();
+  const client = (mlsDb as unknown as { $client?: mysql.Pool } | null)?.$client;
+  return client && typeof client.getConnection === "function" ? client : null;
+}
