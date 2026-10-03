@@ -463,6 +463,55 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     }
   }, 60_000);
 
+  it("writes photo rows without upserts: unchanged rows are skipped and no ids are burned", async () => {
+    const ctx = (await modules.engine.loadFeedContext(feedId))!;
+    const adapter = modules.adapters.adapterFor("mls_grid");
+    const photos = (prefix: string, orders: number[]) => orders.map(order => ({
+      MediaKey: `${prefix}-${order}`, Order: order, MediaCategory: "Photo", MediaURL: `https://${CDN_TEST_HOST}/media/${prefix}-${order}.jpg`,
+    }));
+    const record = (key: string, street: string, media: Record_[], at: string) =>
+      ({ ...listing(key, { StreetNumber: street, ModificationTimestamp: at }), Media: media });
+    const options = { overrides: [], metadataLocalFields: null, force: true };
+    const sync = (key: string, street: string, media: Record_[], at: string) =>
+      modules.store.processRecords(ctx, adapter, "Property", [record(key, street, media, at)], options);
+    const rowsFor = (key: string) => q<any>(
+      "SELECT id, mediaKey, resourceKey, sortOrder, status, sourceUrl FROM mls_media WHERE feedId = ? AND resourceKey = ? ORDER BY sortOrder, mediaKey",
+      [feedId, key]
+    );
+    try {
+      await sync("MW1", "9201", photos("MW", [1, 2, 3]), "2026-09-27T01:00:00.000Z");
+      const first = await rowsFor("CARMW1");
+      expect(first.map(row => row.mediaKey)).toEqual(["MW-1", "MW-2", "MW-3"]);
+      expect(first.every(row => row.sourceUrl?.startsWith(`https://${CDN_TEST_HOST}/`))).toBe(true);
+
+      // Re-sending the same photos changes nothing and reserves no ids.
+      await sync("MW1", "9201", photos("MW", [1, 2, 3]), "2026-09-27T01:00:01.000Z");
+      await sync("MW1", "9201", photos("MW", [1, 2, 3]), "2026-09-27T01:00:02.000Z");
+      expect(await rowsFor("CARMW1")).toEqual(first);
+
+      // A reordered photo is updated in place; a new photo takes the very next id.
+      const reordered = photos("MW", [1, 2, 3, 4]).map(item => item.MediaKey === "MW-3" ? { ...item, Order: 9 } : item);
+      await sync("MW1", "9201", reordered, "2026-09-27T01:00:03.000Z");
+      const second = new Map((await rowsFor("CARMW1")).map(row => [row.mediaKey, row]));
+      expect(second.get("MW-3").id).toBe(first[2].id);
+      expect(second.get("MW-3").sortOrder).toBe(9);
+      expect(Number(second.get("MW-4").id)).toBe(Math.max(...first.map(row => Number(row.id))) + 1);
+
+      // A photo key already stored under another listing key moves to the new listing.
+      await sync("MW2", "9202", photos("MW", [4]), "2026-09-27T01:00:04.000Z");
+      expect((await rowsFor("CARMW2")).map(row => row.mediaKey)).toEqual(["MW-4"]);
+      expect((await rowsFor("CARMW1")).map(row => row.mediaKey)).toEqual(["MW-1", "MW-2", "MW-3"]);
+
+      // The same key twice in one payload keeps one row; the later entry wins.
+      await sync("MW3", "9203", [...photos("MX", [1]), { ...photos("MX", [1])[0], Order: 2 }], "2026-09-27T01:00:05.000Z");
+      const dupes = await rowsFor("CARMW3");
+      expect(dupes.map(row => [row.mediaKey, row.sortOrder])).toEqual([["MX-1", 2]]);
+    } finally {
+      const db = (await modules.db.getDb())!;
+      for (const key of ["CARMW1", "CARMW2", "CARMW3"]) await modules.store.removeListing(db as any, ctx, key, "test_cleanup");
+    }
+  }, 60_000);
+
   it("keeps a reusable MLS Grid CDN link through a failed download and stores from it later", async () => {
     const ctx = (await modules.engine.loadFeedContext(feedId))!;
     const adapter = modules.adapters.adapterFor("mls_grid");

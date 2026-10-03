@@ -245,6 +245,27 @@ function mediaPriority(item: ExtractedMedia, status: CanonicalStatus) {
   return MARKET_STATUSES.includes(status) ? 50 : 100;
 }
 
+type MediaValues = typeof mlsMedia.$inferInsert;
+/** Columns a media sync may change on an existing row, and the precision each is stored at. */
+const MEDIA_SYNC_FIELDS: Array<[keyof MediaValues, "ms" | "s" | "value"]> = [
+  ["listingId", "value"], ["resourceKey", "value"], ["sortOrder", "value"], ["category", "value"],
+  ["mimeType", "value"], ["caption", "value"], ["isPrimary", "value"], ["sourceModifiedAt", "ms"],
+  ["sourceUrl", "value"], ["sourceUrlExpiresAt", "s"], ["status", "value"], ["claimedBy", "value"],
+  ["priority", "value"], ["attempts", "value"], ["nextAttemptAt", "s"], ["lastError", "value"],
+];
+function sameMediaField(a: unknown, b: unknown, kind: "ms" | "s" | "value") {
+  if (a == null || b == null) return a == null && b == null;
+  if (kind === "value") return typeof a === "boolean" || typeof b === "boolean" ? Boolean(a) === Boolean(b) : a === b;
+  const ta = new Date(a as any).getTime();
+  const tb = new Date(b as any).getTime();
+  return kind === "ms" ? ta === tb : Math.floor(ta / 1000) === Math.floor(tb / 1000);
+}
+/** True when writing `values` would leave the stored row exactly as it is. */
+export function mediaRowUnchanged(current: Record<string, unknown>, values: Record<string, unknown>) {
+  return MEDIA_SYNC_FIELDS.every(([field, kind]) => sameMediaField(current[field], values[field], kind));
+}
+const MEDIA_INSERT_CHUNK = 200;
+
 async function syncListingMedia(
   tx: Db,
   ctx: FeedContext,
@@ -269,6 +290,14 @@ async function syncListingMedia(
   // Only the cover photo is downloaded (list cards and the map use our copy);
   // copies already saved are kept as a backup. Non-CDN links are ignored.
   const cdnOnly = ctx.feed.provider === "mls_grid";
+  // Photo rows are written with plain statements, never INSERT ... ON DUPLICATE KEY
+  // UPDATE. On an existing row that statement still reserves a new auto-increment id
+  // and, under REPEATABLE READ, locks the end of the primary key, which queued every
+  // concurrent listing's photo writes behind one lock and caused the import deadlocks.
+  // Unchanged rows are skipped, changed rows are updated by id, and new rows go in as
+  // one multi-row insert per listing.
+  const inserts: MediaValues[] = [];
+  const updates: Array<{ id: number; values: MediaValues }> = [];
 
   for (const item of media) {
     const mediaKey = item.mediaKey.slice(0, 191);
@@ -316,7 +345,25 @@ async function syncListingMedia(
       nextAttemptAt: null,
       lastError: needsUrl ? null : current?.lastError ?? null,
     };
-    await tx.insert(mlsMedia).values(values).onDuplicateKeyUpdate({ set: values });
+    if (!current) inserts.push(values);
+    else if (!mediaRowUnchanged(current, values)) updates.push({ id: current.id, values });
+  }
+
+  for (const { id, values } of updates) {
+    const { feedId: _feedId, mediaKey: _mediaKey, ...set } = values;
+    await tx.update(mlsMedia).set(set).where(eq(mlsMedia.id, id));
+  }
+  for (let i = 0; i < inserts.length; i += MEDIA_INSERT_CHUNK) {
+    const chunk = inserts.slice(i, i + MEDIA_INSERT_CHUNK);
+    try {
+      await tx.insert(mlsMedia).values(chunk);
+    } catch (error) {
+      // A photo key already stored under another listing key (the listing was
+      // re-keyed at the source). InnoDB rolled back only this statement, so the
+      // chunk is retried row by row as upserts, which moves those photos here.
+      if (importErrorInfo(error).code !== "ER_DUP_ENTRY") throw error;
+      for (const values of chunk) await tx.insert(mlsMedia).values(values).onDuplicateKeyUpdate({ set: values });
+    }
   }
 
   const removed = existing.filter(row => !incoming.has(row.mediaKey) && row.status !== "delete_pending");
