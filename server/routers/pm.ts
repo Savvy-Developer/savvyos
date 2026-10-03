@@ -65,6 +65,10 @@ const rockMilestoneSchema = z.object({
   dueDate: z.coerce.date(),
   description: z.string().trim().max(8_000).optional().nullable(),
 });
+const existingSectionMilestoneSchema = z.object({
+  id: z.number().int().positive(),
+  dueDate: z.coerce.date(),
+});
 
 type RockMilestoneInput = z.infer<typeof rockMilestoneSchema>;
 
@@ -820,6 +824,7 @@ export const pmRouter = router({
         weeklyUpdatesEnabled: z.boolean().optional(),
         weeklyReportingOwnerId: z.number().nullable().optional(),
         rockMilestones: z.array(rockMilestoneSchema).max(ROCK_MILESTONE_LIMIT).optional(),
+        existingSectionMilestones: z.array(existingSectionMilestoneSchema).optional(),
         routedMeetingIds: z.array(z.string().uuid()).max(50).optional(),
         collaboratorIds: z.array(z.number()).optional(),
       }))
@@ -865,15 +870,25 @@ export const pmRouter = router({
         if (becomingRock && hasDuplicateMilestoneTitles(rockMilestones)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Rock milestones must have unique titles." });
         }
+        const existingSectionMilestones = input.existingSectionMilestones ?? [];
+        const existingSectionDates = new Map(existingSectionMilestones.map((section) => [section.id, section.dueDate]));
+        if (becomingRock && existingSectionDates.size !== existingSectionMilestones.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Each existing milestone can have only one due date." });
+        }
         const existingSections = becomingRock
           ? await db.select({ id: pmTodoSections.id, dueDate: pmTodoSections.dueDate })
             .from(pmTodoSections)
             .where(eq(pmTodoSections.projectId, input.id))
           : [];
-        if (becomingRock && existingSections.some((section) => !section.dueDate)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Add a due date to every existing section before converting this project into a Rock." });
+        const existingSectionIds = new Set(existingSections.map((section) => section.id));
+        if (becomingRock && existingSectionMilestones.some((section) => !existingSectionIds.has(section.id))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Every milestone date must belong to an existing project section." });
         }
-        if (becomingRock && !hasDatedProjectRockMilestone(existingSections, rockMilestones)) {
+        const datedExistingSections = existingSections.map((section) => ({ ...section, dueDate: existingSectionDates.get(section.id) ?? section.dueDate }));
+        if (becomingRock && datedExistingSections.some((section) => !section.dueDate)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Set a due date for every existing milestone before converting this project into a Rock." });
+        }
+        if (becomingRock && !hasDatedProjectRockMilestone(datedExistingSections, rockMilestones)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock needs at least one milestone." });
         }
         if (!finalIsRock && input.routedMeetingIds?.length) {
@@ -901,7 +916,7 @@ export const pmRouter = router({
           : await assertAuthorisedRockRouting(db, ctx.user, input.routedMeetingIds);
         const syncRockRoutes = routedMeetingIds !== undefined || input.isRock === false;
 
-        const { id, collaboratorIds, rockMilestones: _rockMilestones, routedMeetingIds: _routedMeetingIds, ...fields } = input;
+        const { id, collaboratorIds, rockMilestones: _rockMilestones, existingSectionMilestones: _existingSectionMilestones, routedMeetingIds: _routedMeetingIds, ...fields } = input;
         const updateFields = { ...fields };
         if (input.isOngoing === true) updateFields.dueDate = null;
         if (input.dueDate !== undefined && input.dueDate !== null) updateFields.isOngoing = false;
@@ -920,6 +935,12 @@ export const pmRouter = router({
               await transaction.update(pmProjects).set(updateFields).where(eq(pmProjects.id, id));
             }
             if (becomingRock) {
+              for (const section of existingSectionMilestones) {
+                await transaction.update(pmTodoSections).set({ dueDate: section.dueDate }).where(and(
+                  eq(pmTodoSections.id, section.id),
+                  eq(pmTodoSections.projectId, id),
+                ));
+              }
               const [sectionOrder] = await transaction.select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
                 .from(pmTodoSections)
                 .where(eq(pmTodoSections.projectId, id));

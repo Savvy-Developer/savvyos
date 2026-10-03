@@ -145,13 +145,13 @@ describe("project todo section UI", () => {
 
   it("allows a dated existing section to satisfy Rock conversion milestones", () => {
     expect(projectDetailPage).toContain(
-      'hasDatedProjectRockMilestone(project.todoSections ?? [], rockMilestones)'
+      'hasDatedProjectRockMilestone(existingSectionMilestones, rockMilestones)'
     );
     expect(projectDetailPage).toContain(
       'prepareProjectRockMilestones(editForm.rockMilestones ?? [])'
     );
     expect(projectRouter).toContain(
-      'hasDatedProjectRockMilestone(existingSections, rockMilestones)'
+      'hasDatedProjectRockMilestone(datedExistingSections, rockMilestones)'
     );
   });
 
@@ -204,7 +204,7 @@ describe("project todo section UI", () => {
     );
     expect(projectDetailPage).toContain('"Add Milestone" : "Add Section"');
     expect(projectDetailPage).toContain(
-      "Each existing section becomes a milestone when this Project turns into a Rock"
+      "These sections will become Rock milestones. Set each due date here and save once."
     );
     expect(sectionComponent).toContain(
       'const sectionLabelTitle = isRock ? "Milestone" : "Section"'
