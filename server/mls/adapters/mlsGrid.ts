@@ -78,7 +78,8 @@ export function mlsGridStageUrl(ctx: FeedContext, stage: "priority" | "history",
   return buildODataUrl(ctx.feed.baseUrl, "Property", {
     $filter: filters.join(" and "),
     $expand: stage === "priority" ? EXPAND.Property : "Rooms,UnitTypes",
-    $top: 1000,
+    // Both stages expand, so MLS Grid's 1000-record ceiling applies.
+    $top: Math.min(Math.max(1, Number(readOption(ctx.feed, "pageSize", 1000)) || 1000), 1000),
   });
 }
 
