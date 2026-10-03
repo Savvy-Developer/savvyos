@@ -33,6 +33,8 @@ export class MlsIngestionScheduler {
   private controller = new AbortController();
   private lanes = new Map<string, LaneState>();
   private timers: NodeJS.Timeout[] = [];
+  /** Feeds whose last cycle ended at the history page budget with more to import. */
+  private backlog = new Set<number>();
   private running = new Set<Promise<unknown>>();
   private lastActivity: Record<string, unknown> = {};
   private startedAt = new Date();
@@ -128,14 +130,18 @@ export class MlsIngestionScheduler {
         void this.track(this.linkCdnPhotos(configured)).finally(() => { state.scanning = false; });
       }
       if (!state.syncing) {
-        // Requested syncs first, then the stalest due feed.
+        // Requested syncs first, then the stalest due feed. Feeds with history
+        // backlog are due again at once; the staleness sort keeps live syncs
+        // for other feeds on the lane ahead of the next history burst.
         const due = laneFeeds
-          .filter(ctx => syncDue(ctx.feed))
+          .filter(ctx => syncDue(ctx.feed) || (ctx.feed.enabled && this.backlog.has(ctx.feed.id)))
           .sort((a, b) => Number(!!b.feed.syncRequestedAt) - Number(!!a.feed.syncRequestedAt) || (a.feed.lastRunFinishedAt?.getTime() ?? 0) - (b.feed.lastRunFinishedAt?.getTime() ?? 0));
         if (due.length) {
           state.syncing = true;
-          void this.track(this.syncLane(key, due)).finally(() => {
+          void this.track(this.syncLane(key, due).finally(() => {
             state.syncing = false;
+          })).then(more => {
+            if (more && !this.controller.signal.aborted) void this.tick();
           });
         }
       }
@@ -153,16 +159,21 @@ export class MlsIngestionScheduler {
     }
   }
 
-  private async syncLane(key: string, feeds: FeedContext[]) {
+  /** Runs each due feed once; resolves true when a feed still has history backlog. */
+  private async syncLane(key: string, feeds: FeedContext[]): Promise<boolean> {
     for (const ctx of feeds) {
-      if (this.controller.signal.aborted) return;
+      if (this.controller.signal.aborted) return false;
       try {
         const summary = await runFeedCycle(ctx.feed.id, { workerId: this.workerId, signal: this.controller.signal });
         this.lastActivity[`feed:${ctx.feed.id}`] = { at: new Date().toISOString(), ok: summary.ok, skipped: summary.skipped ?? null, error: summary.error ?? null };
+        if (summary.ok && summary.backlog) this.backlog.add(ctx.feed.id);
+        else this.backlog.delete(ctx.feed.id);
       } catch (error) {
+        this.backlog.delete(ctx.feed.id);
         console.error(`[mls] feed ${ctx.feed.id} cycle crashed`, error);
       }
     }
+    return feeds.some(ctx => this.backlog.has(ctx.feed.id));
   }
 
   /** Gives older listings MLS Grid CDN photo links; never blocks sync or photo downloads. */

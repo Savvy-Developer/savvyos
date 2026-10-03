@@ -405,9 +405,9 @@ async function refreshPropertySummary(tx: Db, propertyId: number) {
     .where(eq(mlsProperties.id, propertyId));
 }
 
-async function resolveProperty(tx: Db, ctx: FeedContext, normalized: NormalizedListing, existing: MlsListing | undefined) {
+function identityFor(ctx: FeedContext, normalized: NormalizedListing) {
   const c = normalized.columns;
-  const identity = propertyIdentity({
+  return propertyIdentity({
     streetNumber: c.streetNumber as string | undefined,
     streetName: c.streetName as string | undefined,
     unitNumber: c.unitNumber as string | undefined,
@@ -418,6 +418,10 @@ async function resolveProperty(tx: Db, ctx: FeedContext, normalized: NormalizedL
     sourceId: ctx.source.id,
     listingNumber: normalized.listingNumber,
   });
+}
+
+async function resolveProperty(tx: Db, ctx: FeedContext, normalized: NormalizedListing, existing: MlsListing | undefined) {
+  const identity = identityFor(ctx, normalized);
   const [match] = await tx.select().from(mlsProperties).where(eq(mlsProperties.propertyKey, identity.key)).limit(1);
   if (existing) {
     if (!match || match.id === existing.propertyId) return { propertyId: existing.propertyId, previousPropertyId: null };
@@ -651,7 +655,30 @@ export type ProcessOptions = {
   receivedAt?: Date;
   /** Reprocess even when the payload hash is unchanged (media refresh, remap). */
   force?: boolean;
+  /** Parallel record writes per page (default MLS_WRITE_CONCURRENCY, 6). */
+  concurrency?: number;
 };
+
+function writeConcurrency(requested?: number) {
+  const value = requested ?? Number(process.env.MLS_WRITE_CONCURRENCY ?? 6);
+  return Number.isFinite(value) ? Math.max(1, Math.min(16, Math.floor(value))) : 6;
+}
+
+/**
+ * Runs groups in parallel, each group's tasks in order. Records that share a
+ * key or a property identity share a group, so a page never races two writes
+ * to one listing or one property summary.
+ */
+async function runGrouped(groups: Array<Array<() => Promise<void>>>, limit: number) {
+  let next = 0;
+  const lane = async () => {
+    while (next < groups.length) {
+      const group = groups[next++];
+      for (const task of group) await task();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, groups.length) }, lane));
+}
 
 /** Process one replication page for any resource. */
 export async function processRecords(
@@ -668,6 +695,9 @@ export async function processRecords(
   const keys = records.map(record => String(record[keyField] ?? "")).filter(Boolean);
   const hashes = await loadRawHashes(db, ctx.feed.id, resource, keys);
   const exceptionKeys = await loadExceptionKeys(db, ctx.feed.id, resource, keys);
+  const propertyOverrides = options.overrides.filter(mapping => mapping.resource === "Property");
+  const groups = new Map<string, Array<() => Promise<void>>>();
+  const keyGroup = new Map<string, string>();
 
   for (const record of records) {
     counts.received += 1;
@@ -686,7 +716,19 @@ export async function processRecords(
       continue;
     }
     counts.keys.push(key);
-    try {
+    // Normalize once up front to group by property; a failure here is retried
+    // inside the write below so it is quarantined like any other bad record.
+    let normalized: NormalizedListing | undefined;
+    if (resource === "Property") {
+      try {
+        normalized = normalizeListing(ctx, adapter, record, { overrides: propertyOverrides, metadataLocalFields: options.metadataLocalFields });
+      } catch {
+        normalized = undefined;
+      }
+    }
+    const groupKey = keyGroup.get(key) ?? (normalized ? `p:${identityFor(ctx, normalized).key}` : `k:${key}`);
+    keyGroup.set(key, groupKey);
+    const task = async () => { try {
       const written = await retryOnDeadlock(async (): Promise<{ outcome: "deleted" | "kept" | "unchanged" | "upserted"; mediaQueued: number }> => {
         if (!adapter.isViewable(record)) {
           return { outcome: (await removeRecord(db, ctx, resource, key, "not_viewable")) ? "deleted" : "kept", mediaQueued: 0 };
@@ -708,11 +750,8 @@ export async function processRecords(
         const modifiedAt = modified ? new Date(modified) : null;
         let mediaQueued = 0;
         if (resource === "Property") {
-          const normalized = normalizeListing(ctx, adapter, record, {
-            overrides: options.overrides.filter(mapping => mapping.resource === "Property"),
-            metadataLocalFields: options.metadataLocalFields,
-          });
-          const result = await upsertNormalizedListing(db, ctx, adapter, normalized, hash, receivedAt);
+          const listing = normalized ?? normalizeListing(ctx, adapter, record, { overrides: propertyOverrides, metadataLocalFields: options.metadataLocalFields });
+          const result = await upsertNormalizedListing(db, ctx, adapter, listing, hash, receivedAt);
           mediaQueued = result.mediaQueued;
         } else if (resource === "Member") {
           const { viewable: _viewable, ...member } = normalizeMember(ctx, adapter, record);
@@ -761,7 +800,12 @@ export async function processRecords(
         counts.errors.push({ key, message: `${info.code}${info.column ? ` (${info.column})` : ""}` });
       }
     }
+    };
+    const group = groups.get(groupKey);
+    if (group) group.push(task);
+    else groups.set(groupKey, [task]);
   }
+  await runGrouped(Array.from(groups.values()), writeConcurrency(options.concurrency));
   return counts;
 }
 

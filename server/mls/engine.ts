@@ -12,7 +12,6 @@ import {
 } from "../../drizzle/mlsSchema";
 import { getMlsDb as getDb } from "./db";
 import { adapterFor } from "./adapters";
-import { mlsGridStageUrl } from "./adapters/mlsGrid";
 import { clearTokenCache } from "./adapters/trestle";
 import {
   parseODataPage,
@@ -64,6 +63,8 @@ export type CycleSummary = {
   exceptions?: { attempted: number; recovered: number };
   reconciled?: Record<string, { remote: number; local: number; removed: number; aborted?: string }>;
   error?: string;
+  /** True when the history import stopped at its page budget with records still to fetch. */
+  backlog?: boolean;
 };
 
 async function requireDb(): Promise<Db> {
@@ -339,12 +340,13 @@ async function replicateResource(
   const passStartedAt = new Date();
   const windowEnd = passStartedAt.toISOString();
 
-  const firstUrl = (position: CursorState) => stage === "priority" || stage === "history"
-    ? mlsGridStageUrl(ctx, stage, position)
-    : adapter.firstPageUrl(ctx, resource, position, windowEnd);
-  // Existing imports may hold a nextLink with Media expanded. Rebuild from the
-  // saved boundary timestamp to switch to the lean historical pass safely.
-  if (stage === "history" && cursor.resumeToken && /(?:Media|%2C?Media)/i.test(cursor.resumeToken)) {
+  // Adapters read `stage` to add the on-market filter (priority) or a lean
+  // expansion (MLS Grid history). Other resources never carry a stage.
+  const firstUrl = (position: CursorState) => adapter.firstPageUrl(ctx, resource, { ...position, stage }, windowEnd);
+  // Older MLS Grid imports may hold a nextLink with Media expanded. Rebuild from
+  // the saved boundary timestamp to switch to the lean historical pass safely.
+  // Other providers expand Media in every pass, so their links stay as they are.
+  if (stage === "history" && adapter.provider === "mls_grid" && cursor.resumeToken && /(?:Media|%2C?Media)/i.test(cursor.resumeToken)) {
     await saveCursor(db, cursor.id, { resumeToken: null });
     cursor = { ...cursor, resumeToken: null };
   }
@@ -395,7 +397,7 @@ async function replicateResource(
       if (counts.unpersisted) throw new Error(`Page contains ${counts.unpersisted} unpersisted records; checkpoint retained for retry.`);
       totals.pages += 1;
       if (ordered) highWaterMark = laterTimestamp(highWaterMark, counts.maxModified);
-      const next = adapter.nextPageUrl(ctx, resource, page, { ...state, highWaterMark });
+      const next = adapter.nextPageUrl(ctx, resource, page, { ...state, highWaterMark, stage });
       await saveCursor(db, cursor.id, {
         // Replay boundary timestamp ties if a saved nextLink expires. Upserts are idempotent.
         highWaterMark: ordered && next && page.value[0]?.ModificationTimestamp
@@ -580,8 +582,11 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
       overrides: await loadOverrides(db, ctx),
       metadataLocalFields: await loadMetadataLocalFields(db, feedId),
     };
-    const fastGrid = ctx.feed.provider === "mls_grid" && readOption(ctx.feed, "fastImportV1", false);
-    if (fastGrid && !options.maxPagesPerResource) {
+    // Staged first import (on-market listings first, then full history) for
+    // any adapter that supports it. New feeds get fastImportV1=true when they
+    // are created (bootstrap and admin form); existing feeds keep their setting.
+    const staged = adapter.capabilities.stagedImport === true && readOption<boolean>(ctx.feed, "fastImportV1", false) === true;
+    if (staged && !options.maxPagesPerResource) {
       const history = await getCursor(db, feedId, "Property");
       if (history.phase === "initial") {
         // Start the live watermark BEFORE the prefill. Changes that land during
@@ -595,16 +600,25 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
         }
         const priority = await getCursor(db, feedId, "Priority:Property");
         if (priority.phase === "initial") {
-          summary.resources["Priority:Property"] = await replicateResource(db, ctx, adapter, lane, "Property", shared, options, "priority");
+          try {
+            summary.resources["Priority:Property"] = await replicateResource(db, ctx, adapter, lane, "Property", shared, options, "priority");
+          } catch (error) {
+            // A server that rejects the on-market filter outright (400-class on
+            // the first page) imports everything in the full pass instead.
+            const rejected = error instanceof FatalHttpError && error.status >= 400 && error.status < 500 && ![401, 403, 429].includes(error.status);
+            if (!rejected || Number(priority.recordsSeen ?? 0) > 0) throw error;
+            await saveCursor(db, priority.id, { phase: "incremental", resumeToken: null, lastSuccessAt: new Date() });
+            console.warn(`[mls] feed ${feedId}: provider rejected the on-market filter (${error.status}); importing everything in one pass. Set options.priorityFilter to retry.`);
+          }
         }
         summary.resources["Live:Property"] = await replicateResource(db, ctx, adapter, lane, "Property", shared, options, "live");
       }
     }
     for (const resource of resourcesFor(ctx.feed, adapter)) {
-      const historical = fastGrid && !options.maxPagesPerResource && resource === "Property" && (await getCursor(db, feedId, "Property")).phase === "initial";
+      const historical = staged && !options.maxPagesPerResource && resource === "Property" && (await getCursor(db, feedId, "Property")).phase === "initial";
       summary.resources[resource] = await replicateResource(
         db, ctx, adapter, lane, resource, shared,
-        fastGrid && !options.maxPagesPerResource && resource !== "Property" ? { ...options, maxPagesPerResource: 20 } : options,
+        staged && !options.maxPagesPerResource && resource !== "Property" ? { ...options, maxPagesPerResource: 20 } : options,
         historical ? "history" : undefined
       );
     }
@@ -621,6 +635,13 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
       await db.update(mlsFeeds).set({ lastReconcileAt: new Date(), reconcileRequestedAt: null }).where(eq(mlsFeeds.id, feedId));
     }
     await pruneEndedOpenHouses(feedId);
+
+    // A history burst stops at its page budget so live checks and other feeds
+    // get a turn. Report the remaining backlog so the worker runs the next
+    // burst right away instead of waiting out the sync interval.
+    if (staged && !options.maxPagesPerResource) {
+      summary.backlog = (await getCursor(db, feedId, "Property")).phase === "initial";
+    }
 
     const finishedAt = new Date();
     await db

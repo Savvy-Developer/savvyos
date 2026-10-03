@@ -27,8 +27,9 @@ import {
  * - Limits are per token and cover API pages AND photo downloads. See
  *   MLS_GRID_LIMITS: we stay under the lower of the published caps and the
  *   warning thresholds from MLS Grid's Sept 30, 2026 notice.
- * - Media URLs are single use and expire in an hour; downloads must send
- *   User-Agent set to the access token. Never hotlink.
+ * - Photos come from MLS Grid's CDN (cdn-savvystr.mlsgrid.com). CDN links do
+ *   not expire, may be displayed directly, and do not count toward API
+ *   limits; SavvyOS ignores any non-CDN media link.
  * - Keys and MLS numbers carry the MLS prefix (e.g. CAR); strip it for display.
  */
 
@@ -125,6 +126,7 @@ export const mlsGridAdapter: MlsAdapter = {
     mediaUrlsExpire: false,
     maxReplicationGapDays: 7,
     initialOrderedByTimestamp: true,
+    stagedImport: true,
   },
   limits(feed: MlsFeed) {
     const requested = Number(readOption(feed, "rateSafety", DEFAULT_SAFETY));
@@ -166,6 +168,9 @@ export const mlsGridAdapter: MlsAdapter = {
     return { "User-Agent": token(ctx) };
   },
   firstPageUrl(ctx, resource, cursor) {
+    if (resource === "Property" && (cursor.stage === "priority" || cursor.stage === "history")) {
+      return mlsGridStageUrl(ctx, cursor.stage, cursor);
+    }
     const filters = [`OriginatingSystemName eq ${odataString(originatingSystem(ctx))}`];
     if (cursor.phase === "initial") filters.push("MlgCanView eq true");
     if (cursor.highWaterMark) filters.push(`ModificationTimestamp gt ${cursor.highWaterMark}`);

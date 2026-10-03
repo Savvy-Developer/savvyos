@@ -19,10 +19,17 @@ export type FeedContext = {
 
 export type ReplicationMode = "initial" | "incremental";
 
+/**
+ * Staged first import: `priority` pulls on-market listings only, `history`
+ * is the full pass that follows, `live` keeps changes flowing meanwhile.
+ */
+export type ImportStage = "priority" | "history" | "live";
+
 export type CursorState = {
   phase: ReplicationMode;
   highWaterMark: string | null;
   resumeToken: string | null;
+  stage?: ImportStage;
 };
 
 export type ODataPage = {
@@ -68,6 +75,11 @@ export type ProviderCapabilities = {
    * minus a margin, so edits made during a long import are not missed.
    */
   initialOrderedByTimestamp: boolean;
+  /**
+   * The adapter can run the staged first import (on-market listings first,
+   * then full history). Feeds opt out with options.fastImportV1 = false.
+   */
+  stagedImport?: boolean;
 };
 
 export type ExtractedMedia = {
@@ -112,6 +124,18 @@ export interface MlsAdapter {
 /** OData string literal with quotes escaped. */
 export function odataString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
+}
+
+/**
+ * On-market StandardStatus filter for the priority stage. Servers spell
+ * lookups differently (Trestle: ActiveUnderContract, MLS Grid: Active Under
+ * Contract), so adapters pass their spellings and a feed can override the
+ * whole clause with options.priorityFilter.
+ */
+export function marketStatusFilter(feed: MlsFeed, statuses: string[]) {
+  const override = readOption<unknown>(feed, "priorityFilter", null);
+  if (typeof override === "string" && override.trim()) return `(${override.trim()})`;
+  return `(${statuses.map(status => `StandardStatus eq ${odataString(status)}`).join(" or ")})`;
 }
 
 export function joinUrl(base: string, path: string): string {

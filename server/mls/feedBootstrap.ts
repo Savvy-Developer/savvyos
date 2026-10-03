@@ -130,7 +130,7 @@ async function createMissingFeeds(connection: Connection, feeds: DeclaredMlsFeed
         source.originatingSystemName,
         source.keyPrefix ?? null,
         declared.credentialRef,
-        JSON.stringify({ license: declared.license, declaredInCode: true, fastImportV1: declared.provider === "mls_grid" }),
+        JSON.stringify({ license: declared.license, declaredInCode: true, fastImportV1: adapterFor(declared.provider).capabilities.stagedImport === true }),
         declared.provider === "mls_grid" ? 5 : 15,
         "primary_only",
       ]

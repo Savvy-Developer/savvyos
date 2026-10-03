@@ -34,7 +34,7 @@ export async function getMlsDb() {
   if (!db) {
     try {
       // A pool, like ../db: one connection would serialize every MLS query.
-      const size = Number(process.env.MLS_DB_POOL_SIZE) || 15;
+      const size = Number(process.env.MLS_DB_POOL_SIZE) || 24;
       pool = mysql.createPool({
         uri: url,
         connectionLimit: size,

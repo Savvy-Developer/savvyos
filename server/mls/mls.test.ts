@@ -305,7 +305,42 @@ describe("adapters", () => {
     expect(sparkAdapter.capabilities.requiresReconciliation).toBe(true);
     expect(sparkAdapter.capabilities.deleteFlag).toBe(false);
   });
+
+  it("every aggregator adapter imports on-market listings first", () => {
+    const start = { phase: "initial" as const, highWaterMark: null, resumeToken: null };
+    const grid = decodeURIComponent(mlsGridAdapter.firstPageUrl(ctx, "Property", { ...start, stage: "priority" }, ""));
+    expect(grid).toContain("StandardStatus in ('Active','Active Under Contract','Coming Soon','Pending')");
+    const gridHistory = decodeURIComponent(mlsGridAdapter.firstPageUrl(ctx, "Property", { ...start, stage: "history" }, ""));
+    expect(gridHistory).not.toContain("StandardStatus");
+    expect(gridHistory).toContain("$expand=Rooms,UnitTypes");
+
+    const trestleCtx = { ...ctx, feed: { ...feed, provider: "trestle", baseUrl: "https://api.cotality.com/trestle/odata", options: { useReplicationEndpoint: true } } } as any;
+    const trestleFirst = decodeURIComponent(trestleAdapter.firstPageUrl(trestleCtx, "Property", { ...start, stage: "priority" }, ""));
+    expect(trestleFirst).toContain("StandardStatus eq 'ActiveUnderContract'");
+    expect(trestleFirst).not.toContain("replication=true");
+    const full = page(1000, "2026-09-01T00:00:00Z");
+    const trestleNext = decodeURIComponent(trestleAdapter.nextPageUrl(trestleCtx, "Property", full, { ...start, stage: "priority" }) ?? "");
+    expect(trestleNext).toContain("StandardStatus eq 'Active'");
+    expect(trestleNext).toContain("ListingKey gt 'k999'");
+    const trestleHistory = decodeURIComponent(trestleAdapter.firstPageUrl(trestleCtx, "Property", { ...start, stage: "history" }, ""));
+    expect(trestleHistory).toContain("replication=true");
+    expect(trestleHistory).not.toContain("StandardStatus");
+
+    const sparkCtx = { ...ctx, feed: { ...feed, provider: "spark", baseUrl: "https://replication.sparkapi.com/Reso/OData", options: {} } } as any;
+    const spark = decodeURIComponent(sparkAdapter.firstPageUrl(sparkCtx, "Property", { ...start, stage: "priority" }, ""));
+    expect(spark).toContain("StandardStatus eq 'Active Under Contract' or StandardStatus eq 'ActiveUnderContract'");
+    const custom = { ...sparkCtx, feed: { ...sparkCtx.feed, options: { priorityFilter: "MlsStatus eq 'A'" } } };
+    expect(decodeURIComponent(sparkAdapter.firstPageUrl(custom, "Property", { ...start, stage: "priority" }, ""))).toContain("(MlsStatus eq 'A')");
+    expect(decodeURIComponent(sparkAdapter.firstPageUrl(sparkCtx, "Member", { ...start, stage: "priority" }, ""))).not.toContain("StandardStatus");
+
+    for (const adapter of [mlsGridAdapter, trestleAdapter, sparkAdapter]) expect(adapter.capabilities.stagedImport).toBe(true);
+  });
 });
+
+function page(count: number, timestamp: string) {
+  const value = Array.from({ length: count }, (_, index) => ({ ListingKey: `k${index}`, ModificationTimestamp: timestamp }));
+  return { value, nextLink: null, raw: { value } };
+}
 
 describe("compliance", () => {
   it("fills attribution and flags stale feeds", () => {
