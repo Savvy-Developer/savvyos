@@ -657,4 +657,17 @@ async function startServer() {
   schedulePulseObservationGeneration();
 }
 
-startServer().catch(console.error);
+// Background schedulers run with `void job()`. A database restart can make any
+// of them reject; that must be logged, not allowed to take the whole site down.
+process.on("unhandledRejection", reason => {
+  console.error("[Process] Unhandled rejection (server kept running):", reason);
+});
+
+// If startup fails (for example the database is still restarting), exit
+// non-zero so Railway restarts the container. Logging and falling through
+// used to leave a process with nothing to run, which exited 0 and was never
+// restarted.
+startServer().catch(err => {
+  console.error("[Startup] SavvyOS failed to start; exiting for restart:", err);
+  process.exit(1);
+});

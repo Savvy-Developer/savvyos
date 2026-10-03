@@ -469,6 +469,12 @@ export async function processDueAircallWebhookEvents(): Promise<void> {
         }
       }
     }
+  } catch (error) {
+    // A database restart or network blip must not escape: this runs from
+    // setInterval with `void`, and an unhandled rejection would crash the web
+    // process. Durable rows stay pending/retrying and the next pass picks them up.
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[AircallReliability] Webhook worker pass failed; will retry next interval:", message);
   } finally {
     workerRunning = false;
   }
