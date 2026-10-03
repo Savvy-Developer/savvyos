@@ -93,7 +93,7 @@ const MLS_GRID_DEFAULT: ComplianceProfile = {
     "Show listing brokerage, listing number, and brokerage email or phone next to each listing.",
     "Sold listings must name the co-op brokerage, or state that properties may be listed or sold by various participants in the MLS.",
     "MLS Grid logo on the first page of results. Strip the MLS key prefix before display.",
-    "Photo URLs are single use and expire after one hour. Keep our own copy; never hotlink.",
+    "Photos come from MLS Grid's CDN: links do not expire and may be displayed directly. Covers are also copied to private storage; license and listing permissions still apply.",
     "A replication gap longer than 7 days misses deletions and requires a full reload.",
   ],
   ruleSources: [
