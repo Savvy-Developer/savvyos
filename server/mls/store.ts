@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { and, eq, getTableColumns, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { gunzipSync, gzipSync } from "zlib";
 import {
   mlsImportExceptions,
@@ -19,7 +19,7 @@ import {
 import { getDb } from "../db";
 import { readOption, type ExtractedMedia, type FeedContext, type MlsAdapter, type MlsResource } from "./adapters/types";
 import { readComplianceProfile } from "./compliance";
-import { galleryMarkerKey } from "./gallery";
+import { isMlsGridCdnUrl } from "./mlsGridCdn";
 import { MARKET_STATUSES, OFF_MARKET_STATUSES, type CanonicalStatus } from "./normalize/enums";
 import {
   MAPPING_VERSION,
@@ -256,38 +256,44 @@ async function syncListingMedia(
   const compliance = readComplianceProfile(ctx.source.compliance, ctx.source.providerRoute);
   const closedPrimaryOnly = compliance.closedListingPhotos === "primary_only";
   const existing = await tx
-    .select({ ...getTableColumns(mlsMedia), cooldownActive: sql<number>`${mlsMedia.nextAttemptAt} > UTC_TIMESTAMP()` })
+    .select()
     .from(mlsMedia)
     .where(and(eq(mlsMedia.feedId, ctx.feed.id), eq(mlsMedia.resourceKey, providerListingKey)));
   const byKey = new Map(existing.map(row => [row.mediaKey, row]));
   const incoming = new Set<string>();
   let queued = 0;
+  const fastImport = readOption(ctx.feed, "fastImportV1", false);
+  // MLS Grid photos are shown straight from its CDN links, which never expire.
+  // Only the cover photo is downloaded (list cards and the map use our copy);
+  // copies already saved are kept as a backup. Non-CDN links are ignored.
+  const cdnOnly = ctx.feed.provider === "mls_grid";
 
   for (const item of media) {
     const mediaKey = item.mediaKey.slice(0, 191);
     incoming.add(mediaKey);
     const current = byKey.get(mediaKey);
-    const wanted = !(status === "closed" && closedPrimaryOnly && !item.isPrimary) && (current?.priority === 0 || (
-      (!readOption(ctx.feed, "fastImportV1", false) || MARKET_STATUSES.includes(status))
-      && mediaWanted(item, status, ctx.feed.mediaPolicy, closedPrimaryOnly)
-    ));
-    if (!wanted && !current && readOption(ctx.feed, "fastImportV1", false)) continue;
-    // MLS Grid never replaces an image in place: a changed image has a new
-    // MediaKey. Its property/media timestamps must not requeue a stored key,
-    // since downloading the same image again in the hour returns HTTP 429.
-    const changedAtSource = !current || (ctx.feed.provider !== "mls_grid" &&
+    const displayable = !(status === "closed" && closedPrimaryOnly && !item.isPrimary);
+    const wanted = displayable &&
+      (!fastImport || MARKET_STATUSES.includes(status)) &&
+      mediaWanted(item, status, ctx.feed.mediaPolicy, closedPrimaryOnly);
+    // "primary_only" limits downloads, not display; "none" shows no photos at all.
+    const cdnLink = cdnOnly && displayable && ctx.feed.mediaPolicy !== "none" && isMlsGridCdnUrl(item.sourceUrl) ? item.sourceUrl : null;
+    const download = cdnOnly ? wanted && item.isPrimary && !!cdnLink : wanted;
+    if (!current && !download && (cdnOnly ? !cdnLink : fastImport)) continue;
+    // MLS Grid never replaces an image in place: a changed image has a new MediaKey.
+    const changedAtSource = !current || (!cdnOnly &&
       (item.sourceModifiedAt?.getTime() ?? 0) !== (current.sourceModifiedAt?.getTime() ?? 0));
-    // The database stores UTC DATETIME; comparing a deserialized Date in JS
-    // can shift it by the worker host's timezone offset.
-    const coolingOff = ctx.feed.provider === "mls_grid" && current?.status === "expired" && !!current.cooldownActive;
     // Expired URLs get refreshed; failures retry only while attempts remain.
     const retryable = current?.status === "expired" || (current?.status === "failed" && current.attempts < 5);
-    const changed = !coolingOff && (changedAtSource || retryable);
     let nextStatus = current?.status ?? "pending";
-    if (!wanted) nextStatus = current?.status === "stored" ? "delete_pending" : "skipped";
-    else if (changed || current?.status === "skipped" || current?.status === "delete_pending") nextStatus = "pending";
+    if (!displayable) nextStatus = current?.status === "stored" ? "delete_pending" : "skipped";
+    else if (!download) {
+      if (cdnOnly) nextStatus = current?.status === "stored" || current?.status === "delete_pending" ? current.status : "skipped";
+      else nextStatus = current?.status === "stored" ? "delete_pending" : "skipped";
+    } else if (changedAtSource || retryable || current?.status === "skipped" || current?.status === "delete_pending") nextStatus = "pending";
     const needsUrl = nextStatus === "pending";
     if (needsUrl && current?.status !== "pending") queued += 1;
+    const sourceUrl = cdnOnly ? cdnLink : needsUrl ? item.sourceUrl : null;
     const values = {
       feedId: ctx.feed.id,
       listingId,
@@ -299,18 +305,16 @@ async function syncListingMedia(
       caption: item.caption?.slice(0, 512) ?? null,
       isPrimary: item.isPrimary,
       sourceModifiedAt: item.sourceModifiedAt,
-      sourceUrl: needsUrl ? item.sourceUrl : null,
-      sourceUrlExpiresAt: needsUrl && item.sourceUrl ? adapter.mediaUrlExpiresAt(item.sourceUrl, receivedAt) : null,
+      sourceUrl,
+      sourceUrlExpiresAt: sourceUrl && needsUrl ? adapter.mediaUrlExpiresAt(sourceUrl, receivedAt) : null,
       status: nextStatus,
       claimedBy: nextStatus === "downloading" ? current?.claimedBy ?? null : null,
-      priority: current?.priority === 0 ? 0 : mediaPriority(item, status),
+      priority: mediaPriority(item, status),
       attempts: changedAtSource ? 0 : current?.attempts ?? 0,
       nextAttemptAt: null,
       lastError: needsUrl ? null : current?.lastError ?? null,
     };
-    await tx.insert(mlsMedia).values(values).onDuplicateKeyUpdate({
-      set: coolingOff ? { ...values, nextAttemptAt: sql`${mlsMedia.nextAttemptAt}` } : values,
-    });
+    await tx.insert(mlsMedia).values(values).onDuplicateKeyUpdate({ set: values });
   }
 
   const removed = existing.filter(row => !incoming.has(row.mediaKey) && row.status !== "delete_pending");
@@ -571,16 +575,6 @@ export async function upsertNormalizedListing(
       normalized.media,
       receivedAt
     ) : 0;
-    // The ID-based gallery scan has already passed older listings. A fresh
-    // status change to Active must still queue all of this listing's photos.
-    // Never queue every Active listing in the million-row initial import.
-    if (ctx.feed.provider === "mls_grid" && ctx.feed.mediaPolicy !== "none" && prior &&
-        prior.standardStatus !== "active" && status === "active" && Number(columns.photosCount ?? 0) > 1) {
-      await t.insert(mlsMedia).values({
-        feedId: ctx.feed.id, listingId, resourceKey: normalized.providerListingKey,
-        mediaKey: galleryMarkerKey(listingId), status: "expired", priority: 0,
-      }).onDuplicateKeyUpdate({ set: { status: "expired", attempts: 0, priority: 0, lastError: null } });
-    }
     await upsertInsights(t, propertyId, ctx, listingId, normalized);
     await refreshPropertySummary(t, propertyId);
     if (previousPropertyId) {

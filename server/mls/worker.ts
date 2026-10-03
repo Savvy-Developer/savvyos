@@ -3,8 +3,8 @@ import { eq } from "drizzle-orm";
 import { mlsFeeds, mlsSources, mlsWorkerHeartbeats } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { adapterFor } from "./adapters";
-import { queueActiveGalleries } from "./activeGallery";
 import type { FeedContext } from "./adapters/types";
+import { backfillCdnLinks, retireLegacyGalleryQueue } from "./cdnLinks";
 import { credentialStatus } from "./credentials";
 import { runFeedCycle, syncDue } from "./engine";
 import { allLanes, getLane, laneKey } from "./http";
@@ -125,7 +125,7 @@ export class MlsIngestionScheduler {
       const configured = laneFeeds.filter(ctx => credentialStatus(ctx.feed).configured && !licenseError(ctx.feed));
       if (!state.scanning && configured.some(ctx => ctx.feed.provider === "mls_grid" && ctx.feed.enabled)) {
         state.scanning = true;
-        void this.track(this.scanActiveGalleries(configured)).finally(() => { state.scanning = false; });
+        void this.track(this.linkCdnPhotos(configured)).finally(() => { state.scanning = false; });
       }
       if (!state.syncing) {
         // Requested syncs first, then the stalest due feed.
@@ -165,17 +165,26 @@ export class MlsIngestionScheduler {
     }
   }
 
-  private async scanActiveGalleries(feeds: FeedContext[]) {
+  /** Gives older listings MLS Grid CDN photo links; never blocks sync or photo downloads. */
+  private async linkCdnPhotos(feeds: FeedContext[]) {
     const db = await getDb();
     if (!db || this.controller.signal.aborted) return;
-    for (const ctx of feeds) {
-      if (this.controller.signal.aborted || ctx.feed.provider !== "mls_grid" || !ctx.feed.enabled) continue;
+    const grid = feeds.filter(ctx => ctx.feed.provider === "mls_grid" && ctx.feed.enabled);
+    if (!grid.length) return;
+    try {
+      const retired = await retireLegacyGalleryQueue(db, grid.map(ctx => ctx.feed.id));
+      if (retired.removed || retired.stopped) this.lastActivity.galleryQueueRetired = { at: new Date().toISOString(), ...retired };
+    } catch (error) {
+      console.error("[mls] legacy gallery queue cleanup failed", error);
+    }
+    const lane = getLane("mls_grid", grid[0].feed.credentialRef, adapterFor("mls_grid").limits(grid[0].feed));
+    for (const ctx of grid) {
+      if (this.controller.signal.aborted) return;
       try {
-        const progress = await queueActiveGalleries(db, ctx);
-        if (progress.scanned || progress.queued) this.lastActivity[`gallery:${ctx.feed.id}`] = { at: new Date().toISOString(), ...progress };
+        const progress = await backfillCdnLinks(db, lane, ctx, { signal: this.controller.signal });
+        if (progress.scanned) this.lastActivity[`cdn:${ctx.feed.id}`] = { at: new Date().toISOString(), ...progress };
       } catch (error) {
-        // Gallery discovery must not block live listing sync or media downloads.
-        console.error(`[mls] Active gallery scan failed for feed ${ctx.feed.id}`, error);
+        console.error(`[mls] CDN link backfill failed for feed ${ctx.feed.id}`, error);
       }
     }
   }

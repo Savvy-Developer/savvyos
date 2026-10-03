@@ -10,10 +10,9 @@ import { isMlsGridCdnUrl } from "./mlsGridCdn";
  * so every feed that shares a credential shares one lane, one limiter, and one
  * sequential replication queue.
  *
- * MLS Grid clarified Oct 2, 2026 that media.mlsgrid.com is not subject to the
- * api.mlsgrid.com rate limits. Its old media URLs are instead one download per
- * image per hour; CDN URLs are also outside the API quotas. Keep a bounded
- * independent media pace, but never charge images to the MLS Grid API limiter.
+ * MLS Grid photos come only from its CDN (enabled on production Oct 2, 2026).
+ * CDN requests are outside the api.mlsgrid.com quotas, so they never touch the
+ * MLS Grid API limiter.
  * Other providers with tokenBudget still use a shared API/media limiter.
  *
  * Budgets are seeded from mls_provider_usage when a lane starts, so a restart
@@ -80,8 +79,7 @@ export class SlidingLimiter implements Limiter {
   constructor(
     private minIntervalMs: number,
     windows: LimitSpec[],
-    byteWindows: LimitSpec[] = [],
-    private fallback?: { at: number; minIntervalMs: number; windows: LimitSpec[]; byteWindows: LimitSpec[] }
+    byteWindows: LimitSpec[] = []
   ) {
     this.windows = windows.filter(validLimit).map(window => ({ ...window, events: [] }));
     this.byteWindows = byteWindows.filter(validLimit);
@@ -93,11 +91,10 @@ export class SlidingLimiter implements Limiter {
   }
 
   nextWaitMs(now = Date.now()): number {
-    const standard = this.fallback && now >= this.fallback.at ? this.fallback : null;
-    let wait = Math.max(0, this.pausedUntil - now, this.lastAt + (standard?.minIntervalMs ?? this.minIntervalMs) - now);
+    let wait = Math.max(0, this.pausedUntil - now, this.lastAt + this.minIntervalMs - now);
     for (const window of this.windows) {
       while (window.events.length && window.events[0] <= now - window.windowMs) window.events.shift();
-      const limit = standard?.windows.find(item => item.windowMs === window.windowMs)?.limit ?? window.limit;
+      const limit = window.limit;
       if (limit !== null && window.events.length >= limit) {
         // Wait until enough old requests age out to leave one free slot.
         const freeing = window.events[window.events.length - limit];
@@ -107,7 +104,7 @@ export class SlidingLimiter implements Limiter {
     if (this.byteWindows.length) {
       while (this.bytes.length && this.bytes[0].at <= now - this.byteHorizonMs) this.bytes.shift();
       for (const window of this.byteWindows) {
-        const limit = standard?.byteWindows.find(item => item.windowMs === window.windowMs)?.limit ?? window.limit;
+        const limit = window.limit;
         if (limit === null) continue;
         const start = now - window.windowMs;
         let used = 0;
@@ -162,18 +159,17 @@ export class SlidingLimiter implements Limiter {
 
   snapshot(): LimiterSnapshot {
     const now = Date.now();
-    const standard = this.fallback && now >= this.fallback.at ? this.fallback : null;
     const bytesSince = (windowMs: number) => this.bytes.filter(item => item.at > now - windowMs).reduce((sum, item) => sum + item.bytes, 0);
     const hourly = this.byteWindows.find(window => window.windowMs === HOUR_MS);
     return {
       windows: this.windows.map(window => ({
         windowMs: window.windowMs,
-        limit: standard?.windows.find(item => item.windowMs === window.windowMs)?.limit ?? window.limit,
+        limit: window.limit,
         used: window.events.filter(at => at > now - window.windowMs).length,
       })),
-      byteWindows: this.byteWindows.map(window => ({ windowMs: window.windowMs, limit: standard?.byteWindows.find(item => item.windowMs === window.windowMs)?.limit ?? window.limit, used: bytesSince(window.windowMs) })),
+      byteWindows: this.byteWindows.map(window => ({ windowMs: window.windowMs, limit: window.limit, used: bytesSince(window.windowMs) })),
       bytesLastHour: bytesSince(HOUR_MS),
-      bytesPerHour: standard?.byteWindows.find(item => item.windowMs === HOUR_MS)?.limit ?? hourly?.limit ?? null,
+      bytesPerHour: hourly?.limit ?? null,
       pausedForMs: Math.max(0, this.pausedUntil - now),
     };
   }
@@ -245,8 +241,6 @@ export class ProviderLane {
     readonly limits: ProviderLimits
   ) {
     const budget = limits.tokenBudget ?? null;
-    const baseline = limits.temporary?.baseline;
-    const revertAt = limits.temporary?.untilMs;
     this.api = new SlidingLimiter(
       intervalMs(limits.requestsPerSecond),
       [
@@ -259,19 +253,7 @@ export class ProviderLane {
             { limit: budget.bytesPerHour, windowMs: HOUR_MS },
             { limit: budget.bytesPerDay, windowMs: DAY_MS },
           ]
-        : [],
-      baseline && revertAt ? {
-        at: revertAt, minIntervalMs: intervalMs(baseline.requestsPerSecond),
-        windows: [
-          { limit: baseline.requestsPerHour, windowMs: HOUR_MS },
-          { limit: baseline.requestsPerDay, windowMs: DAY_MS },
-          { limit: baseline.requestsPerFiveMinutes, windowMs: 300_000 },
-        ],
-        byteWindows: baseline.tokenBudget ? [
-          { limit: baseline.tokenBudget.bytesPerHour, windowMs: HOUR_MS },
-          { limit: baseline.tokenBudget.bytesPerDay, windowMs: DAY_MS },
-        ] : [],
-      } : undefined
+        : []
     );
     const mediaInterval = intervalMs(Math.max(1, Number(process.env.MLS_MEDIA_REQUESTS_PER_SECOND ?? 10)));
     if (provider === "mls_grid") {
@@ -290,18 +272,7 @@ export class ProviderLane {
         [
           { limit: part(budget.bytesPerHour), windowMs: HOUR_MS },
           { limit: part(budget.bytesPerDay), windowMs: DAY_MS },
-        ],
-        baseline?.tokenBudget && revertAt ? {
-          at: revertAt, minIntervalMs: mediaInterval,
-          windows: [
-            { limit: Math.floor((baseline.requestsPerHour ?? 0) * baseline.tokenBudget.mediaShare), windowMs: HOUR_MS },
-            { limit: Math.floor((baseline.requestsPerDay ?? 0) * baseline.tokenBudget.mediaShare), windowMs: DAY_MS },
-          ],
-          byteWindows: [
-            { limit: Math.floor(baseline.tokenBudget.bytesPerHour * baseline.tokenBudget.mediaShare), windowMs: HOUR_MS },
-            { limit: Math.floor(baseline.tokenBudget.bytesPerDay * baseline.tokenBudget.mediaShare), windowMs: DAY_MS },
-          ],
-        } : undefined
+        ]
       );
       this.media = new ChainedLimiter(own, this.api);
     } else {
@@ -488,14 +459,9 @@ async function withRetries<T>(
       const status = error instanceof RetryableHttpError ? error.status : 0;
       if (status === 429) {
         lane.countThrottle();
-        // Old MLS Grid media links return 429 when the same image was already
-        // accessed this hour. It is an item-specific cooldown, not API throttling.
-        const photoLimiter = limiter === lane.media || limiter === lane.cdn;
-        const duplicateMedia = lane.provider === "mls_grid" && photoLimiter && new URL(url).hostname === "media.mlsgrid.com";
-        if (duplicateMedia) throw error; // one attempt only; the media row handles the 65-minute cooldown
         // CDN links are reusable and outside API limits: back off briefly on
         // the CDN limiter only, never the 15-minute token pause.
-        const cdnMedia = lane.provider === "mls_grid" && photoLimiter && isMlsGridCdnUrl(url);
+        const cdnMedia = lane.provider === "mls_grid" && limiter === lane.cdn && isMlsGridCdnUrl(url);
         const pause = (error as RetryableHttpError).retryAfterMs ??
           (cdnMedia ? 30_000 * attempt : lane.provider === "mls_grid" ? 15 * 60_000 : 60_000 * attempt);
         limiter.pause(pause);

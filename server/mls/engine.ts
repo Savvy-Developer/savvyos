@@ -12,7 +12,7 @@ import {
 } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { adapterFor } from "./adapters";
-import { mlsGridGraceActive, mlsGridStageUrl } from "./adapters/mlsGrid";
+import { mlsGridStageUrl } from "./adapters/mlsGrid";
 import { clearTokenCache } from "./adapters/trestle";
 import {
   parseODataPage,
@@ -356,7 +356,7 @@ async function replicateResource(
   try {
     while (url) {
       if (options.signal?.aborted) throw new Error("aborted");
-      const pageLimit = options.maxPagesPerResource ?? (stage === "history" ? (mlsGridGraceActive() ? 100 : 20) : undefined);
+      const pageLimit = options.maxPagesPerResource ?? (stage === "history" ? 20 : undefined);
       if (pageLimit && totals.pages >= pageLimit) break;
       await renewLease(ctx.feed.id, options.workerId);
       let response: { body: any; bytes: number };

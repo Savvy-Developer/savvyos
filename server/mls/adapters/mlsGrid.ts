@@ -81,7 +81,7 @@ export function mlsGridStageUrl(ctx: FeedContext, stage: "priority" | "history",
   });
 }
 
-/** MLS Grid supports `ListingId in (...)`; one request can refresh many photo links. */
+/** MLS Grid supports `ListingId in (...)`; one request returns photo links for up to 100 listings. */
 export function mlsGridBatchUrl(ctx: FeedContext, listingIds: string[]) {
   if (!listingIds.length || listingIds.length > 100) throw new Error("MLS Grid batch requires 1 to 100 listing IDs");
   return buildODataUrl(ctx.feed.baseUrl, "Property", {
@@ -104,10 +104,6 @@ export const MLS_GRID_LIMITS = {
 
 /** Share of the lowest limit we allow ourselves. options.rateSafety can lower it, never raise it past 0.9. */
 const DEFAULT_SAFETY = 0.8;
-/** Tyler confirmed MLS Grid waived limits through Friday Oct 2, 2026 at 4 p.m. ET.
- * This is a controlled catch-up budget, not a permanent change to their limits. */
-export const MLS_GRID_GRACE_UNTIL_MS = Date.parse("2026-10-02T20:00:00Z");
-export function mlsGridGraceActive(now = Date.now()) { return now < MLS_GRID_GRACE_UNTIL_MS; }
 
 export const MLS_GRID_MEDIA_CONCURRENCY = { default: 64, max: 128 } as const;
 /** MLS_GRID_MEDIA_CONCURRENCY (env) wins over the feed's `mediaConcurrency` option. */
@@ -125,7 +121,8 @@ export const mlsGridAdapter: MlsAdapter = {
     deleteFlag: true,
     requiresReconciliation: false,
     deletedResource: false,
-    mediaUrlsExpire: true,
+    // SavvyOS uses only MLS Grid CDN links, which do not expire.
+    mediaUrlsExpire: false,
     maxReplicationGapDays: 7,
     initialOrderedByTimestamp: true,
   },
@@ -141,7 +138,7 @@ export const mlsGridAdapter: MlsAdapter = {
       bytesPerDay: warning.bytesPerDay,
     };
     const requestedShare = Number(readOption(feed, "mediaShare", 0.75));
-    const baseline: ProviderLimits = {
+    return {
       requestsPerSecond: lowest.requestsPerSecond * safety,
       requestsPerHour: Math.floor(lowest.requestsPerHour * safety),
       requestsPerDay: Math.floor(lowest.requestsPerDay * safety),
@@ -156,28 +153,9 @@ export const mlsGridAdapter: MlsAdapter = {
       // Photo transfers in flight per token. MLS Grid confirmed (Oct 2, 2026)
       // that photo downloads do not count toward api.mlsgrid.com limits, and
       // CDN links are reusable, so this only bounds our own network/S3 load.
-      // Starts are still paced by the lane's media/CDN limiters.
       mediaConcurrency: mlsGridMediaConcurrency(feed),
       sequentialOnly: true,
-    };
-    if (!mlsGridGraceActive()) return baseline;
-    return {
-      ...baseline,
-      // Both 8 and 4 RPS triggered provider 429s despite the stated waiver.
-      // Stay below the published two-RPS and 7,200/hour warning thresholds until
-      // MLS Grid confirms the media CDN and both tokens are actually uncapped.
-      // Keep eight concurrent photo transfers to overlap storage/network latency.
-      // Both media lanes exhausted their 29,750/day allowance by Oct 2 midday
-      // while recent provider usage showed no 429s. Release a little more room
-      // for Active photos without crossing the 40,000/day warning threshold;
-      // keep 11% for API updates and leave the 1.8-RPS pace unchanged.
-      requestsPerSecond: 1.8,
-      requestsPerHour: 6_500,
-      requestsPerDay: 39_000,
-      tokenBudget: { bytesPerHour: 24_000_000_000, bytesPerDay: 500_000_000_000, mediaShare: 0.89 },
-      mediaConcurrency: 8,
-      temporary: { untilMs: MLS_GRID_GRACE_UNTIL_MS, baseline },
-    };
+    } satisfies ProviderLimits;
   },
   keyField: resource => KEY_FIELD[resource],
   async authHeaders(ctx) {
@@ -234,10 +212,8 @@ export const mlsGridAdapter: MlsAdapter = {
   extractMedia(record) {
     return extractResoMedia(record, ["Media"]);
   },
-  mediaUrlExpiresAt(_url, receivedAt) {
-    // CDN links do not expire. Standard links have a documented one-hour
-    // lifetime; keep a safety margin.
-    if (isMlsGridCdnUrl(_url)) return null;
-    return new Date(receivedAt.getTime() + 55 * 60_000);
+  mediaUrlExpiresAt() {
+    // CDN links do not expire, and SavvyOS ignores any non-CDN MLS Grid link.
+    return null;
   },
 };

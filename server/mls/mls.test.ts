@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import type { MlsFeed, MlsSource } from "../../drizzle/mlsSchema";
-import { MLS_GRID_GRACE_UNTIL_MS, MLS_GRID_LIMITS, MLS_GRID_MEDIA_CONCURRENCY, mlsGridAdapter } from "./adapters/mlsGrid";
+import { MLS_GRID_LIMITS, MLS_GRID_MEDIA_CONCURRENCY, mlsGridAdapter } from "./adapters/mlsGrid";
 import type { ProviderLimits } from "./adapters/types";
 import { ProviderLane, cdnIntervalMs, downloadMedia, requestJson, wireBytes } from "./http";
 import { isMlsGridCdnUrl } from "./mlsGridCdn";
@@ -9,7 +9,6 @@ import { sparkAdapter } from "./adapters/spark";
 import { keysetFilter, trestleAdapter } from "./adapters/trestle";
 import { buildComplianceProfile, feedFreshness, fillComplianceTemplate } from "./compliance";
 import { credentialStatus } from "./credentials";
-import { galleryMarkerKey, isGalleryMarker } from "./gallery";
 import { withMlsPhotoListingId } from "./photoUrl";
 import { mapAreaSchema, validPolygon } from "./mapGeometry";
 import { CANONICAL_STATUSES, normalizePropertyType, normalizeStatus } from "./normalize/enums";
@@ -54,15 +53,6 @@ const feed = {
 const ctx = { feed, source };
 
 describe("Active-gallery queue and default search", () => {
-  it("uses one collision-free gallery marker per listing while recognizing legacy requests", () => {
-    expect(galleryMarkerKey(101)).toBe("__gallery_request__:101");
-    expect(galleryMarkerKey(101)).not.toBe(galleryMarkerKey(102));
-    expect(isGalleryMarker(galleryMarkerKey(101))).toBe(true);
-    expect(isGalleryMarker("__gallery_request__")).toBe(true);
-    expect(isGalleryMarker("CAR-photo-101")).toBe(false);
-    expect(() => galleryMarkerKey(0)).toThrow();
-  });
-
   it("forces chronological index only for the unfiltered first Active pages", () => {
     expect(useRecentFeedIndex({ statuses: ["active"] }, "updated", 1)).toBe(true);
     expect(useRecentFeedIndex({ statuses: ["active"], q: "28801" }, "updated", 1)).toBe(false);
@@ -298,10 +288,10 @@ describe("adapters", () => {
     expect(incremental).toContain("ModificationTimestamp gt 2026-09-28T14:03:11.123Z");
   });
 
-  it("MLS Grid media URLs expire within the hour", () => {
-    const received = new Date("2026-09-29T12:00:00Z");
-    const expires = mlsGridAdapter.mediaUrlExpiresAt("https://media.mlsgrid.com/a.jpg", received)!;
-    expect(expires.getTime() - received.getTime()).toBeLessThanOrEqual(60 * 60_000);
+  it("MLS Grid photo links never expire (CDN only)", () => {
+    const received = new Date("2026-10-02T12:00:00Z");
+    expect(mlsGridAdapter.mediaUrlExpiresAt("https://cdn-savvystr.mlsgrid.com/images/CAR1/a.jpeg", received)).toBeNull();
+    expect(mlsGridAdapter.capabilities.mediaUrlsExpire).toBe(false);
   });
 
   it("Trestle keyset paging breaks timestamp ties by key", () => {
@@ -558,8 +548,6 @@ describe("MLS Grid token budget", () => {
 
   it("stays under every MLS Grid warning and published limit, even if a feed asks for more", () => {
     const { warning, published } = MLS_GRID_LIMITS;
-    const clock = vi.spyOn(Date, "now").mockReturnValue(MLS_GRID_GRACE_UNTIL_MS + 1);
-    try {
     for (const options of [null, { rateSafety: 10, mediaShare: 5, mediaConcurrency: 50 }, { rateSafety: "fast" }]) {
       const limits = mlsGridAdapter.limits(gridFeed(options));
       expect(limits.requestsPerSecond).toBeLessThan(Math.min(warning.requestsPerSecond, published.requestsPerSecond));
@@ -573,29 +561,7 @@ describe("MLS Grid token budget", () => {
     }
     const defaults = mlsGridAdapter.limits(gridFeed(null));
     expect([defaults.requestsPerHour, defaults.requestsPerDay]).toEqual([5760, 32000]);
-    } finally { clock.mockRestore(); }
-  });
-
-  it("uses the time-boxed allowance, then restores baseline limits on a still-running lane", () => {
-    const before = MLS_GRID_GRACE_UNTIL_MS - 60_000;
-    const clock = vi.spyOn(Date, "now").mockReturnValue(before);
-    try {
-      const limits = mlsGridAdapter.limits(gridFeed(null));
-      expect(limits.temporary?.untilMs).toBe(MLS_GRID_GRACE_UNTIL_MS);
-      expect(limits.requestsPerSecond).toBe(1.8);
-      expect(limits.requestsPerHour).toBe(6_500);
-      expect(limits.requestsPerDay).toBe(39_000);
-      expect(limits.mediaConcurrency).toBe(8);
-      expect(limits.tokenBudget?.mediaShare).toBe(0.89);
-      const lane = new ProviderLane("mls_grid:grace", "mls_grid", "grace", limits);
-      expect(lane.media.snapshot().windows).toEqual([]); // photo host is not under the API quota
-      lane.api.seed(before - 10 * 60_000, 6_000, 4_000_000_000);
-      expect(lane.api.nextWaitMs(before)).toBe(0);
-      expect(lane.api.nextWaitMs(MLS_GRID_GRACE_UNTIL_MS + 1)).toBeGreaterThan(0);
-      clock.mockReturnValue(MLS_GRID_GRACE_UNTIL_MS + 1);
-      expect(lane.media.snapshot().windows).toEqual([]); // still independent after the API waiver ends
-      expect(mlsGridAdapter.limits(gridFeed(null)).temporary).toBeUndefined();
-    } finally { clock.mockRestore(); }
+    expect(defaults.temporary).toBeUndefined();
   });
 
   it("retains a shared token budget for providers that actually meter API and media together", async () => {
@@ -629,20 +595,6 @@ describe("MLS Grid token budget", () => {
     expect(lane.api.snapshot().pausedForMs).toBe(0);
   });
 
-  it("does not freeze the MLS Grid API when an old image URL returns item-specific 429", async () => {
-    const lane = new ProviderLane("mls_grid:ONCE", "mls_grid", "ONCE", tiny());
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 429 }));
-    await expect(downloadMedia(lane, "https://media.mlsgrid.com/images/once.jpg", {}, {
-      fetchImpl,
-    })).rejects.toMatchObject({ status: 429 });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(lane.media.snapshot().pausedForMs).toBe(0);
-    expect(lane.api.snapshot().pausedForMs).toBe(0);
-    await expect(requestJson(lane, "https://api.mlsgrid.com/v2/Property", async () => ({}), {
-      fetchImpl: async () => new Response("{}", { status: 200 }),
-    })).resolves.toMatchObject({ body: {} });
-  });
-
   it("still pauses the API lane for a real api.mlsgrid.com 429", async () => {
     const lane = new ProviderLane("mls_grid:API429", "mls_grid", "API429", tiny());
     await expect(requestJson(lane, "https://api.mlsgrid.com/v2/Property", async () => ({}), {
@@ -660,7 +612,6 @@ describe("MLS Grid token budget", () => {
     expect(isMlsGridCdnUrl(null)).toBe(false);
     const now = new Date("2026-10-02T21:00:00Z");
     expect(mlsGridAdapter.mediaUrlExpiresAt("https://cdn-savvystr.mlsgrid.com/images/CAR1/a.jpeg", now)).toBeNull();
-    expect(mlsGridAdapter.mediaUrlExpiresAt("https://media.mlsgrid.com/images/CAR1/a.jpeg", now)?.getTime()).toBe(now.getTime() + 55 * 60_000);
   });
 
   it("backs off a CDN 429 briefly on photos only, never the 15-minute token pause", async () => {
@@ -699,7 +650,6 @@ describe("MLS Grid token budget", () => {
   });
 
   it("runs the default MLS Grid photo transfers per token, honors overrides, and caps them", () => {
-    const clock = vi.spyOn(Date, "now").mockReturnValue(MLS_GRID_GRACE_UNTIL_MS + 1);
     const saved = process.env.MLS_GRID_MEDIA_CONCURRENCY;
     try {
       delete process.env.MLS_GRID_MEDIA_CONCURRENCY;
@@ -714,7 +664,6 @@ describe("MLS Grid token budget", () => {
     } finally {
       if (saved === undefined) delete process.env.MLS_GRID_MEDIA_CONCURRENCY;
       else process.env.MLS_GRID_MEDIA_CONCURRENCY = saved;
-      clock.mockRestore();
     }
   });
 
@@ -746,8 +695,8 @@ describe("expired-link refresh scan bounds", () => {
   });
 
   it("keeps every refresh stage inside its media priority band", () => {
-    // store.ts mediaPriority: Active gallery 0, Active cover 1, coming soon 10,
-    // under contract 20, pending 30, other covers 40, non-primary 50/100.
-    expect(REFRESH_STAGE_MAX_PRIORITY).toEqual({ active_gallery: 0, gallery: 0, active: 10, market: 30 });
+    // store.ts mediaPriority: Active cover 1, coming soon 10, under contract 20,
+    // pending 30, other covers 40, non-primary 50/100.
+    expect(REFRESH_STAGE_MAX_PRIORITY).toEqual({ active: 10, market: 30 });
   });
 });

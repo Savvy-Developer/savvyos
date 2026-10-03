@@ -43,7 +43,8 @@ import {
 } from "../mls/compliance";
 import { CREDENTIAL_REF_PATTERN, credentialStatus } from "../mls/credentials";
 import { sanitizeError } from "../mls/engine";
-import { galleryMarkerCondition, galleryMarkerKey, isGalleryMarker } from "../mls/gallery";
+import { CDN_LINK_RESOURCE } from "../mls/cdnLinks";
+import { isMlsGridCdnUrl } from "../mls/mlsGridCdn";
 import { approvedFeedSql, licenseError } from "../mls/license";
 import { getLane, requestJson } from "../mls/http";
 import { CANONICAL_PROPERTY_TYPES, CANONICAL_STATUSES, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "../mls/normalize/enums";
@@ -265,25 +266,6 @@ export const mlsPropertiesRouter = router({
       return mapPoints(db, { filters: { ...input.filters, bounds: undefined }, bounds: input.bounds, zoom: input.zoom });
     }),
 
-  requestGallery: viewProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
-    const db = await requireDb();
-    const [listing] = await db.select().from(mlsListings).where(and(eq(mlsListings.id, input.id), isNull(mlsListings.removedFromFeedAt))).limit(1);
-    if (!listing) throw new TRPCError({ code: "NOT_FOUND", message: "Listing not found" });
-    const [feed] = await db.select().from(mlsFeeds).where(eq(mlsFeeds.id, listing.feedId)).limit(1);
-    if (!feed || !feed.enabled || licenseError(feed)) throw new TRPCError({ code: "NOT_FOUND", message: "Feed unavailable" });
-    // A sentinel works even for historical pages fetched without Media.
-    // Only the ingestion worker refreshes photo links, within the token budget.
-    const [existingMarker] = await db.select({ status: mlsMedia.status }).from(mlsMedia)
-      .where(and(eq(mlsMedia.feedId, listing.feedId), eq(mlsMedia.resourceKey, listing.providerListingKey), galleryMarkerCondition()))
-      .limit(1);
-    if (existingMarker && existingMarker.status !== "delete_pending" && existingMarker.status !== "failed") return { queued: true };
-    await db.insert(mlsMedia).values({
-      feedId: listing.feedId, listingId: listing.id, resourceKey: listing.providerListingKey,
-      mediaKey: galleryMarkerKey(listing.id), status: "expired", priority: 0,
-    }).onDuplicateKeyUpdate({ set: { status: "expired", attempts: 0, priority: 0, lastError: null } });
-    return { queued: true };
-  }),
-
   listing: viewProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input, ctx }) => {
     const db = await requireDb();
     const [listing] = await db.select().from(mlsListings).where(eq(mlsListings.id, input.id)).limit(1);
@@ -313,6 +295,7 @@ export const mlsPropertiesRouter = router({
           id: mlsMedia.id,
           mediaKey: mlsMedia.mediaKey,
           url: mlsMedia.url,
+          sourceUrl: mlsMedia.sourceUrl,
           caption: mlsMedia.caption,
           category: mlsMedia.category,
           isPrimary: mlsMedia.isPrimary,
@@ -389,14 +372,29 @@ export const mlsPropertiesRouter = router({
     if (listing.internetAvmDisplayYN === false) optOuts.push("Seller opted out of automated valuations next to this listing.");
     if (listing.internetConsumerCommentYN === false) optOuts.push("Seller opted out of consumer comments.");
     const canManage = await canAdminUsePermission(ctx.user as any, "canManageMlsFeeds");
-    const storedMedia = media.filter(item => item.status === "stored" && item.url);
-    const alternate = storedMedia.length ? undefined : (await licensedIdxPhotoFallbacks(db, [listing])).get(listing.id);
+    // MLS Grid galleries show straight from its CDN (MLS Grid permits direct
+    // display of CDN links); our stored copy backs a link the CDN stops serving.
+    // Other providers show only stored copies. The feed license gate above applies to both.
+    const storedCopy = (item: (typeof media)[number]) =>
+      item.status === "stored" && item.url ? withMlsPhotoListingId(item.url, listing.id) : null;
+    const displayMedia = media.flatMap(item => {
+      const stored = storedCopy(item);
+      const cdn = feed?.provider === "mls_grid" && !["delete_pending", "failed", "expired"].includes(item.status) && isMlsGridCdnUrl(item.sourceUrl)
+        ? item.sourceUrl!
+        : null;
+      const url = cdn ?? stored;
+      if (!url) return [];
+      const { sourceUrl: _sourceUrl, ...rest } = item;
+      return [{ ...rest, url, fallbackUrl: cdn && stored ? stored : null }];
+    });
+    const hasStoredCover = media.some(item => item.isPrimary && storedCopy(item));
+    const alternate = displayMedia.length ? undefined : (await licensedIdxPhotoFallbacks(db, [listing])).get(listing.id);
 
     return {
       listing: {
         ...listing,
-        primaryPhotoUrl: storedMedia.length ? withMlsPhotoListingId(listing.primaryPhotoUrl, listing.id)
-          : alternate?.media[0]?.url ?? null,
+        primaryPhotoUrl: hasStoredCover ? withMlsPhotoListingId(listing.primaryPhotoUrl, listing.id)
+          : displayMedia[0]?.url ?? alternate?.media[0]?.url ?? null,
         localFields,
         listPrice: num(listing.listPrice),
         originalListPrice: num(listing.originalListPrice),
@@ -451,14 +449,8 @@ export const mlsPropertiesRouter = router({
             optOuts,
           }
         : null,
-      media: storedMedia.length
-        ? storedMedia.map(item => ({ ...item, url: withMlsPhotoListingId(item.url, listing.id) }))
-        : alternate?.media ?? [],
+      media: displayMedia.length ? displayMedia : (alternate?.media ?? []).map(item => ({ ...item, fallbackUrl: null })),
       mediaProvenance: alternate ? { feedType: "idx" as const, listingId: alternate.listingId } : null,
-      galleryQueued: media.some(item =>
-        (isGalleryMarker(item.mediaKey) || item.priority === 0) &&
-        ["pending", "expired", "downloading"].includes(item.status)
-      ),
       mediaStatus: media.reduce<Record<string, number>>((acc, item) => {
         acc[item.status] = (acc[item.status] ?? 0) + 1;
         return acc;
@@ -506,13 +498,13 @@ export const mlsPropertiesRouter = router({
   /** Photo diagnostics must not wait on a full listing/property count during import. */
   photoHealth: manageProcedure.query(async () => {
     const db = await requireDb();
-    const [queue, [worker], galleries, sourceHosts] = await Promise.all([
+    const [queue, [worker], cdnScans, sourceHosts] = await Promise.all([
       db.select({ feedId: mlsMedia.feedId, status: mlsMedia.status, count: sql<number>`count(*)` })
         .from(mlsMedia).groupBy(mlsMedia.feedId, mlsMedia.status),
       db.select({ detail: mlsWorkerHeartbeats.detail, lastBeatAt: mlsWorkerHeartbeats.lastBeatAt, version: mlsWorkerHeartbeats.version })
         .from(mlsWorkerHeartbeats).orderBy(desc(mlsWorkerHeartbeats.lastBeatAt)).limit(1),
       db.select({ feedId: mlsSyncCursors.feedId, phase: mlsSyncCursors.phase, recordsSeen: mlsSyncCursors.recordsSeen, lastSuccessAt: mlsSyncCursors.lastSuccessAt })
-        .from(mlsSyncCursors).where(eq(mlsSyncCursors.resource, "ActiveGallery")),
+        .from(mlsSyncCursors).where(eq(mlsSyncCursors.resource, CDN_LINK_RESOURCE)),
       // Host only (never the path or signature) of links waiting to download:
       // shows whether MLS Grid is serving standard or CDN links per feed.
       db.select({
@@ -527,9 +519,9 @@ export const mlsPropertiesRouter = router({
     let lastMediaActivity: { at: string; claimed: number; stored: number; failed: number; expired: number; refreshed: number } | null = null;
     type UsageWindow = { windowMs: number; limit: number; used: number };
     let laneUsage: Array<{ key: string; downloading: boolean; mediaDay: UsageWindow | null; mediaHour: UsageWindow | null; sharedDay: UsageWindow | null; pausedForMs: number }> = [];
-    // Per-lane last batch and per-feed gallery scan, so a starved lane is visible.
+    // Per-lane last batch and per-feed CDN link backfill, so a starved lane is visible.
     const mediaLanes: Array<{ key: string; at: string; ms: number | null; claimed: number; stored: number; failed: number; expired: number; refreshed: number; error: string | null }> = [];
-    const galleryActivity: Array<{ feedId: number; at: string; scanned: number; queued: number }> = [];
+    const cdnLinkActivity: Array<{ feedId: number; at: string; scanned: number; relinked: number; requests: number }> = [];
     try {
       const detail = JSON.parse(worker?.detail ?? "null");
       if (typeof detail?.photoStorage?.configurationValid === "boolean") {
@@ -561,8 +553,11 @@ export const mlsPropertiesRouter = router({
               // Never surface a signed provider URL from an error message.
               error: typeof item.error === "string" ? item.error.replace(/https?:\/\/\S+/g, "[url]").slice(0, 200) : null,
             });
-          } else if (key.startsWith("gallery:")) {
-            galleryActivity.push({ feedId: Number(key.slice(8)) || 0, at: String(item.at), scanned: Number(item.scanned) || 0, queued: Number(item.queued) || 0 });
+          } else if (key.startsWith("cdn:")) {
+            cdnLinkActivity.push({
+              feedId: Number(key.slice(4)) || 0, at: String(item.at), scanned: Number(item.scanned) || 0,
+              relinked: Number(item.relinked) || 0, requests: Number(item.requests) || 0,
+            });
           }
         }
         if (!key.startsWith("media:") || !value || typeof value !== "object") continue;
@@ -582,13 +577,13 @@ export const mlsPropertiesRouter = router({
     } catch { /* An old or malformed heartbeat must not break the health page. */ }
     return {
       queue: queue.map(row => ({ feedId: row.feedId, status: row.status, count: Number(row.count) })),
-      activeGalleryScans: galleries.map(row => ({ feedId: row.feedId, phase: row.phase, scanned: Number(row.recordsSeen), lastPassAt: row.lastSuccessAt })),
+      cdnLinkScans: cdnScans.map(row => ({ feedId: row.feedId, phase: row.phase, scanned: Number(row.recordsSeen), finishedAt: row.lastSuccessAt })),
       worker: worker ? { alive: Date.now() - worker.lastBeatAt.getTime() < 120_000, lastBeatAt: worker.lastBeatAt, version: worker.version } : null,
       photoStorage,
       lastMediaActivity,
       laneUsage,
       mediaLanes,
-      galleryActivity,
+      cdnLinkActivity,
       sourceHosts: sourceHosts.map(row => ({ feedId: row.feedId, host: String(row.host).slice(0, 80), count: Number(row.count) })),
     };
   }),
