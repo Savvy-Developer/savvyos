@@ -16,7 +16,7 @@ import {
   type MlsListing,
   type MlsMediaPolicy,
 } from "../../drizzle/mlsSchema";
-import { getDb } from "../db";
+import { getMlsDb as getDb } from "./db";
 import { readOption, type ExtractedMedia, type FeedContext, type MlsAdapter, type MlsResource } from "./adapters/types";
 import { readComplianceProfile } from "./compliance";
 import { isMlsGridCdnUrl } from "./mlsGridCdn";

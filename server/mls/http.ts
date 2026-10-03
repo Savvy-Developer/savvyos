@@ -1,7 +1,7 @@
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import type { MlsProvider } from "../../drizzle/mlsSchema";
 import { mlsProviderUsage } from "../../drizzle/mlsSchema";
-import { getDb } from "../db";
+import { getMlsDb as getDb } from "./db";
 import type { ProviderLimits } from "./adapters/types";
 import { isMlsGridCdnUrl } from "./mlsGridCdn";
 

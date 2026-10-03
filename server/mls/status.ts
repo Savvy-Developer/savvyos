@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { sql } from "drizzle-orm";
 import { getDb } from "../db";
+import { getMlsDb, mlsDatabaseMode } from "./db";
 import { SEARCH_COVER_INDEX_DDL } from "./schema";
 import { MLS_TABLE_DDL } from "./schemaDdl";
 import { MLS_SOURCE_SEEDS } from "./sources";
@@ -19,6 +20,8 @@ export type MlsSchemaStatus = {
   sources: { found: number; expected: number };
   /** Optional search indexes built online after deploy. Never affects status. */
   searchIndexes?: { found: number; expected: number };
+  /** "separate" when MLS tables live in their own database (MLS_DATABASE_URL). */
+  mlsDatabase?: "separate" | "app";
   checkedAt: string;
 };
 
@@ -48,13 +51,14 @@ export function summarize(found: { tables: number; permissionColumns: number; so
 }
 
 export async function readMlsSchemaStatus(): Promise<MlsSchemaStatus> {
-  const db = await getDb();
-  if (!db) throw new Error("database unavailable");
+  const db = await getMlsDb();
+  const appDb = await getDb();
+  if (!db || !appDb) throw new Error("database unavailable");
   const names = MLS_TABLE_DDL.map(statement => statement.table);
   const tableRows = rowsOf(await db.execute(sql`
     SELECT COUNT(*) AS count FROM information_schema.tables
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (${sql.join(names.map(name => sql`${name}`), sql`, `)})`));
-  const columnRows = rowsOf(await db.execute(sql`
+  const columnRows = rowsOf(await appDb.execute(sql`
     SELECT COUNT(*) AS count FROM information_schema.columns
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_permissions'
        AND COLUMN_NAME IN (${sql.join(PERMISSION_COLUMNS.map(name => sql`${name}`), sql`, `)})`));
@@ -67,7 +71,7 @@ export async function readMlsSchemaStatus(): Promise<MlsSchemaStatus> {
       sources = 0;
     }
   }
-  const summary = summarize({ tables, permissionColumns: Number(columnRows[0]?.count ?? 0), sources });
+  const summary: MlsSchemaStatus = { ...summarize({ tables, permissionColumns: Number(columnRows[0]?.count ?? 0), sources }), mlsDatabase: mlsDatabaseMode() };
   try {
     const indexRows = rowsOf(await db.execute(sql`
       SELECT COUNT(DISTINCT INDEX_NAME) AS count FROM information_schema.statistics
@@ -81,7 +85,7 @@ export async function readMlsSchemaStatus(): Promise<MlsSchemaStatus> {
 
 /** Public liveness only. No worker ID, feed names, MLS data, or credentials. */
 export async function readMlsWorkerStatus(now = new Date()) {
-  const db = await getDb();
+  const db = await getMlsDb();
   if (!db) throw new Error("database unavailable");
   const rows = rowsOf(await db.execute(sql`
     SELECT version, lastBeatAt FROM mls_worker_heartbeats

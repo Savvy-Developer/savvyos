@@ -31,7 +31,7 @@ import {
   type MlsSource,
 } from "../../drizzle/mlsSchema";
 import { adminProcedure, router } from "../_core/trpc";
-import { getDb } from "../db";
+import { getMlsDb as getDb } from "../mls/db";
 import { adapterFor } from "../mls/adapters";
 import { clearTokenCache } from "../mls/adapters/trestle";
 import {

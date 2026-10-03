@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { mlsFeeds, mlsListings, mlsMedia } from "../../drizzle/mlsSchema";
-import { getDb } from "../db";
+import { getMlsDb as getDb } from "./db";
 import { licenseError } from "./license";
 import { withMlsPhotoListingId } from "./photoUrl";
 

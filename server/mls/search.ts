@@ -2,7 +2,7 @@ import { approvedFeedSetSql, approvedFeedSql } from "./license";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { mlsListings, mlsSources } from "../../drizzle/mlsSchema";
-import { getDb } from "../db";
+import { getMlsDb as getDb } from "./db";
 import { CANONICAL_PROPERTY_TYPES, CANONICAL_STATUSES } from "./normalize/enums";
 import { withMlsPhotoListingId } from "./photoUrl";
 import { licensedIdxPhotoFallbacks } from "./photoFallback";

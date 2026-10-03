@@ -10,7 +10,7 @@ import {
   mlsSyncRuns,
   type MlsFeed,
 } from "../../drizzle/mlsSchema";
-import { getDb } from "../db";
+import { getMlsDb as getDb } from "./db";
 import { adapterFor } from "./adapters";
 import { mlsGridStageUrl } from "./adapters/mlsGrid";
 import { clearTokenCache } from "./adapters/trestle";

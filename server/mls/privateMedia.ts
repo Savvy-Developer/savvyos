@@ -3,7 +3,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { Express } from "express";
 import { and, eq, isNull } from "drizzle-orm";
 import { mlsFeeds, mlsListings, mlsMedia } from "../../drizzle/mlsSchema";
-import { getDb } from "../db";
+import { getMlsDb as getDb } from "./db";
 import { sdk } from "../_core/sdk";
 import { canAdminUsePermission } from "../routers/permissions";
 import { licenseError } from "./license";
