@@ -7,22 +7,33 @@ import { parseODataPage, type FeedContext } from "./adapters/types";
 import { loadMetadataLocalFields, loadOverrides } from "./engine";
 import { requestJson, type ProviderLane } from "./http";
 import { withLockRetry } from "./media";
-import { MARKET_STATUSES } from "./normalize/enums";
+import { MARKET_STATUSES, OFF_MARKET_STATUSES, type CanonicalStatus } from "./normalize/enums";
 import { processRecords } from "./store";
 
 /**
  * MLS Grid switched Savvy's production tokens to its CDN on Oct 2, 2026.
  * Listings synced before that hold old one-hour links (or none), so their
- * galleries cannot display. This walks each feed's on-market listings once,
- * newest ID first so the listings people see first are fixed first, and
- * re-reads the ones missing CDN links, 100 per API call (`ListingId in (...)`);
- * processRecords then stores the CDN links. New and changed listings already
+ * galleries cannot display. This walks each feed's listings once per scope
+ * (on-market, then sold, then off-market), newest ID first so the listings
+ * people see first are fixed first, and re-reads the ones missing CDN links,
+ * 100 per API call (`ListingId in (...)`); processRecords then stores the CDN
+ * links under the feed's normal photo rules. New and changed listings already
  * arrive with CDN links through normal replication.
  */
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
-/** Cursor name; the highWaterMark is the lowest listing ID already handled. */
-export const CDN_LINK_RESOURCE = "CdnLinksNewest";
+/**
+ * Relink order, one cursor each; a cursor's highWaterMark is the lowest
+ * listing ID already handled. On-market first, then sold listings (comps),
+ * then withdrawn/expired/canceled history.
+ */
+export const CDN_LINK_SCOPES: ReadonlyArray<{ resource: string; scope: string; statuses: CanonicalStatus[] }> = [
+  { resource: "CdnLinksNewest", scope: "on_market", statuses: MARKET_STATUSES },
+  { resource: "CdnLinksClosed", scope: "closed", statuses: ["closed"] },
+  { resource: "CdnLinksOffMarket", scope: "off_market", statuses: OFF_MARKET_STATUSES },
+];
+export const CDN_LINK_RESOURCE = CDN_LINK_SCOPES[0].resource;
+export const CDN_LINK_RESOURCES = CDN_LINK_SCOPES.map(item => item.resource);
 /** MLS Grid accepts at most 100 ListingIds per request. */
 export const CDN_LINK_BATCH = 100;
 /** Groups relinked at once; the work is database writes, not API calls. */
@@ -30,20 +41,39 @@ export const CDN_LINK_PARALLEL = 4;
 /** Listings examined per feed per worker pass. */
 export const CDN_LINK_SCAN = 1_000;
 
-export type CdnLinkProgress = { scanned: number; relinked: number; requests: number; done: boolean };
+export type CdnLinkProgress = { scope: string | null; scanned: number; relinked: number; requests: number; done: boolean };
 
+/** Runs one pass of the first unfinished scope; an empty scope finishes and hands over to the next. */
 export async function backfillCdnLinks(
   db: Db,
   lane: ProviderLane,
   ctx: FeedContext,
   options: { signal?: AbortSignal; fetchImpl?: typeof fetch; scanSize?: number } = {}
 ): Promise<CdnLinkProgress> {
-  const progress: CdnLinkProgress = { scanned: 0, relinked: 0, requests: 0, done: true };
-  if (ctx.feed.provider !== "mls_grid" || !ctx.feed.enabled || ctx.feed.mediaPolicy === "none") return progress;
-  const [cursor] = await db.select().from(mlsSyncCursors)
-    .where(and(eq(mlsSyncCursors.feedId, ctx.feed.id), eq(mlsSyncCursors.resource, CDN_LINK_RESOURCE))).limit(1);
-  if (cursor?.phase === "incremental") return progress;
-  const lastId = Number(cursor?.highWaterMark ?? 0);
+  const idle: CdnLinkProgress = { scope: null, scanned: 0, relinked: 0, requests: 0, done: true };
+  if (ctx.feed.provider !== "mls_grid" || !ctx.feed.enabled || ctx.feed.mediaPolicy === "none") return idle;
+  const cursors = await db.select().from(mlsSyncCursors)
+    .where(and(eq(mlsSyncCursors.feedId, ctx.feed.id), inArray(mlsSyncCursors.resource, CDN_LINK_RESOURCES)));
+  for (const scope of CDN_LINK_SCOPES) {
+    const cursor = cursors.find(row => row.resource === scope.resource);
+    if (cursor?.phase === "incremental") continue;
+    if (options.signal?.aborted) return idle;
+    const progress = await backfillScope(db, lane, ctx, scope, cursor?.highWaterMark ?? null, options);
+    if (progress.scanned) return progress;
+  }
+  return idle;
+}
+
+async function backfillScope(
+  db: Db,
+  lane: ProviderLane,
+  ctx: FeedContext,
+  scope: (typeof CDN_LINK_SCOPES)[number],
+  highWaterMark: string | null,
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; scanSize?: number }
+): Promise<CdnLinkProgress> {
+  const progress: CdnLinkProgress = { scope: scope.scope, scanned: 0, relinked: 0, requests: 0, done: true };
+  const lastId = Number(highWaterMark ?? 0);
   const belowId = Number.isSafeInteger(lastId) && lastId > 0 ? lastId : null;
   const listings = await db.select({
     id: mlsListings.id,
@@ -52,7 +82,7 @@ export async function backfillCdnLinks(
   })
     .from(mlsListings, { forceIndex: ["PRIMARY"] })
     .where(and(
-      eq(mlsListings.feedId, ctx.feed.id), inArray(mlsListings.standardStatus, MARKET_STATUSES),
+      eq(mlsListings.feedId, ctx.feed.id), inArray(mlsListings.standardStatus, scope.statuses),
       isNull(mlsListings.removedFromFeedAt), gt(mlsListings.photosCount, 0),
       belowId === null ? undefined : lt(mlsListings.id, belowId),
     ))
@@ -61,7 +91,7 @@ export async function backfillCdnLinks(
   progress.scanned = listings.length;
   if (!listings.length) {
     await db.insert(mlsSyncCursors).values({
-      feedId: ctx.feed.id, resource: CDN_LINK_RESOURCE, phase: "incremental", highWaterMark: belowId === null ? null : String(belowId), lastSuccessAt: new Date(),
+      feedId: ctx.feed.id, resource: scope.resource, phase: "incremental", highWaterMark: belowId === null ? null : String(belowId), lastSuccessAt: new Date(),
     }).onDuplicateKeyUpdate({ set: { phase: "incremental", lastSuccessAt: new Date() } });
     return progress;
   }
@@ -108,7 +138,7 @@ export async function backfillCdnLinks(
   }
   if (processed !== null && processed !== belowId) {
     await db.insert(mlsSyncCursors).values({
-      feedId: ctx.feed.id, resource: CDN_LINK_RESOURCE, phase: "initial", highWaterMark: String(processed), recordsSeen: listings.length,
+      feedId: ctx.feed.id, resource: scope.resource, phase: "initial", highWaterMark: String(processed), recordsSeen: listings.length,
     }).onDuplicateKeyUpdate({ set: {
       highWaterMark: String(processed),
       recordsSeen: sql`${mlsSyncCursors.recordsSeen} + ${listings.length}`,

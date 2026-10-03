@@ -751,13 +751,18 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       // ListingId call per group, and resumes from its cursor.
       const apiCalls = () => state.requests.filter(request => request.includes("ListingId in (")).length;
       const before = apiCalls();
-      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx, { scanSize: 1 })).toEqual({ scanned: 1, relinked: 1, requests: 1, done: false });
+      // Past-listing scopes are covered below; park them so this stage is on-market only.
+      await admin.query(
+        "INSERT INTO mls_sync_cursors (feedId, resource, phase) VALUES (?, 'CdnLinksClosed', 'incremental'), (?, 'CdnLinksOffMarket', 'incremental')",
+        [feed.id, feed.id]
+      );
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx, { scanSize: 1 })).toEqual({ scope: "on_market", scanned: 1, relinked: 1, requests: 1, done: false });
       // Newest first: the listing people see first on "Newest" is fixed first.
       const linkedAfterFirst = await q<any>("SELECT listingId, COUNT(sourceUrl) AS links FROM mls_media WHERE feedId=? GROUP BY listingId ORDER BY listingId", [feed.id]);
       expect(linkedAfterFirst.map(row => [Number(row.listingId), Number(row.links)])).toEqual([[listings[0].id, 0], [listings[1].id, 3]]);
-      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 1, relinked: 1, requests: 1, done: false });
-      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 0, relinked: 0, requests: 0, done: true });
-      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 0, relinked: 0, requests: 0, done: true });
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scope: "on_market", scanned: 1, relinked: 1, requests: 1, done: false });
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scope: null, scanned: 0, relinked: 0, requests: 0, done: true });
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scope: null, scanned: 0, relinked: 0, requests: 0, done: true });
       expect(apiCalls() - before).toBe(2);
       const relinked = await q<any>("SELECT isPrimary, status, sourceUrl, url FROM mls_media WHERE feedId=? ORDER BY listingId, isPrimary DESC, id", [feed.id]);
       expect(relinked).toHaveLength(6);
@@ -768,8 +773,22 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
 
       // A rescan of fully linked listings costs no API calls.
       await admin.query("DELETE FROM mls_sync_cursors WHERE feedId=? AND resource=?", [feed.id, cdnLinks.CDN_LINK_RESOURCE]);
-      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 2, relinked: 0, requests: 0, done: false });
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scope: "on_market", scanned: 2, relinked: 0, requests: 0, done: false });
       expect(apiCalls() - before).toBe(2);
+
+      // Sold listings come after on-market ones, then off-market history.
+      await admin.query("DELETE FROM mls_sync_cursors WHERE feedId=? AND resource IN (?, ?)", [feed.id, "CdnLinksClosed", "CdnLinksOffMarket"]);
+      await admin.query("UPDATE mls_listings SET standardStatus='closed' WHERE id=?", [listings[0].id]);
+      await admin.query("UPDATE mls_media SET sourceUrl=NULL WHERE listingId=?", [listings[0].id]);
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toMatchObject({ scope: "closed", requests: 1, done: false });
+      expect(apiCalls() - before).toBe(3);
+      const soldLinks = await q<any>("SELECT COUNT(sourceUrl) AS links FROM mls_media WHERE listingId=?", [listings[0].id]);
+      expect(Number(soldLinks[0].links)).toBe(3);
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scope: null, scanned: 0, relinked: 0, requests: 0, done: true });
+      const phases = await q<any>("SELECT resource, phase FROM mls_sync_cursors WHERE feedId=? AND resource LIKE 'CdnLinks%' ORDER BY resource", [feed.id]);
+      expect(phases.map(row => [row.resource, row.phase])).toEqual([
+        ["CdnLinksClosed", "incremental"], ["CdnLinksNewest", "incremental"], ["CdnLinksOffMarket", "incremental"],
+      ]);
     } finally {
       state.properties = original;
     }

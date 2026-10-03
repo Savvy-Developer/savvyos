@@ -43,7 +43,7 @@ import {
 } from "../mls/compliance";
 import { CREDENTIAL_REF_PATTERN, credentialStatus } from "../mls/credentials";
 import { sanitizeError } from "../mls/engine";
-import { CDN_LINK_RESOURCE } from "../mls/cdnLinks";
+import { CDN_LINK_RESOURCES, CDN_LINK_SCOPES } from "../mls/cdnLinks";
 import { isMlsGridCdnUrl } from "../mls/mlsGridCdn";
 import { approvedFeedSql, licenseError } from "../mls/license";
 import { getLane, requestJson } from "../mls/http";
@@ -503,8 +503,8 @@ export const mlsPropertiesRouter = router({
         .from(mlsMedia).groupBy(mlsMedia.feedId, mlsMedia.status),
       db.select({ detail: mlsWorkerHeartbeats.detail, lastBeatAt: mlsWorkerHeartbeats.lastBeatAt, version: mlsWorkerHeartbeats.version })
         .from(mlsWorkerHeartbeats).orderBy(desc(mlsWorkerHeartbeats.lastBeatAt)).limit(1),
-      db.select({ feedId: mlsSyncCursors.feedId, phase: mlsSyncCursors.phase, recordsSeen: mlsSyncCursors.recordsSeen, lastSuccessAt: mlsSyncCursors.lastSuccessAt })
-        .from(mlsSyncCursors).where(eq(mlsSyncCursors.resource, CDN_LINK_RESOURCE)),
+      db.select({ feedId: mlsSyncCursors.feedId, resource: mlsSyncCursors.resource, phase: mlsSyncCursors.phase, recordsSeen: mlsSyncCursors.recordsSeen, lastSuccessAt: mlsSyncCursors.lastSuccessAt })
+        .from(mlsSyncCursors).where(inArray(mlsSyncCursors.resource, CDN_LINK_RESOURCES)),
       // Host only (never the path or signature) of links waiting to download:
       // shows whether MLS Grid is serving standard or CDN links per feed.
       db.select({
@@ -521,7 +521,7 @@ export const mlsPropertiesRouter = router({
     let laneUsage: Array<{ key: string; downloading: boolean; mediaDay: UsageWindow | null; mediaHour: UsageWindow | null; sharedDay: UsageWindow | null; pausedForMs: number }> = [];
     // Per-lane last batch and per-feed CDN link backfill, so a starved lane is visible.
     const mediaLanes: Array<{ key: string; at: string; ms: number | null; claimed: number; stored: number; failed: number; expired: number; refreshed: number; error: string | null }> = [];
-    const cdnLinkActivity: Array<{ feedId: number; at: string; scanned: number; relinked: number; requests: number }> = [];
+    const cdnLinkActivity: Array<{ feedId: number; scope: string | null; at: string; scanned: number; relinked: number; requests: number }> = [];
     try {
       const detail = JSON.parse(worker?.detail ?? "null");
       if (typeof detail?.photoStorage?.configurationValid === "boolean") {
@@ -555,7 +555,8 @@ export const mlsPropertiesRouter = router({
             });
           } else if (key.startsWith("cdn:")) {
             cdnLinkActivity.push({
-              feedId: Number(key.slice(4)) || 0, at: String(item.at), scanned: Number(item.scanned) || 0,
+              feedId: Number(key.slice(4)) || 0, scope: typeof item.scope === "string" ? item.scope : null,
+              at: String(item.at), scanned: Number(item.scanned) || 0,
               relinked: Number(item.relinked) || 0, requests: Number(item.requests) || 0,
             });
           }
@@ -577,7 +578,15 @@ export const mlsPropertiesRouter = router({
     } catch { /* An old or malformed heartbeat must not break the health page. */ }
     return {
       queue: queue.map(row => ({ feedId: row.feedId, status: row.status, count: Number(row.count) })),
-      cdnLinkScans: cdnScans.map(row => ({ feedId: row.feedId, phase: row.phase, scanned: Number(row.recordsSeen), finishedAt: row.lastSuccessAt })),
+      cdnLinkScans: cdnScans
+        .map(row => ({
+          feedId: row.feedId,
+          scope: CDN_LINK_SCOPES.find(item => item.resource === row.resource)?.scope ?? row.resource,
+          order: CDN_LINK_RESOURCES.indexOf(row.resource),
+          phase: row.phase, scanned: Number(row.recordsSeen), finishedAt: row.lastSuccessAt,
+        }))
+        .sort((a, b) => a.feedId - b.feedId || a.order - b.order)
+        .map(({ order: _order, ...row }) => row),
       worker: worker ? { alive: Date.now() - worker.lastBeatAt.getTime() < 120_000, lastBeatAt: worker.lastBeatAt, version: worker.version } : null,
       photoStorage,
       lastMediaActivity,

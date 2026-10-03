@@ -630,8 +630,8 @@ function HealthPanel({ feeds }: { feeds: MlsFeedView[] }) {
             <div key={`${row.feedId}:${row.status}`} className="flex justify-between gap-3"><span className="text-muted-foreground">{feeds.find(feed => feed.id === row.feedId)?.name ?? `Feed #${row.feedId}`} · {row.status}</span><span className="font-medium">{formatNumber(row.count)}</span></div>
           )) : <p className="text-muted-foreground">{photo.isLoading ? "Checking photo queue..." : photo.isError ? "Photo queue unavailable. Try again shortly." : "No photo rows queued or stored yet."}</p>}
           {photo.data?.cdnLinkScans.map(scan => (
-            <div key={`cdn-${scan.feedId}`} className="rounded border px-2 py-1.5 text-xs">
-              <span className="font-medium">{feeds.find(feed => feed.id === scan.feedId)?.name ?? `Feed #${scan.feedId}`} · CDN photo links</span>
+            <div key={`cdn-${scan.feedId}-${scan.scope}`} className="rounded border px-2 py-1.5 text-xs">
+              <span className="font-medium">{feeds.find(feed => feed.id === scan.feedId)?.name ?? `Feed #${scan.feedId}`} · CDN photo links · {scan.scope === "on_market" ? "on market" : scan.scope === "closed" ? "sold" : scan.scope === "off_market" ? "off market" : scan.scope}</span>
               <div className="text-muted-foreground">{formatNumber(scan.scanned)} listings checked · {scan.phase === "initial" ? "linking older listings to MLS Grid's CDN" : "done; new listings arrive with CDN links"}</div>
             </div>
           ))}
