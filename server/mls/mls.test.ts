@@ -690,7 +690,7 @@ describe("MLS Grid token budget", () => {
     expect(other.cdn).toBe(other.media);
   });
 
-  it("runs 16 MLS Grid photo transfers per token by default, honors overrides, and caps them at 32", () => {
+  it("runs the default MLS Grid photo transfers per token, honors overrides, and caps them", () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(MLS_GRID_GRACE_UNTIL_MS + 1);
     const saved = process.env.MLS_GRID_MEDIA_CONCURRENCY;
     try {

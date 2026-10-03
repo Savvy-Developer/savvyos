@@ -302,7 +302,7 @@ export class ProviderLane {
       );
     }
     this.cdn = provider === "mls_grid"
-      ? new SlidingLimiter(intervalMs(Math.max(1, Number(process.env.MLS_CDN_REQUESTS_PER_SECOND ?? 25))), [])
+      ? new SlidingLimiter(intervalMs(Math.max(1, Number(process.env.MLS_CDN_REQUESTS_PER_SECOND ?? 100))), [])
       : this.media;
   }
 

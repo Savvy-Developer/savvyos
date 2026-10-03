@@ -109,7 +109,7 @@ const DEFAULT_SAFETY = 0.8;
 export const MLS_GRID_GRACE_UNTIL_MS = Date.parse("2026-10-02T20:00:00Z");
 export function mlsGridGraceActive(now = Date.now()) { return now < MLS_GRID_GRACE_UNTIL_MS; }
 
-export const MLS_GRID_MEDIA_CONCURRENCY = { default: 16, max: 32 } as const;
+export const MLS_GRID_MEDIA_CONCURRENCY = { default: 32, max: 64 } as const;
 /** MLS_GRID_MEDIA_CONCURRENCY (env) wins over the feed's `mediaConcurrency` option. */
 export function mlsGridMediaConcurrency(feed: MlsFeed) {
   const requested = Number(process.env.MLS_GRID_MEDIA_CONCURRENCY ?? readOption(feed, "mediaConcurrency", MLS_GRID_MEDIA_CONCURRENCY.default));
