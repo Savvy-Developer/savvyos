@@ -4,6 +4,7 @@ import { mlsProviderUsage } from "../../drizzle/mlsSchema";
 import { getMlsDb as getDb } from "./db";
 import type { ProviderLimits } from "./adapters/types";
 import { isMlsGridCdnUrl } from "./mlsGridCdn";
+import { apiGate, type ApiGate } from "./apiGate";
 
 /**
  * One lane per credential. Provider limits apply to the token, not to one MLS,
@@ -17,6 +18,10 @@ import { isMlsGridCdnUrl } from "./mlsGridCdn";
  *
  * Budgets are seeded from mls_provider_usage when a lane starts, so a restart
  * or deploy never resets the rolling hour and 24-hour windows.
+ *
+ * API requests also pass a cross-process pace gate (apiGate.ts), so a deploy
+ * overlap, the web process, or extra workers can never stack their per-second
+ * rates on one token.
  */
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -231,6 +236,8 @@ export class ProviderLane {
   /** MLS Grid CDN downloads: reusable links outside every API quota, so they
    * get their own pace. Other providers (and old media links) use `media`. */
   readonly cdn: Limiter;
+  /** Minimum time between API request starts on this token, across all processes. */
+  readonly apiSpacingMs: number;
   private usage = new Map<string, UsageBucket>();
   private seeded: Promise<void> | null = null;
 
@@ -238,11 +245,13 @@ export class ProviderLane {
     readonly key: string,
     readonly provider: MlsProvider,
     readonly credentialRef: string,
-    readonly limits: ProviderLimits
+    readonly limits: ProviderLimits,
+    private gate: ApiGate = apiGate
   ) {
     const budget = limits.tokenBudget ?? null;
+    this.apiSpacingMs = intervalMs(limits.requestsPerSecond);
     this.api = new SlidingLimiter(
-      intervalMs(limits.requestsPerSecond),
+      this.apiSpacingMs,
       [
         { limit: limits.requestsPerHour, windowMs: HOUR_MS },
         { limit: limits.requestsPerDay, windowMs: DAY_MS },
@@ -293,6 +302,20 @@ export class ProviderLane {
       console.warn(`[mls] could not load recent usage for ${this.key}; starting from zero`, error);
     });
     return this.seeded;
+  }
+
+  /** Waits for this token's shared pace across every process (see apiGate.ts). */
+  paceAcrossProcesses(signal?: AbortSignal) {
+    return this.gate.take(this.key, this.apiSpacingMs, signal);
+  }
+
+  /** True when requests through `limiter` count against the token's API limits. */
+  usesApiPace(limiter: Limiter) {
+    return limiter === this.api || (this.media instanceof ChainedLimiter && limiter === this.media);
+  }
+
+  paceStats() {
+    return this.gate.stats(this.key);
   }
 
   private async seedFromUsage() {
@@ -445,6 +468,9 @@ async function withRetries<T>(
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     await limiter.acquire(options.signal);
     try {
+      // Provider API limits are per token, so the pace is shared by every
+      // process. MLS Grid photos are outside its API limits and skip it.
+      if (lane.usesApiPace(limiter)) await lane.paceAcrossProcesses(options.signal);
       return await run();
     } catch (error) {
       lastError = error;

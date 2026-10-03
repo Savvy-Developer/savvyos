@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { eq } from "drizzle-orm";
+import { eq, gt } from "drizzle-orm";
 import { mlsFeeds, mlsSources, mlsWorkerHeartbeats } from "../../drizzle/mlsSchema";
 import { getMlsDb as getDb } from "./db";
 import { adapterFor } from "./adapters";
@@ -25,6 +25,30 @@ import { ensureMlsSchema, startSearchCoverIndexBuild } from "./schema";
 const TICK_MS = Number(process.env.MLS_WORKER_TICK_MS ?? 15_000);
 const HEARTBEAT_MS = 30_000;
 const STALE_CLAIM_SWEEP_MS = 10 * 60_000;
+/** A heartbeat this recent means that worker is still running. */
+export const HEARTBEAT_FRESH_MS = HEARTBEAT_MS + 15_000;
+/** Longest a new worker waits for an older one to stop before working anyway. */
+export const HANDOFF_MAX_MS = 120_000;
+
+type WorkerBeat = { workerId: string; startedAt: Date; lastBeatAt: Date };
+
+/**
+ * Railway starts a new worker before it stops the old one. Until every older
+ * worker has stopped beating (it deletes its heartbeat on SIGTERM), the new
+ * worker makes no provider calls, so two processes never send API requests
+ * at once on a token. The cross-process pace in apiGate.ts covers the rest;
+ * this wait also covers older builds that predate it. Capped at
+ * HANDOFF_MAX_MS so a stuck row can never stall ingestion.
+ */
+export function mustWaitForOlderWorker(self: { workerId: string; startedAt: Date }, others: WorkerBeat[], now = Date.now()) {
+  if (now - self.startedAt.getTime() >= HANDOFF_MAX_MS) return false;
+  return others.some(other =>
+    other.workerId !== self.workerId &&
+    new Date(other.lastBeatAt).getTime() > now - HEARTBEAT_FRESH_MS &&
+    // DATETIME rounds to the second; an older worker started well before us.
+    new Date(other.startedAt).getTime() < self.startedAt.getTime() - 1_000
+  );
+}
 
 type LaneState = { syncing: boolean; media: boolean; scanning: boolean };
 
@@ -40,6 +64,8 @@ export class MlsIngestionScheduler {
   private running = new Set<Promise<unknown>>();
   private lastActivity: Record<string, unknown> = {};
   private startedAt = new Date();
+  private handedOff = false;
+  private handoffLogged = false;
 
   async start() {
     await ensureMlsSchema();
@@ -90,6 +116,8 @@ export class MlsIngestionScheduler {
         state: this.lanes.get(lane.key) ?? { syncing: false, media: false, scanning: false },
         api: lane.api.snapshot(),
         media: lane.media.snapshot(),
+        // Cross-process API pace: request starts at least apiSpacingMs apart per token.
+        pace: { spacingMs: lane.apiSpacingMs, ...lane.paceStats() },
       })),
       lastActivity: this.lastActivity,
     });
@@ -108,8 +136,39 @@ export class MlsIngestionScheduler {
     return rows.filter(row => row.feed.enabled || row.feed.syncRequestedAt).map(row => ({ feed: row.feed, source: row.source }));
   }
 
+  /** True while an older worker is still running (see mustWaitForOlderWorker). */
+  private async waitingForOlderWorker() {
+    if (this.handedOff) return false;
+    const self = { workerId: this.workerId, startedAt: this.startedAt };
+    const now = Date.now();
+    let others: WorkerBeat[] = [];
+    if (now - this.startedAt.getTime() < HANDOFF_MAX_MS) {
+      const db = await getDb();
+      others = db
+        ? await db
+            .select({ workerId: mlsWorkerHeartbeats.workerId, startedAt: mlsWorkerHeartbeats.startedAt, lastBeatAt: mlsWorkerHeartbeats.lastBeatAt })
+            .from(mlsWorkerHeartbeats)
+            .where(gt(mlsWorkerHeartbeats.lastBeatAt, new Date(now - HEARTBEAT_FRESH_MS)))
+        : [];
+    }
+    if (mustWaitForOlderWorker(self, others, now)) {
+      if (!this.handoffLogged) console.log("[mls] waiting for the previous worker to stop before calling providers");
+      this.handoffLogged = true;
+      return true;
+    }
+    this.handedOff = true;
+    if (this.handoffLogged) console.log(`[mls] previous worker stopped; starting after ${Math.round((now - this.startedAt.getTime()) / 1000)} s`);
+    return false;
+  }
+
   async tick() {
     if (this.controller.signal.aborted) return;
+    try {
+      if (await this.waitingForOlderWorker()) return;
+    } catch (error) {
+      console.error("[mls] handoff check failed", error);
+      return;
+    }
     let feeds: FeedContext[];
     try {
       feeds = await this.loadFeeds();

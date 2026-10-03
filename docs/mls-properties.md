@@ -169,15 +169,21 @@ Until a token variable is set, that feed shows "Credentials not configured" and 
 
 Requests to `api.mlsgrid.com` (Property records, including the CDN link backfill below) consume the per-token API limits. Photos come only from MLS Grid's CDN, which is outside those limits (MLS Grid, Oct 2, 2026). MLS Grid never replaces an image in place: a changed image gets a new MediaKey, so an unchanged key is never downloaded again. See the [MLS Grid Media documentation](https://docs.mlsgrid.com/api-documentation/api-version-2.0).
 
-`server/mls/adapters/mlsGrid.ts` (`MLS_GRID_LIMITS`) records the published, warning and suspension thresholds from MLS Grid's Sept 30 notice. The Oct 2 grace window has ended and its code was removed. The BBO token is shared by Canopy and MARIS BBO; the IDX token serves MARIS IDX. On a worker restart, API windows seed from API usage only. The adapter caps **API** requests per token at `rateSafety` (default 0.8, never above 0.9) of the lower of published and warning:
+`server/mls/adapters/mlsGrid.ts` (`MLS_GRID_LIMITS`) records the published, warning and suspension thresholds from MLS Grid's Sept 30 notice. The Oct 2 grace window has ended and its code was removed. The BBO token is shared by Canopy and MARIS BBO; the IDX token serves MARIS IDX. On a worker restart, API windows seed from API usage only. The adapter caps **API** requests per token at `rateSafety` (default 0.8, never above 0.9) of the lower of published and warning, except requests per second, which is capped at half the published limit (`MLS_GRID_RPS_SAFETY`):
 
-| Per token | Cap at 0.8 |
+| Per token, all processes combined | Cap |
 |---|---|
-| Requests per second | 1.6 |
+| Requests per second | 1.0 (one request start per 1,000 ms) |
 | Requests per hour | 5,760 |
 | Requests per 24 hours | 32,000 |
 | Bytes per hour | 2.458 GB |
 | Bytes per 24 hours | 32 GB |
+
+**Cross-process pace (since Oct 3, 2026).** MLS Grid limits are per access token, and it measures requests per second at its edge "at all times". On Oct 3 it warned that one token reached 4.0 requests per second between 13:00 and 14:00 EDT, while our logged usage for that hour was 1,795 requests across both tokens (0.5 per second). Cause: each Railway deploy starts the new worker before the old one stops, and each process paced only itself (1.6 per second, so up to 2 starts in one second each). Worker heartbeats showed overlaps at 12:31, 12:57 and 13:32 EDT. Fix (`server/mls/apiGate.ts`): before every API request (and photo requests on providers that meter photos against the token), the process takes a MySQL named lock per token on the MLS database (`GET_LOCK('savvyos:mls-api:<provider>:<credentialRef>')`) and holds it for the token's spacing. Any other process (the overlapping worker, the web process running a feed test, future extra workers) waits, so request starts on one token are at least 1,000 ms apart in total. A process that dies frees its locks when its connection closes. If the lock cannot be taken, the request is not sent (fail closed) and retries with backoff. MLS Grid CDN photos skip the gate. The worker heartbeat shows `pace` per lane (`spacingMs`, `takes`, `waitedMs`, `errors`). Tests: `mls.apigate.e2e.test.ts` (two pools as two processes; crash frees the lock) and `MLS Grid token budget` in `mls.test.ts`.
+
+Manual checks with production MLS Grid tokens bypass the gate and add to the same per-second count. Do not run them while the worker is live; use `/healthz/mls`, the worker heartbeat, and `mls_provider_usage` instead. The hourly and daily windows are still counted per process (seeded from `mls_provider_usage` at start); a deploy overlap of a few seconds cannot move them meaningfully.
+
+**Deploy handoff.** A new worker answers its health check at once (so Railway stops the old one on schedule) but makes no provider calls until every older worker has stopped beating. The old worker deletes its heartbeat on SIGTERM; a worker that dies without doing so goes stale after 45 seconds. The wait is capped at 2 minutes so a stuck row cannot stall ingestion. This also protects the first deploy of the pace gate, when the old worker does not take the lock yet. Rule: `mustWaitForOlderWorker` in `server/mls/worker.ts`.
 
 `server/mls/http.ts` separates MLS Grid's API and CDN photo limiters. API bytes are counted from `Content-Length` when sent (otherwise decoded size); media bytes and requests are still recorded for diagnostics. On start, each lane reloads API usage from the last 25 hours of `mls_provider_usage`, so a restart cannot reset the rolling API budget. Other providers with a shared token budget retain the chained limiter. Tests: `MLS Grid token budget` in `mls.test.ts` and the restart test in `mls.e2e.test.ts`.
 

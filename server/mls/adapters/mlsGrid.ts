@@ -106,6 +106,13 @@ export const MLS_GRID_LIMITS = {
 
 /** Share of the lowest limit we allow ourselves. options.rateSafety can lower it, never raise it past 0.9. */
 const DEFAULT_SAFETY = 0.8;
+/**
+ * MLS Grid counts requests per second at its edge, so network jitter can bunch
+ * requests we spaced evenly. One request per second per token (half the
+ * published 2) keeps any one second at 2 or fewer. The pace is shared by every
+ * process through apiGate.ts. Peak use on Oct 3, 2026 was 0.39 per second.
+ */
+export const MLS_GRID_RPS_SAFETY = 0.5;
 
 export const MLS_GRID_MEDIA_CONCURRENCY = { default: 64, max: 128 } as const;
 /** MLS_GRID_MEDIA_CONCURRENCY (env) wins over the feed's `mediaConcurrency` option. */
@@ -142,7 +149,7 @@ export const mlsGridAdapter: MlsAdapter = {
     };
     const requestedShare = Number(readOption(feed, "mediaShare", 0.75));
     return {
-      requestsPerSecond: lowest.requestsPerSecond * safety,
+      requestsPerSecond: lowest.requestsPerSecond * Math.min(MLS_GRID_RPS_SAFETY, safety),
       requestsPerHour: Math.floor(lowest.requestsPerHour * safety),
       requestsPerDay: Math.floor(lowest.requestsPerDay * safety),
       requestsPerFiveMinutes: null,

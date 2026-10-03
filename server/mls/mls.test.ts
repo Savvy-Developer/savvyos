@@ -4,6 +4,7 @@ import type { MlsFeed, MlsSource } from "../../drizzle/mlsSchema";
 import { MLS_GRID_LIMITS, MLS_GRID_MEDIA_CONCURRENCY, mlsGridAdapter } from "./adapters/mlsGrid";
 import type { ProviderLimits } from "./adapters/types";
 import { ProviderLane, cdnIntervalMs, downloadMedia, requestJson, wireBytes } from "./http";
+import { HANDOFF_MAX_MS, HEARTBEAT_FRESH_MS, mustWaitForOlderWorker } from "./worker";
 import { isMlsGridCdnUrl } from "./mlsGridCdn";
 import { sparkAdapter } from "./adapters/spark";
 import { keysetFilter, trestleAdapter } from "./adapters/trestle";
@@ -631,6 +632,62 @@ describe("MLS Grid token budget", () => {
     const defaults = mlsGridAdapter.limits(gridFeed(null));
     expect([defaults.requestsPerHour, defaults.requestsPerDay]).toEqual([5760, 32000]);
     expect(defaults.temporary).toBeUndefined();
+  });
+
+  it("paces each MLS Grid token at 1 request per second, half the published limit, whatever a feed asks for", () => {
+    const { published } = MLS_GRID_LIMITS;
+    expect(mlsGridAdapter.limits(gridFeed(null)).requestsPerSecond).toBe(1);
+    expect(mlsGridAdapter.limits(gridFeed({ rateSafety: 10 })).requestsPerSecond).toBe(1);
+    expect(mlsGridAdapter.limits(gridFeed({ rateSafety: 0.2 })).requestsPerSecond).toBeCloseTo(0.4);
+    const lane = new ProviderLane("mls_grid:PACE", "mls_grid", "PACE", mlsGridAdapter.limits(gridFeed(null)));
+    expect(lane.apiSpacingMs).toBe(1000);
+    expect(lane.apiSpacingMs).toBeGreaterThanOrEqual(2 * (1000 / published.requestsPerSecond) - 1);
+  });
+
+  it("sends every API request, and no MLS Grid photo, through the cross-process pace gate", async () => {
+    const takes: Array<[string, number]> = [];
+    const gate = {
+      take: async (key: string, holdMs: number) => { takes.push([key, holdMs]); return 0; },
+      stats: () => ({ takes: takes.length, waitedMs: 0, errors: 0 }),
+    };
+    const lane = new ProviderLane("mls_grid:GATED", "mls_grid", "GATED", { ...tiny(), requestsPerSecond: 1 }, gate);
+    const ok = async () => new Response("{}", { status: 200 });
+    await requestJson(lane, "https://api.mlsgrid.com/v2/Property", async () => ({}), { fetchImpl: ok });
+    await downloadMedia(lane, "https://cdn-savvystr.mlsgrid.com/images/CAR1/a.jpeg", {}, { fetchImpl: ok });
+    expect(takes).toEqual([["mls_grid:GATED", 1000]]);
+    // Providers that meter photos against the token pace photos through it too.
+    const trestle = new ProviderLane("trestle:GATED", "trestle", "GATED", tiny(), gate);
+    await downloadMedia(trestle, "https://api.cotality.com/media/a.jpeg", {}, { fetchImpl: ok });
+    expect(takes.map(([key]) => key)).toEqual(["mls_grid:GATED", "trestle:GATED"]);
+  });
+
+  it("fails closed: no API request goes out when the shared pace cannot be taken", async () => {
+    let calls = 0;
+    const gate = {
+      take: async () => { throw new Error("pace lock unavailable"); },
+      stats: () => ({ takes: 0, waitedMs: 0, errors: 1 }),
+    };
+    const lane = new ProviderLane("mls_grid:CLOSED", "mls_grid", "CLOSED", tiny(), gate);
+    await expect(requestJson(lane, "https://api.mlsgrid.com/v2/Property", async () => ({}), {
+      maxAttempts: 1, fetchImpl: async () => { calls += 1; return new Response("{}", { status: 200 }); },
+    })).rejects.toThrow(/pace lock unavailable/);
+    expect(calls).toBe(0);
+  });
+
+  it("makes a new worker wait for the previous worker to stop, never longer than the cap", () => {
+    const now = Date.parse("2026-10-03T18:30:00Z");
+    const self = { workerId: "mls-worker:new", startedAt: new Date(now - 20_000) };
+    const old = { workerId: "mls-worker:old", startedAt: new Date(now - 3_600_000), lastBeatAt: new Date(now - 10_000) };
+    expect(mustWaitForOlderWorker(self, [old], now)).toBe(true);
+    // Old worker deleted its heartbeat on SIGTERM, or its last beat is stale.
+    expect(mustWaitForOlderWorker(self, [], now)).toBe(false);
+    expect(mustWaitForOlderWorker(self, [{ ...old, lastBeatAt: new Date(now - HEARTBEAT_FRESH_MS - 1) }], now)).toBe(false);
+    // Our own row and workers that started after us never hold us back.
+    expect(mustWaitForOlderWorker(self, [{ ...old, workerId: self.workerId }], now)).toBe(false);
+    expect(mustWaitForOlderWorker(self, [{ ...old, startedAt: new Date(now - 5_000) }], now)).toBe(false);
+    // A stuck row cannot stall ingestion past the cap.
+    const late = { ...self, startedAt: new Date(now - HANDOFF_MAX_MS) };
+    expect(mustWaitForOlderWorker(late, [old], now)).toBe(false);
   });
 
   it("retains a shared token budget for providers that actually meter API and media together", async () => {
