@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise";
+import { mlsDatabaseUrl, separateMlsDatabaseUrl } from "./db";
 import { ensureDeclaredMlsFeeds } from "./feedBootstrap";
 import { MLS_TABLE_DDL } from "./schemaDdl";
 import { MLS_SOURCE_SEEDS, seedCompliance } from "./sources";
@@ -15,6 +16,9 @@ import { MLS_SOURCE_SEEDS, seedCompliance } from "./sources";
  * logged, not thrown, except that the permission columns are checked first:
  * admin_permissions is read on every request, so those columns must exist
  * before Drizzle selects them.
+ *
+ * With MLS_DATABASE_URL set, the MLS tables live in that database and only the
+ * permission columns are added to the app database.
  */
 type Connection = Awaited<ReturnType<typeof mysql.createConnection>>;
 
@@ -48,14 +52,35 @@ async function ensureNewestListingIndex(connection: Connection) {
   }
 }
 
-export async function applyMlsSchema(connection: Connection) {
+async function tableExists(connection: Connection, table: string) {
+  const [rows] = await connection.query<any[]>(
+    "SELECT COUNT(*) AS count FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+    [table]
+  );
+  return Number(rows[0]?.count ?? 0) > 0;
+}
+
+/** A new, empty MLS database while the app database still holds MLS data
+ * means the copy has not run. Creating empty tables there would start a full
+ * re-import and show an empty search, so refuse instead. */
+export async function assertMlsDatabaseReady(mlsConnection: Connection, appConnection: Connection) {
+  if (mlsConnection === appConnection) return;
+  if (await tableExists(mlsConnection, "mls_feeds")) return;
+  if (!(await tableExists(appConnection, "mls_feeds"))) return;
+  const [rows] = await appConnection.query<any[]>("SELECT COUNT(*) AS count FROM mls_feeds");
+  if (Number(rows[0]?.count ?? 0) === 0) return;
+  throw new Error("MLS_DATABASE_URL points at a database without MLS tables while the app database still has MLS feeds; copy the MLS tables before switching");
+}
+
+export async function applyMlsSchema(connection: Connection, appConnection: Connection = connection) {
   for (const column of PERMISSION_COLUMNS) {
-    if (!(await columnExists(connection, "admin_permissions", column.name))) {
-      await connection.query(
+    if (!(await columnExists(appConnection, "admin_permissions", column.name))) {
+      await appConnection.query(
         `ALTER TABLE \`admin_permissions\` ADD COLUMN \`${column.name}\` ${column.definition}`
       );
     }
   }
+  await assertMlsDatabaseReady(connection, appConnection);
   for (const statement of MLS_TABLE_DDL) {
     await connection.query(statement.sql);
   }
@@ -245,7 +270,7 @@ let coverBuild: Promise<void> | null = null;
 /** Start the online covering-index build once per worker process. */
 export function startSearchCoverIndexBuild() {
   const enabled = process.env.NODE_ENV === "production" || process.env.MLS_SCHEMA_ENSURE === "on";
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = mlsDatabaseUrl();
   if (!enabled || !databaseUrl || process.env.MLS_SEARCH_COVER_INDEXES === "off") return;
   coverBuild ??= buildSearchCoverIndexes(databaseUrl);
 }
@@ -285,17 +310,22 @@ let readiness: Promise<void> | null = null;
 async function ensure() {
   const enabled = process.env.NODE_ENV === "production" || process.env.MLS_SCHEMA_ENSURE === "on";
   if (!enabled) return;
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) return;
+  const appUrl = process.env.DATABASE_URL;
+  const databaseUrl = mlsDatabaseUrl();
+  if (!appUrl || !databaseUrl) return;
   let connection: Connection | null = null;
+  let appConnection: Connection | null = null;
   try {
     connection = await mysql.createConnection(databaseUrl);
-    await applyMlsSchema(connection);
+    appConnection = separateMlsDatabaseUrl() ? await mysql.createConnection(appUrl) : connection;
+    await applyMlsSchema(connection, appConnection);
   } catch (error) {
     console.error("[mlsSchema] could not apply MLS Properties schema", error);
+    if (appConnection && appConnection !== connection) await appConnection.end().catch(() => undefined);
     await connection?.end().catch(() => undefined);
     return;
   }
+  if (appConnection !== connection) await appConnection.end().catch(() => undefined);
   try {
     if (process.env.MLS_DECLARED_FEEDS !== "off") await ensureDeclaredMlsFeeds(connection);
   } catch (error) {

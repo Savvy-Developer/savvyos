@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { mlsListings, mlsMedia, mlsSyncCursors } from "../../drizzle/mlsSchema";
-import { getDb } from "../db";
+import { getMlsDb as getDb } from "./db";
 import { adapterFor } from "./adapters";
 import { mlsGridBatchUrl } from "./adapters/mlsGrid";
 import { parseODataPage, type FeedContext } from "./adapters/types";

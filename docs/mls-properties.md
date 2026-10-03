@@ -91,6 +91,8 @@ Provider notes and source links are in `server/mls/adapters/*.ts` headers and th
 | Variable | Where | Purpose |
 |---|---|---|
 | `SAVVYOS_PROCESS=mlsIngestionWorker` | Worker service | Starts the ingestion worker instead of the web server |
+| `MLS_DATABASE_URL` | Web and worker | MySQL that holds every `mls_*` table, as a variable reference to the dedicated MLS database service. Unset (or equal to `DATABASE_URL`), the MLS tables stay in the app database. App tables, including the two `admin_permissions` MLS columns, always stay on `DATABASE_URL`. Set it on both services together. |
+| `MLS_DB_POOL_SIZE` | Web and worker | Connections per process to the separate MLS database, default 15 |
 | `MLS_MEDIA_BUCKET` | Web and worker | Dedicated private bucket for MLS photos. Media work waits until it is set. |
 | `MLS_MEDIA_ENDPOINT`, `MLS_MEDIA_REGION`, `MLS_MEDIA_ACCESS_KEY_ID`, `MLS_MEDIA_SECRET_ACCESS_KEY` | Web and worker | Railway bucket connection, as variable references. Leave the endpoint empty to use a private AWS bucket with the default AWS credentials. |
 | `MLS_MEDIA_FORCE_PATH_STYLE=true` | Web and worker | Only for older buckets that require path-style URLs |
@@ -120,7 +122,8 @@ Built for millions of listings on the existing MySQL: payloads are gzipped, unch
 - A newly preferred BBO listing can have no photos even while its older, separately licensed IDX copy already has a complete gallery. For only the selected page's 12 cards and a photo-less BBO detail, SavvyOS looks up an IDX sibling with the **same source, canonical property ID, MLS number and status** using existing property/media indexes. Both feeds must be enabled with valid internal-use licenses; the IDX media rows remain owned by the IDX listing, and each private photo request independently rechecks that listing and feed license. The detail page labels the IDX photo source and reports BBO import progress separately. Once BBO photos arrive, they take precedence. Never copy IDX media rows into BBO or expose a provider media URL directly.
 - When exactly one MLS is selected, an unambiguous MLS number seeks the existing `(sourceId, listingNumber)` index for first-page cards, exact totals and map pins **even with a saved map area or drawn shape**. ZIP searches are intentionally excluded because their predicate also matches address text. **Full street-address prefix search still needs its own index or search service**; a rare broad address query can be slow until that separate rollout is complete. Do not run a blocking address-index migration during web startup.
 - Past roughly 5 to 10 million listings, move free-text and geo search to a dedicated index (OpenSearch or similar) fed from `mls_listings`.
-- Raw records are the largest table. Consider a separate database or object storage for `mls_raw_records` once it passes a few hundred GB.
+- MLS data lives in its own MySQL service (`MLS_DATABASE_URL`, since Oct 3, 2026) so imports never compete with the rest of SavvyOS for memory, disk or locks. Raw records are the largest table after listings; consider object storage for `mls_raw_records` once it passes a few hundred GB.
+- Moving MLS tables to a new, empty database: stop the worker, copy all `mls_*` tables (MySQL Shell `util.copyTables`), verify row counts, then set `MLS_DATABASE_URL` on web and worker. The schema guard refuses to create tables in an empty MLS database while the app database still holds MLS feeds, so a missed copy fails closed instead of starting a full re-import.
 - Run one worker per provider credential lane before adding more. Limits are per credential, so extra workers on the same credential do not go faster.
 
 ## Not built yet (intentional)

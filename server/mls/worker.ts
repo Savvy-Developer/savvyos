@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { mlsFeeds, mlsSources, mlsWorkerHeartbeats } from "../../drizzle/mlsSchema";
-import { getDb } from "../db";
+import { getMlsDb as getDb } from "./db";
 import { adapterFor } from "./adapters";
 import type { FeedContext } from "./adapters/types";
 import { backfillCdnLinks, retireLegacyGalleryQueue } from "./cdnLinks";

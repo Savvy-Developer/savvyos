@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { mlsListings, mlsMedia } from "../../drizzle/mlsSchema";
-import { getDb } from "../db";
+import { getMlsDb as getDb } from "./db";
 import { privateMlsStorage, privateMlsStorageError } from "./privateMedia";
 import { loadOverrides, loadMetadataLocalFields } from "./engine";
 import { adapterFor } from "./adapters";
