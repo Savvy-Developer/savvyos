@@ -49,9 +49,6 @@ export type ProviderLimits = {
    * may use at most `mediaShare` of the budget so replication keeps room.
    */
   tokenBudget?: { bytesPerHour: number; bytesPerDay: number; mediaShare: number } | null;
-  /** A provider-authorized, time-boxed import allowance. Limiters switch to
-   * baseline at untilMs even if the Railway worker is not restarted. */
-  temporary?: { untilMs: number; baseline: ProviderLimits };
 };
 
 export type ProviderCapabilities = {

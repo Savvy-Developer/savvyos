@@ -1,25 +1,22 @@
-import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { mlsListings, mlsMedia } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { privateMlsStorage, privateMlsStorageError } from "./privateMedia";
 import { loadOverrides, loadMetadataLocalFields } from "./engine";
 import { adapterFor } from "./adapters";
-import { mlsGridBatchUrl } from "./adapters/mlsGrid";
 import { parseODataPage, type FeedContext } from "./adapters/types";
-import { galleryMarkerCondition, isGalleryMarker } from "./gallery";
-import { downloadMedia, FatalHttpError, RetryableHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
+import { downloadMedia, FatalHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
 import { isMlsGridCdnUrl } from "./mlsGridCdn";
-import { MARKET_STATUSES } from "./normalize/enums";
 import { withMlsPhotoListingId } from "./photoUrl";
 import { processRecords } from "./store";
 /**
- * Media pipeline. Listing photos are copied to our S3 bucket and served from
- * there; old MLS Grid media.mlsgrid.com URLs are never shown to users because
- * they are single-use and expire in an hour. A provisioned CDN has different
- * URL rules, but licensed display gates remain mandatory either way.
+ * Media pipeline. Cover photos are copied to our S3 bucket (list cards and the
+ * map use that copy). MLS Grid gallery photos are shown straight from its CDN
+ * links and never downloaded; other providers still copy every wanted photo.
+ * Licensed display gates apply either way.
  *
- * Queue order: primary photo of market listings first, then their gallery,
- * then off-market primaries. Removed photos are deleted from S3 as well.
+ * Queue order: Active covers first, then other market covers, then the rest.
+ * Removed photos are deleted from S3 as well.
  */
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
@@ -136,56 +133,45 @@ export function isQueryTimeout(error: unknown): boolean {
   return false;
 }
 
-/** Media priority bands (store.ts mediaPriority): 0 Active gallery and gallery
- * markers, 1 Active cover, 10/20/30 coming soon / under contract / pending
- * covers; older builds queued every cover at 10, so the Active-cover stage
- * reads up to 10 and the listing join keeps only Active. Bounding each stage
- * by priority keeps the scan a short range on
- * mls_media_queue_idx (status, priority, nextAttemptAt) instead of a walk over
- * the whole expired backlog. */
-export const REFRESH_STAGE_MAX_PRIORITY = { active_gallery: 0, gallery: 0, active: 10, market: 30 } as const;
+/** Media priority bands (store.ts mediaPriority): 1 Active cover, 10/20/30
+ * coming soon / under contract / pending covers; older builds queued every
+ * cover at 10, so the Active-cover stage reads up to 10 and the listing join
+ * keeps only Active. Bounding the Active stage by priority keeps the scan a
+ * short range on mls_media_queue_idx (status, priority, nextAttemptAt). */
+export const REFRESH_STAGE_MAX_PRIORITY = { active: 10, market: 30 } as const;
 
-/** Refresh expired URLs in batches, including gallery requests. All provider
- * calls run here in the worker, not from the web process, so they share the
- * same token rate and byte budget as replication and photo downloads. */
+/** Refresh expired photo URLs for providers whose links expire (never MLS
+ * Grid: its CDN links do not). All provider calls run here in the worker, not
+ * from the web process, so they share the token's rate and byte budget. */
 async function refreshExpiredUrls(
   db: Db,
   lane: ProviderLane,
   feeds: Map<number, FeedContext>,
   result: MediaBatchResult,
-  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; limit: number; priority: "active" | "active_gallery" | "gallery" | "market" }
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; limit: number; priority: "active" | "market" }
 ) {
   const feedIds = Array.from(feeds.keys()).filter(id => adapterFor(feeds.get(id)!.feed.provider).capabilities.mediaUrlsExpire);
   if (!feedIds.length || options.limit <= 0) return;
   const stageKey = `${feedIds.slice().sort((a, b) => a - b).join(",")}:${options.priority}`;
   if ((emptyRefreshUntil.get(stageKey) ?? 0) > Date.now()) return;
-  const gridOnly = feedIds.every(id => feeds.get(id)!.feed.provider === "mls_grid");
   const maxPriority = REFRESH_STAGE_MAX_PRIORITY[options.priority];
-  let rows: Array<{ feedId: number; resourceKey: string; listingNumber: string }>;
+  let rows: Array<{ feedId: number; resourceKey: string }>;
   try {
     rows = await db
       .select({
         // Optimizer hints must follow SELECT, so DISTINCT rides inside the hinted field.
         feedId: sql<number>`/*+ MAX_EXECUTION_TIME(${sql.raw(String(REFRESH_SCAN_TIMEOUT_MS))}) */ DISTINCT ${mlsMedia.feedId}`.mapWith(Number),
         resourceKey: mlsMedia.resourceKey,
-        listingNumber: mlsListings.listingNumber,
       })
       .from(mlsMedia)
       .innerJoin(mlsListings, and(eq(mlsListings.feedId, mlsMedia.feedId), eq(mlsListings.providerListingKey, mlsMedia.resourceKey)))
       .where(and(
         inArray(mlsMedia.feedId, feedIds), eq(mlsMedia.status, "expired"), lt(mlsMedia.attempts, MAX_ATTEMPTS),
-        options.priority === "market" && !gridOnly ? undefined : sql`${mlsMedia.priority} <= ${maxPriority}`,
+        options.priority === "market" ? undefined : sql`${mlsMedia.priority} <= ${maxPriority}`,
         or(isNull(mlsMedia.nextAttemptAt), lt(mlsMedia.nextAttemptAt, new Date())),
-        // Active galleries: scanner markers AND gallery photos whose one-hour
-        // link lapsed before download. Both are priority 0; without the photos
-        // here they would be stranded and block the scanner.
-        options.priority === "active_gallery"
-          ? and(eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
-          : options.priority === "gallery"
-          ? and(galleryMarkerCondition(), isNull(mlsListings.removedFromFeedAt))
-          : options.priority === "active"
-            ? and(eq(mlsMedia.isPrimary, true), eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
-            : gridOnly ? and(eq(mlsMedia.isPrimary, true), inArray(mlsListings.standardStatus, MARKET_STATUSES), isNull(mlsListings.removedFromFeedAt)) : undefined
+        options.priority === "active"
+          ? and(eq(mlsMedia.isPrimary, true), eq(mlsListings.standardStatus, "active"), isNull(mlsListings.removedFromFeedAt))
+          : undefined
       ))
       .limit(options.limit);
   } catch (error) {
@@ -200,51 +186,27 @@ async function refreshExpiredUrls(
   const ttl = emptyRefreshTtlMs();
   if (!rows.length && ttl) emptyRefreshUntil.set(stageKey, Date.now() + ttl);
   else emptyRefreshUntil.delete(stageKey);
-  const groups = new Map<string, typeof rows>();
   for (const row of rows) {
-    const key = feeds.get(row.feedId)!.feed.provider === "mls_grid" ? String(row.feedId) : `${row.feedId}:${row.resourceKey}`;
-    groups.set(key, [...(groups.get(key) ?? []), row]);
-  }
-  for (const group of Array.from(groups.values())) {
-    const feedId = group[0].feedId;
+    const feedId = row.feedId;
     const ctx = feeds.get(feedId)!;
     const adapter = adapterFor(ctx.feed.provider);
     try {
       const overrides = await loadOverrides(db, ctx);
       const metadataLocalFields = await loadMetadataLocalFields(db, feedId);
-      const batch = ctx.feed.provider === "mls_grid";
-      const url = batch
-        ? mlsGridBatchUrl(ctx, group.map(row => `${ctx.feed.keyPrefix ?? ctx.source.keyPrefix ?? ""}${row.listingNumber}`))
-        : adapter.singleRecordUrl(ctx, "Property", group[0].resourceKey);
+      const url = adapter.singleRecordUrl(ctx, "Property", row.resourceKey);
       const { body } = await requestJson(lane, url, () => adapter.authHeaders(ctx), {
         signal: options.signal,
         fetchImpl: options.fetchImpl,
       });
       const page = parseODataPage(body);
-      const returned = new Set<string>();
+      let returned = false;
       for (const record of page.value) {
-        const key = String(record[adapter.keyField("Property")] ?? "");
-        if (!group.some(row => row.resourceKey === key)) continue;
-        returned.add(key);
-        const gallery = await db.select({ id: mlsMedia.id, mediaKey: mlsMedia.mediaKey }).from(mlsMedia)
-          .where(and(
-            eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, key), eq(mlsMedia.status, "expired"),
-            or(galleryMarkerCondition(), eq(mlsMedia.priority, 0)),
-          ));
-        const feed = gallery.length ? { ...ctx.feed, mediaPolicy: "all" as const, options: { ...ctx.feed.options, fastImportV1: false } } : ctx.feed;
-        await processRecords({ ...ctx, feed }, adapter, "Property", [record], {
-          overrides, metadataLocalFields, force: true,
-        });
-        if (gallery.length) {
-          await db.update(mlsMedia).set({ priority: 0 })
-            .where(and(eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, key), inArray(mlsMedia.status, ["pending", "stored", "expired"])));
-          // Retire only the request marker; real photos must stay queued.
-          const markers = gallery.filter(row => isGalleryMarker(row.mediaKey)).map(row => row.id);
-          if (markers.length) await db.update(mlsMedia).set({ status: "delete_pending" }).where(inArray(mlsMedia.id, markers));
-        }
+        if (String(record[adapter.keyField("Property")] ?? "") !== row.resourceKey) continue;
+        returned = true;
+        await processRecords(ctx, adapter, "Property", [record], { overrides, metadataLocalFields, force: true });
         result.refreshed += 1;
       }
-      for (const row of group.filter(row => !returned.has(row.resourceKey))) {
+      if (!returned) {
         await db
           .update(mlsMedia)
           .set({ status: "failed", lastError: "Listing no longer returned by provider" })
@@ -254,7 +216,7 @@ async function refreshExpiredUrls(
       await db
         .update(mlsMedia)
         .set({ attempts: sql`${mlsMedia.attempts} + 1`, lastError: String(error instanceof Error ? error.message : error).slice(0, 512) })
-        .where(and(eq(mlsMedia.feedId, feedId), inArray(mlsMedia.resourceKey, group.map(row => row.resourceKey)), eq(mlsMedia.status, "expired")));
+        .where(and(eq(mlsMedia.feedId, feedId), eq(mlsMedia.resourceKey, row.resourceKey), eq(mlsMedia.status, "expired")));
     }
   }
 }
@@ -286,8 +248,15 @@ export async function withLockRetry<T>(run: () => Promise<T>, attempts = 4): Pro
   }
 }
 
-async function claim(db: Db, feedIds: number[], claimToken: string, limit: number, scope: "active_cover" | "active_gallery" | "any" = "any") {
+/** SQL twin of isMlsGridCdnUrl; the download loop re-checks each link in JS. */
+const MLS_GRID_CDN_LIKE = "https://cdn-%.mlsgrid.com/%";
+
+async function claim(db: Db, feedIds: number[], claimToken: string, limit: number, scope: "active_cover" | "any" = "any", coverOnlyFeedIds: number[] = []) {
   const now = new Date();
+  // MLS Grid feeds download only cover photos, and only from CDN links.
+  const cdnCovers = coverOnlyFeedIds.length
+    ? sql`AND (${notInArray(mlsMedia.feedId, coverOnlyFeedIds)} OR (${mlsMedia.isPrimary} = 1 AND ${mlsMedia.sourceUrl} LIKE ${MLS_GRID_CDN_LIKE}))`
+    : sql``;
   await withLockRetry(() => db
     .update(mlsMedia)
     .set({ status: "expired", sourceUrl: null })
@@ -309,14 +278,10 @@ async function claim(db: Db, feedIds: number[], claimToken: string, limit: numbe
        ${scope === "active_cover" ? sql`AND ${mlsMedia.isPrimary} = 1 AND EXISTS (
          SELECT 1 FROM ${mlsListings} AS active_listing
           WHERE active_listing.id = ${mlsMedia.listingId}
-            AND active_listing.standardStatus = 'active'
-            AND active_listing.removedFromFeedAt IS NULL
-       )` : scope === "active_gallery" ? sql`AND ${mlsMedia.priority} = 0 AND EXISTS (
-         SELECT 1 FROM ${mlsListings} AS active_listing
-          WHERE active_listing.id = ${mlsMedia.listingId}
-            AND active_listing.standardStatus = 'active'
+         AND active_listing.standardStatus = 'active'
             AND active_listing.removedFromFeedAt IS NULL
        )` : sql``}
+       ${cdnCovers}
      ORDER BY ${mlsMedia.priority} ASC, ${mlsMedia.id} ASC
      LIMIT ${limit}`));
   return db
@@ -357,30 +322,19 @@ export async function runMediaBatch(
   // About six transfers per worker slot, so a batch's fixed claim/refresh
   // queries stay small next to its downloads (2 slots -> 50, 16 -> 96).
   const batchSize = options.batchSize ?? Math.max(50, lane.limits.mediaConcurrency * 6);
-  let rows = await claim(db, feedIds, claimToken, batchSize, "active_cover");
-  if (!rows.length && (options.refreshLimit ?? 20) > 0) {
-    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active" });
-    rows = await claim(db, feedIds, claimToken, batchSize, "active_cover");
+  // MLS Grid galleries display straight from CDN links; only covers download.
+  const coverOnly = feedIds.filter(id => feeds.get(id)!.feed.provider === "mls_grid");
+  const refreshLimit = options.refreshLimit ?? 20;
+  let rows = await claim(db, feedIds, claimToken, batchSize, "active_cover", coverOnly);
+  if (!rows.length && refreshLimit > 0) {
+    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: refreshLimit, priority: "active" });
+    rows = await claim(db, feedIds, claimToken, batchSize, "active_cover", coverOnly);
   }
-  if (!rows.length || rows.length < batchSize) {
-    // Automatically requested Active galleries run after Active covers, before
-    // under-contract covers or explicit non-Active galleries. A trickle of new
-    // covers (or one feed's cover backlog on a shared token) must not starve
-    // galleries: fill the batch with ready gallery photos first, and fetch new
-    // gallery links only once those run out, so ready links never pile up.
-    rows = await claim(db, feedIds, claimToken, batchSize - rows.length, "active_gallery"); // claim returns every row under this token
-    if (!rows.length || rows.length < batchSize) {
-      await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active_gallery" });
-      rows = await claim(db, feedIds, claimToken, batchSize - rows.length, "active_gallery");
-    }
-  }
-  if (!rows.length) {
-    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "gallery" });
-    rows = await claim(db, feedIds, claimToken, batchSize);
-  }
-  if (!rows.length && (options.refreshLimit ?? 20) > 0) {
-    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "market" });
-    rows = await claim(db, feedIds, claimToken, batchSize);
+  // claim returns every row under this token, so top-ups ask only for the rest.
+  if (rows.length < batchSize) rows = await claim(db, feedIds, claimToken, batchSize - rows.length, "any", coverOnly);
+  if (!rows.length && refreshLimit > 0) {
+    await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: refreshLimit, priority: "market" });
+    rows = await claim(db, feedIds, claimToken, batchSize, "any", coverOnly);
   }
   result.claimed = rows.length;
 
@@ -391,10 +345,17 @@ export async function runMediaBatch(
     }
     const ctx = feeds.get(row.feedId)!;
     const adapter = adapterFor(ctx.feed.provider);
-    // MLS Grid CDN links are reusable: a failed download keeps its link and
-    // retries after a backoff instead of spending an API call on a new one.
+    // MLS Grid CDN links are reusable: keep the link after storing (galleries
+    // display from it) and retry a failed download from the same link.
     const cdn = ctx.feed.provider === "mls_grid" && isMlsGridCdnUrl(row.sourceUrl);
-    const singleUse = adapter.capabilities.mediaUrlsExpire && !cdn;
+    if (ctx.feed.provider === "mls_grid" && !cdn) {
+      // Old one-hour MLS Grid links are dead; the CDN link backfill relinks the listing.
+      await db.update(mlsMedia).set({ status: "skipped", sourceUrl: null, claimedBy: null, lastError: "Not a CDN link" })
+        .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken)));
+      result.skipped += 1;
+      return;
+    }
+    const singleUse = adapter.capabilities.mediaUrlsExpire;
     try {
       const { data, contentType } = await downloadMedia(lane, row.sourceUrl!, await adapter.mediaHeaders(ctx), {
         signal: options.signal,
@@ -422,7 +383,7 @@ export async function runMediaBatch(
           bytes: data.length,
           mimeType: contentType.split(";")[0].slice(0, 64),
           storedAt: new Date(),
-          sourceUrl: null,
+          sourceUrl: cdn ? row.sourceUrl : null,
           sourceUrlExpiresAt: null,
           claimedBy: null,
           lastError: null,
@@ -441,19 +402,14 @@ export async function runMediaBatch(
     } catch (error) {
       const message = redactUrl(String(error instanceof Error ? error.message : error)).slice(0, 512);
       const gone = error instanceof FatalHttpError && [403, 404, 410].includes(error.status);
-      if (singleUse || (cdn && gone)) {
-        // A 429 on the old host means THIS image was already accessed. Even a
-        // freshly queried URL for the same MediaKey cannot be used this hour.
-        // A CDN link the CDN no longer serves is re-linked from the API, which
-        // also drops the photo if the listing no longer has that MediaKey.
-        const duplicate429 = ctx.feed.provider === "mls_grid" && error instanceof RetryableHttpError &&
-          error.status === 429 && new URL(row.sourceUrl!).hostname === "media.mlsgrid.com";
+      if (singleUse) {
+        // An expiring link is re-requested from the provider before a retry.
         await db
           .update(mlsMedia)
           .set({
             status: row.attempts >= MAX_ATTEMPTS ? "failed" : "expired",
             sourceUrl: null, claimedBy: null, lastError: message,
-            nextAttemptAt: duplicate429 ? new Date(Date.now() + 65 * 60_000) : null,
+            nextAttemptAt: null,
           })
           .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken)));
         if (row.attempts >= MAX_ATTEMPTS) result.failed += 1;

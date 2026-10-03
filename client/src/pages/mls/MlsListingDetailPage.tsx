@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ImgHTMLAttributes } from "react";
 import { Link, useParams } from "wouter";
 import { AlertTriangle, ArrowLeft, Bath, BedDouble, CalendarDays, ChevronLeft, ChevronRight, Clock, Code2, ExternalLink, History, ImageOff, Loader2, MapPin, Maximize2, Ruler, Trees } from "lucide-react";
 import { CircleMarker, MapContainer, TileLayer } from "react-leaflet";
@@ -50,6 +50,24 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
 
 const yesNo = (value: boolean | null | undefined) => (value === null || value === undefined ? null : value ? "Yes" : "No");
 
+type GalleryPhoto = MlsListingDetail["media"][number];
+
+/** Shows the MLS Grid CDN link and falls back to our stored copy if the CDN stops serving it. */
+function PhotoImg({ photo, ...props }: { photo: GalleryPhoto } & Omit<ImgHTMLAttributes<HTMLImageElement>, "src">) {
+  const [useFallback, setUseFallback] = useState(false);
+  const src = useFallback && photo.fallbackUrl ? photo.fallbackUrl : photo.url!;
+  return (
+    <img
+      {...props}
+      src={src}
+      onError={event => {
+        if (!useFallback && photo.fallbackUrl) setUseFallback(true);
+        props.onError?.(event);
+      }}
+    />
+  );
+}
+
 function Gallery({ media, alt }: { media: MlsListingDetail["media"]; alt: string }) {
   const [index, setIndex] = useState(0);
   const [fullScreen, setFullScreen] = useState(false);
@@ -82,7 +100,7 @@ function Gallery({ media, alt }: { media: MlsListingDetail["media"]; alt: string
     return (
       <div className="flex aspect-[16/9] w-full flex-col items-center justify-center gap-2 rounded-lg bg-muted text-sm text-muted-foreground">
         <ImageOff className="h-6 w-6" />
-        No stored photos yet
+        No photos available yet
       </div>
     );
   }
@@ -90,7 +108,7 @@ function Gallery({ media, alt }: { media: MlsListingDetail["media"]; alt: string
   return (
     <div className="min-w-0 space-y-2">
       <div className="relative aspect-[16/9] w-full overflow-hidden rounded-lg bg-black">
-        <img src={current.url!} alt={current.caption ?? alt} loading="eager" fetchPriority="high" decoding="async" onLoad={() => setFirstPhotoReady(true)} className="h-full w-full object-contain" />
+        <PhotoImg key={current.id} photo={current} alt={current.caption ?? alt} loading="eager" fetchPriority="high" decoding="async" onLoad={() => setFirstPhotoReady(true)} className="h-full w-full object-contain" />
         {photos.length > 1 ? (
           <>
             <button type="button" className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-1.5 shadow" onClick={() => go(-1)} aria-label="Previous photo">
@@ -108,7 +126,7 @@ function Gallery({ media, alt }: { media: MlsListingDetail["media"]; alt: string
       <div ref={reel} className="relative flex gap-1.5 overflow-x-auto scroll-smooth pb-1" aria-label="Listing photo thumbnails">
         {photos.map((photo, photoIndex) => (
           <button key={photo.id} data-photo-index={photoIndex} type="button" aria-label={`Show photo ${photoIndex + 1} of ${photos.length}`} aria-current={photoIndex === currentIndex ? "true" : undefined} onClick={() => setIndex(photoIndex)} className={`h-14 w-20 shrink-0 overflow-hidden rounded border-2 bg-slate-100 ${photoIndex === currentIndex ? "border-primary" : "border-transparent"}`}>
-            {firstPhotoReady && visibleThumbs.has(photoIndex) ? <img src={photo.url!} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover" /> : <span className="text-xs text-slate-500">{photoIndex + 1}</span>}
+            {firstPhotoReady && visibleThumbs.has(photoIndex) ? <PhotoImg photo={photo} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover" /> : <span className="text-xs text-slate-500">{photoIndex + 1}</span>}
           </button>
         ))}
       </div>
@@ -116,7 +134,7 @@ function Gallery({ media, alt }: { media: MlsListingDetail["media"]; alt: string
         <DialogContent className="flex h-[min(94dvh,960px)] w-[96vw] max-w-none flex-col gap-2 overflow-hidden border-slate-700 bg-slate-950 p-3 text-white sm:max-w-[min(96vw,1600px)]" onKeyDown={event => { if (event.key === "ArrowRight") go(1); if (event.key === "ArrowLeft") go(-1); }}>
           <DialogTitle className="pr-10 text-sm font-semibold">{alt} · Photo {currentIndex + 1} of {photos.length}</DialogTitle>
           <div className="relative flex min-h-0 flex-1 items-center justify-center">
-            <img src={current.url!} alt={current.caption ?? `${alt}, photo ${currentIndex + 1}`} loading="eager" fetchPriority="high" decoding="async" className="max-h-full max-w-full object-contain" />
+            <PhotoImg key={current.id} photo={current} alt={current.caption ?? `${alt}, photo ${currentIndex + 1}`} loading="eager" fetchPriority="high" decoding="async" className="max-h-full max-w-full object-contain" />
             {photos.length > 1 ? <>
               <button type="button" aria-label="Previous photo" onClick={() => go(-1)} className="absolute left-1 top-1/2 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white"><ChevronLeft className="h-6 w-6" /></button>
               <button type="button" aria-label="Next photo" onClick={() => go(1)} className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white"><ChevronRight className="h-6 w-6" /></button>
@@ -162,17 +180,7 @@ function RawPayload({ listingId }: { listingId: number }) {
 export default function MlsListingDetailPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  // Only the worker requests MLS Grid media. This admin page polls SavvyOS
-  // while its automatic Active gallery (or an explicit request) is queued.
-  const [galleryPollUntil, setGalleryPollUntil] = useState(0);
-  const galleryPolling = galleryPollUntil > Date.now();
-  const query = trpc.mlsProperties.listing.useQuery({ id }, {
-    enabled: Number.isFinite(id) && id > 0,
-    refetchInterval: current => current.state.data?.galleryQueued || galleryPolling ? 10_000 : false,
-  });
-  const requestGallery = trpc.mlsProperties.requestGallery.useMutation({
-    onSuccess: () => { setGalleryPollUntil(Date.now() + 120_000); void query.refetch(); },
-  });
+  const query = trpc.mlsProperties.listing.useQuery({ id }, { enabled: Number.isFinite(id) && id > 0 });
 
   const data = query.data;
   const features = useMemo(() => Object.entries((data?.listing.features ?? {}) as Record<string, string[]>).filter(([, values]) => values?.length), [data]);
@@ -199,11 +207,8 @@ export default function MlsListingDetailPage() {
   const status = statusStyle(listing.standardStatus);
   const price = displayPrice(listing);
   const freshness = feed ? FRESHNESS_STYLES[feed.freshness] : null;
-  const storedPhotos = data.media.filter(photo => photo.url).length;
-  const ownStoredPhotos = data.mediaProvenance ? Number(data.mediaStatus.stored ?? 0) : storedPhotos;
+  const photoCount = data.media.filter(photo => photo.url).length;
   const expectedPhotos = Number(listing.photosCount ?? 0);
-  const galleryComplete = expectedPhotos > 0 && ownStoredPhotos >= expectedPhotos;
-  const galleryQueued = data.galleryQueued;
   const informationalOptOuts = display?.optOuts.filter(text => /consumer comments|automated valuations/i.test(text)) ?? [];
   const urgentOptOuts = display?.optOuts.filter(text => !/consumer comments|automated valuations/i.test(text)) ?? [];
 
@@ -244,18 +249,12 @@ export default function MlsListingDetailPage() {
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.85fr)]">
         <div className="min-w-0 space-y-4">
           <Gallery media={data.media} alt={addressLine(listing)} />
-          <div className="flex flex-wrap items-center gap-2">
-            {data.mediaProvenance ? <span className="text-xs text-teal-800">Showing {storedPhotos} photos from the licensed {source?.shortName} IDX copy while BBO photos import.</span> : null}
-            {galleryComplete ? <span className="text-sm text-muted-foreground">All {ownStoredPhotos} available photos stored</span> : galleryQueued ? (
-              <span className="text-sm text-muted-foreground">Importing BBO photos · {ownStoredPhotos}{expectedPhotos ? ` of ${expectedPhotos}` : ""} ready</span>
-            ) : (
-              <Button type="button" variant="outline" size="sm" disabled={requestGallery.isPending || galleryPolling} onClick={() => requestGallery.mutate({ id })}>
-                {requestGallery.isPending ? "Queuing photos..." : galleryPolling ? "Photos requested" : listing.standardStatus === "active" ? "Prioritize photos now" : "Load available photos"}
-              </Button>
-            )}
-            {!galleryComplete ? <span className="text-xs text-muted-foreground">{listing.standardStatus === "active" ? "All Active listing photos are prioritized automatically. Downloads may take time." : "Other galleries load on request and may take time."}</span> : null}
-            {requestGallery.error ? <span className="text-xs text-destructive">{requestGallery.error.message}</span> : null}
-          </div>
+          {data.mediaProvenance || expectedPhotos > photoCount ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {data.mediaProvenance ? <span className="text-teal-800">Showing {photoCount} photos from the licensed {source?.shortName} IDX copy.</span> : null}
+              {!data.mediaProvenance && expectedPhotos > photoCount ? <span className="text-muted-foreground">{photoCount} of {expectedPhotos} photos linked so far. The rest appear automatically.</span> : null}
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {[

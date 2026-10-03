@@ -59,11 +59,15 @@ const state = {
 
 let server: Server;
 let base = "";
+// MLS Grid photos now come only from its CDN. The mock serves them on a
+// CDN-shaped host that a stubbed fetch routes to the local server.
+const CDN_TEST_HOST = "cdn-e2e.mlsgrid.com";
+const realFetch = globalThis.fetch;
 
 function withMediaUrls(record: Record_) {
   return {
     ...record,
-    Media: (record.Media ?? []).map((item: Record_) => ({ ...item, MediaURL: `${base}/media/${item.MediaKey}.jpg?sig=${Math.random()}` })),
+    Media: (record.Media ?? []).map((item: Record_) => ({ ...item, MediaURL: `https://${CDN_TEST_HOST}/media/${item.MediaKey}.jpg` })),
   };
 }
 
@@ -143,6 +147,11 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     await new Promise<void>(resolve => server.listen(0, "127.0.0.1", () => resolve()));
     const address = server.address();
     base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+    globalThis.fetch = (async (input: any, init?: any) => {
+      const target = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      if (target.hostname === CDN_TEST_HOST) return realFetch(`${base}${target.pathname}${target.search}`, init);
+      return realFetch(input, init);
+    }) as typeof fetch;
 
     const url = new URL(DATABASE_URL!);
     const dbName = url.pathname.replace(/^\//, "");
@@ -205,6 +214,7 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
   }, 60_000);
 
   afterAll(async () => {
+    globalThis.fetch = realFetch;
     await admin?.end().catch(() => undefined);
     const pool = (modules?.db as any)?._pool;
     await pool?.end?.().catch?.(() => undefined);
@@ -368,23 +378,26 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(String(plan.Extra)).toContain("Using index");
   });
 
-  it("downloads photos into our storage with the token as User-Agent", async () => {
+  it("downloads only MLS Grid cover photos, keeps every CDN link for display, and sends the token as User-Agent", async () => {
     const pending = await q("SELECT COUNT(*) AS count FROM mls_media WHERE status = 'pending'");
-    expect(Number(pending[0].count)).toBe(6);
+    expect(Number(pending[0].count)).toBe(3);
+    const gallery = await q<any>("SELECT status, sourceUrl, sourceUrlExpiresAt FROM mls_media WHERE isPrimary = 0");
+    expect(gallery).toHaveLength(3);
+    expect(gallery.every(row => row.status === "skipped" && row.sourceUrl?.startsWith(`https://${CDN_TEST_HOST}/`) && row.sourceUrlExpiresAt === null)).toBe(true);
     const { feed } = (await modules.engine.loadFeedContext(feedId))!;
     const adapter = modules.adapters.adapterFor("mls_grid");
     const lane = modules.http.getLane("mls_grid", feed.credentialRef, adapter.limits(feed));
     const ctx = (await modules.engine.loadFeedContext(feedId))!;
-    const first = await modules.media.runMediaBatch(lane, [ctx], "e2e", { batchSize: 50 });
+    const first = await modules.media.runMediaBatch(lane, [ctx], "e2e", { batchSize: 2 });
     expect(first.stored).toBe(2);
     const firstPhotos = await q<any>("SELECT resourceKey, isPrimary FROM mls_media WHERE status = 'stored'");
     expect(firstPhotos.every(row => !!row.isPrimary && ["CAR100", "CAR200"].includes(row.resourceKey))).toBe(true);
     const remaining = await modules.media.runMediaBatch(lane, [ctx], "e2e", { batchSize: 50 });
-    expect(remaining.stored).toBe(4);
-    expect(stored.size).toBe(6);
+    expect(remaining.stored).toBe(1);
+    expect(stored.size).toBe(3);
     expect(state.mediaUserAgents.every(agent => agent === TOKEN)).toBe(true);
-    const media = await q("SELECT status, sourceUrl, url FROM mls_media");
-    expect(media.every(row => row.status === "stored" && row.sourceUrl === null && row.url?.startsWith("https://cdn.test/"))).toBe(true);
+    const covers = await q("SELECT status, sourceUrl, url FROM mls_media WHERE isPrimary = 1");
+    expect(covers.every(row => row.status === "stored" && row.sourceUrl?.startsWith(`https://${CDN_TEST_HOST}/`) && row.url?.startsWith("https://cdn.test/"))).toBe(true);
     const [listing100] = await q("SELECT primaryPhotoUrl FROM mls_listings WHERE listingNumber = '100'");
     expect(listing100.primaryPhotoUrl).toMatch(/^https:\/\/cdn\.test\//);
     const [storedPhoto] = await q("SELECT listingId, s3Key FROM mls_media WHERE status = 'stored' LIMIT 1");
@@ -392,41 +405,36 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(plan.find(row => row.table === "m")?.key).toBe("mls_media_listing_idx");
   }, 60_000);
 
-  it("does not redownload an immutable MLS Grid MediaKey or bypass a duplicate-image cooldown", async () => {
+  it("never redownloads an unchanged MediaKey and never fetches a non-CDN MLS Grid link", async () => {
     const ctx = (await modules.engine.loadFeedContext(feedId))!;
     const adapter = modules.adapters.adapterFor("mls_grid");
     const record = withMediaUrls(state.properties.find(row => row.ListingKey === "CAR100")!);
     record.Media = record.Media.map((item: Record_) => ({ ...item, MediaModificationTimestamp: "2026-09-26T05:00:00Z" }));
     await modules.store.processRecords(ctx, adapter, "Property", [record], { overrides: [], metadataLocalFields: null, force: true });
-    const first = await q("SELECT status FROM mls_media WHERE feedId = ? AND resourceKey = 'CAR100'", [feedId]);
-    expect(first.every(row => row.status === "stored")).toBe(true);
+    const first = await q<any>("SELECT status, isPrimary FROM mls_media WHERE feedId = ? AND resourceKey = 'CAR100' ORDER BY isPrimary DESC", [feedId]);
+    expect(first.map(row => row.status)).toEqual(["stored", "skipped"]);
 
-    const [photo] = await q("SELECT id FROM mls_media WHERE feedId = ? AND resourceKey = 'CAR100' LIMIT 1", [feedId]);
+    const [photo] = await q<any>("SELECT id, sourceUrl FROM mls_media WHERE feedId = ? AND resourceKey = 'CAR100' AND isPrimary = 1", [feedId]);
     try {
-      await admin.query("UPDATE mls_media SET status = 'pending', sourceUrl = 'https://media.mlsgrid.com/images/already-used.jpg', attempts = 0, nextAttemptAt = NULL WHERE id = ?", [photo.id]);
+      await admin.query("UPDATE mls_media SET status = 'pending', sourceUrl = 'https://media.mlsgrid.com/images/old-one-hour-link.jpg', attempts = 0, nextAttemptAt = NULL WHERE id = ?", [photo.id]);
       const lane = modules.http.getLane("mls_grid", ctx.feed.credentialRef, adapter.limits(ctx.feed));
-      const duplicate = await modules.media.runMediaBatch(lane, [ctx], "duplicate-e2e", {
-        batchSize: 2, refreshLimit: 0, fetchImpl: async () => new Response(null, { status: 429 }),
+      const fetched: string[] = [];
+      const batch = await modules.media.runMediaBatch(lane, [ctx], "old-link-e2e", {
+        batchSize: 2, refreshLimit: 0, fetchImpl: async (input: any) => { fetched.push(String(input)); return new Response(null, { status: 429 }); },
       });
-      expect(duplicate.expired).toBe(1);
-      expect(lane.api.snapshot().pausedForMs).toBe(0);
-      await modules.store.processRecords(ctx, adapter, "Property", [record], { overrides: [], metadataLocalFields: null, force: true });
-      const [cooling] = await q("SELECT status, nextAttemptAt, nextAttemptAt > UTC_TIMESTAMP() AS stillCooling FROM mls_media WHERE id = ?", [photo.id]);
-      expect(cooling.status).toBe("expired");
-      expect(cooling.nextAttemptAt).not.toBeNull();
-      expect(Number(cooling.stillCooling)).toBe(1);
-      const batch = await modules.media.runMediaBatch(lane, [ctx], "cooldown-e2e", { batchSize: 2 });
       expect(batch.claimed).toBe(0);
-      expect(batch.refreshed).toBe(0);
+      expect(fetched).toEqual([]);
+      expect(lane.api.snapshot().pausedForMs).toBe(0);
+      expect(lane.media.snapshot().pausedForMs).toBe(0);
     } finally {
-      await admin.query("UPDATE mls_media SET status = 'stored', sourceUrl = NULL, nextAttemptAt = NULL WHERE id = ?", [photo.id]);
+      await admin.query("UPDATE mls_media SET status = 'stored', sourceUrl = ?, nextAttemptAt = NULL WHERE id = ?", [photo.sourceUrl, photo.id]);
     }
   }, 60_000);
 
   it("keeps a reusable MLS Grid CDN link through a failed download and stores from it later", async () => {
     const ctx = (await modules.engine.loadFeedContext(feedId))!;
     const adapter = modules.adapters.adapterFor("mls_grid");
-    const [photo] = await q("SELECT id FROM mls_media WHERE feedId = ? AND resourceKey = 'CAR100' LIMIT 1", [feedId]);
+    const [photo] = await q<any>("SELECT id, sourceUrl FROM mls_media WHERE feedId = ? AND resourceKey = 'CAR100' AND isPrimary = 1", [feedId]);
     const cdnUrl = "https://cdn-savvystr.mlsgrid.com/images/CAR100/reusable.jpeg";
     try {
       await admin.query("UPDATE mls_media SET status = 'pending', sourceUrl = ?, sourceUrlExpiresAt = NULL, attempts = 0, nextAttemptAt = NULL WHERE id = ?", [cdnUrl, photo.id]);
@@ -458,9 +466,9 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       expect(requested).toEqual([cdnUrl]);
       const [stored] = await q("SELECT status, sourceUrl FROM mls_media WHERE id = ?", [photo.id]);
       expect(stored.status).toBe("stored");
-      expect(stored.sourceUrl).toBeNull();
+      expect(stored.sourceUrl).toBe(cdnUrl); // galleries keep displaying from it
     } finally {
-      await admin.query("UPDATE mls_media SET status = 'stored', sourceUrl = NULL, nextAttemptAt = NULL WHERE id = ?", [photo.id]);
+      await admin.query("UPDATE mls_media SET status = 'stored', sourceUrl = ?, nextAttemptAt = NULL WHERE id = ?", [photo.sourceUrl, photo.id]);
     }
   }, 60_000);
 
@@ -498,7 +506,7 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     const lane = modules.http.getLane("mls_grid", ctx.feed.credentialRef, adapter.limits(ctx.feed));
     const result = await modules.media.runMediaBatch(lane, [ctx], "e2e", { batchSize: 50 });
     expect(result.deleted).toBe(2);
-    expect(stored.size).toBe(4);
+    expect(stored.size).toBe(2);
   }, 60_000);
 
   it("skips unchanged records on a repeat pull", async () => {
@@ -611,7 +619,7 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(maris.media.nextWaitMs()).toBe(0);
   }, 60_000);
 
-  it("prefills the market, checks live changes, loads history without Media, and refreshes galleries in a batch", async () => {
+  it("prefills the market, checks live changes, loads history without Media, and never refreshes MLS Grid links per listing", async () => {
     const original = state.properties;
     try {
       state.properties = [
@@ -634,10 +642,12 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       const propertyRequests = state.requests.slice(before).filter(request => request.startsWith("/v2/Property?"));
       expect(propertyRequests.some(request => request.includes("StandardStatus in ("))).toBe(true);
       expect(propertyRequests.some(request => request.includes("MlgCanView eq true") && request.includes("$expand=Rooms,UnitTypes") && !request.includes("Media"))).toBe(true);
-      const media = await q<any>("SELECT resourceKey, status, isPrimary FROM mls_media WHERE feedId=?", [fast.id]);
-      expect(media.length).toBe(2);
-      expect(media.every(row => !!row.isPrimary && row.status === "pending")).toBe(true);
-      const priorities = await q<any>("SELECT resourceKey, priority FROM mls_media WHERE feedId=?", [fast.id]);
+      const media = await q<any>("SELECT resourceKey, status, isPrimary, sourceUrl FROM mls_media WHERE feedId=?", [fast.id]);
+      // Covers queue for download; galleries keep display-only CDN links.
+      expect(media.length).toBe(4);
+      expect(media.filter(row => !!row.isPrimary).map(row => row.status)).toEqual(["pending", "pending"]);
+      expect(media.filter(row => !row.isPrimary).every(row => row.status === "skipped" && row.sourceUrl?.startsWith(`https://${CDN_TEST_HOST}/`))).toBe(true);
+      const priorities = await q<any>("SELECT resourceKey, priority FROM mls_media WHERE feedId=? AND isPrimary=1", [fast.id]);
       expect(Object.fromEntries(priorities.map(row => [row.resourceKey, row.priority]))).toEqual({ CARfast1: 20, CARfast3: 1 });
       // Simulate rows queued by the old build: identical priority, older
       // under-contract ID. The worker must still claim Active first.
@@ -648,16 +658,19 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       const cover = await modules.media.runMediaBatch(coverLane, [coverCtx], "fast-cover-e2e", { batchSize: 1 });
       expect(cover.stored).toBe(1);
       expect(state.requests.slice(beforeCover).some(request => request.includes("ListingId in ("))).toBe(false);
-      const [activeCover] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND resourceKey='CARfast3'", [fast.id]);
-      const [underContractCover] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND resourceKey='CARfast1'", [fast.id]);
+      const [activeCover] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND isPrimary=1 AND resourceKey='CARfast3'", [fast.id]);
+      const [underContractCover] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND isPrimary=1 AND resourceKey='CARfast1'", [fast.id]);
       expect([activeCover.status, underContractCover.status]).toEqual(["stored", "pending"]);
+      // MLS Grid links never expire. A legacy expired row is not refreshed
+      // through the API one listing at a time (the CDN link backfill relinks
+      // it in 100-listing calls); the batch moves on to the next cover.
       await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL WHERE feedId=? AND resourceKey='CARfast3'", [fast.id]);
       const beforeExpiredActive = state.requests.length;
       const expiredActive = await modules.media.runMediaBatch(coverLane, [coverCtx], "fast-cover-e2e", { batchSize: 1 });
-      expect([expiredActive.refreshed, expiredActive.stored]).toEqual([1, 1]);
-      expect(state.requests.slice(beforeExpiredActive).some(request => request.includes("ListingId in ("))).toBe(true);
-      const [stillWaiting] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND resourceKey='CARfast1'", [fast.id]);
-      expect(stillWaiting.status).toBe("pending");
+      expect([expiredActive.refreshed, expiredActive.stored]).toEqual([0, 1]);
+      expect(state.requests.slice(beforeExpiredActive).some(request => request.includes("ListingId in ("))).toBe(false);
+      const [nextCover] = await q<any>("SELECT status FROM mls_media WHERE feedId=? AND isPrimary=1 AND resourceKey='CARfast1'", [fast.id]);
+      expect(nextCover.status).toBe("stored");
       const [cursor] = await q<any>("SELECT phase, highWaterMark FROM mls_sync_cursors WHERE feedId=? AND resource='Property'", [fast.id]);
       expect(cursor.phase).toBe("incremental");
       expect(new Date(cursor.highWaterMark).getTime()).toBeGreaterThan(Date.parse("2026-09-25"));
@@ -676,132 +689,77 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       const [stillPending] = await q<any>("SELECT standardStatus, listPrice FROM mls_listings WHERE feedId=? AND providerListingKey='CARfast1'", [fast.id]);
       expect([stillPending.standardStatus, Number(stillPending.listPrice)]).toEqual(["pending", 490000]);
       state.properties[0] = latest;
-
-      // Active and under-contract links are refreshed in separate batches so
-      // Active never waits behind the older record, even in refresh-only mode.
-      await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL, attempts=0 WHERE feedId=?", [fast.id]);
-      const lane = modules.http.getLane("mls_grid", "E2EGRID", modules.adapters.adapterFor("mls_grid").limits({ options: null } as any));
-      const ctx = (await modules.engine.loadFeedContext(fast.id))!;
-      const refreshStart = state.requests.length;
-      const batch = await modules.media.runMediaBatch(lane, [ctx], "fast-e2e", { batchSize: 0 });
-      expect(batch.refreshed).toBe(2);
-      expect(state.requests.slice(refreshStart).filter(request => request.includes("ListingId in ("))).toHaveLength(2);
-
-      const [market] = await q<any>("SELECT id, providerListingKey FROM mls_listings WHERE feedId=? AND providerListingKey='CARfast1'", [fast.id]);
-      await admin.query("INSERT INTO mls_media (feedId, listingId, resourceKey, mediaKey, status, priority) VALUES (?, ?, ?, '__gallery_request__', 'expired', 0)", [fast.id, market.id, market.providerListingKey]);
-      const gallery = await modules.media.runMediaBatch(lane, [ctx], "fast-e2e", { batchSize: 0 });
-      expect(gallery.refreshed).toBe(1);
-      const images = await q<any>("SELECT status, priority FROM mls_media WHERE feedId=? AND resourceKey=? AND mediaKey<>'__gallery_request__'", [fast.id, market.providerListingKey]);
-      expect(images.length).toBe(2);
-      expect(images.every(image => image.priority === 0)).toBe(true);
     } finally {
       state.properties = original;
     }
   }, 90_000);
 
-  it("backfills complete Active galleries with distinct markers and batched MLS Grid refreshes", async () => {
+  it("relinks older MLS Grid listings to CDN photo links in batched calls and retires the old gallery queue", async () => {
     const original = state.properties;
+    const cdnLinks = await import("./cdnLinks");
     try {
-      state.properties = ["gallery1", "gallery2"].map((key, index) => listing(key, {
+      state.properties = ["link1", "link2", "link3"].map((key, index) => listing(key, {
         ModificationTimestamp: `2026-09-25T1${index}:00:00.000Z`,
         StreetNumber: String(80 + index), PhotosCount: 3,
+        StandardStatus: index === 2 ? "Closed" : "Active",
         Media: [1, 2, 3].map(order => ({ MediaKey: `CAR${key}-${order}`, Order: order, MediaCategory: "Photo", MediaURL: "" })),
       }));
       const [source] = await q("SELECT id FROM mls_sources WHERE code='canopy'");
       await admin.query(
         `INSERT INTO mls_feeds (sourceId, name, provider, feedType, baseUrl, originatingSystemName, keyPrefix, credentialRef, resources, options, enabled, mediaPolicy, syncIntervalMinutes, retentionPolicy)
-         VALUES (?, 'Active gallery test', 'mls_grid', 'vow', ?, 'carolina', 'CAR', 'E2EGRID', ?, ?, true, 'primary_only', 5, 'purge')`,
+         VALUES (?, 'CDN link test', 'mls_grid', 'vow', ?, 'carolina', 'CAR', 'E2EGRID', ?, ?, true, 'all', 5, 'purge')`,
         [source.id, `${base}/v2`, JSON.stringify(["Property"]), JSON.stringify({ fastImportV1: true, license: { approved: true, internalUse: true, reference: "SYNTHETIC TEST FIXTURE ONLY" } })]
       );
-      const [feed] = await q<any>("SELECT id FROM mls_feeds WHERE name='Active gallery test'");
-      expect((await modules.engine.runFeedCycle(feed.id, { workerId: "gallery-e2e" })).ok).toBe(true);
+      const [feed] = await q<any>("SELECT id FROM mls_feeds WHERE name='CDN link test'");
+      expect((await modules.engine.runFeedCycle(feed.id, { workerId: "cdn-link-e2e" })).ok).toBe(true);
       const ctx = (await modules.engine.loadFeedContext(feed.id))!;
       const db = (await modules.db.getDb())!;
-      const { queueActiveGalleries } = await import("./activeGallery");
-      const { galleryMarkerKey } = await import("./gallery");
-      expect(await queueActiveGalleries(db, ctx)).toEqual({ scanned: 2, queued: 2 });
-      expect(await queueActiveGalleries(db, ctx)).toEqual({ scanned: 0, queued: 0 });
-      const markers = await q<any>("SELECT listingId, mediaKey FROM mls_media WHERE feedId=? AND mediaKey LIKE '__gallery_request__:%' ORDER BY listingId", [feed.id]);
-      expect(markers).toHaveLength(2);
-      expect(markers.map(row => row.mediaKey)).toEqual(markers.map(row => galleryMarkerKey(Number(row.listingId))));
-
       const lane = modules.http.getLane("mls_grid", "E2EGRID", modules.adapters.adapterFor("mls_grid").limits(ctx.feed));
-      const before = state.requests.length;
-      const refreshed = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 0 });
-      expect(refreshed.refreshed).toBe(2);
-      expect(state.requests.slice(before).filter(request => request.includes("ListingId in ("))).toHaveLength(1);
-      const images = await q<any>("SELECT listingId, status, priority FROM mls_media WHERE feedId=? AND mediaKey NOT LIKE '__gallery_request__:%'", [feed.id]);
-      expect(images).toHaveLength(6);
-      expect(images.every(row => row.priority === 0)).toBe(true);
-      let totalStored = 0;
-      for (let i = 0; i < 4; i++) {
-        totalStored += (await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6, refreshLimit: 0 })).stored;
-        if (totalStored >= 6) break;
-      }
-      expect(totalStored).toBe(6);
-      const perListing = await q<any>("SELECT listingId, COUNT(*) AS photos FROM mls_media WHERE feedId=? AND status='stored' GROUP BY listingId ORDER BY listingId", [feed.id]);
-      expect(perListing.map(row => Number(row.photos))).toEqual([3, 3]);
 
-      // Gallery links that lapsed before download (old throttle, 429 pause)
-      // stay priority 0 and expired. They must be re-linked, not stranded.
-      const [first] = await q<any>("SELECT listingId FROM mls_media WHERE feedId=? AND status='stored' ORDER BY listingId LIMIT 1", [feed.id]);
-      await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL, attempts=1, nextAttemptAt=NULL WHERE feedId=? AND listingId=?", [feed.id, first.listingId]);
-      const relinked = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 0 });
-      expect(relinked.refreshed).toBe(1);
-      const ready = await q<any>("SELECT status, priority, sourceUrl IS NOT NULL AS hasUrl FROM mls_media WHERE feedId=? AND listingId=?", [feed.id, first.listingId]);
-      expect(ready).toHaveLength(3);
-      expect(ready.every(row => row.status === "pending" && row.priority === 0 && Number(row.hasUrl) === 1)).toBe(true);
-      // One batch takes the Active cover AND fills the rest with its gallery.
-      const filled = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6, refreshLimit: 0 });
-      expect(filled.claimed).toBe(3);
-      expect(filled.stored).toBe(3);
+      // Fresh sync: covers queue for download, galleries keep CDN links only.
+      const fresh = await q<any>("SELECT isPrimary, status, sourceUrl FROM mls_media WHERE feedId=? ORDER BY listingId, isPrimary DESC, id", [feed.id]);
+      expect(fresh).toHaveLength(6);
+      expect(fresh.every(row => row.sourceUrl?.startsWith(`https://${CDN_TEST_HOST}/`))).toBe(true);
+      expect(fresh.map(row => row.status)).toEqual(["pending", "skipped", "skipped", "pending", "skipped", "skipped"]);
+      const downloaded = await modules.media.runMediaBatch(lane, [ctx], "cdn-link-e2e", { batchSize: 10 });
+      expect([downloaded.claimed, downloaded.stored]).toEqual([2, 2]);
 
-      // Shared token: one listing has a fresh cover ready while another
-      // listing's gallery is stranded. The cover must not block the re-link.
-      const [second] = await q<any>("SELECT listingId FROM mls_media WHERE feedId=? AND listingId<>? AND status='stored' LIMIT 1", [feed.id, first.listingId]);
-      await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL, nextAttemptAt=NULL WHERE feedId=? AND listingId=?", [feed.id, second.listingId]);
+      // Simulate listings synced before the CDN switch: links gone, gallery
+      // downloads still queued, plus a legacy gallery marker and scan cursor.
+      const listings = await q<any>("SELECT id, providerListingKey FROM mls_listings WHERE feedId=? AND standardStatus='active' ORDER BY id", [feed.id]);
+      await admin.query("UPDATE mls_media SET sourceUrl=NULL, status=IF(isPrimary=1, 'stored', 'expired'), priority=IF(isPrimary=1, 1, 0) WHERE feedId=?", [feed.id]);
       await admin.query(
-        "UPDATE mls_media SET status='pending', sourceUrl=CONCAT(?, '/media/', mediaKey, '.jpg'), sourceUrlExpiresAt=UTC_TIMESTAMP() + INTERVAL 30 MINUTE WHERE feedId=? AND listingId=? AND isPrimary=1",
-        [base, feed.id, first.listingId]
+        "INSERT INTO mls_media (feedId, listingId, resourceKey, mediaKey, status, priority) VALUES (?, ?, ?, ?, 'expired', 0)",
+        [feed.id, listings[0].id, listings[0].providerListingKey, `__gallery_request__:${listings[0].id}`]
       );
-      const fair = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6 });
-      expect(fair.refreshed).toBe(1);
-      expect(fair.claimed).toBe(4);
-      expect(fair.stored).toBe(4);
+      await admin.query("INSERT INTO mls_sync_cursors (feedId, resource, phase) VALUES (?, 'ActiveGallery', 'initial')", [feed.id]);
 
-      // An empty refresh stage is skipped briefly instead of rescanning the
-      // whole expired backlog every batch, then resumes.
-      process.env.MLS_MEDIA_EMPTY_REFRESH_TTL_MS = "60000";
-      try {
-        modules.media.resetEmptyRefreshCache();
-        expect((await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6 })).refreshed).toBe(0);
-        await admin.query("UPDATE mls_media SET status='expired', sourceUrl=NULL, nextAttemptAt=NULL WHERE feedId=? AND listingId=? AND isPrimary=1", [feed.id, first.listingId]);
-        const apiBefore = state.requests.filter(request => request.includes("ListingId in (")).length;
-        const skipped = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6 });
-        expect(skipped.refreshed).toBe(0);
-        expect(state.requests.filter(request => request.includes("ListingId in (")).length).toBe(apiBefore);
-        modules.media.resetEmptyRefreshCache();
-        const resumed = await modules.media.runMediaBatch(lane, [ctx], "gallery-e2e", { batchSize: 6 });
-        expect(resumed.refreshed).toBe(1);
-        expect(resumed.stored).toBe(1);
-      } finally {
-        process.env.MLS_MEDIA_EMPTY_REFRESH_TTL_MS = "0";
-        modules.media.resetEmptyRefreshCache();
-      }
+      cdnLinks.resetLegacyGalleryRetirement();
+      expect(await cdnLinks.retireLegacyGalleryQueue(db, [feed.id])).toEqual({ removed: 1, stopped: 4 });
+      expect(await cdnLinks.retireLegacyGalleryQueue(db, [feed.id])).toEqual({ removed: 0, stopped: 0 });
+      expect(await q("SELECT id FROM mls_sync_cursors WHERE feedId=? AND resource='ActiveGallery'", [feed.id])).toHaveLength(0);
+      expect((await modules.media.runMediaBatch(lane, [ctx], "cdn-link-e2e", { batchSize: 10 })).claimed).toBe(0);
 
-      // Priority-0 photos left by a listing that is no longer Active can never
-      // download through the Active gallery stage, so they must not count
-      // against the scanner's queue cap (they held Canopy's queue near full).
-      await admin.query("UPDATE mls_listings SET standardStatus='closed' WHERE id=?", [second.listingId]);
-      await admin.query("UPDATE mls_media SET status='expired', priority=0, sourceUrl=NULL, attempts=1, nextAttemptAt=NULL WHERE feedId=? AND listingId=?", [feed.id, second.listingId]);
-      const [missing] = await q<any>("SELECT id FROM mls_media WHERE feedId=? AND listingId=? AND status='stored' AND isPrimary=0 LIMIT 1", [feed.id, first.listingId]);
-      await admin.query("DELETE FROM mls_media WHERE id=?", [missing.id]);
-      await admin.query("DELETE FROM mls_sync_cursors WHERE feedId=? AND resource='ActiveGallery'", [feed.id]);
-      const stranded = await q<any>("SELECT COUNT(*) AS n FROM mls_media WHERE feedId=? AND listingId=? AND status='expired' AND priority=0", [feed.id, second.listingId]);
-      expect(Number(stranded[0].n)).toBe(3);
-      expect(await queueActiveGalleries(db, ctx, { maxQueued: 3 })).toEqual({ scanned: 1, queued: 1 });
-      // Real Active photos still count: the new marker fills a 1-photo cap.
-      expect(await queueActiveGalleries(db, ctx, { maxQueued: 1 })).toEqual({ scanned: 0, queued: 0 });
+      // The backfill re-reads on-market listings missing links, one batched
+      // ListingId call per group, and resumes from its cursor.
+      const apiCalls = () => state.requests.filter(request => request.includes("ListingId in (")).length;
+      const before = apiCalls();
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx, { scanSize: 1 })).toEqual({ scanned: 1, relinked: 1, requests: 1, done: false });
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 1, relinked: 1, requests: 1, done: false });
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 0, relinked: 0, requests: 0, done: true });
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 0, relinked: 0, requests: 0, done: true });
+      expect(apiCalls() - before).toBe(2);
+      const relinked = await q<any>("SELECT isPrimary, status, sourceUrl, url FROM mls_media WHERE feedId=? ORDER BY listingId, isPrimary DESC, id", [feed.id]);
+      expect(relinked).toHaveLength(6);
+      expect(relinked.every(row => row.sourceUrl?.startsWith(`https://${CDN_TEST_HOST}/`))).toBe(true);
+      // Saved cover copies are kept; galleries stay display-only.
+      expect(relinked.map(row => row.status)).toEqual(["stored", "skipped", "skipped", "stored", "skipped", "skipped"]);
+      expect(relinked.filter(row => row.isPrimary).every(row => row.url?.startsWith("https://cdn.test/"))).toBe(true);
+
+      // A rescan of fully linked listings costs no API calls.
+      await admin.query("DELETE FROM mls_sync_cursors WHERE feedId=? AND resource=?", [feed.id, cdnLinks.CDN_LINK_RESOURCE]);
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 2, relinked: 0, requests: 0, done: false });
+      expect(apiCalls() - before).toBe(2);
     } finally {
       state.properties = original;
     }
