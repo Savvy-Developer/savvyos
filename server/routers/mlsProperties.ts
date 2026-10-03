@@ -682,7 +682,10 @@ export const mlsPropertiesRouter = router({
       .where(and(eq(mlsFeeds.sourceId, values.sourceId), eq(mlsFeeds.provider, values.provider), eq(mlsFeeds.feedType, values.feedType)))
       .limit(1);
     if (duplicate) throw new TRPCError({ code: "CONFLICT", message: "This source already has a feed for that provider and license type." });
-    const result = await db.insert(mlsFeeds).values({ ...values, createdById: (ctx.user as any).id });
+    // New feeds import on-market listings first when the adapter supports it.
+    const staged = adapterFor(values.provider).capabilities.stagedImport === true;
+    const options = { fastImportV1: staged, ...((values.options as Record<string, unknown> | null) ?? {}) };
+    const result = await db.insert(mlsFeeds).values({ ...values, options, createdById: (ctx.user as any).id });
     return { id: Number((result as any)[0]?.insertId) };
   }),
 

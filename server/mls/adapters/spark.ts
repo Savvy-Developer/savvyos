@@ -1,6 +1,7 @@
 import { readCredential } from "../credentials";
 import {
   buildODataUrl,
+  marketStatusFilter,
   odataString,
   extractResoMedia,
   readOption,
@@ -44,6 +45,13 @@ function token(ctx: FeedContext) {
   return value;
 }
 
+/**
+ * Spark serves human-readable lookups; both spellings are listed so a string
+ * field matches either way. A server that rejects the clause falls back to
+ * the plain full import (engine), or a feed can set options.priorityFilter.
+ */
+const SPARK_MARKET_STATUSES = ["Active", "Active Under Contract", "ActiveUnderContract", "Coming Soon", "ComingSoon", "Pending"];
+
 export const sparkAdapter: MlsAdapter = {
   provider: "spark",
   defaultBaseUrl: "https://replication.sparkapi.com/Reso/OData",
@@ -55,6 +63,7 @@ export const sparkAdapter: MlsAdapter = {
     mediaUrlsExpire: false,
     maxReplicationGapDays: null,
     initialOrderedByTimestamp: false,
+    stagedImport: true,
   },
   limits(feed) {
     const safety = readOption(feed, "rateSafety", 0.9);
@@ -86,6 +95,7 @@ export const sparkAdapter: MlsAdapter = {
     if (cursor.phase === "incremental" && cursor.highWaterMark) {
       filters.push(`ModificationTimestamp gt ${cursor.highWaterMark}`, `ModificationTimestamp lt ${windowEnd}`);
     }
+    if (resource === "Property" && cursor.stage === "priority") filters.push(marketStatusFilter(ctx.feed, SPARK_MARKET_STATUSES));
     return buildODataUrl(ctx.feed.baseUrl, resource, {
       $filter: filters.length ? filters.join(" and ") : null,
       $expand: EXPAND[resource],

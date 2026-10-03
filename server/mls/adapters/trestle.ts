@@ -3,8 +3,10 @@ import { readCredential } from "../credentials";
 import {
   buildODataUrl,
   extractResoMedia,
+  marketStatusFilter,
   odataString,
   readOption,
+  type CursorState,
   type FeedContext,
   type MlsAdapter,
   type MlsResource,
@@ -129,6 +131,18 @@ function pageSize(feed: MlsFeed) {
   return Math.min(readOption(feed, "pageSize", 1000), 1000);
 }
 
+/** Trestle returns Data Dictionary lookup values without spaces. */
+const TRESTLE_MARKET_STATUSES = ["Active", "ActiveUnderContract", "ComingSoon", "Pending"];
+
+function stageFilters(ctx: FeedContext, resource: MlsResource, cursor: CursorState) {
+  return resource === "Property" && cursor.stage === "priority" ? [marketStatusFilter(ctx.feed, TRESTLE_MARKET_STATUSES)] : [];
+}
+
+/** The replication endpoint is for the full pass; the priority stage pages by keyset. */
+function replicates(ctx: FeedContext, cursor: CursorState) {
+  return cursor.phase === "initial" && cursor.stage !== "priority" && readOption(ctx.feed, "useReplicationEndpoint", false);
+}
+
 export const trestleAdapter: MlsAdapter = {
   provider: "trestle",
   defaultBaseUrl: "https://api.cotality.com/trestle/odata",
@@ -140,6 +154,7 @@ export const trestleAdapter: MlsAdapter = {
     mediaUrlsExpire: false,
     maxReplicationGapDays: null,
     initialOrderedByTimestamp: true,
+    stagedImport: true,
   },
   limits(feed) {
     const safety = readOption(feed, "rateSafety", 0.9);
@@ -162,8 +177,7 @@ export const trestleAdapter: MlsAdapter = {
     return {};
   },
   firstPageUrl(ctx, resource, cursor) {
-    const useReplication = cursor.phase === "initial" && readOption(ctx.feed, "useReplicationEndpoint", false);
-    if (useReplication) {
+    if (replicates(ctx, cursor)) {
       return buildODataUrl(ctx.feed.baseUrl, resource, {
         $filter: cursor.highWaterMark ? `ModificationTimestamp gt ${cursor.highWaterMark}` : null,
         $expand: EXPAND[resource],
@@ -171,16 +185,16 @@ export const trestleAdapter: MlsAdapter = {
         replication: "true",
       });
     }
-    return keysetPageUrl(ctx, resource, KEY_FIELD[resource], EXPAND[resource], pageSize(ctx.feed), null, cursor.highWaterMark);
+    return keysetPageUrl(ctx, resource, KEY_FIELD[resource], EXPAND[resource], pageSize(ctx.feed), null, cursor.highWaterMark, stageFilters(ctx, resource, cursor));
   },
   nextPageUrl(ctx, resource, page, cursor) {
-    if (page.nextLink && cursor.phase === "initial" && readOption(ctx.feed, "useReplicationEndpoint", false)) {
+    if (page.nextLink && replicates(ctx, cursor)) {
       return page.nextLink;
     }
     if (page.value.length < pageSize(ctx.feed)) return null;
     const after = lastKeyset(page, KEY_FIELD[resource]);
     if (!after) return page.nextLink;
-    return keysetPageUrl(ctx, resource, KEY_FIELD[resource], EXPAND[resource], pageSize(ctx.feed), after, null);
+    return keysetPageUrl(ctx, resource, KEY_FIELD[resource], EXPAND[resource], pageSize(ctx.feed), after, null, stageFilters(ctx, resource, cursor));
   },
   reconcileUrl(ctx, resource) {
     return buildODataUrl(ctx.feed.baseUrl, resource, {
