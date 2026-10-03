@@ -27,7 +27,7 @@ import { credentialStatus } from "./credentials";
 import { licenseError } from "./license";
 import { FatalHttpError, getLane, redactUrl, requestJson, requestText, type ProviderLane } from "./http";
 import { isKnownResoField } from "./normalize/resoStandardFields";
-import { emptyCounts, laterTimestamp, localKeys, processRecords, pruneEndedOpenHouses, removeKeys, retryImportExceptions, type PageCounts } from "./store";
+import { emptyCounts, importErrorInfo, laterTimestamp, localKeys, processRecords, pruneEndedOpenHouses, removeKeys, retryImportExceptions, type PageCounts } from "./store";
 
 /**
  * Sync engine. One cycle for one feed:
@@ -100,6 +100,20 @@ export function sanitizeError(error: unknown) {
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
     .replace(/(access_token|client_secret|token)=([^&\s]+)/gi, "$1=[redacted]")
     .slice(0, 2000);
+}
+
+/** Our own write path failed (deadlock victim, lock timeout, dropped
+ * connection) and the cursor checkpoint is intact. Nothing is wrong at the
+ * provider, so the feed retries at its normal cadence, not the error backoff. */
+export class TransientSyncError extends Error {}
+export const TRANSIENT_ERROR_PREFIX = "Transient: ";
+export function isTransientFeedError(message: string | null | undefined) {
+  return typeof message === "string" && message.startsWith(TRANSIENT_ERROR_PREFIX);
+}
+/** The feed's lastError: sanitized, and tagged when the failure was transient. */
+export function feedErrorMessage(error: unknown) {
+  const transient = error instanceof TransientSyncError || importErrorInfo(error).transient;
+  return `${transient ? TRANSIENT_ERROR_PREFIX : ""}${sanitizeError(error)}`;
 }
 
 export async function loadFeedContext(feedId: number): Promise<FeedContext | null> {
@@ -451,7 +465,7 @@ async function replicateResource(
       addCounts(totals, counts);
       // Advance only if every failed provider payload is durably quarantined.
       // Transient DB failures or a failed quarantine must keep the checkpoint.
-      if (counts.unpersisted) throw new Error(`Page contains ${counts.unpersisted} unpersisted records; checkpoint retained for retry.`);
+      if (counts.unpersisted) throw new TransientSyncError(`Page contains ${counts.unpersisted} unpersisted records; checkpoint retained for retry.`);
       totals.pages += 1;
       if (ordered) highWaterMark = laterTimestamp(highWaterMark, counts.maxModified);
       const next = adapter.nextPageUrl(ctx, resource, page, { ...state, highWaterMark, stage });
@@ -601,7 +615,10 @@ export function syncDue(feed: MlsFeed, now = new Date()) {
   if (feed.syncRequestedAt) return true;
   if (!feed.enabled) return false;
   if (!feed.lastRunFinishedAt) return true;
-  const interval = feed.status === "error" ? Math.max(feed.syncIntervalMinutes, 15) * 2 : feed.syncIntervalMinutes;
+  // Provider, credential and config errors back off. A transient write failure
+  // keeps the normal cadence so one deadlock cannot pause live sync for 30 min.
+  const backoff = feed.status === "error" && !isTransientFeedError(feed.lastError);
+  const interval = backoff ? Math.max(feed.syncIntervalMinutes, 15) * 2 : feed.syncIntervalMinutes;
   return now.getTime() - feed.lastRunFinishedAt.getTime() >= interval * 60_000;
 }
 
@@ -715,7 +732,7 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
       .where(eq(mlsFeeds.id, feedId));
     summary.ok = true;
   } catch (error) {
-    summary.error = sanitizeError(error);
+    summary.error = feedErrorMessage(error);
     const aborted = options.signal?.aborted;
     await db
       .update(mlsFeeds)
