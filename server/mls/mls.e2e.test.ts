@@ -406,6 +406,38 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
   }, 60_000);
 
   it("never redownloads an unchanged MediaKey and never fetches a non-CDN MLS Grid link", async () => {
+    // A page written in parallel: rows sharing a property or a key stay ordered.
+    {
+      const ctx = (await modules.engine.loadFeedContext(feedId))!;
+      const adapter = modules.adapters.adapterFor("mls_grid");
+      const row = (key: string, streetNumber: string, price: number, at: string) =>
+        ({ ...listing(key, { StreetNumber: streetNumber, ListPrice: price, ModificationTimestamp: at }), Media: undefined });
+      const page = [
+        row("P1", "9101", 300000, "2026-09-26T06:00:00.000Z"),
+        row("P2", "9101", 310000, "2026-09-26T06:00:01.000Z"), // same property as P1
+        row("P3", "9102", 320000, "2026-09-26T06:00:02.000Z"),
+        row("P4", "9103", 330000, "2026-09-26T06:00:03.000Z"),
+        row("P3", "9102", 325000, "2026-09-26T06:00:04.000Z"), // same key again: the later row wins
+        row("P5", "9104", 340000, "2026-09-26T06:00:05.000Z"),
+      ];
+      const keys = ["CARP1", "CARP2", "CARP3", "CARP4", "CARP5"];
+      try {
+        const counts = await modules.store.processRecords(ctx, adapter, "Property", page, { overrides: [], metadataLocalFields: null, concurrency: 6 });
+        expect(counts.unpersisted).toBe(0);
+        expect(counts.quarantined).toBe(0);
+        expect(counts.keys).toEqual(["CARP1", "CARP2", "CARP3", "CARP4", "CARP3", "CARP5"]);
+        const rows = await q<any>("SELECT providerListingKey AS k, listPrice, propertyId FROM mls_listings WHERE feedId = ? AND providerListingKey LIKE 'CARP%' ORDER BY k", [feedId]);
+        expect(rows.map(item => item.k)).toEqual(keys);
+        expect(Number(rows.find(item => item.k === "CARP3").listPrice)).toBe(325000);
+        const shared = rows.find(item => item.k === "CARP1").propertyId;
+        expect(rows.find(item => item.k === "CARP2").propertyId).toBe(shared);
+        const [property] = await q<any>("SELECT listingCount FROM mls_properties WHERE id = ?", [shared]);
+        expect(Number(property.listingCount)).toBe(2);
+      } finally {
+        const db = (await modules.db.getDb())!;
+        for (const key of keys) await modules.store.removeListing(db as any, ctx, key, "test_cleanup");
+      }
+    }
     const ctx = (await modules.engine.loadFeedContext(feedId))!;
     const adapter = modules.adapters.adapterFor("mls_grid");
     const record = withMediaUrls(state.properties.find(row => row.ListingKey === "CAR100")!);

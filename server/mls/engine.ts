@@ -64,6 +64,8 @@ export type CycleSummary = {
   exceptions?: { attempted: number; recovered: number };
   reconciled?: Record<string, { remote: number; local: number; removed: number; aborted?: string }>;
   error?: string;
+  /** True when the history import stopped at its page budget with records still to fetch. */
+  backlog?: boolean;
 };
 
 async function requireDb(): Promise<Db> {
@@ -621,6 +623,13 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
       await db.update(mlsFeeds).set({ lastReconcileAt: new Date(), reconcileRequestedAt: null }).where(eq(mlsFeeds.id, feedId));
     }
     await pruneEndedOpenHouses(feedId);
+
+    // A history burst stops at its page budget so live checks and other feeds
+    // get a turn. Report the remaining backlog so the worker runs the next
+    // burst right away instead of waiting out the sync interval.
+    if (fastGrid && !options.maxPagesPerResource) {
+      summary.backlog = (await getCursor(db, feedId, "Property")).phase === "initial";
+    }
 
     const finishedAt = new Date();
     await db
