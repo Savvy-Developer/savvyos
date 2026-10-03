@@ -745,6 +745,9 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       const apiCalls = () => state.requests.filter(request => request.includes("ListingId in (")).length;
       const before = apiCalls();
       expect(await cdnLinks.backfillCdnLinks(db, lane, ctx, { scanSize: 1 })).toEqual({ scanned: 1, relinked: 1, requests: 1, done: false });
+      // Newest first: the listing people see first on "Newest" is fixed first.
+      const linkedAfterFirst = await q<any>("SELECT listingId, COUNT(sourceUrl) AS links FROM mls_media WHERE feedId=? GROUP BY listingId ORDER BY listingId", [feed.id]);
+      expect(linkedAfterFirst.map(row => [Number(row.listingId), Number(row.links)])).toEqual([[listings[0].id, 0], [listings[1].id, 3]]);
       expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 1, relinked: 1, requests: 1, done: false });
       expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 0, relinked: 0, requests: 0, done: true });
       expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scanned: 0, relinked: 0, requests: 0, done: true });
