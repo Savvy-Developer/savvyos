@@ -726,6 +726,71 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     }
   }, 90_000);
 
+  it("keeps live passes free of import work and time-boxes import bursts, on-market listings first", async () => {
+    const original = state.properties;
+    try {
+      state.properties = [
+        listing("burst1", { ModificationTimestamp: "2026-09-20T10:00:00.000Z", StandardStatus: "Active" }),
+        listing("burst2", { ModificationTimestamp: "2026-09-20T11:00:00.000Z", StandardStatus: "Closed" }),
+        listing("burst3", { ModificationTimestamp: "2026-09-20T12:00:00.000Z", StandardStatus: "Active", StreetNumber: "33" }),
+        listing("burst4", { ModificationTimestamp: "2026-09-20T13:00:00.000Z", StandardStatus: "Closed", StreetNumber: "34" }),
+      ];
+      // Canopy's feed types are taken by the other tests; any seeded source works.
+      const [source] = await q("SELECT id FROM mls_sources WHERE code = 'stellar'");
+      await admin.query(
+        `INSERT INTO mls_feeds (sourceId, name, provider, feedType, baseUrl, originatingSystemName, keyPrefix, credentialRef, resources, options, enabled, mediaPolicy, syncIntervalMinutes, retentionPolicy)
+         VALUES (?, 'Burst test', 'mls_grid', 'bbo', ?, 'carolina', 'BRS', 'E2EGRID', ?, ?, true, 'primary_only', 5, 'purge')`,
+        [source.id, `${base}/v2`, JSON.stringify(["Property"]), JSON.stringify({ fastImportV1: true, pageSize: 1, rateSafety: 10, license: { approved: true, internalUse: true, reference: "SYNTHETIC TEST FIXTURE ONLY" } })]
+      );
+      const [feed] = await q("SELECT id FROM mls_feeds WHERE name='Burst test'");
+      const listed = async () => (await q<any>("SELECT providerListingKey k FROM mls_listings WHERE feedId=? ORDER BY k", [feed.id])).map(row => row.k);
+
+      // Live pass: starts the live watermark, imports nothing, reports backlog.
+      const live = await modules.engine.runFeedCycle(feed.id, { workerId: "burst-e2e", skipBacklog: true });
+      expect([live.ok, live.skipped ?? null, live.error ?? null]).toEqual([true, null, null]);
+      expect(live.backlog).toBe(true);
+      expect(Object.keys(live.resources)).toEqual(["Live:Property"]);
+      expect(await listed()).toEqual([]);
+
+      // Burst 1: one page of the on-market prefill, then the time box ends it.
+      // History waits while the prefill is unfinished.
+      const first = await modules.engine.runFeedCycle(feed.id, { workerId: "burst-e2e", burstMs: 1 });
+      expect(first.ok).toBe(true);
+      expect(first.backlog).toBe(true);
+      expect(first.resources["Priority:Property"].received).toBe(1);
+      expect(first.resources["Property"]).toBeUndefined();
+      const [priority] = await q<any>("SELECT phase, resumeToken FROM mls_sync_cursors WHERE feedId=? AND resource='Priority:Property'", [feed.id]);
+      expect(priority.phase).toBe("initial");
+      expect(priority.resumeToken).toBeTruthy();
+
+      // Burst 2 resumes the prefill; once both Active listings are in, history starts.
+      const second = await modules.engine.runFeedCycle(feed.id, { workerId: "burst-e2e", burstMs: 1 });
+      expect(second.resources["Priority:Property"].received).toBe(1);
+      expect(second.resources["Property"].received).toBe(1);
+      const afterSecond = await listed();
+      expect(afterSecond).toEqual(expect.arrayContaining(["CARburst1", "CARburst3"]));
+
+      let bursts = 2;
+      let summary = second;
+      while (summary.backlog && bursts < 12) {
+        summary = await modules.engine.runFeedCycle(feed.id, { workerId: "burst-e2e", burstMs: 1 });
+        expect(summary.ok).toBe(true);
+        bursts += 1;
+      }
+      expect(summary.backlog).toBe(false);
+      expect(await listed()).toEqual(["CARburst1", "CARburst2", "CARburst3", "CARburst4"]);
+      const [history] = await q<any>("SELECT phase FROM mls_sync_cursors WHERE feedId=? AND resource='Property'", [feed.id]);
+      expect(history.phase).toBe("incremental");
+
+      // Done: a live pass and a burst are both plain incremental syncs now.
+      const after = await modules.engine.runFeedCycle(feed.id, { workerId: "burst-e2e", skipBacklog: true });
+      expect([after.ok, after.backlog]).toEqual([true, false]);
+      expect(after.resources["Property"]).toBeDefined();
+    } finally {
+      state.properties = original;
+    }
+  }, 90_000);
+
   it("relinks older MLS Grid listings to CDN photo links in batched calls and retires the old gallery queue", async () => {
     const original = state.properties;
     const cdnLinks = await import("./cdnLinks");
@@ -888,5 +953,33 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect(JSON.stringify(fresh)).not.toContain("test-worker-id");
     await admin.query("UPDATE mls_worker_heartbeats SET lastBeatAt=? WHERE workerId='test-worker-id'", [new Date(Date.now() - 150_000)]);
     expect((await readMlsWorkerStatus()).alive).toBe(false);
+  });
+
+  it("takes a feed lease from a worker that stopped beating, never from a live one, and closes its orphaned runs", async () => {
+    const now = new Date();
+    const leaseUntil = new Date(Date.now() + 9 * 60_000);
+    await admin.query(
+      "INSERT INTO mls_worker_heartbeats (workerId, startedAt, lastBeatAt, version, detail) VALUES ('live-worker', ?, ?, 'x', '{}'), ('dead-worker', ?, ?, 'x', '{}')",
+      [now, now, now, new Date(Date.now() - 4 * 60_000)]
+    );
+    const holdBy = (owner: string) => admin.query("UPDATE mls_feeds SET leaseOwner=?, leaseExpiresAt=? WHERE id=?", [owner, leaseUntil, feedId]);
+
+    await holdBy("live-worker");
+    expect(await modules.engine.acquireLease(feedId, "new-worker")).toBe(false);
+    await holdBy("dead-worker");
+    expect(await modules.engine.acquireLease(feedId, "new-worker")).toBe(true);
+    await holdBy("worker-with-no-heartbeat");
+    expect(await modules.engine.acquireLease(feedId, "new-worker")).toBe(true);
+
+    await admin.query("INSERT INTO mls_sync_runs (feedId, kind, resource, startedAt, status) VALUES (?, 'initial', 'Property', ?, 'running')", [feedId, now]);
+    expect(await modules.engine.closeOrphanedRuns(feedId)).toBe(1);
+    expect(await q("SELECT id FROM mls_sync_runs WHERE feedId=? AND status='running'", [feedId])).toEqual([]);
+    const [closed] = await q("SELECT status, error, finishedAt FROM mls_sync_runs WHERE feedId=? ORDER BY id DESC LIMIT 1", [feedId]);
+    expect(closed.status).toBe("aborted");
+    expect(closed.error).toContain("Interrupted");
+    expect(closed.finishedAt).not.toBeNull();
+
+    await modules.engine.releaseLease(feedId, "new-worker");
+    await admin.query("DELETE FROM mls_worker_heartbeats WHERE workerId IN ('live-worker', 'dead-worker')");
   });
 });

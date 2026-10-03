@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import {
   mlsFeeds,
   mlsFieldMappings,
@@ -8,6 +8,7 @@ import {
   mlsSources,
   mlsSyncCursors,
   mlsSyncRuns,
+  mlsWorkerHeartbeats,
   type MlsFeed,
 } from "../../drizzle/mlsSchema";
 import { getMlsDb as getDb } from "./db";
@@ -41,6 +42,8 @@ import { emptyCounts, laterTimestamp, localKeys, processRecords, pruneEndedOpenH
  */
 
 const LEASE_MS = 10 * 60_000;
+/** A lease owner with no heartbeat for this long is treated as dead (see acquireLease). */
+const DEAD_WORKER_MS = 3 * 60_000;
 const UNORDERED_MARGIN_MS = 15 * 60_000;
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
@@ -53,7 +56,25 @@ export type CycleOptions = {
   force?: boolean;
   /** Limit pages per resource (admin test pull). */
   maxPagesPerResource?: number;
+  /**
+   * Live pass only: skip the on-market prefill and the history import. The
+   * worker runs those as separate time-boxed bursts so every feed that shares
+   * a token gets its live sync between bursts.
+   */
+  skipBacklog?: boolean;
+  /** Time box for one import burst (default MLS_IMPORT_BURST_MS, 2 minutes). */
+  burstMs?: number;
 };
+
+/**
+ * How long one import burst may hold a provider lane. Bursts stop after this
+ * (at a page boundary, at least one page in) and resume from the saved
+ * cursor, so live syncs for every feed on the token run between them.
+ */
+export function importBurstMs() {
+  const value = Number(process.env.MLS_IMPORT_BURST_MS);
+  return Number.isFinite(value) && value >= 10_000 ? value : 120_000;
+}
 
 export type CycleSummary = {
   feedId: number;
@@ -93,16 +114,39 @@ export async function loadFeedContext(feedId: number): Promise<FeedContext | nul
 export async function acquireLease(feedId: number, workerId: string) {
   const db = await requireDb();
   const now = new Date();
+  // A lease whose owner has stopped sending heartbeats belongs to a worker
+  // that was killed (Railway deploys SIGKILL the old container, so it never
+  // releases its leases). Taking it over at once avoids a 10-minute stall
+  // on every feed that was mid-cycle during a deploy. Workers beat every
+  // 30 seconds, so 3 minutes is six missed beats.
+  const ownerAlive = sql`EXISTS (SELECT 1 FROM ${mlsWorkerHeartbeats} WHERE ${and(
+    eq(mlsWorkerHeartbeats.workerId, mlsFeeds.leaseOwner),
+    gt(mlsWorkerHeartbeats.lastBeatAt, new Date(now.getTime() - DEAD_WORKER_MS))
+  )})`;
   const result = await db
     .update(mlsFeeds)
     .set({ leaseOwner: workerId, leaseExpiresAt: new Date(now.getTime() + LEASE_MS) })
     .where(
       and(
         eq(mlsFeeds.id, feedId),
-        or(isNull(mlsFeeds.leaseOwner), lt(mlsFeeds.leaseExpiresAt, now), eq(mlsFeeds.leaseOwner, workerId))
+        or(isNull(mlsFeeds.leaseOwner), lt(mlsFeeds.leaseExpiresAt, now), eq(mlsFeeds.leaseOwner, workerId), sql`NOT ${ownerAlive}`)
       )
     );
   return Number((result as any)[0]?.affectedRows ?? 0) > 0;
+}
+
+/**
+ * Closes runs a killed worker left as "running". Only called while holding
+ * the feed's lease, and every run row is created inside a leased cycle, so
+ * any "running" row for this feed at that point is orphaned.
+ */
+export async function closeOrphanedRuns(feedId: number) {
+  const db = await requireDb();
+  const result = await db
+    .update(mlsSyncRuns)
+    .set({ status: "aborted", finishedAt: new Date(), error: "Interrupted: the worker stopped before this run finished." })
+    .where(and(eq(mlsSyncRuns.feedId, feedId), eq(mlsSyncRuns.status, "running")));
+  return Number((result as any)[0]?.affectedRows ?? 0);
 }
 
 async function renewLease(feedId: number, workerId: string) {
@@ -355,12 +399,24 @@ async function replicateResource(
   let resumed = !!cursor.resumeToken;
   let highWaterMark = cursor.highWaterMark;
   let lastLiveCheck = Date.now();
+  // Listing imports (on-market prefill, history, or a plain first import)
+  // stop at the burst time box and resume next burst. Only timestamp-ordered
+  // passes are boxed: they resume from the saved boundary even if a stored
+  // next link has expired. Unordered passes (Trestle replication links last
+  // 5 minutes) keep running so they never restart from scratch.
+  const burstLimit = !options.maxPagesPerResource && ordered && mode === "initial" && resource === "Property" && stage !== "live"
+    ? options.burstMs ?? importBurstMs()
+    : 0;
 
   try {
     while (url) {
       if (options.signal?.aborted) throw new Error("aborted");
       const pageLimit = options.maxPagesPerResource ?? (stage === "history" ? 20 : undefined);
       if (pageLimit && totals.pages >= pageLimit) break;
+      if (burstLimit && totals.pages > 0 && Date.now() - passStartedAt.getTime() >= burstLimit) {
+        detail.burstLimited = true;
+        break;
+      }
       await renewLease(ctx.feed.id, options.workerId);
       let response: { body: any; bytes: number };
       try {
@@ -569,6 +625,8 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
     return { ...summary, skipped: "credentials missing", error: message };
   }
   if (!(await acquireLease(feedId, options.workerId))) return { ...summary, skipped: "leased by another worker" };
+  const orphaned = await closeOrphanedRuns(feedId).catch(() => 0);
+  if (orphaned) console.log(`[mls] feed ${feedId}: closed ${orphaned} run(s) left running by a stopped worker`);
 
   const ctx = (await loadFeedContext(feedId))!;
   const adapter = adapterFor(ctx.feed.provider);
@@ -587,6 +645,7 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
     // any adapter that supports it. New feeds get fastImportV1=true when they
     // are created (bootstrap and admin form); existing feeds keep their setting.
     const staged = adapter.capabilities.stagedImport === true && readOption<boolean>(ctx.feed, "fastImportV1", false) === true;
+    let priorityPending = false;
     if (staged && !options.maxPagesPerResource) {
       const history = await getCursor(db, feedId, "Property");
       if (history.phase === "initial") {
@@ -600,7 +659,7 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
           });
         }
         const priority = await getCursor(db, feedId, "Priority:Property");
-        if (priority.phase === "initial") {
+        if (priority.phase === "initial" && !options.skipBacklog) {
           try {
             summary.resources["Priority:Property"] = await replicateResource(db, ctx, adapter, lane, "Property", shared, options, "priority");
           } catch (error) {
@@ -612,11 +671,16 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
             console.warn(`[mls] feed ${feedId}: provider rejected the on-market filter (${error.status}); importing everything in one pass. Set options.priorityFilter to retry.`);
           }
         }
+        // On-market listings first: history waits until the prefill is done.
+        priorityPending = (await getCursor(db, feedId, "Priority:Property")).phase === "initial";
         summary.resources["Live:Property"] = await replicateResource(db, ctx, adapter, lane, "Property", shared, options, "live");
       }
     }
     for (const resource of resourcesFor(ctx.feed, adapter)) {
-      const historical = staged && !options.maxPagesPerResource && resource === "Property" && (await getCursor(db, feedId, "Property")).phase === "initial";
+      const importing = resource === "Property" && !options.maxPagesPerResource && (await getCursor(db, feedId, "Property")).phase === "initial";
+      // Live passes leave the listing import to the worker's next burst.
+      if (importing && (options.skipBacklog || priorityPending)) continue;
+      const historical = staged && importing;
       summary.resources[resource] = await replicateResource(
         db, ctx, adapter, lane, resource, shared,
         staged && !options.maxPagesPerResource && resource !== "Property" ? { ...options, maxPagesPerResource: 20 } : options,
@@ -637,10 +701,10 @@ export async function runFeedCycle(feedId: number, options: CycleOptions): Promi
     }
     await pruneEndedOpenHouses(feedId);
 
-    // A history burst stops at its page budget so live checks and other feeds
-    // get a turn. Report the remaining backlog so the worker runs the next
-    // burst right away instead of waiting out the sync interval.
-    if (staged && !options.maxPagesPerResource) {
+    // An import burst stops at its time box or page budget so other feeds on
+    // the token get their live sync. Report the remaining backlog so the
+    // worker schedules the next burst instead of waiting out the interval.
+    if (!options.maxPagesPerResource) {
       summary.backlog = (await getCursor(db, feedId, "Property")).phase === "initial";
     }
 
