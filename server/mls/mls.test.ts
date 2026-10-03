@@ -24,6 +24,7 @@ import { parseODataPage } from "./adapters/types";
 import { __testables__ as mcpTestables } from "../readOnlyMcp";
 import { MLS_SOURCE_SEEDS, seedCompliance } from "./sources";
 import { importErrorInfo, mediaWanted, payloadHash, retryOnDeadlock, runGrouped, type RecordTask } from "./store";
+import { TransientSyncError, feedErrorMessage, isTransientFeedError, syncDue } from "./engine";
 import { REFRESH_STAGE_MAX_PRIORITY, isQueryTimeout } from "./media";
 import { blockingHolders, scrubSql } from "./schema";
 
@@ -766,5 +767,38 @@ describe("expired-link refresh scan bounds", () => {
     // store.ts mediaPriority: Active cover 1, coming soon 10, under contract 20,
     // pending 30, other covers 40, non-primary 50/100.
     expect(REFRESH_STAGE_MAX_PRIORITY).toEqual({ active: 10, market: 30 });
+  });
+});
+
+describe("feed retry cadence after a failed cycle", () => {
+  const finished = new Date("2026-10-03T16:47:47.000Z");
+  const at = (minutes: number) => new Date(finished.getTime() + minutes * 60_000);
+  const failed = (lastError: string) => ({ ...feed, enabled: true, status: "error", syncIntervalMinutes: 5, syncRequestedAt: null, lastRunFinishedAt: finished, lastError }) as unknown as MlsFeed;
+
+  it("retries a transient write failure at the normal interval", () => {
+    const message = feedErrorMessage(new TransientSyncError("Page contains 1 unpersisted records; checkpoint retained for retry."));
+    expect(message).toBe("Transient: Page contains 1 unpersisted records; checkpoint retained for retry.");
+    expect(isTransientFeedError(message)).toBe(true);
+    expect(syncDue(failed(message), at(4))).toBe(false);
+    expect(syncDue(failed(message), at(5))).toBe(true);
+  });
+
+  it("treats database lock and connection errors as transient", () => {
+    const deadlock = Object.assign(new Error("Deadlock found when trying to get lock"), { code: "ER_LOCK_DEADLOCK" });
+    const dropped = new Error("query failed", { cause: Object.assign(new Error("Connection lost"), { code: "PROTOCOL_CONNECTION_LOST" }) });
+    expect(isTransientFeedError(feedErrorMessage(deadlock))).toBe(true);
+    expect(isTransientFeedError(feedErrorMessage(dropped))).toBe(true);
+  });
+
+  it("keeps the error backoff for provider and config failures", () => {
+    const message = feedErrorMessage(new Error("HTTP 401 from provider: token=abc123"));
+    expect(isTransientFeedError(message)).toBe(false);
+    expect(message).toContain("token=[redacted]");
+    expect(syncDue(failed(message), at(29))).toBe(false);
+    expect(syncDue(failed(message), at(30))).toBe(true);
+  });
+
+  it("does not let an old untagged error message skip the backoff", () => {
+    expect(syncDue(failed("Page contains 1 unpersisted records; checkpoint retained for retry."), at(5))).toBe(false);
   });
 });
