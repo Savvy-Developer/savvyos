@@ -3,7 +3,7 @@ import { MySqlDialect } from "drizzle-orm/mysql-core";
 import type { MlsFeed, MlsSource } from "../../drizzle/mlsSchema";
 import { MLS_GRID_GRACE_UNTIL_MS, MLS_GRID_LIMITS, MLS_GRID_MEDIA_CONCURRENCY, mlsGridAdapter } from "./adapters/mlsGrid";
 import type { ProviderLimits } from "./adapters/types";
-import { ProviderLane, downloadMedia, requestJson, wireBytes } from "./http";
+import { ProviderLane, cdnIntervalMs, downloadMedia, requestJson, wireBytes } from "./http";
 import { isMlsGridCdnUrl } from "./mlsGridCdn";
 import { sparkAdapter } from "./adapters/spark";
 import { keysetFilter, trestleAdapter } from "./adapters/trestle";
@@ -690,7 +690,15 @@ describe("MLS Grid token budget", () => {
     expect(other.cdn).toBe(other.media);
   });
 
-  it("runs 16 MLS Grid photo transfers per token by default, honors overrides, and caps them at 32", () => {
+  it("has no CDN pace cap unless MLS_CDN_REQUESTS_PER_SECOND sets one", () => {
+    expect(cdnIntervalMs(undefined)).toBe(0);
+    expect(cdnIntervalMs("")).toBe(0);
+    expect(cdnIntervalMs("0")).toBe(0);
+    expect(cdnIntervalMs("not-a-number")).toBe(0);
+    expect(cdnIntervalMs("50")).toBe(20);
+  });
+
+  it("runs the default MLS Grid photo transfers per token, honors overrides, and caps them", () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(MLS_GRID_GRACE_UNTIL_MS + 1);
     const saved = process.env.MLS_GRID_MEDIA_CONCURRENCY;
     try {

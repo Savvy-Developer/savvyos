@@ -219,6 +219,16 @@ type UsageBucket = { requests: number; bytes: number; mediaRequests: number; med
 
 const intervalMs = (perSecond: number) => Math.ceil(1000 / Math.max(0.01, perSecond));
 
+/**
+ * MLS Grid publishes no CDN rate limit and CDN downloads are outside the API
+ * quotas, so CDN photos have no pace cap unless MLS_CDN_REQUESTS_PER_SECOND
+ * sets one. The limiter still exists so a CDN 429 backs off CDN downloads alone.
+ */
+export function cdnIntervalMs(value = process.env.MLS_CDN_REQUESTS_PER_SECOND) {
+  const perSecond = Number(value);
+  return value != null && value !== "" && Number.isFinite(perSecond) && perSecond > 0 ? intervalMs(perSecond) : 0;
+}
+
 export class ProviderLane {
   readonly api: SlidingLimiter;
   readonly media: Limiter;
@@ -302,7 +312,7 @@ export class ProviderLane {
       );
     }
     this.cdn = provider === "mls_grid"
-      ? new SlidingLimiter(intervalMs(Math.max(1, Number(process.env.MLS_CDN_REQUESTS_PER_SECOND ?? 25))), [])
+      ? new SlidingLimiter(cdnIntervalMs(), [])
       : this.media;
   }
 
