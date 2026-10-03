@@ -789,6 +789,17 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       expect(phases.map(row => [row.resource, row.phase])).toEqual([
         ["CdnLinksClosed", "incremental"], ["CdnLinksNewest", "incremental"], ["CdnLinksOffMarket", "incremental"],
       ]);
+
+      // Live sync keeps headroom: past its share of the token's day, the backfill waits.
+      await admin.query("DELETE FROM mls_sync_cursors WHERE feedId=? AND resource=?", [feed.id, "CdnLinksClosed"]);
+      const busy = modules.http.getLane("mls_grid", "HEADROOMTEST", modules.adapters.adapterFor("mls_grid").limits(ctx.feed));
+      const day = busy.api.snapshot().windows.find(window => window.windowMs === 86_400_000)!;
+      busy.api.seed(Date.now(), Math.ceil(day.limit * cdnLinks.CDN_LINK_DAY_SHARE) - 1, 0);
+      expect(cdnLinks.backfillHasHeadroom(busy)).toBe(true);
+      busy.api.seed(Date.now(), 1, 0);
+      expect(cdnLinks.backfillHasHeadroom(busy)).toBe(false);
+      expect(await cdnLinks.backfillCdnLinks(db, busy, ctx)).toEqual({ scope: "api_headroom", scanned: 0, relinked: 0, requests: 0, done: false });
+      expect(apiCalls() - before).toBe(3);
     } finally {
       state.properties = original;
     }
