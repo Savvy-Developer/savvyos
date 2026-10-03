@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { mlsListings, mlsMedia, mlsSyncCursors } from "../../drizzle/mlsSchema";
 import { getDb } from "../db";
 import { adapterFor } from "./adapters";
@@ -13,16 +13,20 @@ import { processRecords } from "./store";
 /**
  * MLS Grid switched Savvy's production tokens to its CDN on Oct 2, 2026.
  * Listings synced before that hold old one-hour links (or none), so their
- * galleries cannot display. This walks each feed's on-market listings once by
- * ID and re-reads the ones missing CDN links, 100 per API call
- * (`ListingId in (...)`); processRecords then stores the CDN links. New and
- * changed listings already arrive with CDN links through normal replication.
+ * galleries cannot display. This walks each feed's on-market listings once,
+ * newest ID first so the listings people see first are fixed first, and
+ * re-reads the ones missing CDN links, 100 per API call (`ListingId in (...)`);
+ * processRecords then stores the CDN links. New and changed listings already
+ * arrive with CDN links through normal replication.
  */
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
-export const CDN_LINK_RESOURCE = "CdnLinks";
+/** Cursor name; the highWaterMark is the lowest listing ID already handled. */
+export const CDN_LINK_RESOURCE = "CdnLinksNewest";
 /** MLS Grid accepts at most 100 ListingIds per request. */
 export const CDN_LINK_BATCH = 100;
+/** Groups relinked at once; the work is database writes, not API calls. */
+export const CDN_LINK_PARALLEL = 4;
 /** Listings examined per feed per worker pass. */
 export const CDN_LINK_SCAN = 1_000;
 
@@ -40,7 +44,7 @@ export async function backfillCdnLinks(
     .where(and(eq(mlsSyncCursors.feedId, ctx.feed.id), eq(mlsSyncCursors.resource, CDN_LINK_RESOURCE))).limit(1);
   if (cursor?.phase === "incremental") return progress;
   const lastId = Number(cursor?.highWaterMark ?? 0);
-  const fromId = Number.isSafeInteger(lastId) && lastId > 0 ? lastId : 0;
+  const belowId = Number.isSafeInteger(lastId) && lastId > 0 ? lastId : null;
   const listings = await db.select({
     id: mlsListings.id,
     listingNumber: mlsListings.listingNumber,
@@ -49,14 +53,15 @@ export async function backfillCdnLinks(
     .from(mlsListings, { forceIndex: ["PRIMARY"] })
     .where(and(
       eq(mlsListings.feedId, ctx.feed.id), inArray(mlsListings.standardStatus, MARKET_STATUSES),
-      isNull(mlsListings.removedFromFeedAt), gt(mlsListings.photosCount, 0), gt(mlsListings.id, fromId),
+      isNull(mlsListings.removedFromFeedAt), gt(mlsListings.photosCount, 0),
+      belowId === null ? undefined : lt(mlsListings.id, belowId),
     ))
-    .orderBy(asc(mlsListings.id))
+    .orderBy(desc(mlsListings.id))
     .limit(Math.max(1, options.scanSize ?? CDN_LINK_SCAN));
   progress.scanned = listings.length;
   if (!listings.length) {
     await db.insert(mlsSyncCursors).values({
-      feedId: ctx.feed.id, resource: CDN_LINK_RESOURCE, phase: "incremental", highWaterMark: String(fromId), lastSuccessAt: new Date(),
+      feedId: ctx.feed.id, resource: CDN_LINK_RESOURCE, phase: "incremental", highWaterMark: belowId === null ? null : String(belowId), lastSuccessAt: new Date(),
     }).onDuplicateKeyUpdate({ set: { phase: "incremental", lastSuccessAt: new Date() } });
     return progress;
   }
@@ -75,28 +80,33 @@ export async function backfillCdnLinks(
 
   const adapter = adapterFor(ctx.feed.provider);
   const prefix = ctx.feed.keyPrefix ?? ctx.source.keyPrefix ?? "";
-  let processed = listings[listings.length - 1].id;
+  // Lowest ID handled so far; null means nothing finished this pass.
+  let processed: number | null = listings[listings.length - 1].id;
   if (missing.length) {
     const overrides = await loadOverrides(db, ctx);
     const metadataLocalFields = await loadMetadataLocalFields(db, ctx.feed.id);
-    for (let index = 0; index < missing.length; index += CDN_LINK_BATCH) {
+    const groups: Array<typeof missing> = [];
+    for (let index = 0; index < missing.length; index += CDN_LINK_BATCH) groups.push(missing.slice(index, index + CDN_LINK_BATCH));
+    for (let start = 0; start < groups.length; start += CDN_LINK_PARALLEL) {
       if (options.signal?.aborted) {
-        // Resume after the last finished group, not the end of this scan.
-        processed = index ? missing[index - 1].id : fromId;
+        // Resume below the last finished group, not the end of this scan.
+        const finished = groups[start - 1];
+        processed = finished ? finished[finished.length - 1].id : null;
         break;
       }
-      const group = missing.slice(index, index + CDN_LINK_BATCH);
-      const url = mlsGridBatchUrl(ctx, group.map(listing => `${prefix}${listing.listingNumber}`));
-      const { body } = await requestJson(lane, url, () => adapter.authHeaders(ctx), { signal: options.signal, fetchImpl: options.fetchImpl });
-      progress.requests += 1;
-      const records = parseODataPage(body).value;
-      if (records.length) {
-        await processRecords(ctx, adapter, "Property", records, { overrides, metadataLocalFields, force: true });
-        progress.relinked += records.length;
-      }
+      await Promise.all(groups.slice(start, start + CDN_LINK_PARALLEL).map(async group => {
+        const url = mlsGridBatchUrl(ctx, group.map(listing => `${prefix}${listing.listingNumber}`));
+        const { body } = await requestJson(lane, url, () => adapter.authHeaders(ctx), { signal: options.signal, fetchImpl: options.fetchImpl });
+        progress.requests += 1;
+        const records = parseODataPage(body).value;
+        if (records.length) {
+          await processRecords(ctx, adapter, "Property", records, { overrides, metadataLocalFields, force: true });
+          progress.relinked += records.length;
+        }
+      }));
     }
   }
-  if (processed > fromId) {
+  if (processed !== null && processed !== belowId) {
     await db.insert(mlsSyncCursors).values({
       feedId: ctx.feed.id, resource: CDN_LINK_RESOURCE, phase: "initial", highWaterMark: String(processed), recordsSeen: listings.length,
     }).onDuplicateKeyUpdate({ set: {
