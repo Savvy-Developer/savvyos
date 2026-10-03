@@ -9,7 +9,7 @@ import { isQueryTimeout } from "./media";
  * One MLS Grid call fetches Media for up to 20 queued listings later in media.ts.
  * Keep the live listing sync and primary-photo pipeline ahead of the gallery.
  *
- * The cap bounds photos waiting per feed (about 150 listings' galleries by
+ * The cap bounds photos waiting per feed (about 1,000 listings' galleries by
  * default). It was 240 while every photo shared the API token's quota; MLS Grid
  * photo downloads are now outside those quotas, so the queue can run deeper. */
 const RESOURCE = "ActiveGallery";
@@ -17,8 +17,8 @@ const positive = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : fallback;
 };
-export const ACTIVE_GALLERY_MAX_QUEUED = positive(process.env.MLS_ACTIVE_GALLERY_MAX_QUEUED, 4_000);
-export const ACTIVE_GALLERY_SCAN_SIZE = positive(process.env.MLS_ACTIVE_GALLERY_SCAN_SIZE, 100);
+export const ACTIVE_GALLERY_MAX_QUEUED = positive(process.env.MLS_ACTIVE_GALLERY_MAX_QUEUED, 25_000);
+export const ACTIVE_GALLERY_SCAN_SIZE = positive(process.env.MLS_ACTIVE_GALLERY_SCAN_SIZE, 250);
 const OUTSTANDING_TIMEOUT_MS = 5_000;
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
