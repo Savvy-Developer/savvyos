@@ -354,7 +354,9 @@ export async function runMediaBatch(
   // The old queue gave every market status the same priority. A status-aware
   // claim puts Active covers first without a mass UPDATE of millions of rows.
   const claimToken = `${workerId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`.slice(0, 160);
-  const batchSize = options.batchSize ?? 50;
+  // About six transfers per worker slot, so a batch's fixed claim/refresh
+  // queries stay small next to its downloads (2 slots -> 50, 16 -> 96).
+  const batchSize = options.batchSize ?? Math.max(50, lane.limits.mediaConcurrency * 6);
   let rows = await claim(db, feedIds, claimToken, batchSize, "active_cover");
   if (!rows.length && (options.refreshLimit ?? 20) > 0) {
     await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "active" });
@@ -374,11 +376,11 @@ export async function runMediaBatch(
   }
   if (!rows.length) {
     await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "gallery" });
-    rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50);
+    rows = await claim(db, feedIds, claimToken, batchSize);
   }
   if (!rows.length && (options.refreshLimit ?? 20) > 0) {
     await refreshExpiredUrls(db, lane, feeds, result, { ...options, limit: options.refreshLimit ?? 20, priority: "market" });
-    rows = await claim(db, feedIds, claimToken, options.batchSize ?? 50);
+    rows = await claim(db, feedIds, claimToken, batchSize);
   }
   result.claimed = rows.length;
 
@@ -410,7 +412,8 @@ export async function runMediaBatch(
       const key = `mls/${safeSegment(ctx.source.code)}/${ctx.feed.id}/${safeSegment(row.resourceKey)}/${safeSegment(row.mediaKey)}-${safeSegment(claimToken)}.${ext}`;
       const { url: storageUrl } = await storage.put(key, data, contentType.split(";")[0]);
       const url = row.listingId ? withMlsPhotoListingId(storageUrl, row.listingId)! : storageUrl;
-      const stored = await db
+      // A lock conflict here must not discard a good download.
+      const stored = await withLockRetry(() => db
         .update(mlsMedia)
         .set({
           status: "stored",
@@ -425,7 +428,7 @@ export async function runMediaBatch(
           lastError: null,
           nextAttemptAt: null,
         })
-        .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken)));
+        .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken))));
       if (!Number((stored as any)[0]?.affectedRows)) {
         await storage.remove(key);
         return; // A removal/update won the race. Never resurrect its image.

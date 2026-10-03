@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import type { MlsFeed, MlsSource } from "../../drizzle/mlsSchema";
-import { MLS_GRID_GRACE_UNTIL_MS, MLS_GRID_LIMITS, mlsGridAdapter } from "./adapters/mlsGrid";
+import { MLS_GRID_GRACE_UNTIL_MS, MLS_GRID_LIMITS, MLS_GRID_MEDIA_CONCURRENCY, mlsGridAdapter } from "./adapters/mlsGrid";
 import type { ProviderLimits } from "./adapters/types";
 import { ProviderLane, downloadMedia, requestJson, wireBytes } from "./http";
 import { isMlsGridCdnUrl } from "./mlsGridCdn";
@@ -568,7 +568,8 @@ describe("MLS Grid token budget", () => {
       expect(limits.tokenBudget!.bytesPerHour).toBeLessThan(Math.min(warning.bytesPerHour, published.bytesPerHour));
       expect(limits.tokenBudget!.bytesPerDay).toBeLessThan(warning.bytesPerDay);
       expect(limits.tokenBudget!.mediaShare).toBeLessThanOrEqual(0.9);
-      expect(limits.mediaConcurrency).toBeLessThanOrEqual(4);
+      // Photo transfers are outside the API quotas; only our own cap applies.
+      expect(limits.mediaConcurrency).toBeLessThanOrEqual(MLS_GRID_MEDIA_CONCURRENCY.max);
     }
     const defaults = mlsGridAdapter.limits(gridFeed(null));
     expect([defaults.requestsPerHour, defaults.requestsPerDay]).toEqual([5760, 32000]);
@@ -668,9 +669,45 @@ describe("MLS Grid token budget", () => {
       fetchImpl: async () => new Response(null, { status: 429 }),
     })).rejects.toMatchObject({ status: 429 });
     expect(lane.api.snapshot().pausedForMs).toBe(0);
-    const paused = lane.media.snapshot().pausedForMs;
+    // Only the CDN pace backs off; old-host photos and the API keep moving.
+    expect(lane.media.snapshot().pausedForMs).toBe(0);
+    const paused = lane.cdn.snapshot().pausedForMs;
     expect(paused).toBeGreaterThan(0);
     expect(paused).toBeLessThanOrEqual(30_000);
+  });
+
+  it("paces MLS Grid CDN photos separately from old-host photos; other providers share one photo limiter", async () => {
+    const grid = new ProviderLane("mls_grid:CDNPACE", "mls_grid", "CDNPACE", tiny());
+    expect(grid.cdn).not.toBe(grid.media);
+    const cdnAcquire = vi.spyOn(grid.cdn, "acquire");
+    const mediaAcquire = vi.spyOn(grid.media, "acquire");
+    const ok = async () => new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "image/jpeg" } });
+    await downloadMedia(grid, "https://cdn-savvystr.mlsgrid.com/images/CAR1/a.jpeg", {}, { fetchImpl: ok });
+    expect([cdnAcquire.mock.calls.length, mediaAcquire.mock.calls.length]).toEqual([1, 0]);
+    await downloadMedia(grid, "https://media.mlsgrid.com/token=x&expires=1&id=y/images/CAR1/b.jpeg", {}, { fetchImpl: ok });
+    expect([cdnAcquire.mock.calls.length, mediaAcquire.mock.calls.length]).toEqual([1, 1]);
+    const other = new ProviderLane("trestle:CDNPACE", "trestle", "CDNPACE", tiny());
+    expect(other.cdn).toBe(other.media);
+  });
+
+  it("runs 16 MLS Grid photo transfers per token by default, honors overrides, and caps them at 32", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(MLS_GRID_GRACE_UNTIL_MS + 1);
+    const saved = process.env.MLS_GRID_MEDIA_CONCURRENCY;
+    try {
+      delete process.env.MLS_GRID_MEDIA_CONCURRENCY;
+      expect(mlsGridAdapter.limits(gridFeed(null)).mediaConcurrency).toBe(MLS_GRID_MEDIA_CONCURRENCY.default);
+      expect(mlsGridAdapter.limits(gridFeed({ mediaConcurrency: 4 })).mediaConcurrency).toBe(4);
+      expect(mlsGridAdapter.limits(gridFeed({ mediaConcurrency: 500 })).mediaConcurrency).toBe(MLS_GRID_MEDIA_CONCURRENCY.max);
+      expect(mlsGridAdapter.limits(gridFeed({ mediaConcurrency: "fast" })).mediaConcurrency).toBe(MLS_GRID_MEDIA_CONCURRENCY.default);
+      process.env.MLS_GRID_MEDIA_CONCURRENCY = "24";
+      expect(mlsGridAdapter.limits(gridFeed({ mediaConcurrency: 4 })).mediaConcurrency).toBe(24);
+      // API pacing is untouched by the photo setting.
+      expect(mlsGridAdapter.limits(gridFeed(null)).requestsPerSecond).toBeLessThan(MLS_GRID_LIMITS.published.requestsPerSecond);
+    } finally {
+      if (saved === undefined) delete process.env.MLS_GRID_MEDIA_CONCURRENCY;
+      else process.env.MLS_GRID_MEDIA_CONCURRENCY = saved;
+      clock.mockRestore();
+    }
   });
 
   it("honors usage recorded before a restart, and lets day-old usage age out", () => {

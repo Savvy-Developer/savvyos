@@ -109,6 +109,14 @@ const DEFAULT_SAFETY = 0.8;
 export const MLS_GRID_GRACE_UNTIL_MS = Date.parse("2026-10-02T20:00:00Z");
 export function mlsGridGraceActive(now = Date.now()) { return now < MLS_GRID_GRACE_UNTIL_MS; }
 
+export const MLS_GRID_MEDIA_CONCURRENCY = { default: 16, max: 32 } as const;
+/** MLS_GRID_MEDIA_CONCURRENCY (env) wins over the feed's `mediaConcurrency` option. */
+export function mlsGridMediaConcurrency(feed: MlsFeed) {
+  const requested = Number(process.env.MLS_GRID_MEDIA_CONCURRENCY ?? readOption(feed, "mediaConcurrency", MLS_GRID_MEDIA_CONCURRENCY.default));
+  const value = Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : MLS_GRID_MEDIA_CONCURRENCY.default;
+  return Math.min(MLS_GRID_MEDIA_CONCURRENCY.max, value);
+}
+
 export const mlsGridAdapter: MlsAdapter = {
   provider: "mls_grid",
   defaultBaseUrl: "https://api.mlsgrid.com/v2",
@@ -145,7 +153,11 @@ export const mlsGridAdapter: MlsAdapter = {
         bytesPerDay: Math.floor(lowest.bytesPerDay * safety),
         mediaShare: Math.min(0.9, Math.max(0.1, Number.isFinite(requestedShare) ? requestedShare : 0.75)),
       },
-      mediaConcurrency: Math.min(4, Math.max(1, Number(readOption(feed, "mediaConcurrency", 2)) || 2)),
+      // Photo transfers in flight per token. MLS Grid confirmed (Oct 2, 2026)
+      // that photo downloads do not count toward api.mlsgrid.com limits, and
+      // CDN links are reusable, so this only bounds our own network/S3 load.
+      // Starts are still paced by the lane's media/CDN limiters.
+      mediaConcurrency: mlsGridMediaConcurrency(feed),
       sequentialOnly: true,
     };
     if (!mlsGridGraceActive()) return baseline;
