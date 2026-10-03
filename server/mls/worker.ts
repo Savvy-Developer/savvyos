@@ -177,10 +177,11 @@ export class MlsIngestionScheduler {
     } catch (error) {
       console.error("[mls] legacy gallery queue cleanup failed", error);
     }
-    const lane = getLane("mls_grid", grid[0].feed.credentialRef, adapterFor("mls_grid").limits(grid[0].feed));
     for (const ctx of grid) {
       if (this.controller.signal.aborted) return;
       try {
+        // Each feed's calls count against its own token's lane.
+        const lane = getLane("mls_grid", ctx.feed.credentialRef, adapterFor("mls_grid").limits(ctx.feed));
         const progress = await backfillCdnLinks(db, lane, ctx, { signal: this.controller.signal });
         if (progress.scanned) this.lastActivity[`cdn:${ctx.feed.id}`] = { at: new Date().toISOString(), ...progress };
       } catch (error) {

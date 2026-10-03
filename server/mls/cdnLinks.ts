@@ -126,20 +126,29 @@ const retired = new Set<number>();
  * One-time cleanup of the old gallery-download queue, which CDN display
  * replaced: deletes gallery request markers, stops queued MLS Grid gallery
  * downloads (their CDN links stay for display), and drops the old scanner's
- * cursors. Bounded chunks per pass; a feed is marked done once a pass finds
- * nothing left, so later passes cost nothing.
+ * cursors. Bounded chunks per pass. Finishing deletes the feed's ActiveGallery
+ * cursor, so a feed without one is already done and costs one cursor lookup,
+ * even after a worker restart.
  */
 export async function retireLegacyGalleryQueue(db: Db, feedIds: number[]) {
-  const todo = feedIds.filter(id => !retired.has(id));
+  const unchecked = feedIds.filter(id => !retired.has(id));
+  if (!unchecked.length) return { removed: 0, stopped: 0 };
+  const pending = await db.selectDistinct({ feedId: mlsSyncCursors.feedId }).from(mlsSyncCursors)
+    .where(and(inArray(mlsSyncCursors.feedId, unchecked), eq(mlsSyncCursors.resource, "ActiveGallery")));
+  const pendingIds = new Set(pending.map(row => Number(row.feedId)));
+  for (const id of unchecked) if (!pendingIds.has(id)) retired.add(id);
+  const todo = unchecked.filter(id => pendingIds.has(id));
   if (!todo.length) return { removed: 0, stopped: 0 };
   let removed = 0;
   let stopped = 0;
   let finished = true;
   for (let chunk = 0; chunk < RETIRE_CHUNKS_PER_PASS; chunk++) {
+    // Markers were written as expired and never set to skipped; leaving
+    // skipped out keeps this off the million-row (skipped, 0) index range.
     const result = await withLockRetry(() => db.execute(sql`
       DELETE FROM ${mlsMedia}
        WHERE ${inArray(mlsMedia.feedId, todo)}
-         AND ${mlsMedia.status} IN ('expired', 'failed', 'pending', 'skipped')
+         AND ${mlsMedia.status} IN ('expired', 'failed', 'pending')
          AND ${mlsMedia.priority} = 0
          AND LEFT(${mlsMedia.mediaKey}, ${LEGACY_MARKER_PREFIX.length}) = ${LEGACY_MARKER_PREFIX}
        LIMIT ${RETIRE_CHUNK}`));
