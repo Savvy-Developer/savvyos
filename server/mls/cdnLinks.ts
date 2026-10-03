@@ -40,6 +40,17 @@ export const CDN_LINK_BATCH = 100;
 export const CDN_LINK_PARALLEL = 4;
 /** Listings examined per feed per worker pass. */
 export const CDN_LINK_SCAN = 1_000;
+/**
+ * Share of a token's rolling-day API limit the backfill may use. Past it, the
+ * backfill waits for usage to age out, so live replication (status changes,
+ * the 12-hour refresh rule) always has the rest of the day's budget.
+ */
+export const CDN_LINK_DAY_SHARE = 0.75;
+
+export function backfillHasHeadroom(lane: ProviderLane) {
+  const day = lane.api.snapshot().windows.find(window => window.windowMs === 86_400_000);
+  return !day || day.used < day.limit * CDN_LINK_DAY_SHARE;
+}
 
 export type CdnLinkProgress = { scope: string | null; scanned: number; relinked: number; requests: number; done: boolean };
 
@@ -58,6 +69,7 @@ export async function backfillCdnLinks(
     const cursor = cursors.find(row => row.resource === scope.resource);
     if (cursor?.phase === "incremental") continue;
     if (options.signal?.aborted) return idle;
+    if (!backfillHasHeadroom(lane)) return { scope: "api_headroom", scanned: 0, relinked: 0, requests: 0, done: false };
     const progress = await backfillScope(db, lane, ctx, scope, cursor?.highWaterMark ?? null, options);
     if (progress.scanned) return progress;
   }
