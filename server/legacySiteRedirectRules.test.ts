@@ -3,7 +3,14 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { LEGACY_PAGES, legacyTarget, resolveLegacyTarget, withQuery } from "./legacySiteRedirectRules";
+import {
+  LEGACY_PAGES,
+  legacyTarget,
+  marketPageParts,
+  resolveLegacyTarget,
+  withMarketFallback,
+  withQuery,
+} from "./legacySiteRedirectRules";
 
 const go = (p: string, published = false) => {
   const target = legacyTarget(p);
@@ -66,6 +73,28 @@ describe("old savvy-agents.com addresses", () => {
     for (const p of ["/properties", "/about", "/agents", "/case-studies", "/contact", "/markets", "/recent-sales", "/team", "/privacy", "/legal", "/resources", "/sell", "/account", "/join-our-team"]) {
       expect(LEGACY_PAGES[p]).toBeDefined();
     }
+  });
+});
+
+describe("old market pages", () => {
+  it("keeps a market SavvyOS has", () => {
+    const resolved = { to: "/newsite/markets/nc/asheville", permanent: true };
+    expect(withMarketFallback(resolved, true)).toEqual(resolved);
+  });
+
+  it("sends a market SavvyOS does not have to the markets list, temporarily, instead of a 404", () => {
+    expect(withMarketFallback({ to: "/newsite/markets/az/scottsdale", permanent: true }, false)).toEqual({
+      to: "/newsite/markets",
+      permanent: false,
+    });
+  });
+
+  it("only looks at market page addresses", () => {
+    expect(marketPageParts("/newsite/markets/nc/asheville")).toEqual({ state: "nc", city: "asheville" });
+    expect(marketPageParts("/newsite/markets")).toBeNull();
+    expect(marketPageParts("/newsite/properties/x")).toBeNull();
+    const list = { to: "/newsite/properties", permanent: false };
+    expect(withMarketFallback(list, false)).toEqual(list);
   });
 });
 

@@ -17,7 +17,17 @@ import {
   websiteProperties,
 } from "../drizzle/schema";
 import { getDb } from "./db";
-import { legacyTarget, resolveLegacyTarget, withQuery, type LegacyTarget } from "./legacySiteRedirectRules";
+import {
+  legacyTarget,
+  marketPageParts,
+  resolveLegacyTarget,
+  withMarketFallback,
+  withQuery,
+  type LegacyTarget,
+} from "./legacySiteRedirectRules";
+import { loadMarketDirectory } from "./routers/website";
+import { findMarketForPage } from "@shared/websiteMarketPages";
+import { websitePathRedirectTarget } from "@shared/websitePathRedirects";
 
 const publicHost = (process.env.PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
 const publicHosts = new Set([publicHost, `www.${publicHost}`]);
@@ -72,7 +82,13 @@ export function registerLegacySiteRedirects(app: Express) {
       const db = await getDb();
       if (!db) return next();
       if (await isLandingPage(db, req.path)) return next();
-      const { to, permanent } = resolveLegacyTarget(target, await isPublished(db, target));
+      const resolved = resolveLegacyTarget(target, await isPublished(db, target), path =>
+        websitePathRedirectTarget(path)
+      );
+      const market = marketPageParts(resolved.to);
+      const { to, permanent } = market
+        ? withMarketFallback(resolved, !!findMarketForPage(await loadMarketDirectory(db), market.state, market.city))
+        : resolved;
       res.set("Cache-Control", permanent ? "public, max-age=3600" : "no-store");
       return res.redirect(permanent ? 301 : 302, withQuery(to, req.originalUrl));
     } catch (error) {

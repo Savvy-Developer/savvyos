@@ -91,6 +91,79 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
   return null;
 }
 
+/** Whether a request path belongs to the public site at all. */
+export function isWebsitePath(path: string): boolean {
+  const trimmed = path.replace(/\/+$/, "") || "/";
+  return trimmed === WEBSITE_BASE_PATH || trimmed.startsWith(`${WEBSITE_BASE_PATH}/`);
+}
+
+/** Pages a signed-in Savvy team member can open as a Draft at its future address. */
+const DRAFT_PREVIEW_KINDS = new Set<WebsiteRoute["kind"]>(["property", "caseStudy", "resource"]);
+
+/** Pages that exist only when a row in the database says so. */
+const LOOKED_UP_KINDS = new Set<WebsiteRoute["kind"]>([
+  "property",
+  "agent",
+  "caseStudy",
+  "resource",
+  "market",
+  "page",
+]);
+
+export function canPreviewDraft(route: WebsiteRoute): boolean {
+  return DRAFT_PREVIEW_KINDS.has(route.kind);
+}
+
+/** What the database said about the item a route names. */
+export type WebsitePageLookup = "published" | "draft" | "missing";
+
+/**
+ * The HTTP status for a /newsite page. The HTML is the same single-page app
+ * either way, so a missing page still shows the site's "Page not found"; the
+ * 404 is for search engines and link checkers, which otherwise index every
+ * typo'd or retired address as a real, empty page.
+ *
+ * - Built-in pages (home, list pages, about, account screens): always 200.
+ * - An address the site does not route at all: 404.
+ * - A listing, agent, case study, article, market or CMS page: 200 when
+ *   published, 404 otherwise, except that a signed-in Savvy team member gets
+ *   200 for a Draft listing, case study or article, which the page shows them
+ *   as a preview.
+ */
+export function websitePageStatus(input: {
+  route: WebsiteRoute | null;
+  lookup: WebsitePageLookup;
+  visitorIsStaff: boolean;
+}): 200 | 404 {
+  const { route, lookup, visitorIsStaff } = input;
+  if (!route) return 404;
+  if (!LOOKED_UP_KINDS.has(route.kind)) return 200;
+  if (lookup === "published") return 200;
+  if (lookup === "draft" && visitorIsStaff && canPreviewDraft(route)) return 200;
+  return 404;
+}
+
+/**
+ * The status the single-page app is served with: 404 only for a public-site
+ * address the metadata step found missing (res.locals.websiteNotFound).
+ */
+export function spaStatus(locals: Record<string, unknown>): 200 | 404 {
+  return locals.websiteNotFound === true ? 404 : 200;
+}
+
+/**
+ * The page head for a 404: the not-found title the client sets anyway, and
+ * noindex so a missing address never lands in search results.
+ */
+export function injectNotFoundHead(html: string): string {
+  const title = `<title>${pageTitle("Page not found")}</title>`;
+  const robots = `<meta name="robots" content="noindex, nofollow" />`;
+  const withTitle = /<title>[\s\S]*?<\/title>/i.test(html)
+    ? html.replace(/<title>[\s\S]*?<\/title>/i, title)
+    : html.replace(/<head([^>]*)>/i, `<head$1>\n    ${title}`);
+  return withTitle.replace(/<\/head>/i, `    ${robots}\n  </head>`);
+}
+
 /**
  * Titles for the pages the site serves from code. Kept word for word with the
  * usePageTitle calls in PublicWebsite.tsx, so the tab title does not change

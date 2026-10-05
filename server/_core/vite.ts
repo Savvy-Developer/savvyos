@@ -7,6 +7,7 @@ import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
 import { injectLandingPageHtml } from "../landingPageHtml";
 import { injectWebsiteTags } from "../websiteTracking";
+import { injectNotFoundHead, spaStatus } from "../websiteSeoPages";
 
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
@@ -40,10 +41,12 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`
       );
+      const status = spaStatus(res.locals);
       template = injectLandingPageHtml(template, res.locals.landingPageMetadata ?? null);
+      if (status === 404) template = injectNotFoundHead(template);
       template = injectWebsiteTags(template, res.locals.websiteTags);
       const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      res.status(status).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);
@@ -85,12 +88,12 @@ export function serveStatic(app: Express) {
   app.use("*", async (_req, res, next) => {
     try {
       const template = await fs.promises.readFile(path.resolve(distPath, "index.html"), "utf-8");
-      const page = injectWebsiteTags(
-        injectLandingPageHtml(template, res.locals.landingPageMetadata ?? null),
-        res.locals.websiteTags
-      );
+      const status = spaStatus(res.locals);
+      let html = injectLandingPageHtml(template, res.locals.landingPageMetadata ?? null);
+      if (status === 404) html = injectNotFoundHead(html);
+      const page = injectWebsiteTags(html, res.locals.websiteTags);
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-      res.status(200).type("html").send(page);
+      res.status(status).type("html").send(page);
     } catch (error) {
       next(error);
     }
