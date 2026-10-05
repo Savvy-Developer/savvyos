@@ -119,7 +119,7 @@ import {
 } from "@shared/adAttribution";
 import { resolveOrganicSocialLeadSourceId } from "../organicSocialLeadSources";
 import { websiteLeadSourceId } from "../websiteLeadSources";
-import { websiteFormLeadSource } from "@shared/websiteLeadSources";
+import { isCaseStudyLeadPath, websiteFormLeadSource } from "@shared/websiteLeadSources";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { recordWebsiteRequestActivity } from "../websiteActivity";
 
@@ -1463,7 +1463,12 @@ export const websiteRouter = router({
         isStaff = false;
       }
       const rows = await db
-        .select({ ...propertyProjection, listingStatus: websiteProperties.status })
+        .select({
+          ...propertyProjection,
+          listingStatus: websiteProperties.status,
+          // The agent card's Schedule a Call, same as on a case study.
+          assignedAgentBookingUrl: websiteAgentProfiles.bookingUrl,
+        })
         .from(websiteProperties)
         .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
         .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
@@ -1481,7 +1486,10 @@ export const websiteRouter = router({
           )
         )
         .limit(1);
-      return rows[0] ? gateProperty(rows[0], signedIn) : null;
+      const row = rows[0];
+      return row
+        ? gateProperty({ ...row, assignedAgentBookingUrl: normalizeBookingUrl(row.assignedAgentBookingUrl) }, signedIn)
+        : null;
     }),
 
   /**
@@ -2324,7 +2332,9 @@ export const websiteRouter = router({
           connectionId = Number((inserted as any)[0]?.insertId) || null;
           connectionCreated = true;
         }
-        if (input.requestType && input.propertyId) {
+        // Not from a case study: the handoff email copies the visitor and
+        // names the property's street address, which a case study never shows.
+        if (input.requestType && input.propertyId && !isCaseStudyLeadPath(input.sourcePath)) {
           sendWebsiteHandoffEmail(db, {
             agentId,
             contactId,
@@ -3343,18 +3353,8 @@ export const websiteRouter = router({
           if (input.kind === "property") Object.assign(facts, property);
           else Object.assign(facts, { city: property.city, state: property.state });
         }
-        if (input.kind === "property" && input.sourceProformaId) {
-          const [proforma] = await db
-            .select({ grossRevenue: proformas.grossRevenue, cashOnCash: proformas.cashOnCash, capRate: proformas.capRate })
-            .from(proformas)
-            .where(and(eq(proformas.id, input.sourceProformaId), eq(proformas.propertyId, input.propertyId)))
-            .limit(1);
-          if (proforma) {
-            facts.proformaBaseCaseGrossRevenue = proforma.grossRevenue;
-            facts.proformaBaseCaseCashOnCash = proforma.cashOnCash == null ? null : `${(Number(proforma.cashOnCash) * 100).toFixed(1)}%`;
-            facts.proformaBaseCaseCapRate = proforma.capRate == null ? null : `${(Number(proforma.capRate) * 100).toFixed(1)}%`;
-          }
-        }
+        // No pro-forma numbers for a property's meta text: it is public, and
+        // the listing keeps revenue and returns behind sign-in.
       }
       try {
         return await writeSeoText({

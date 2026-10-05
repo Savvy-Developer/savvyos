@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, ExternalLink, Globe2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -630,11 +631,7 @@ export default function PropertyWebsiteTab({
     agentBlurb: draft.agentBlurb,
     featureTags: splitLines(draft.featureTags),
     investmentHighlights: splitLines(draft.investmentHighlights),
-    projectedAnnualRevenue: draft.projectedRevenue,
-    cashOnCashPercent: draft.cashOnCash,
-    capRatePercent: draft.capRate,
-    occupancyPercent: draft.occupancyRate,
-    averageDailyRate: draft.averageDailyRate,
+    // No revenue or return figures: meta text is public, those are behind sign-in.
     regulationSummary: draft.regulationSummary,
   });
 
@@ -1080,6 +1077,9 @@ function ProformaNumbersHint({
   draft: { projectedRevenue: string; cashOnCash: string; capRate: string };
   onUse: (values: { projectedRevenue: string; cashOnCash: string; capRate: string }) => void;
 }) {
+  // In-app navigation, like PropertyDetail: a full page load would drop
+  // unsaved edits on a published listing.
+  const [, navigate] = useLocation();
   // The button always shows. With nothing linked it is disabled and says what
   // to do first (Rock 1 punch list).
   if (!proforma) {
@@ -1095,8 +1095,13 @@ function ProformaNumbersHint({
             Use the pro-forma numbers
           </Button>
           {!hasProformas && (
-            <Button type="button" size="sm" variant="link" asChild>
-              <a href={`/properties/${propertyId}/proforma?new=true`}>Create a pro-forma</a>
+            <Button
+              type="button"
+              size="sm"
+              variant="link"
+              onClick={() => navigate(`/properties/${propertyId}/proforma?new=true`)}
+            >
+              Create a pro-forma
             </Button>
           )}
         </div>

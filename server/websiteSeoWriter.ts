@@ -2,8 +2,12 @@
  * "Write with AI" for the website editors (1 Oct call with Tyler): the meta
  * title and meta description of a property listing or blog post, and a case
  * study's excerpt, written from everything SavvyOS knows about it: the
- * property's facts, the linked pro-forma's base-case numbers, the listing
- * text (often the Zillow description), and the post or story itself.
+ * property's facts, the listing text (often the Zillow description), and the
+ * post or story itself.
+ *
+ * A property's meta text never carries revenue or return figures: it is
+ * public and indexed, while the page keeps those numbers behind sign-in.
+ * A case study may lead with its result, because its page shows it to all.
  *
  * The pure part (building the request, reading the answer) is here so it can
  * be tested; the router gathers the data and calls the model.
@@ -47,6 +51,24 @@ export function plainText(value: unknown, max = 6000): string {
     .slice(0, max);
 }
 
+/**
+ * Figures a property's meta text must not see. The page shows them only to
+ * signed-in investors, and Google shows meta text to everyone.
+ */
+export const PROPERTY_META_HIDDEN_FACTS = [
+  "projectedAnnualRevenue",
+  "cashOnCashPercent",
+  "capRatePercent",
+  "occupancyPercent",
+  "averageDailyRate",
+  "proformaBaseCaseGrossRevenue",
+  "proformaBaseCaseCashOnCash",
+  "proformaBaseCaseCapRate",
+] as const;
+
+const PROPERTY_META_RULE =
+  "Never state revenue, cash-on-cash, cap rate, occupancy, nightly rate or any other return figure, even if the text mentions one. You may say a projected investment analysis is available.";
+
 function cleanFacts(facts: Record<string, unknown>) {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(facts)) {
@@ -68,6 +90,9 @@ const RULES = [
 /** The chat messages for one request. */
 export function buildSeoMessages(context: SeoContext) {
   const facts = cleanFacts(context.facts);
+  if (context.kind === "property") {
+    for (const key of PROPERTY_META_HIDDEN_FACTS) delete facts[key];
+  }
   const subject =
     context.kind === "property"
       ? "a short-term rental property listed for sale on Savvy STR Agents (savvy-agents.com)"
@@ -80,16 +105,20 @@ export function buildSeoMessages(context: SeoContext) {
       : `Return JSON: {"metaTitle": "<at most ${SEO_TITLE_MAX} characters${
           context.kind === "property" ? ", include the city and state" : ""
         }>", "metaDescription": "<${SEO_DESCRIPTION_MAX - 25} to ${SEO_DESCRIPTION_MAX} characters, one or two sentences${
-          context.kind === "property"
-            ? ", mention the projected revenue or return when given"
-            : context.kind === "caseSeo"
+          context.kind === "caseSeo"
               ? ", lead with the result the client got when the facts give one"
               : ""
         }>"}.`;
   return [
     {
       role: "system" as const,
-      content: [`You write search listing text for ${subject}.`, ...RULES, ask, "Return only the JSON object."].join(" "),
+      content: [
+        `You write search listing text for ${subject}.`,
+        ...RULES,
+        ...(context.kind === "property" ? [PROPERTY_META_RULE] : []),
+        ask,
+        "Return only the JSON object.",
+      ].join(" "),
     },
     {
       role: "user" as const,

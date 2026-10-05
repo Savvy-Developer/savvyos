@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { CASE_STUDY_ASK_COPY } from "@/lib/caseStudyAskCopy";
 import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
 import { captureVisitAttribution, formAttribution } from "@/lib/visitAttribution";
@@ -1646,8 +1647,6 @@ function PropertyDetailPage({ slug }: { slug: string }) {
     .filter(other => other.slug !== item.slug)
     .sort((a, b) => Number(b.state === item.state) - Number(a.state === item.state))
     .slice(0, 3);
-  const outline =
-    "inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border px-4 text-sm font-medium shadow-xs transition-all";
 
   return (
     <Shell>
@@ -2057,60 +2056,26 @@ function PropertyDetailPage({ slug }: { slug: string }) {
             </div>
 
             <div className="order-1 space-y-4 lg:order-2 lg:col-span-1">
-              <div className="rounded-[10px] border border-[#e5e5e5] bg-white p-5 shadow-sm">
-                <h3 className="mb-3 text-center text-lg font-bold text-gray-900">Your Agent</h3>
-                <a
-                  href={agentProfile || path("/agents")}
-                  className="group mb-3 flex cursor-pointer flex-col items-center text-center transition-opacity hover:opacity-80"
-                >
-                  <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full border-2 border-[#e5e5e5] transition-colors group-hover:border-[#05314a]">
-                    <img
-                      src={item.assignedAgentImageUrl || "https://images.unsplash.com/photo-1560250097-0b93528c311a?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&h=150"}
-                      alt={agentName}
-                      className="h-full w-full object-cover object-[center_20%]"
-                    />
-                  </div>
-                  <div className="mt-3">
-                    <h4 className="font-bold text-gray-900 transition-colors group-hover:text-[#05314a]">{agentName}</h4>
-                    <p className="text-sm">STR Investment Specialist</p>
-                    {item.city ? <p className="text-sm text-gray-600">{[item.city, item.state].filter(Boolean).join(", ")}</p> : null}
-                  </div>
-                </a>
-                <div className="my-3 h-px bg-[#e5e5e5]" />
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => openAsk(null)}
-                    className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[#171717] px-4 text-sm font-medium text-white transition-all hover:bg-[#171717]/90"
-                  >
-                    <Mail className="h-4 w-4" />
-                    Message Agent
-                  </button>
-                  {item.assignedAgentPhone ? (
-                    <a className={`${outline} bg-white hover:bg-[#f5f5f5]`} href={`tel:${String(item.assignedAgentPhone).replace(/[^+\d]/g, "")}`}>
-                      <Phone className="h-4 w-4" />
-                      Call Agent
-                    </a>
-                  ) : null}
-                  <button type="button" onClick={() => openAsk("showing")} className={`${outline} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}>
-                    <CalendarCheck className="h-4 w-4" />
-                    Book a Showing
-                  </button>
-                  <button type="button" onClick={() => openAsk("analysis")} className={`${outline} border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100`}>
-                    <LineChart className="h-4 w-4" />
-                    Request Deeper Analysis
-                  </button>
-                  <button type="button" onClick={() => openAsk("financing")} className={`${outline} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`}>
-                    <Landmark className="h-4 w-4" />
-                    Financing
-                  </button>
-                </div>
-                {agentProfile ? (
-                  <a href={agentProfile} className="mt-3 inline-flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium transition-all hover:bg-[#f5f5f5]">
-                    View Full Profile
-                  </a>
-                ) : null}
-              </div>
+              <AgentContactCard
+                title="Your Agent"
+                agent={{
+                  userId: item.assignedAgentId,
+                  name: agentName,
+                  imageUrl:
+                    item.assignedAgentImageUrl ||
+                    "https://images.unsplash.com/photo-1560250097-0b93528c311a?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&h=150",
+                  profileHref: agentProfile,
+                  place: item.city ? [item.city, item.state].filter(Boolean).join(", ") : null,
+                  phone: item.assignedAgentPhone,
+                  bookingUrl: item.assignedAgentBookingUrl,
+                }}
+                leadTitle={ASK_COPY.default.title(item.address)}
+                leadMessage={ASK_COPY.default.message(item.address)}
+                propertyId={item.propertyId}
+                onMessage={() => openAsk(null)}
+                requests={["showing", "analysis", "financing"]}
+                onRequest={openAsk}
+              />
 
               {showLead && (
                 <div id="property-lead-form">
@@ -2885,16 +2850,29 @@ type ContactAgent = {
   bookingUrl?: string | null;
 };
 
+type AgentRequest = "showing" | "analysis" | "financing";
+
+/**
+ * The one agent card for property pages, case studies and blog posts, so they
+ * all offer the same ways to get in touch, in this order: Message, Schedule a
+ * Call, Call, Book a Showing, Request Deeper Analysis, Financing, View Full
+ * Profile. The request buttons only show when the page passes `requests`.
+ */
 function AgentContactCard({
   agent,
+  title,
   heading,
   leadTitle,
   leadMessage,
   propertyId,
   layout = "column",
   onMessage,
+  requests = [],
+  onRequest,
 }: {
   agent: ContactAgent;
+  /** A centred heading over the card, e.g. "Your Agent" on a property. */
+  title?: string;
   heading?: string;
   leadTitle: string;
   leadMessage: string;
@@ -2903,6 +2881,9 @@ function AgentContactCard({
   layout?: "column" | "row";
   /** When the page already shows a form, "Message" scrolls to it instead. */
   onMessage?: () => void;
+  /** Which request buttons to show. Each opens the page's own form via onRequest. */
+  requests?: AgentRequest[];
+  onRequest?: (request: AgentRequest) => void;
 }) {
   const [showLead, setShowLead] = useState(false);
   const firstName = agent.name.split(" ")[0];
@@ -2958,6 +2939,36 @@ function AgentContactCard({
           Call {firstName}
         </a>
       ) : null}
+      {onRequest && requests.includes("showing") ? (
+        <button
+          type="button"
+          onClick={() => onRequest("showing")}
+          className={`${outline} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
+        >
+          <CalendarCheck className="h-4 w-4" />
+          Book a Showing
+        </button>
+      ) : null}
+      {onRequest && requests.includes("analysis") ? (
+        <button
+          type="button"
+          onClick={() => onRequest("analysis")}
+          className={`${outline} border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100`}
+        >
+          <LineChart className="h-4 w-4" />
+          Request Deeper Analysis
+        </button>
+      ) : null}
+      {onRequest && requests.includes("financing") ? (
+        <button
+          type="button"
+          onClick={() => onRequest("financing")}
+          className={`${outline} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`}
+        >
+          <Landmark className="h-4 w-4" />
+          Financing
+        </button>
+      ) : null}
       {agent.profileHref ? (
         <a href={agent.profileHref} className={`${outline} border-transparent hover:bg-[#f5f5f5]`}>
           View Full Profile
@@ -2977,6 +2988,7 @@ function AgentContactCard({
         </div>
       ) : (
         <>
+          {title ? <h3 className="mb-3 text-center text-lg font-bold text-gray-900">{title}</h3> : null}
           <a
             href={agent.profileHref || path("/agents")}
             className="mb-3 flex flex-col items-center text-center transition-opacity hover:opacity-80"
@@ -3014,11 +3026,17 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
   // "More from" the agent: their live listings, from the (small) public list.
   const others = trpc.website.publicProperties.useQuery(undefined, { staleTime: 5 * 60_000 });
   const item: any = query.data;
+  // Which card button opened the form: none (Message), analysis or financing.
+  const [caseAsk, setCaseAsk] = useState<null | "analysis" | "financing">(null);
   usePageTitle(item?.title || "Case Study");
   useRecordArticleView("case_study", item?.id);
   if (query.isLoading) return <LoadingPage />;
   if (!item) return <NotFoundPage />;
   const agentName = item.agentName || null;
+  const openCaseAsk = (request: null | "analysis" | "financing") => {
+    setCaseAsk(request);
+    document.getElementById("case-study-lead-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
   const agentProfile =
     item.agentSlug && (item.agentProfileStatus == null || item.agentProfileStatus === "published")
       ? path(`/agents/${item.agentSlug}`)
@@ -3148,12 +3166,12 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
                       email: item.agentEmail,
                       bookingUrl: item.agentBookingUrl,
                     }}
-                    leadTitle={`Ask ${String(agentName).split(" ")[0]} about this deal`}
-                    leadMessage={`I'd like to learn more about the strategy behind ${item.title}.`}
+                    leadTitle={CASE_STUDY_ASK_COPY.default.title(String(agentName).split(" ")[0])}
+                    leadMessage={CASE_STUDY_ASK_COPY.default.message(item.title)}
                     propertyId={item.propertyId}
-                    onMessage={() =>
-                      document.getElementById("case-study-lead-form")?.scrollIntoView({ behavior: "smooth", block: "center" })
-                    }
+                    onMessage={() => openCaseAsk(null)}
+                    requests={["analysis", "financing"]}
+                    onRequest={request => openCaseAsk(request === "showing" ? null : request)}
                   />
                 </div>
               ) : null}
@@ -3163,8 +3181,9 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
                   agentUserId={item.agentUserId || undefined}
                   propertyId={item.propertyId || undefined}
                   intent="property"
-                  title={agentName ? `Ask ${String(agentName).split(" ")[0]} about this deal` : "Ask Savvy about this story"}
-                  message={`I'd like to learn more about the strategy behind ${item.title}.`}
+                  requestType={caseAsk ?? undefined}
+                  title={CASE_STUDY_ASK_COPY[caseAsk ?? "default"].title(agentName ? String(agentName).split(" ")[0] : null)}
+                  message={CASE_STUDY_ASK_COPY[caseAsk ?? "default"].message(item.title)}
                 />
               </div>
 

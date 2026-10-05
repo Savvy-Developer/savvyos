@@ -220,7 +220,8 @@ describe("agent cards on case studies and blog posts", () => {
       expect(card).toContain(text);
     }
     expect(publicSite).toContain('heading="Written by"');
-    expect(publicSite.match(/<AgentContactCard/g)?.length).toBe(2);
+    // Case study, blog post, and (Rock 1 punch list) the property page.
+    expect(publicSite.match(/<AgentContactCard/g)?.length).toBe(3);
   });
 
   it("shows a post author's contact details only from a published profile", () => {
