@@ -177,6 +177,7 @@ describe("property meta text carries no revenue or return figures", () => {
     occupancyPercent: "68",
     averageDailyRate: "540",
     proformaBaseCaseGrossRevenue: "135024",
+    agentBlurb: "Cash flowed from month one for my last buyer.",
   };
 
   it("drops the figures from what the model sees and forbids stating any", () => {
@@ -197,7 +198,14 @@ describe("property meta text carries no revenue or return figures", () => {
 
   it("is not sent the figures by the editor or the router", () => {
     const ai = websiteTab.slice(websiteTab.indexOf("const aiContent"), websiteTab.indexOf("function submit()"));
-    for (const key of ["projectedAnnualRevenue", "cashOnCashPercent", "capRatePercent", "occupancyPercent", "averageDailyRate"]) {
+    for (const key of [
+      "projectedAnnualRevenue",
+      "cashOnCashPercent",
+      "capRatePercent",
+      "occupancyPercent",
+      "averageDailyRate",
+      "agentBlurb",
+    ]) {
       expect(ai).not.toContain(key);
     }
     expect(websiteRouter).not.toContain("proformaBaseCaseGrossRevenue");

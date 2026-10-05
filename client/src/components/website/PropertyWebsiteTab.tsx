@@ -628,10 +628,10 @@ export default function PropertyWebsiteTab({
   const aiContent = () => ({
     headline: draft.headline,
     summary: draft.summary,
-    agentBlurb: draft.agentBlurb,
     featureTags: splitLines(draft.featureTags),
     investmentHighlights: splitLines(draft.investmentHighlights),
-    // No revenue or return figures: meta text is public, those are behind sign-in.
+    // No revenue or return figures and no "Why I like this" quote: meta text is
+    // public, and the listing keeps those behind sign-in.
     regulationSummary: draft.regulationSummary,
   });
 

@@ -61,6 +61,8 @@ export const PROPERTY_META_HIDDEN_FACTS = [
   "capRatePercent",
   "occupancyPercent",
   "averageDailyRate",
+  // "Why I like this property": the agent's quote, also behind sign-in.
+  "agentBlurb",
   "proformaBaseCaseGrossRevenue",
   "proformaBaseCaseCashOnCash",
   "proformaBaseCaseCapRate",
