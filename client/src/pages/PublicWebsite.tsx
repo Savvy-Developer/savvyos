@@ -505,6 +505,24 @@ function LeadForm({
     message,
     website: "",
   });
+  // A signed-in investor should not have to type who they are again. Their
+  // account details fill any field still empty, and anything they have typed
+  // is left alone.
+  const signedIn = useWebsiteAccount().data ?? null;
+  const signedInId = signedIn?.id ?? null;
+  useEffect(() => {
+    if (!signedIn) return;
+    setForm(prior => ({
+      ...prior,
+      firstName: prior.firstName || signedIn.firstName || "",
+      lastName: prior.lastName || signedIn.lastName || "",
+      email: prior.email || signedIn.email || "",
+      phone: prior.phone || signedIn.phone || "",
+    }));
+    // Keyed on the account, not the object: the query hands back a new object
+    // on every refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedInId]);
   // The property page reuses one form for Message Agent, Book a Showing,
   // Deeper Analysis and Financing. Switching between them swaps in the new
   // starting message, unless the visitor has already written their own.
@@ -522,10 +540,10 @@ function LeadForm({
         "Your message is in. A Savvy STR specialist will follow up shortly."
       );
       setForm({
-        firstName: "",
-        lastName: "",
-        email: "",
-        phone: "",
+        firstName: signedIn?.firstName || "",
+        lastName: signedIn?.lastName || "",
+        email: signedIn?.email || "",
+        phone: signedIn?.phone || "",
         message: "",
         website: "",
       });

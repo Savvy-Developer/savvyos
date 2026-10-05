@@ -23,8 +23,14 @@ export const WEBSITE_LEAD_SOURCES = [
   "Agent Message",
   "Seller Enquiry",
   "General Inquiry",
+  // Not a form: someone who created a website account, or saved a property,
+  // before ever sending one. The old site made these SavvyOS contacts too.
+  "Account Sign-up",
 ] as const;
 export type WebsiteLeadSource = (typeof WEBSITE_LEAD_SOURCES)[number];
+
+/** The sub-source for a contact that came from an account, not a form. */
+export const WEBSITE_ACCOUNT_LEAD_SOURCE: WebsiteLeadSource = "Account Sign-up";
 
 /** Which sub-source a new-site form belongs to. */
 export function websiteFormLeadSource(input: {

@@ -38,6 +38,7 @@ import {
   sessionCookieFor,
   verifyPassword,
 } from "../_core/websiteAccountAuth";
+import { recordWebsiteAccountActivity, isRepeatView } from "../websiteActivity";
 import {
   STAFF_SITE_TARGET_KEYS,
   clearedStaffSiteCookie,
@@ -187,6 +188,21 @@ export const websiteAccountRouter = router({
         firstName: input.firstName || null,
         lastName: input.lastName || null,
       });
+
+      // A registration becomes a SavvyOS contact with the sign-up on its
+      // timeline, as it did on the old site. Not awaited and never throws,
+      // for the same reason as the list above.
+      void recordWebsiteAccountActivity(
+        db,
+        {
+          id: accountId,
+          email,
+          firstName: input.firstName || null,
+          lastName: input.lastName || null,
+          phone: input.phone || null,
+        },
+        { action: "user_registered" }
+      );
 
       setCookie(ctx, await sessionCookieFor(ctx.req as any, accountId));
       return { id: accountId, email };
@@ -420,10 +436,31 @@ export const websiteAccountRouter = router({
         .limit(1);
       if (!listing) throw new TRPCError({ code: "NOT_FOUND", message: "Property not found." });
 
+      const [alreadySaved] = await db
+        .select({ id: websiteAccountSavedProperties.id })
+        .from(websiteAccountSavedProperties)
+        .where(
+          and(
+            eq(websiteAccountSavedProperties.accountId, ctx.account.id),
+            eq(websiteAccountSavedProperties.propertyId, input.propertyId)
+          )
+        )
+        .limit(1);
+
       await db
         .insert(websiteAccountSavedProperties)
         .values({ accountId: ctx.account.id, propertyId: input.propertyId })
         .onDuplicateKeyUpdate({ set: { propertyId: input.propertyId } });
+
+      // The favourite goes on the contact's timeline, where Hot Leads and the
+      // lead score read it. Only a new save counts, so saving a property that
+      // is already saved does not add a second entry.
+      if (!alreadySaved) {
+        void recordWebsiteAccountActivity(db, ctx.account, {
+          action: "property_favorited",
+          propertyId: input.propertyId,
+        });
+      }
       return { saved: true };
     }),
 
@@ -493,6 +530,16 @@ export const websiteAccountRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { ok: false };
+      const [previous] = await db
+        .select({ lastViewedAt: websiteAccountPropertyViews.lastViewedAt })
+        .from(websiteAccountPropertyViews)
+        .where(
+          and(
+            eq(websiteAccountPropertyViews.accountId, ctx.account.id),
+            eq(websiteAccountPropertyViews.propertyId, input.propertyId)
+          )
+        )
+        .limit(1);
       await db
         .insert(websiteAccountPropertyViews)
         .values({ accountId: ctx.account.id, propertyId: input.propertyId })
@@ -502,6 +549,15 @@ export const websiteAccountRouter = router({
             lastViewedAt: new Date(),
           },
         });
+
+      // The view also goes on the contact's timeline, for Hot Leads and the
+      // daily agent report. A reload within half an hour is the same visit.
+      if (!isRepeatView(previous?.lastViewedAt)) {
+        void recordWebsiteAccountActivity(db, ctx.account, {
+          action: "property_viewed",
+          propertyId: input.propertyId,
+        });
+      }
       return { ok: true };
     }),
 
