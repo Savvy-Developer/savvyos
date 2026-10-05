@@ -28,7 +28,7 @@ vi.mock("drizzle-orm/mysql2", () => {
   return { drizzle: () => db };
 });
 
-import { createProperty, DuplicatePropertyError, PossibleDuplicatePropertyError } from "./db";
+import { createProperty, DuplicatePropertyError, findPropertyDuplicate, PossibleDuplicatePropertyError } from "./db";
 
 beforeAll(() => {
   process.env.DATABASE_URL = "mysql://test/test";
@@ -74,6 +74,35 @@ describe("createProperty possible-duplicate check", () => {
     await expect(
       createProperty({ address: "24230 Perdido Beach Blvd Apt 3125", city: "Orange Beach", state: "AL", zip: "36561" } as any),
     ).resolves.toBe(1992);
+  });
+
+  it("does not flag a different suffix or the opposite direction", async () => {
+    state.nearby = [
+      { id: 10, address: "500 Main St", city: "Sandy", state: "UT", zip: "84092" },
+      { id: 11, address: "100 N Main", city: "Sandy", state: "UT", zip: "84092" },
+    ];
+    await expect(createProperty({ address: "500 Main Ave", city: "Sandy", state: "UT", zip: "84092" } as any)).resolves.toBe(1992);
+    await expect(createProperty({ address: "100 S Main", city: "Sandy", state: "UT", zip: "84092" } as any)).resolves.toBe(1992);
+  });
+
+  it("does not run the loose check without a 5-digit ZIP", async () => {
+    state.nearby = [OVERLOOK];
+    await expect(createProperty({ address: "360 E Overlook Ln", city: "Glendale", state: "UT", zip: null } as any)).resolves.toBe(1992);
+    await expect(createProperty({ address: "360 E Overlook Ln", city: "Glendale", state: "UT", zip: "84729" } as any))
+      .rejects.toBeInstanceOf(PossibleDuplicatePropertyError);
+  });
+
+  it("findPropertyDuplicate says what createProperty would do, without writing", async () => {
+    state.nearby = [OVERLOOK];
+    const possible = await findPropertyDuplicate({ address: "360 E Overlook Ln", city: "Glendale", state: "UT", zip: "84729" });
+    expect(possible).toBeInstanceOf(PossibleDuplicatePropertyError);
+    expect(possible?.existingProperty.id).toBe(861);
+    expect(await findPropertyDuplicate({ address: "362 E Overlook", city: "Glendale", state: "UT", zip: "84729" })).toBeNull();
+    state.exact = [OVERLOOK];
+    const exact = await findPropertyDuplicate({ address: "360 East Overlook", city: "Glendale", state: "UT", zip: "84729" });
+    expect(exact).toBeInstanceOf(DuplicatePropertyError);
+    expect(exact).not.toBeInstanceOf(PossibleDuplicatePropertyError);
+    expect(state.inserted).toHaveLength(0);
   });
 
   it("keeps the exact check first", async () => {

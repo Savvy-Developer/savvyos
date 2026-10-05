@@ -24,7 +24,7 @@
 import { eq } from "drizzle-orm";
 
 import { properties, users, websiteAgentProfiles, websiteProperties } from "../drizzle/schema";
-import { findLooseDuplicate, looseStreetKey, possibleDuplicateMessage } from "./addressNormalization";
+import { findLooseDuplicate, looseCandidateKey, possibleDuplicateMessage } from "./addressNormalization";
 import { createProperty, getDb } from "./db";
 import {
   OLD_SITE_ORIGIN,
@@ -118,16 +118,16 @@ export async function importOldSiteListings(params: {
     const key = streetKey(row.address, row.city, row.state);
     if (key && !propertyByStreet.has(key)) propertyByStreet.set(key, row.id);
   }
-  // For the possible-duplicate check: properties grouped by their loose street
-  // key, so each listing only compares against the same house number and name.
+  // For the possible-duplicate check: properties grouped by house number and
+  // ZIP, so each listing is only compared, one by one, with those.
   type KnownProperty = (typeof existingProperties)[number];
-  const propertiesByLooseStreet = new Map<string, KnownProperty[]>();
+  const propertiesByHouseAndZip = new Map<string, KnownProperty[]>();
   const rememberLoose = (row: KnownProperty) => {
-    const loose = looseStreetKey(row.address);
+    const loose = looseCandidateKey(row.address, row.zip);
     if (!loose) return;
-    const group = propertiesByLooseStreet.get(loose);
+    const group = propertiesByHouseAndZip.get(loose);
     if (group) group.push(row);
-    else propertiesByLooseStreet.set(loose, [row]);
+    else propertiesByHouseAndZip.set(loose, [row]);
   };
   existingProperties.forEach(rememberLoose);
   const listedPropertyIds = new Set(existingListings.map(row => row.propertyId));
@@ -180,7 +180,7 @@ export async function importOldSiteListings(params: {
     if (!existingId) {
       const similar = findLooseDuplicate(
         mapped.property,
-        propertiesByLooseStreet.get(looseStreetKey(mapped.property.address)) ?? []
+        propertiesByHouseAndZip.get(looseCandidateKey(mapped.property.address, mapped.property.zip)) ?? []
       );
       if (similar) {
         report.possibleDuplicates.push({

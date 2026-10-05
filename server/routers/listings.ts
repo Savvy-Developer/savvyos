@@ -16,6 +16,8 @@ import {
   createListingDocument,
   renameListingDocument,
   deleteListingDocument,
+  DuplicatePropertyError,
+  PossibleDuplicatePropertyError,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
@@ -705,17 +707,32 @@ export const listingsRouter = router({
               propertyId = existing[0].id;
             } else {
               const propType = row.propertyType?.toLowerCase().replace(/ /g, "_");
-              propertyId = await createProperty({
-                address: row.address.trim(),
-                city: row.city?.trim() || null,
-                state: row.state?.trim() || null,
-                zip: row.zip?.trim() || null,
-                beds: row.beds?.trim() || null,
-                baths: row.baths?.trim() || null,
-                sqft: row.sqft ? parseInt(row.sqft) || null : null,
-                propertyType: (validPropertyTypes.includes(propType ?? "") ? propType : null) as any,
-                listPrice: row.listPrice?.trim() || null,
-              } as any);
+              try {
+                propertyId = await createProperty({
+                  address: row.address.trim(),
+                  city: row.city?.trim() || null,
+                  state: row.state?.trim() || null,
+                  zip: row.zip?.trim() || null,
+                  beds: row.beds?.trim() || null,
+                  baths: row.baths?.trim() || null,
+                  sqft: row.sqft ? parseInt(row.sqft) || null : null,
+                  propertyType: (validPropertyTypes.includes(propType ?? "") ? propType : null) as any,
+                  listPrice: row.listPrice?.trim() || null,
+                } as any);
+              } catch (err) {
+                // Probably a property SavvyOS already has, written differently.
+                // Only a person can say, so the row is skipped and the result
+                // names the property: "Possible duplicate of #id (address)".
+                if (err instanceof PossibleDuplicatePropertyError) {
+                  results.push({ row: rowNum, status: "skipped", reason: err.message, label });
+                  skipped++;
+                  continue;
+                }
+                // The same address with different capitalization or
+                // abbreviations: it is the property this row means.
+                if (err instanceof DuplicatePropertyError) propertyId = err.existingProperty.id;
+                else throw err;
+              }
             }
           }
 
