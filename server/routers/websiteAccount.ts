@@ -18,6 +18,11 @@ import { getDb, logActivity } from "../db";
 import { TOO_MANY_ATTEMPTS, allowAccountAttempt, clientIp } from "../websiteAccountThrottle";
 import { addSignupToResendAudience } from "../websiteSignupAudience";
 import {
+  confirmSignupEmail,
+  sendSignupConfirmation,
+  signupConfirmationEnabled,
+} from "../websiteSignupConfirmation";
+import {
   adminProcedure,
   publicProcedure,
   router,
@@ -104,6 +109,8 @@ export const WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS = new Set([
   "websiteAccount.signOut",
   "websiteAccount.requestPasswordReset",
   "websiteAccount.resetPassword",
+  "websiteAccount.confirmEmail",
+  "websiteAccount.resendEmailConfirmation",
   "websiteAccount.savedProperties",
   "websiteAccount.setSaved",
   "websiteAccount.preferences",
@@ -180,14 +187,25 @@ export const websiteAccountRouter = router({
         marketProfileIds: [],
       });
 
-      // Join the email list chosen in Website Studio > Daily Email, as the old
-      // site did on registration. Not awaited and never throws: a Resend
-      // problem must not slow down or fail the sign-up.
-      void addSignupToResendAudience(db, {
-        email,
-        firstName: input.firstName || null,
-        lastName: input.lastName || null,
-      });
+      if (signupConfirmationEnabled()) {
+        // Email a confirmation link. Confirming is what adds them to the
+        // sign-up list, as on the old site (websiteSignupConfirmation.ts).
+        // Not awaited and never throws; the account works either way.
+        void sendSignupConfirmation(db, {
+          id: accountId,
+          email,
+          firstName: input.firstName || null,
+        });
+      } else {
+        // Join the email list chosen in Website Studio > Daily Email, as the old
+        // site did on registration. Not awaited and never throws: a Resend
+        // problem must not slow down or fail the sign-up.
+        void addSignupToResendAudience(db, {
+          email,
+          firstName: input.firstName || null,
+          lastName: input.lastName || null,
+        });
+      }
 
       // A registration becomes a SavvyOS contact with the sign-up on its
       // timeline, as it did on the old site. Not awaited and never throws,
@@ -367,6 +385,56 @@ export const websiteAccountRouter = router({
       setCookie(ctx, await sessionCookieFor(ctx.req as any, accountId));
       return { ok: true };
     }),
+
+  /**
+   * Open an email confirmation link. Public, because the link may be opened
+   * on a device that is not signed in. Called by the page rather than by
+   * following a GET link, so a mail scanner fetching the link spends nothing.
+   */
+  confirmEmail: publicProcedure
+    .input(z.object({ token: z.string().min(10).max(200) }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const outcome = await confirmSignupEmail(db, input.token);
+      if (outcome.status === "invalid") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That confirmation link is not valid. Open the link from your email again.",
+        });
+      }
+      if (outcome.status === "expired") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That confirmation link has expired. Sign in to get a new one.",
+        });
+      }
+      return { ok: true as const, alreadyConfirmed: outcome.status === "already_confirmed" };
+    }),
+
+  /** Send the signed-in investor a fresh confirmation link. */
+  resendEmailConfirmation: websiteAccountProcedure.mutation(async ({ ctx }) => {
+    if (!signupConfirmationEnabled()) return { sent: false as const, reason: "off" as const };
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    const [account] = await db
+      .select({ emailVerifiedAt: websiteAccounts.emailVerifiedAt })
+      .from(websiteAccounts)
+      .where(eq(websiteAccounts.id, ctx.account.id))
+      .limit(1);
+    if (account?.emailVerifiedAt) return { sent: false as const, reason: "confirmed" as const };
+    if (!allowAccountAttempt([{ scope: "confirmResendPerAccount", value: String(ctx.account.id) }])) {
+      throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: TOO_MANY_ATTEMPTS });
+    }
+    const result = await sendSignupConfirmation(db, ctx.account);
+    if (!result.sent) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "We could not send the email just now. Please try again later.",
+      });
+    }
+    return { sent: true as const };
+  }),
 
   // ─── Saved properties ──────────────────────────────────────────────────────
 

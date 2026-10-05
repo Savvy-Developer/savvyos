@@ -106,6 +106,7 @@ import {
   ForgotPasswordBody,
   MyTransactionsBody,
   ResetPasswordBody,
+  ConfirmEmailBody,
   SaveButton,
   SavedPropertiesBody,
   SignInBody,
@@ -5995,6 +5996,8 @@ export default function PublicWebsite() {
     return <AccountPage title="Reset your password"><ForgotPasswordBody /></AccountPage>;
   if (relative === "/reset-password")
     return <AccountPage title="Set a new password"><ResetPasswordBody /></AccountPage>;
+  if (relative === "/confirm-email")
+    return <AccountPage title="Confirm your email"><ConfirmEmailBody /></AccountPage>;
   if (relative === "/account/saved")
     return <AccountPage title="Saved properties"><SavedPropertiesBody /></AccountPage>;
   if (relative === "/account/preferences")
