@@ -16,7 +16,12 @@ import {
   type Listing,
   type Preferences,
 } from "./dailyPropertyEmailMatching";
-import { DAILY_EMAIL_TAG, PUBLIC_SITE_BASE, listUnsubscribeHeaders } from "./websiteDailyEmailLogic";
+import {
+  DAILY_EMAIL_TAG,
+  PUBLIC_SITE_BASE,
+  listUnsubscribeHeaders,
+  renderBlurbHtml,
+} from "./websiteDailyEmailLogic";
 
 /**
  * The personal new-property email for investors with a new-site account.
@@ -38,6 +43,9 @@ export type EmailListing = Listing & {
   city: string | null;
   state: string | null;
   heroImageUrl: string | null;
+  /** "Why I like this property", in the assigned agent's words. */
+  agentBlurb?: string | null;
+  agentName?: string | null;
 };
 
 const money = (value: string | number | null) => {
@@ -66,6 +74,10 @@ const escapeHtml = (value: string) =>
  * site, and an email is the least private place there is, so putting them here
  * would undo the gating rather than respect it. The link is the invitation to
  * go and look.
+ *
+ * The one addition is the first five lines of the agent's "Why I like this
+ * property", with a "See more..." link to the listing, which the client asked
+ * for on 3 Oct. It is the same block the shared email shows.
  */
 export function renderDailyPropertyEmail(
   firstName: string | null,
@@ -106,6 +118,7 @@ export function renderDailyPropertyEmail(
               </a>
               ${place ? `<div style="color:#64748b;font-size:13px;margin-top:4px;">${escapeHtml(place)}</div>` : ""}
               ${facts ? `<div style="color:#0f172a;font-size:14px;margin-top:8px;font-weight:600;">${facts}</div>` : ""}
+              ${renderBlurbHtml(listing, url)}
               <a href="${url}" style="display:inline-block;margin-top:14px;background:#10c0df;color:#03293c;font-weight:bold;font-size:13px;text-decoration:none;padding:9px 16px;border-radius:8px;">View the property</a>
             </td></tr>
           </table>

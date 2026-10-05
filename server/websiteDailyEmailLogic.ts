@@ -19,19 +19,143 @@ export type BroadcastListing = {
   beds: string | number | null;
   baths: string | number | null;
   heroImageUrl: string | null;
+  /** "Why I like this property", in the assigned agent's words. */
+  agentBlurb?: string | null;
+  /** The assigned agent's name, for the heading over the blurb. */
+  agentName?: string | null;
 };
 
 export const DEFAULT_SUBJECT_TEMPLATE = "{count} new STR investment properties";
 export const DEFAULT_INTRO =
   "Here are the newest short-term rental properties on Savvy STR Agents.";
 
+/** What a subject can be written from: the listings going out, and the day. */
+export type SubjectContext = {
+  listings: Array<Pick<BroadcastListing, "headline" | "address" | "city" | "state" | "listPrice" | "beds">>;
+  /** The send date, YYYY-MM-DD. It picks the day's wording. */
+  runDate: string;
+};
+
+/** Long enough to say something, short enough to survive a phone's inbox. */
+export const SUBJECT_MAX_LENGTH = 65;
+
+/** "$529K", "$1.25M": a price short enough for a subject line. */
+export function shortMoney(value: string | number | null | undefined): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (amount >= 1_000_000) {
+    return `$${(amount / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M`;
+  }
+  if (amount >= 1_000) return `$${Math.round(amount / 1_000)}K`;
+  return `$${Math.round(amount)}`;
+}
+
+/** Whole days since 1970 for a YYYY-MM-DD date, or 0 when it cannot be read. */
+function dayNumber(runDate: string): number {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(runDate ?? "");
+  if (!match) return 0;
+  const time = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isFinite(time) ? Math.floor(time / 86_400_000) : 0;
+}
+
+/** "Destin", "Destin and Gatlinburg", "Destin, Gatlinburg and 2 more". */
+function placeList(cities: string[], named: number): string | null {
+  if (!cities.length) return null;
+  const shown = cities.slice(0, named);
+  const rest = cities.length - shown.length;
+  if (rest > 0) return `${shown.join(", ")} and ${rest} more`;
+  if (shown.length === 1) return shown[0];
+  return `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`;
+}
+
+/**
+ * The day's subject, written from the listings themselves: how many, where,
+ * and the price range. The wording rotates by date, so two days in a row do
+ * not read the same, and it is the same for a given day and batch, so the
+ * preview, a test and the real send always match.
+ *
+ * Only what a logged-out visitor may see goes in. No revenue, no returns.
+ * Returns null when there is nothing to write from.
+ */
+export function creativeSubject(context: SubjectContext): string | null {
+  const { listings } = context;
+  const count = listings.length;
+  if (!count) return null;
+
+  const cities: string[] = [];
+  for (const listing of listings) {
+    const city = (listing.city ?? "").trim();
+    if (city && !cities.some(known => known.toLowerCase() === city.toLowerCase())) cities.push(city);
+  }
+  const prices = listings
+    .map(listing => Number(listing.listPrice))
+    .filter(price => Number.isFinite(price) && price > 0);
+  const low = prices.length ? shortMoney(Math.min(...prices)) : null;
+  const high = prices.length ? shortMoney(Math.max(...prices)) : null;
+  const range = low && high ? (low === high ? `at ${low}` : `from ${low} to ${high}`) : null;
+
+  // Each wording is tried with two place names, then one, and dropped when it
+  // still does not fit or the listings do not have what it needs.
+  const fits = (text: string | null) => (text && text.length <= SUBJECT_MAX_LENGTH ? text : null);
+  const withPlaces = (write: (places: string) => string): string | null => {
+    for (const named of [2, 1]) {
+      const places = placeList(cities, named);
+      if (!places) return null;
+      const text = fits(write(places));
+      if (text) return text;
+    }
+    return null;
+  };
+
+  let candidates: Array<string | null>;
+  if (count === 1) {
+    const [only] = listings;
+    const city = cities[0] ?? null;
+    const state = (only.state ?? "").trim();
+    const price = shortMoney(only.listPrice);
+    const beds = Number(only.beds);
+    const bedText = Number.isFinite(beds) && beds > 0 ? `${Math.round(beds)}-bed ` : "";
+    const title = (only.headline || only.address || "").trim();
+    candidates = [
+      city && price ? fits(`New in ${city}: ${bedText}STR at ${price}`) : null,
+      title ? fits(`Just listed: ${title}`) : null,
+      city ? fits(`One new STR worth a look in ${city}`) : null,
+      city && price ? fits(`${city} STR at ${price}: take a look`) : null,
+      city ? fits(`Fresh STR listing in ${city}${state ? `, ${state}` : ""}`) : null,
+      city && bedText ? fits(`A new ${bedText}investment property in ${city}`) : null,
+    ];
+  } else {
+    candidates = [
+      withPlaces(places => `${count} new STRs in ${places}`),
+      range ? fits(`Just listed: ${count} STRs ${range}`) : null,
+      withPlaces(places => `${places}: ${count} new STR deals today`),
+      low ? fits(`${count} fresh STR listings, starting at ${low}`) : null,
+      withPlaces(places => `New today: STRs in ${places}`),
+      range ? fits(`${count} STR investment properties ${range}`) : null,
+      low ? withPlaces(places => `From ${low}: ${count} new STRs in ${places}`) : null,
+    ];
+  }
+  const usable = candidates.filter((text): text is string => !!text);
+  if (!usable.length) return null;
+  return usable[dayNumber(context.runDate) % usable.length];
+}
+
 /**
  * The subject line. A custom one has "{count}" replaced with the number of
- * listings; with none set, the default reads correctly for one or many.
+ * listings. With none set, it is written from the day's listings when they
+ * are passed in (see creativeSubject), else a plain default that reads
+ * correctly for one or many.
  */
-export function renderSubject(template: string | null | undefined, count: number): string {
+export function renderSubject(
+  template: string | null | undefined,
+  count: number,
+  context?: SubjectContext
+): string {
   const custom = (template || "").trim();
   if (!custom) {
+    const written = context ? creativeSubject(context) : null;
+    if (written) return written;
     return count === 1
       ? "A new STR investment property"
       : DEFAULT_SUBJECT_TEMPLATE.replace("{count}", String(count));
@@ -74,12 +198,88 @@ const trimNumber = (value: string | number | null) => {
   return String(Number.isInteger(parsed) ? parsed : Math.round(parsed * 10) / 10);
 };
 
+// ─── "Why I like this property" ──────────────────────────────────────────────
+
+export const BLURB_MAX_LINES = 5;
+/** About one line of the card at reading size. Mail clients cannot be asked
+ *  to clamp lines, so the cut is made here, by length. */
+export const BLURB_LINE_CHARS = 64;
+
+/**
+ * The agent's blurb cut to five lines. A line break the agent typed counts as
+ * a new line, a long paragraph as however many lines it wraps to, and the cut
+ * lands on a word, never in the middle of one.
+ */
+export function clampBlurb(text: string | null | undefined): { lines: string[]; truncated: boolean } {
+  const paragraphs = String(text ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map(line => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const lines: string[] = [];
+  let used = 0;
+  for (let index = 0; index < paragraphs.length; index += 1) {
+    const paragraph = paragraphs[index];
+    const remaining = BLURB_MAX_LINES - used;
+    if (remaining <= 0) return { lines, truncated: true };
+    const needed = Math.max(1, Math.ceil(paragraph.length / BLURB_LINE_CHARS));
+    if (needed <= remaining) {
+      lines.push(paragraph);
+      used += needed;
+      continue;
+    }
+    // Leave room on the last line for the "See more..." link.
+    const budget = remaining * BLURB_LINE_CHARS - 14;
+    let cut = paragraph.slice(0, budget);
+    const lastSpace = cut.lastIndexOf(" ");
+    if (lastSpace > budget * 0.6) cut = cut.slice(0, lastSpace);
+    lines.push(`${cut.replace(/[\s,;:.!?-]+$/, "")}...`);
+    return { lines, truncated: true };
+  }
+  return { lines, truncated: false };
+}
+
+/** "Why Liz Davis likes this property", or a plain heading with no agent. */
+export function blurbHeading(agentName: string | null | undefined): string {
+  const name = (agentName ?? "").replace(/\s+/g, " ").trim();
+  return name ? `Why ${name} likes this property` : "Why we like this property";
+}
+
+type BlurbSource = { agentBlurb?: string | null; agentName?: string | null };
+
+/**
+ * The blurb block for a listing card: heading, up to five lines, and a
+ * "See more..." link to the listing when the text was cut. Empty when the
+ * listing has no blurb. `url` must already be the link the card uses.
+ */
+export function renderBlurbHtml(listing: BlurbSource, url: string): string {
+  const { lines, truncated } = clampBlurb(listing.agentBlurb);
+  if (!lines.length) return "";
+  const body = lines.map(escapeHtml).join("<br />");
+  const more = truncated
+    ? ` <a href="${escapeHtml(url)}" style="color:#0891b2;font-weight:bold;text-decoration:none;white-space:nowrap;">See more...</a>`
+    : "";
+  return `<div style="margin-top:12px;padding:10px 12px;background:#f1f5f9;border-left:3px solid #10c0df;border-radius:6px;">
+                <div style="color:#05314a;font-size:12px;font-weight:bold;">${escapeHtml(blurbHeading(listing.agentName))}</div>
+                <div style="color:#334155;font-size:13px;line-height:1.5;margin-top:4px;">${body}${more}</div>
+              </div>`;
+}
+
+/** The same block for the plain-text email, one entry per line. */
+export function renderBlurbText(listing: BlurbSource, url: string): string[] {
+  const { lines, truncated } = clampBlurb(listing.agentBlurb);
+  if (!lines.length) return [];
+  return [blurbHeading(listing.agentName), ...lines, ...(truncated ? [`See more: ${url}`] : [])];
+}
+
 /**
  * The shared email sent to the big list.
  *
  * Same rule as the personal email: only what a logged-out visitor may see
- * (photo, headline, place, price, beds, baths). Revenue and returns stay
- * behind the login on the site. The unsubscribe link is Resend's own
+ * (photo, headline, place, price, beds, baths), plus the first five lines of
+ * the agent's "Why I like this property" with a link to the rest, which the
+ * client asked for on 3 Oct. Revenue and returns stay behind the login on the
+ * site. The unsubscribe link is Resend's own
  * placeholder, which Resend fills in per recipient on a broadcast.
  */
 export function renderBroadcastEmail(params: {
@@ -121,6 +321,7 @@ export function renderBroadcastEmail(params: {
               <a href="${escapeHtml(url)}" style="color:#05314a;font-size:17px;font-weight:bold;text-decoration:none;">${title}</a>
               ${place ? `<div style="color:#64748b;font-size:13px;margin-top:4px;">${escapeHtml(place)}</div>` : ""}
               ${facts ? `<div style="color:#0f172a;font-size:14px;margin-top:8px;font-weight:600;">${facts}</div>` : ""}
+              ${renderBlurbHtml(listing, url)}
               <a href="${escapeHtml(url)}" style="display:inline-block;margin-top:14px;background:#10c0df;color:#03293c;font-weight:bold;font-size:13px;text-decoration:none;padding:9px 16px;border-radius:8px;">View the property</a>
             </td></tr>
           </table>
@@ -165,10 +366,12 @@ export function renderBroadcastEmail(params: {
     ...listings.map(listing => {
       const place = [listing.city, listing.state].filter(Boolean).join(", ");
       const price = money(listing.listPrice);
+      const url = trackedUrl(listingUrl(listing.slug), runDate);
       return [
         listing.headline || listing.address || "New listing",
         [place, price].filter(Boolean).join(" · "),
-        trackedUrl(listingUrl(listing.slug), runDate),
+        ...renderBlurbText(listing, url),
+        url,
         "",
       ].join("\n");
     }),

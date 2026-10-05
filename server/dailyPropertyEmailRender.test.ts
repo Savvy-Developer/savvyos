@@ -56,7 +56,6 @@ describe("renderDailyPropertyEmail", () => {
       capRate: "0.072",
       occupancyRate: "0.68",
       averageDailyRate: "412",
-      agentBlurb: "The creek frontage is the whole deal here.",
     } as any;
     const { html } = renderDailyPropertyEmail("Dana", [withFigures], null);
     for (const secret of [
@@ -65,10 +64,38 @@ describe("renderDailyPropertyEmail", () => {
       "0.072",
       "0.68",
       "412",
-      "creek frontage",
     ]) {
       expect(html).not.toContain(secret);
     }
+  });
+
+  // The agent's blurb used to be held back with the figures. The client asked
+  // on 3 Oct for it in the daily email, cut to five lines with a link to the
+  // rest, so it now shows. The figures above are still never sent.
+  it("shows the agent's blurb, cut to five lines with a See more link", () => {
+    const short = renderDailyPropertyEmail(
+      "Dana",
+      [listing({ agentBlurb: "The creek frontage is the whole deal here.", agentName: "Liz Davis" })],
+      null
+    ).html;
+    expect(short).toContain("Why Liz Davis likes this property");
+    expect(short).toContain("The creek frontage is the whole deal here.");
+    expect(short).not.toContain("See more...");
+
+    const long = renderDailyPropertyEmail(
+      "Dana",
+      [listing({ agentBlurb: "Walk to the creek. ".repeat(40), agentName: "Liz Davis" })],
+      null
+    ).html;
+    expect(long).toContain("See more...</a>");
+    expect(long.match(/Walk to the creek/g)!.length).toBeLessThan(20);
+    expect(long).toContain('href="https://home.savvy-agents.com/newsite/properties/88-creekside-lane-gatlinburg"');
+  });
+
+  it("leaves the card as it was for a listing with no blurb", () => {
+    const { html } = renderDailyPropertyEmail("Dana", [listing()], null);
+    expect(html).not.toContain("likes this property");
+    expect(html).not.toContain("See more...");
   });
 
   it("shows the price and bedrooms a logged out visitor may see", () => {
