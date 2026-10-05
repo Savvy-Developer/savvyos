@@ -727,6 +727,16 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       break;
     }
 
+    case "financing_partner_feed": {
+      // Written by server/financingPartnerFeed.ts: which lending partners took
+      // the website financing request. No payload, no keys.
+      const partners = (details.partners ?? {}) as Record<string, unknown>;
+      title = "Sent to Lender Partners";
+      lines = Object.entries(partners).map(([name, outcome]) => `${name}: ${String(outcome)}`);
+      icon = Object.values(partners).every(outcome => outcome === "ok") ? "check" : "alert";
+      break;
+    }
+
     case "lead_created": {
       // Fired by the savvy-web "lead.created" event (Message Agent, Financing buttons).
       // The source field inside webhookData indicates which CTA was clicked.
