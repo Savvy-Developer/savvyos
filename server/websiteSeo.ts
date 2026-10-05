@@ -64,6 +64,12 @@ type Described = {
   description: string | null;
   image: string | null;
   noindex?: boolean;
+  /**
+   * The page's own address, for the canonical link, when several addresses
+   * open it (/Some-Page and /some-page; any case of a market's state). Without
+   * it the request path is used.
+   */
+  path?: string;
 };
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
@@ -151,7 +157,7 @@ async function draftExists(db: Db, route: WebsiteRoute): Promise<boolean> {
 }
 
 function toMetadata(req: Request, found: Described): LandingMetadata {
-  const path = req.path.replace(/\/+$/, "").slice("/newsite".length) || "/";
+  const path = found.path ?? (req.path.replace(/\/+$/, "").slice("/newsite".length) || "/");
   return {
     slug: "",
     canonicalUrl: websiteUrl(ORIGIN, path),
@@ -332,12 +338,14 @@ async function describeWebsiteRoute(db: Db, route: WebsiteRoute): Promise<Descri
           title: marketPageTitle(market),
           description: describeText(marketPageDescription(market)),
           image: defaults.image,
+          path: marketPagePath(market),
         };
       }
       break;
     }
     case "page": {
-      if (RESERVED_PAGE_SLUGS.has(route.slug)) break;
+      // No reserved-slug check: the client's publicPage lookup has none, so
+      // /newsite/About shows a published About CMS page and must not 404.
       const [row] = await db
         .select({
           name: websitePages.name,
@@ -357,6 +365,7 @@ async function describeWebsiteRoute(db: Db, route: WebsiteRoute): Promise<Descri
             describeText(row.heroSubtitle) ??
             describeText(row.bodyMarkdown),
           image: defaults.image,
+          path: `/${route.slug}`,
         };
       }
       break;

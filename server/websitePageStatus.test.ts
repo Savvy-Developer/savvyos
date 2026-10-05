@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { websiteProperties, websiteSiteSettings } from "../drizzle/schema";
+import { websitePages, websiteProperties, websiteSiteSettings } from "../drizzle/schema";
 import {
   injectNotFoundHead,
   isWebsitePath,
@@ -10,6 +10,10 @@ import {
 } from "./websiteSeoPages";
 
 vi.mock("./db", async importOriginal => ({ ...(await importOriginal<typeof import("./db")>()), getDb: vi.fn() }));
+vi.mock("./routers/website", async importOriginal => ({
+  ...(await importOriginal<typeof import("./routers/website")>()),
+  loadMarketDirectory: vi.fn(),
+}));
 vi.mock("./staffWebsiteHandoff", async importOriginal => ({
   ...(await importOriginal<typeof import("./staffWebsiteHandoff")>()),
   staffFromRequest: vi.fn(),
@@ -17,6 +21,7 @@ vi.mock("./staffWebsiteHandoff", async importOriginal => ({
 
 const { getDb } = await import("./db");
 const { staffFromRequest } = await import("./staffWebsiteHandoff");
+const { loadMarketDirectory } = await import("./routers/website");
 const { resolveWebsitePage } = await import("./websiteSeo");
 
 const status = (path: string, lookup: "published" | "draft" | "missing", visitorIsStaff = false) =>
@@ -61,6 +66,25 @@ describe("websitePageStatus", () => {
   it("is 404 for an address the site does not route at all", () => {
     expect(status("/newsite/a/b/c/d", "missing")).toBe(404);
     expect(status("/newsite/properties/bad_slug!", "missing")).toBe(404);
+  });
+
+  it("reads a market or CMS address the way the client does", () => {
+    // A market whose state is saved with a space: the client decodes the
+    // segment and matches it case-insensitively.
+    for (const p of [
+      "/newsite/markets/north%20carolina/asheville",
+      "/newsite/markets/North%20Carolina/Asheville/",
+      "/newsite/markets/north carolina/asheville",
+    ]) {
+      expect(parseWebsitePath(p)).toEqual({ kind: "market", state: "north carolina", city: "asheville" });
+    }
+    // A CMS page is looked up by its cleaned slug, whatever the case. The
+    // client passes this segment undecoded, so %20 cleans to "-20", as there.
+    for (const p of ["/newsite/Some-Page", "/newsite/some-page/", "/newsite/SOME_PAGE", "/newsite/some%20page"]) {
+      expect(parseWebsitePath(p)).toEqual({ kind: "page", slug: p.includes("%20") ? "some-20page" : "some-page" });
+    }
+    expect(status("/newsite/markets/north%20carolina/asheville", "published")).toBe(200);
+    expect(status("/newsite/Some-Page", "published")).toBe(200);
   });
 
   it("is always 200 for the home page, built-in pages and account screens", () => {
@@ -170,6 +194,36 @@ describe("resolveWebsitePage", () => {
   it("is 404 for an address the site does not route", async () => {
     withRows([]);
     expect((await resolveWebsitePage(request("/newsite/a/b/c/d")))?.status).toBe(404);
+  });
+
+  it("is 200 for a market whose state is written with a space", async () => {
+    withRows([]);
+    vi.mocked(loadMarketDirectory).mockResolvedValue([
+      { id: 1, name: "Asheville", state: "North Carolina", status: "active", propertyCount: 2 },
+    ] as any);
+    for (const p of [
+      "/newsite/markets/north%20carolina/asheville",
+      "/newsite/markets/North%20Carolina/Asheville",
+    ]) {
+      const page = await resolveWebsitePage(request(p));
+      expect(page?.status).toBe(200);
+      expect(page?.metadata?.pageTitle).toContain("Asheville, North Carolina");
+      expect(page?.metadata?.canonicalUrl).toMatch(/\/newsite\/markets\/north%20carolina\/asheville$/);
+    }
+    // The client does not turn "north-carolina" into "north carolina", so
+    // neither does the server: that address shows "not found" in both.
+    expect((await resolveWebsitePage(request("/newsite/markets/north-carolina/asheville")))?.status).toBe(404);
+  });
+
+  it("is 200 for a published CMS page whatever the case of its address", async () => {
+    for (const p of ["/newsite/Some-Page", "/newsite/some-page", "/newsite/SOME_PAGE"]) {
+      withRows([[websitePages, [[{ name: "Some Page", metaTitle: null, bodyMarkdown: "Hello there." }]]]]);
+      const page = await resolveWebsitePage(request(p));
+      expect(page?.status).toBe(200);
+      expect(page?.metadata?.canonicalUrl).toMatch(/\/newsite\/some-page$/);
+    }
+    withRows([]);
+    expect((await resolveWebsitePage(request("/newsite/No-Such-Page")))?.status).toBe(404);
   });
 
   it("leaves other hosts, other paths and a missing database alone", async () => {

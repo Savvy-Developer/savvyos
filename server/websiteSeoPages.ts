@@ -1,4 +1,5 @@
 import { websitePageTitle } from "@shared/websitePageTitle";
+import { websitePageSlug } from "@shared/websitePageSlug";
 /**
  * What search engines and link previews see for the public site at /newsite.
  *
@@ -55,7 +56,11 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
   const relative = trimmed.slice(WEBSITE_BASE_PATH.length) || "/";
   if (relative === "/") return { kind: "home" };
   if (ACCOUNT_PATHS.has(relative) || relative.startsWith("/account")) return { kind: "account" };
-  const segments = relative.split("/").filter(Boolean).map(s => {
+  // The client reads window.location.pathname, which arrives percent-encoded
+  // just like req.path. It decodes the listing, agent, article, case study and
+  // market segments, and hands a CMS page's segment to the page lookup as is.
+  const rawSegments = relative.split("/").filter(Boolean);
+  const segments = rawSegments.map(s => {
     try {
       return decodeURIComponent(s);
     } catch {
@@ -76,7 +81,10 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
       case "team": return { kind: "team" };
       case "sell": return { kind: "sell" };
     }
-    return SLUG.test(first) ? { kind: "page", slug: first } : null;
+    // A CMS page. The client looks it up by websitePageSlug, so /Some-Page
+    // and /some_page open the page saved as some-page; so does this.
+    const slug = websitePageSlug(rawSegments[0]);
+    return slug ? { kind: "page", slug } : null;
   }
   if (segments.length === 2 && SLUG.test(second)) {
     if (first === "properties") return { kind: "property", slug: second };
@@ -84,9 +92,13 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
     if (first === "case-studies") return { kind: "caseStudy", slug: second };
     if (first === "resources") return { kind: "resource", slug: second };
   }
-  // One market's page: /markets/<state>/<city>.
-  if (segments.length === 3 && first === "markets" && SLUG.test(second) && SLUG.test(segments[2])) {
-    return { kind: "market", state: second.toLowerCase(), city: segments[2].toLowerCase() };
+  // One market's page: /markets/<state>/<city>. Any segments, matched the way
+  // the client's findMarketForPage does (decoded, trimmed, any case), so a
+  // state saved with a space, /markets/north%20carolina/asheville, resolves.
+  if (segments.length === 3 && first === "markets") {
+    const state = second.trim().toLowerCase();
+    const city = segments[2].trim().toLowerCase();
+    if (state && city) return { kind: "market", state, city };
   }
   return null;
 }
