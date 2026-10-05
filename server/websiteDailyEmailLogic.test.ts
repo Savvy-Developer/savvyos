@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MARKETING_POSTAL_ADDRESS,
   BLURB_LINE_CHARS,
   BLURB_MAX_LINES,
   SUBJECT_MAX_LENGTH,
@@ -277,6 +278,12 @@ describe("renderBroadcastEmail", () => {
     expect(copy.html).toContain("https://example.com/prefs");
     expect(copy.html).not.toContain("RESEND_UNSUBSCRIBE_URL");
     expect(copy.html).toContain("Hello team");
+  });
+
+  it("carries the postal address the old digest had in its footer (CAN-SPAM)", () => {
+    expect(MARKETING_POSTAL_ADDRESS).toBe("Savvy STR Agents, 37 Haywood St., #300, Asheville, NC 28801");
+    expect(html).toContain(MARKETING_POSTAL_ADDRESS);
+    expect(text).toContain(MARKETING_POSTAL_ADDRESS);
   });
 });
 

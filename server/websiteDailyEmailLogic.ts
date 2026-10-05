@@ -8,6 +8,18 @@
 
 export const PUBLIC_SITE_BASE = "https://home.savvy-agents.com/newsite";
 
+/**
+ * The postal address every marketing email must carry (CAN-SPAM). The old
+ * savvy-agents.com digest and price drop emails printed it in the footer;
+ * the new ones had left it out.
+ */
+export const MARKETING_POSTAL_ADDRESS = "Savvy STR Agents, 37 Haywood St., #300, Asheville, NC 28801";
+
+/** The footer line that carries the postal address, for the HTML emails. */
+export function postalAddressHtml(): string {
+  return `<p style="margin:10px 0 0 0;color:#94a3b8;">${MARKETING_POSTAL_ADDRESS}</p>`;
+}
+
 export type BroadcastListing = {
   propertyId: number;
   slug: string;
@@ -352,6 +364,7 @@ export function renderBroadcastEmail(params: {
           <p style="margin:0;color:#94a3b8;">
             Projections are estimates, not guarantees. Verify regulations, financing and operating assumptions before investing.
           </p>
+          ${postalAddressHtml()}
         </td></tr>
       </table>
     </td></tr>
@@ -378,6 +391,7 @@ export function renderBroadcastEmail(params: {
     `Browse every property: ${browseUrl}`,
     "",
     `Unsubscribe: ${unsubscribe}`,
+    MARKETING_POSTAL_ADDRESS,
   ].join("\n");
 
   return { html, text };

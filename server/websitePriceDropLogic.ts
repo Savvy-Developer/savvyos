@@ -3,7 +3,7 @@
  * a database or Resend. The sending lives in websitePriceDropAlerts.ts.
  */
 
-import { PUBLIC_SITE_BASE } from "./websiteDailyEmailLogic";
+import { MARKETING_POSTAL_ADDRESS, PUBLIC_SITE_BASE, postalAddressHtml } from "./websiteDailyEmailLogic";
 
 /** Investors who viewed a listing within this many days hear about a drop. */
 export const PRICE_DROP_LOOKBACK_DAYS = 90;
@@ -176,6 +176,7 @@ export function renderPriceDropEmail(params: {
                 : ""
             }</p>
           <p style="margin:0;color:#94a3b8;">Projections are estimates, not guarantees. Verify regulations, financing and operating assumptions before investing.</p>
+          ${postalAddressHtml()}
         </td></tr>
       </table>
     </td></tr>
@@ -195,6 +196,7 @@ export function renderPriceDropEmail(params: {
     "",
     `Email preferences: ${preferencesUrl}`,
     params.unsubscribeUrl ? `Unsubscribe: ${params.unsubscribeUrl}` : "",
+    MARKETING_POSTAL_ADDRESS,
   ]
     .filter(line => line !== null)
     .join("\n");

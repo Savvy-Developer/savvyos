@@ -20,6 +20,7 @@ import {
   DAILY_EMAIL_TAG,
   PUBLIC_SITE_BASE,
   listUnsubscribeHeaders,
+  postalAddressHtml,
   renderBlurbHtml,
 } from "./websiteDailyEmailLogic";
 
@@ -150,6 +151,7 @@ export function renderDailyPropertyEmail(
           <p style="margin:0;color:#94a3b8;">
             Projections are estimates, not guarantees. Verify regulations, financing and operating assumptions before investing.
           </p>
+          ${postalAddressHtml()}
         </td></tr>
       </table>
     </td></tr>

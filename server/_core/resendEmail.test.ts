@@ -249,3 +249,26 @@ describe("website property request handoff emails", () => {
     expect(preview.html).toContain("15 &lt;Main&gt; St");
   });
 });
+
+describe("website lead with no agent email", () => {
+  it("gives the office the visitor's details, the form and the message, escaped", () => {
+    const preview = getEmailPreview("website_inquiry_unassigned", {
+      recipientEmail: "tyler@savvy.realty",
+      recipientName: "Tyler",
+      contactId: "4321",
+      contactName: "Sam <Seller>",
+      contactEmail: "sam@example.com",
+      contactPhone: "828-555-0101",
+      leadSourceLabel: "Seller inquiry (Sell page)",
+      notes: "Address: 1 Main St\nTimeline: In the next 3 months",
+    });
+    expect(preview.subject).toBe("New website lead: Sam <Seller> (Seller inquiry (Sell page))");
+    expect(preview.html).toContain("Sam &lt;Seller&gt;");
+    expect(preview.html).not.toContain("Sam <Seller>");
+    expect(preview.html).toContain("sam@example.com");
+    expect(preview.html).toContain("828-555-0101");
+    expect(preview.html).toContain("Seller inquiry (Sell page)");
+    expect(preview.html).toContain("Address: 1 Main St<br>Timeline: In the next 3 months");
+    expect(preview.html).toContain('href="https://os.savvy-agents.com/contacts/4321"');
+  });
+});

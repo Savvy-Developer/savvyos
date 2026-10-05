@@ -34,7 +34,7 @@ import {
 } from "../addressNormalization";
 import { getDb, logActivity } from "../db";
 import { sendEmailAlert } from "../_core/emailAlerts";
-import { sendTransactionalEmail } from "../_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "../_core/resendEmail";
 import { normalizeBookingLink } from "@shared/bookingLink";
 import { notifyMobileUsers } from "../mobileNotifications";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
@@ -263,6 +263,84 @@ function alertAgentOfWebsiteInquiry(params: {
       contactId: params.contactId,
     },
   }).catch(error => console.warn("[Website] Lead push failed.", error));
+}
+
+/** Who gets an unassigned website inquiry until a list is saved in Email Notifications. */
+export const UNASSIGNED_INQUIRY_DEFAULT_RECIPIENTS = [
+  // The old site's default recipient for a lead with no agent.
+  { name: "Tyler", email: "tyler@savvy.realty" },
+];
+
+const INQUIRY_INTENT_LABELS: Record<string, string> = {
+  sell: "Seller inquiry (Sell page)",
+  buy: "Buyer inquiry",
+  property: "Property inquiry",
+  agent: "Agent inquiry",
+  general: "Contact form",
+};
+
+/** The form a website inquiry came from, in words, for the office email. */
+export function websiteInquiryLabel(intent: string, requestType: string | null | undefined): string {
+  const request = requestType ? WEBSITE_REQUEST_LABELS[requestType] : null;
+  return request ?? INQUIRY_INTENT_LABELS[intent] ?? "Website inquiry";
+}
+
+/**
+ * A website inquiry with no agent to route to (the Sell page, the contact
+ * page, a general buy enquiry) used to reach the office through the old
+ * site's "New Lead Received" email. On the new site it reached no one: it
+ * only landed in SavvyOS as an unassigned New Lead. This sends the office
+ * email again, to the list saved for "Website Lead, No Agent" in Email
+ * Notifications, or Tyler until one is saved. It can be switched off there.
+ *
+ * Fire and forget, like the agent alert.
+ */
+export function alertOfficeOfUnassignedInquiry(params: {
+  websiteLeadId: number | null;
+  contactId: number;
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string | null;
+  intent: string;
+  requestType: string | null;
+  message: string | null;
+  propertyAddress: string | null;
+}): void {
+  void (async () => {
+    const recipients = await resolveNotificationRecipients(
+      "website_inquiry_unassigned",
+      UNASSIGNED_INQUIRY_DEFAULT_RECIPIENTS
+    );
+    for (const recipient of recipients) {
+      const delivery = await sendTransactionalEmail(
+        "website_inquiry_unassigned",
+        {
+          recipientEmail: recipient.email,
+          recipientName: recipient.name,
+          contactId: String(params.contactId),
+          contactName: params.contactName,
+          contactEmail: params.contactEmail,
+          contactPhone: params.contactPhone ?? undefined,
+          leadSourceLabel: websiteInquiryLabel(params.intent, params.requestType),
+          notes: params.message ?? undefined,
+          propertyAddress: params.propertyAddress ?? undefined,
+        },
+        {
+          // Same as the agent handoff email: never turn the contact link into
+          // a sign-in token. The recipient list is editable and may include
+          // addresses outside SavvyOS; the link works for anyone signed in.
+          injectMagicLinks: false,
+          allowTemplateOverride: false,
+          idempotencyKey: `savvyos-website-unassigned:${params.websiteLeadId ?? `c${params.contactId}`}:${recipient.email}`,
+        }
+      );
+      if (!delivery.sent && !delivery.skipped) {
+        console.warn(
+          `[Website] Unassigned inquiry email not sent (contact ${params.contactId}): ${delivery.reason ?? "unknown reason"}`
+        );
+      }
+    }
+  })().catch(error => console.warn("[Website] Unassigned inquiry email failed.", error));
 }
 
 const HANDOFF_EMAIL_TYPES = {
@@ -2298,7 +2376,7 @@ export const websiteRouter = router({
           await db.update(contacts).set(updates).where(eq(contacts.id, contactId));
         }
       }
-      await db.insert(websiteLeads).values({
+      const websiteLeadInsert = await db.insert(websiteLeads).values({
         contactId: contactId || null,
         propertyId: input.propertyId || null,
         agentUserId: input.agentUserId || null,
@@ -2352,6 +2430,18 @@ export const websiteRouter = router({
           contactName: `${input.firstName} ${input.lastName}`.trim(),
           requestType: input.requestType ?? null,
           intent: input.intent,
+          message: input.message ?? null,
+          propertyAddress,
+        });
+      } else if (contactId) {
+        alertOfficeOfUnassignedInquiry({
+          websiteLeadId: Number((websiteLeadInsert as any)?.[0]?.insertId) || null,
+          contactId,
+          contactName: `${input.firstName} ${input.lastName}`.trim(),
+          contactEmail: normalizedEmail,
+          contactPhone: input.phone || null,
+          intent: input.intent,
+          requestType: input.requestType ?? null,
           message: input.message ?? null,
           propertyAddress,
         });
