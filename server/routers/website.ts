@@ -930,7 +930,8 @@ const settingsInput = z.object({
  * is what stops the page and the filter from having different ideas about what
  * a market contains.
  */
-async function loadMarketDirectory(db: any) {
+/** Every market the public site shows, with its property count. Also used for page titles and the sitemap. */
+export async function loadMarketDirectory(db: any) {
   const [markets, assignments, published] = await Promise.all([
     db
       .select({

@@ -22,7 +22,13 @@ import {
 import { getDb } from "./db";
 import { loadCaseStudySeo } from "./websiteCaseStudySeo";
 import type { LandingMetadata } from "./landingPageHtml";
-import { RESERVED_PAGE_SLUGS } from "./routers/website";
+import { RESERVED_PAGE_SLUGS, loadMarketDirectory } from "./routers/website";
+import {
+  findMarketForPage,
+  marketPageDescription,
+  marketPagePath,
+  marketPageTitle,
+} from "@shared/websiteMarketPages";
 import {
   STATIC_PAGES,
   absoluteImage,
@@ -230,6 +236,19 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
       }
       break;
     }
+    case "market": {
+      // Built from the market itself, the same words the page shows. An
+      // address that names no market stays undescribed, like any unknown slug.
+      const market = findMarketForPage(await loadMarketDirectory(db), route.state, route.city);
+      if (market) {
+        found = {
+          title: marketPageTitle(market),
+          description: describeText(marketPageDescription(market)),
+          image: defaults.image,
+        };
+      }
+      break;
+    }
     case "page": {
       if (RESERVED_PAGE_SLUGS.has(route.slug)) break;
       const [row] = await db
@@ -277,7 +296,7 @@ export async function listWebsiteSitemapEntries(): Promise<SitemapEntry[]> {
   const entries: SitemapEntry[] = Object.values(STATIC_PAGES).map(page => ({ path: page.path }));
   const db = await getDb();
   if (!db) return entries;
-  const [props, agents, studies, posts, pages] = await Promise.all([
+  const [props, agents, studies, posts, pages, markets] = await Promise.all([
     db
       .select({ slug: websiteProperties.slug, updatedAt: websiteProperties.updatedAt })
       .from(websiteProperties)
@@ -298,6 +317,11 @@ export async function listWebsiteSitemapEntries(): Promise<SitemapEntry[]> {
       .select({ slug: websitePages.slug, updatedAt: websitePages.updatedAt })
       .from(websitePages)
       .where(eq(websitePages.status, "published")),
+    // A failure here must not cost the rest of the sitemap.
+    loadMarketDirectory(db).catch(error => {
+      console.error("[WebsiteSeo] Markets left out of the sitemap:", error);
+      return [] as Awaited<ReturnType<typeof loadMarketDirectory>>;
+    }),
   ]);
   const add = (prefix: string, rows: Array<{ slug: string; updatedAt: Date | null }>) => {
     for (const row of rows) {
@@ -311,6 +335,14 @@ export async function listWebsiteSitemapEntries(): Promise<SitemapEntry[]> {
   // A CMS page saved at a built-in address never renders (see
   // RESERVED_PAGE_SLUGS), so it is not advertised either.
   add("", pages.filter(page => !RESERVED_PAGE_SLUGS.has(page.slug)));
+  // One entry per market page, the same address the Markets page links to.
+  const seenMarkets = new Set<string>();
+  for (const market of markets) {
+    const marketPath = marketPagePath(market);
+    if (seenMarkets.has(marketPath) || marketPath.endsWith("/")) continue;
+    seenMarkets.add(marketPath);
+    entries.push({ path: marketPath });
+  }
   return entries;
 }
 
