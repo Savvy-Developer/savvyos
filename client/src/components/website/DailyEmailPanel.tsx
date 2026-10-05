@@ -505,15 +505,16 @@ export function DailyEmailPanel() {
               <Label htmlFor="daily-email-subject">Subject line</Label>
               <Input
                 id="daily-email-subject"
-                placeholder="{count} new STR investment properties"
+                placeholder="Written from the day's listings"
                 value={form.subjectTemplate}
                 onChange={event =>
                   setForm(current => ({ ...current, subjectTemplate: event.target.value }))
                 }
               />
               <p className="text-xs text-slate-500">
-                {"{count}"} becomes the number of listings. Leave blank for the
-                default.
+                {"{count}"} becomes the number of listings. Leave blank and the
+                subject is written from that day's listings (how many, where,
+                price range), worded differently each day.
               </p>
             </div>
           </div>

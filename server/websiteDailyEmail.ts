@@ -2,6 +2,7 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle
 
 import {
   properties,
+  users,
   websiteAccounts,
   websiteDailyEmailClicks,
   websiteDailyEmailEngagement,
@@ -149,6 +150,9 @@ const queueColumns = {
   heroImageUrl: websiteProperties.heroImageUrl,
   publishedAt: websiteProperties.publishedAt,
   approvedAt: websiteProperties.dailyEmailApprovedAt,
+  // "Why I like this property" and whose words they are, for the card.
+  agentBlurb: websiteProperties.agentBlurb,
+  agentName: users.name,
   address: properties.address,
   city: properties.city,
   state: properties.state,
@@ -164,6 +168,7 @@ export async function loadQueue(db: any): Promise<QueueListing[]> {
     .select(queueColumns)
     .from(websiteProperties)
     .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
+    .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
     .where(
       and(
         eq(websiteProperties.status, "published"),
@@ -193,6 +198,7 @@ async function sampleListings(db: any, queue: QueueListing[]): Promise<{
     .select(queueColumns)
     .from(websiteProperties)
     .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
+    .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
     .where(eq(websiteProperties.status, "published"))
     .orderBy(desc(websiteProperties.publishedAt))
     .limit(3);
@@ -235,7 +241,7 @@ export async function previewDailyEmail(db: any): Promise<{
   // checked.
   const { listings, usingApproved } = await sampleListings(db, queue);
   const runDate = todayEastern();
-  const subject = renderSubject(settings.subjectTemplate, listings.length);
+  const subject = renderSubject(settings.subjectTemplate, listings.length, { listings, runDate });
   const { html } = renderBroadcastEmail({
     listings,
     subject,
@@ -283,7 +289,7 @@ export async function sendTestDailyEmail(
     return { runId: null, status: "blocked", message: "There are no live listings on the site to put in a test." };
   }
   const runDate = todayEastern();
-  const subject = `[Test] ${renderSubject(settings.subjectTemplate, listings.length)}`;
+  const subject = `[Test] ${renderSubject(settings.subjectTemplate, listings.length, { listings, runDate })}`;
   const runId = await insertRun(db, {
     runDate,
     trigger: "test",
@@ -375,7 +381,7 @@ export async function runDailyEmail(params: {
     return { runId: null, status: "skipped", message: "No approved listings to send." };
   }
 
-  const subject = renderSubject(settings.subjectTemplate, batch.length);
+  const subject = renderSubject(settings.subjectTemplate, batch.length, { listings: batch, runDate });
   let runId: number;
   try {
     runId = await insertRun(db, {
