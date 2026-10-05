@@ -78,6 +78,12 @@ import {
 } from "@shared/websiteTestimonials";
 import { TEAM_SECTIONS, TEAM_SECTION_LABELS, teamInitials } from "@shared/websiteTeam";
 import {
+  findMarketForPage,
+  marketCityKey,
+  marketPagePath,
+  marketPageTitle,
+} from "@shared/websiteMarketPages";
+import {
   SELLER_LISTED_OPTIONS,
   SELLER_TIMELINES,
   buildSellerMessage,
@@ -4674,19 +4680,9 @@ function ContactPage() {
  * territories drawn, which is also the moment its properties become findable,
  * so the page never offers a market that opens onto nothing.
  */
-/** A market's page address: /markets/<state>/<city>, like the old site. */
-function marketCityKey(name: unknown) {
-  return String(name || "").split(",")[0].trim().toLowerCase();
-}
-function marketSlug(name: unknown) {
-  return marketCityKey(name)
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
+/** A market's page address: /markets/<state>/<city>, like the old site. Built in shared/websiteMarketPages.ts so the server's title, description and sitemap match. */
 function marketPath(market: { name: string; state?: string | null }) {
-  const state = String(market.state || "us").toLowerCase();
-  return path(`/markets/${encodeURIComponent(state)}/${marketSlug(market.name)}`);
+  return path(marketPagePath(market));
 }
 
 /** Short price the way the old market pages print it: $550K, $1.1M. */
@@ -4766,18 +4762,14 @@ function MarketPropertyCard({ item }: { item: any }) {
 function MarketDetailPage({ state, city }: { state: string; city: string }) {
   const directory = trpc.website.publicMarketDirectory.useQuery();
   const agentsQuery = trpc.website.publicAgents.useQuery();
-  const market = (directory.data || []).find(
-    (item: any) =>
-      marketSlug(item.name) === city.toLowerCase() &&
-      String(item.state || "us").toLowerCase() === state.toLowerCase()
-  ) as any;
+  const market = findMarketForPage((directory.data || []) as any[], state, city) as any;
   const properties = trpc.website.publicProperties.useQuery(
     { marketId: market?.id },
     { enabled: !!market?.id }
   );
   const cityName = market ? String(market.name).split(",")[0].trim() : "";
   const place = market ? [cityName, market.state].filter(Boolean).join(", ") : "";
-  usePageTitle(market ? `${place} Short-Term Rentals for Sale` : "Market");
+  usePageTitle(market ? marketPageTitle(market) : "Market");
 
   if (directory.isLoading || agentsQuery.isLoading) return <LoadingPage />;
   if (!market) {
