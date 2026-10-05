@@ -66,6 +66,7 @@ describe("emailing the office about an inquiry with no agent", () => {
       notes: seller.message,
     });
     expect(options).toMatchObject({
+      injectMagicLinks: false,
       allowTemplateOverride: false,
       idempotencyKey: "savvyos-website-unassigned:88:tyler@savvy.realty",
     });
@@ -82,6 +83,8 @@ describe("emailing the office about an inquiry with no agent", () => {
       "a@savvy.realty",
       "b@savvy.realty",
     ]);
+    // No recipient ever gets a sign-in link, like the agent handoff email.
+    expect((email.send.mock.calls as any[]).map(call => call[2].injectMagicLinks)).toEqual([false, false]);
   });
 
   it("never throws into the visitor's form", async () => {

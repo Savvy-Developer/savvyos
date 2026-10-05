@@ -184,7 +184,7 @@ Zapier references in SavvyOS are all inbound intake (Calendly, partner leads, Ma
 
 ## Changes in this PR
 
-1. **Seller and other no-agent inquiries email the office again.** New `website_inquiry_unassigned` email type and template (`server/_core/resendEmail.ts`), sender in `server/routers/website.ts` (`alertOfficeOfUnassignedInquiry`, `websiteInquiryLabel`), listed with an editable recipient list in `client/src/pages/EmailNotificationsPage.tsx`.
+1. **Seller and other no-agent inquiries email the office again.** New `website_inquiry_unassigned` email type and template (`server/_core/resendEmail.ts`), sender in `server/routers/website.ts` (`alertOfficeOfUnassignedInquiry`, `websiteInquiryLabel`), listed with an editable recipient list in `client/src/pages/EmailNotificationsPage.tsx`. Magic links are off for it (`injectMagicLinks: false`), as for the agent handoff email.
 2. **Postal address in marketing emails.** `MARKETING_POSTAL_ADDRESS` and `postalAddressHtml()` in `server/websiteDailyEmailLogic.ts`, used in the daily broadcast (HTML and text), the personal daily email and the price drop email (HTML and text). Same address as the old footers.
 3. **GoHighLevel:** GoHighLevel sync moved to PR #173.
 

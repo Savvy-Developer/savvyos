@@ -325,6 +325,10 @@ export function alertOfficeOfUnassignedInquiry(params: {
           propertyAddress: params.propertyAddress ?? undefined,
         },
         {
+          // Same as the agent handoff email: never turn the contact link into
+          // a sign-in token. The recipient list is editable and may include
+          // addresses outside SavvyOS; the link works for anyone signed in.
+          injectMagicLinks: false,
           allowTemplateOverride: false,
           idempotencyKey: `savvyos-website-unassigned:${params.websiteLeadId ?? `c${params.contactId}`}:${recipient.email}`,
         }
