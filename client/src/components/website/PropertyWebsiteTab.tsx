@@ -785,7 +785,7 @@ export default function PropertyWebsiteTab({
                 label="Why I like this property"
                 value={draft.agentBlurb}
                 onChange={value => set("agentBlurb", value)}
-                placeholder="In the assigned agent's own words. Shown as a quote with their name on it, and only to investors who have signed in."
+                placeholder="In the assigned agent's own words. Shown as a quote with their name on it, on the website only to investors who have signed in. It also goes out in the daily email to everyone on the list."
               />
             </div>
             <Field
