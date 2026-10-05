@@ -2299,8 +2299,11 @@ export const websiteRouter = router({
         requestType: z
           .enum(["showing", "analysis", "financing"])
           .optional(),
-        propertyId: z.number().int().positive().optional(),
-        agentUserId: z.number().int().positive().optional(),
+        // Nullable: a listing with no agent sends agentUserId null, and that
+        // must still reach the office (found in the 5 Oct end-to-end test,
+        // where it failed with a raw validation error). Null means "none".
+        propertyId: z.number().int().positive().nullable().optional().transform(value => value ?? undefined),
+        agentUserId: z.number().int().positive().nullable().optional().transform(value => value ?? undefined),
         sourcePath: z.string().trim().max(512).optional(),
         attribution: z.record(z.string(), z.string()).optional(),
         website: z.string().max(255).optional(),

@@ -750,9 +750,10 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
     }
 
     case "financing_partner_feed_skipped": {
-      // The daily cap in server/financingPartnerFeed.ts held this one back.
+      // server/financingPartnerFeed.ts held this one back: the feed is off,
+      // or the daily cap was reached. The summary says which.
       title = "Not Sent to Lender Partners";
-      lines = [String(details.summary ?? "The daily cap was reached")];
+      lines = [String(details.summary ?? "Not sent")];
       icon = "alert";
       break;
     }

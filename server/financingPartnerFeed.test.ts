@@ -105,14 +105,27 @@ describe("the switch", () => {
     }
   });
 
-  it("sends nothing when off", async () => {
+  it("sends nothing when off, and logs that it was not sent", async () => {
     for (const flag of [undefined, "off", "false", "1"]) {
       const d = deps({ env: { ...ENV, FINANCING_PARTNER_FEED_ENABLED: flag } });
       expect(await runFinancingPartnerFeed(propertyInput, d)).toBeNull();
       expect(d.fetchImpl).not.toHaveBeenCalled();
       expect(d.loadFacts).not.toHaveBeenCalled();
-      expect(d.logTimeline).not.toHaveBeenCalled();
+      expect(d.logTimeline).toHaveBeenCalledTimes(1);
+      expect(d.logTimeline).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: FINANCING_PARTNER_SKIPPED_ACTION,
+          entityId: propertyInput.contactId,
+          details: expect.objectContaining({ reason: "feed_disabled" }),
+        })
+      );
     }
+  });
+
+  it("writes no timeline entry when off and there is no contact", async () => {
+    const d = deps({ env: { ...ENV, FINANCING_PARTNER_FEED_ENABLED: "off" } });
+    await runFinancingPartnerFeed({ ...propertyInput, contactId: null }, d);
+    expect(d.logTimeline).not.toHaveBeenCalled();
   });
 
   it("has no partner address or key of its own", () => {
