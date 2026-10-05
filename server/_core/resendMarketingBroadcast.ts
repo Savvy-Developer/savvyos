@@ -294,13 +294,15 @@ export async function createResendBroadcast(params: {
   html: string;
   text: string;
   replyTo?: string;
+  /** Defaults to the marketing address; the daily email passes the deals lane. */
+  from?: string;
 }): Promise<ResendApiResult<{ id: string }>> {
   return resendJson("/broadcasts", {
     method: "POST",
     body: JSON.stringify({
       name: params.name,
       segment_id: params.segmentId,
-      from: RESEND_MARKETING_FROM_ADDRESS,
+      from: params.from || RESEND_MARKETING_FROM_ADDRESS,
       subject: params.subject,
       html: params.html,
       text: params.text,

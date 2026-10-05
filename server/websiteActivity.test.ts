@@ -312,7 +312,8 @@ describe("where it is wired in", () => {
     expect(accountRouter).toContain('action: "property_viewed",');
     // Only a new save, and only a view outside the quiet period.
     expect(accountRouter).toContain("if (!alreadySaved) {");
-    expect(accountRouter).toContain("if (!isRepeatView(previous?.lastViewedAt)) {");
+    expect(accountRouter).toContain("const repeat = isRepeatView(previous?.lastViewedAt);");
+    expect(accountRouter).toContain("if (!repeat) {");
   });
 
   it("does not wait on the timeline before answering the visitor", () => {

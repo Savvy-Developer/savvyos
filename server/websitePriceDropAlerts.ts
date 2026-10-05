@@ -15,13 +15,15 @@ import {
 import { getDb } from "./db";
 import { ENV } from "./_core/env";
 import { createMarketingUnsubscribeUrl } from "./marketingEmailUnsubscribe";
-import { listUnsubscribeHeaders } from "./websiteDailyEmailLogic";
+import { dealsSender, listUnsubscribeHeaders } from "./websiteDailyEmailLogic";
 import { easternDateKey, getEasternTimeParts } from "./agentProductionReportScheduler";
 import { masterSwitchOn } from "./websiteDailyEmail";
 import {
   PRICE_DROP_LOOKBACK_DAYS,
+  PRICE_DROP_MIN_VIEWS,
   PRICE_DROP_TAG,
   checkPrice,
+  priceDropMinPercent,
   priceDropKey,
   renderPriceDropEmail,
   shouldAlertAccount,
@@ -30,8 +32,9 @@ import {
 
 /**
  * Price drop alerts, like the old site had: when a live listing's price
- * drops, investors who viewed it in the last 90 days or saved it get one
- * email about it.
+ * drops by 1% or more (PRICE_DROP_MIN_PERCENT), investors who visited it
+ * three or more times in the last 90 days, or saved it, get one email about
+ * it, from the deals lane the old site used.
  *
  * How it runs:
  * - Every 30 minutes each live listing's price is compared with the price
@@ -43,8 +46,6 @@ import {
  *   off, prices are still tracked, so switching on later does not send a
  *   backlog of old drops.
  */
-
-const FROM_ADDRESS = "Savvy STR Agents <properties@savvy-agents.com>";
 
 type LiveListing = PriceDropListing & {
   propertyId: number;
@@ -97,7 +98,10 @@ export async function setPriceDropAlertsEnabled(db: any, enabled: boolean, userI
 
 type Recipient = { accountId: number; email: string; firstName: string | null };
 
-/** Investors who viewed the listing in the lookback window or saved it. */
+/**
+ * Investors who visited the listing at least PRICE_DROP_MIN_VIEWS times and
+ * most recently within the lookback window, or saved it at any time.
+ */
 async function recipientsFor(db: any, propertyId: number, now: Date): Promise<Recipient[]> {
   const since = new Date(now.getTime() - PRICE_DROP_LOOKBACK_DAYS * 24 * 60 * 60_000);
   const [viewed, saved] = await Promise.all([
@@ -107,7 +111,8 @@ async function recipientsFor(db: any, propertyId: number, now: Date): Promise<Re
       .where(
         and(
           eq(websiteAccountPropertyViews.propertyId, propertyId),
-          gte(websiteAccountPropertyViews.lastViewedAt, since)
+          gte(websiteAccountPropertyViews.lastViewedAt, since),
+          gte(websiteAccountPropertyViews.viewCount, PRICE_DROP_MIN_VIEWS)
         )
       ),
     db
@@ -165,8 +170,10 @@ async function sendOne(
   if (!ENV.resendApiKey) return { sent: false, error: "Resend is not configured" };
   try {
     const resend = new Resend(ENV.resendApiKey);
+    const sender = dealsSender();
     const result = await resend.emails.send({
-      from: FROM_ADDRESS,
+      from: sender.from,
+      replyTo: sender.replyTo,
       to,
       subject,
       html,
@@ -262,8 +269,9 @@ export async function checkPriceDrops(now = new Date()): Promise<void> {
   if (!db) return;
   const sending = masterSwitchOn() && (await priceDropAlertsEnabled(db));
   const listings = await loadLiveListings(db);
+  const minPercent = priceDropMinPercent();
   for (const listing of listings) {
-    const result = checkPrice(listing.baseline, listing.listPrice);
+    const result = checkPrice(listing.baseline, listing.listPrice, minPercent);
     if (result.action === "set_baseline") {
       await setBaseline(db, listing.propertyId, result.baseline);
     } else if (result.action === "drop") {
@@ -320,7 +328,8 @@ export async function loadRecentPriceDrops(db: any) {
 
 /**
  * A test: the alert as it would look for the newest live listing, with a
- * made-up drop of 5%, to named addresses only. Nothing is recorded or changed.
+ * made-up drop of 1% (the threshold), to named addresses only. Nothing is
+ * recorded or changed.
  */
 export async function sendPriceDropTest(recipientsText: string): Promise<{ sent: number; message: string }> {
   const db = await getDb();
@@ -355,7 +364,7 @@ export async function sendPriceDropTest(recipientsText: string): Promise<{ sent:
     return { sent: 0, message: "There is no live listing with a price to use for the test." };
   }
   const newPrice = Number(listing.listPrice);
-  const oldPrice = Math.round((newPrice / 0.95) / 1000) * 1000;
+  const oldPrice = Math.round(newPrice / 0.99);
   // Rendered per address, exactly as a real alert is: a greeting and that
   // address's own one-click unsubscribe link. Clicking it in a test really
   // unsubscribes that address, as it would for an investor.

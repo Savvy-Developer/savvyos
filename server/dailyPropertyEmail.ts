@@ -18,11 +18,12 @@ import {
 } from "./dailyPropertyEmailMatching";
 import {
   DAILY_EMAIL_TAG,
-  PUBLIC_SITE_BASE,
+  PREFERENCES_URL,
+  dealsSender,
   listUnsubscribeHeaders,
-  postalAddressHtml,
-  renderBlurbHtml,
+  renderDigestEmail,
 } from "./websiteDailyEmailLogic";
+import { easternDateKey, getEasternTimeParts } from "./agentProductionReportScheduler";
 
 /**
  * The personal new-property email for investors with a new-site account.
@@ -34,131 +35,54 @@ import {
  * listings an admin approved.
  */
 
-const FROM_ADDRESS = "Savvy STR Agents <properties@savvy-agents.com>";
-// Links go to the public site host, not the SavvyOS app host.
-const SITE_BASE = PUBLIC_SITE_BASE;
-
 export type EmailListing = Listing & {
   headline: string | null;
   address: string | null;
   city: string | null;
   state: string | null;
   heroImageUrl: string | null;
+  baths?: string | number | null;
+  sqft?: string | number | null;
   /** "Why I like this property", in the assigned agent's words. */
   agentBlurb?: string | null;
   agentName?: string | null;
+  agentPhotoUrl?: string | null;
+  projectedRevenue?: string | number | null;
+  cashOnCash?: string | number | null;
 };
-
-const money = (value: string | number | null) => {
-  if (value === null || value === "") return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return null;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(parsed);
-};
-
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 
 /**
- * The email body.
+ * The personal email: the same digest the big list gets (the old site's
+ * layout, with price, ROI, projected revenue, the agent's note and the Book a
+ * Call block), greeted by name and holding only the listings that match this
+ * person's budget, bedrooms and markets.
  *
- * Deliberately shows only what a logged out person may see: address, price,
- * beds and baths. The revenue and return figures are behind the login on the
- * site, and an email is the least private place there is, so putting them here
- * would undo the gating rather than respect it. The link is the invitation to
- * go and look.
- *
- * The one addition is the first five lines of the agent's "Why I like this
- * property", with a "See more..." link to the listing, which the client asked
- * for on 3 Oct. It is the same block the shared email shows.
+ * Revenue and ROI are in it: these people have accounts and signed in to see
+ * exactly those figures, and the old digest sent them too.
  */
 export function renderDailyPropertyEmail(
   firstName: string | null,
   listings: EmailListing[],
-  unsubscribeUrl: string | null
-): { subject: string; html: string } {
+  unsubscribeUrl: string | null,
+  options: { runDate?: string; logoUrl?: string } = {}
+): { subject: string; html: string; text: string } {
   const count = listings.length;
   const subject =
     count === 1
       ? `A new investment property in your search`
       : `${count} new investment properties in your search`;
-
-  const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : "Hi,";
-
-  const cards = listings
-    .map(listing => {
-      const price = money(listing.listPrice);
-      const place = [listing.city, listing.state].filter(Boolean).join(", ");
-      const url = `${SITE_BASE}/properties/${encodeURIComponent(listing.slug)}`;
-      const beds = listing.beds == null ? null : String(listing.beds);
-      const facts = [
-        price,
-        beds ? `${beds} bed` : null,
-      ]
-        .filter(Boolean)
-        .join(" &middot; ");
-      return `
-        <tr><td style="padding:0 0 16px 0;">
-          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
-            ${
-              listing.heroImageUrl
-                ? `<tr><td><a href="${url}"><img src="${escapeHtml(listing.heroImageUrl)}" width="100%" alt="" style="display:block;width:100%;max-height:220px;object-fit:cover;" /></a></td></tr>`
-                : ""
-            }
-            <tr><td style="padding:16px 18px;">
-              <a href="${url}" style="color:#05314a;font-size:17px;font-weight:bold;text-decoration:none;">
-                ${escapeHtml(listing.headline || listing.address || "New listing")}
-              </a>
-              ${place ? `<div style="color:#64748b;font-size:13px;margin-top:4px;">${escapeHtml(place)}</div>` : ""}
-              ${facts ? `<div style="color:#0f172a;font-size:14px;margin-top:8px;font-weight:600;">${facts}</div>` : ""}
-              ${renderBlurbHtml(listing, url)}
-              <a href="${url}" style="display:inline-block;margin-top:14px;background:#10c0df;color:#03293c;font-weight:bold;font-size:13px;text-decoration:none;padding:9px 16px;border-radius:8px;">View the property</a>
-            </td></tr>
-          </table>
-        </td></tr>`;
-    })
-    .join("");
-
-  const html = `<!doctype html>
-<html><body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:24px 12px;">
-    <tr><td align="center">
-      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
-        <tr><td style="padding-bottom:18px;">
-          <div style="color:#05314a;font-size:20px;font-weight:800;">Savvy STR Agents</div>
-          <div style="color:#64748b;font-size:14px;margin-top:8px;">${greeting}</div>
-          <div style="color:#0f172a;font-size:15px;margin-top:6px;">
-            ${count === 1 ? "A new property" : `${count} new properties`} matching what you are looking for.
-          </div>
-        </td></tr>
-        ${cards}
-        <tr><td style="padding-top:8px;color:#64748b;font-size:12px;line-height:1.6;">
-          <p style="margin:0 0 10px 0;">
-            Projected revenue, returns and the comparable listings behind them are on the property page once you are signed in.
-          </p>
-          <p style="margin:0 0 10px 0;">
-            <a href="${SITE_BASE}/account/preferences" style="color:#0891b2;">Change what you hear about</a>
-            ${unsubscribeUrl ? ` &middot; <a href="${escapeHtml(unsubscribeUrl)}" style="color:#64748b;">Unsubscribe</a>` : ""}
-          </p>
-          <p style="margin:0;color:#94a3b8;">
-            Projections are estimates, not guarantees. Verify regulations, financing and operating assumptions before investing.
-          </p>
-          ${postalAddressHtml()}
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`;
-
-  return { subject, html };
+  const name = (firstName || "").trim();
+  const greeting = name ? `Hi ${name},` : "Hi,";
+  const runDate = options.runDate ?? easternDateKey(getEasternTimeParts(new Date()));
+  const { html, text } = renderDigestEmail({
+    listings: listings.map(listing => ({ baths: null, ...listing })),
+    runDate,
+    greeting,
+    intro: count === 1 ? "A new property matching what you are looking for." : `${count} new properties matching what you are looking for.`,
+    unsubscribeUrl: unsubscribeUrl || PREFERENCES_URL,
+    logoUrl: options.logoUrl,
+  });
+  return { subject, html, text };
 }
 
 /** ZIP to market, the map the matcher needs to resolve market preferences. */
@@ -273,13 +197,13 @@ export async function sendPersonalPropertyEmails(params: {
     }
 
     const unsubscribeUrl = createMarketingUnsubscribeUrl(account.email);
-    const { subject, html } = renderDailyPropertyEmail(
+    const { subject, html, text } = renderDailyPropertyEmail(
       account.firstName,
       outcome.listings as EmailListing[],
       unsubscribeUrl
     );
 
-    const result = await deliver(account.email, subject, html, params.runId, undefined, unsubscribeUrl);
+    const result = await deliver(account.email, subject, html, params.runId, text, unsubscribeUrl);
     if (result.sent) {
       await recordSend(db, account.id, outcome.listings.length, asOf);
       summary.sent += 1;
@@ -326,8 +250,12 @@ export async function deliver(
   if (!ENV.resendApiKey) return { sent: false, error: "Resend is not configured" };
   try {
     const resend = new Resend(ENV.resendApiKey);
+    // The deals lane the old digest went out on (deals.savvy-agents.com),
+    // with replies going where somebody reads them.
+    const sender = dealsSender();
     const result = await resend.emails.send({
-      from: FROM_ADDRESS,
+      from: sender.from,
+      replyTo: sender.replyTo,
       to,
       subject,
       html,
