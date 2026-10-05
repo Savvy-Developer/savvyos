@@ -2,8 +2,9 @@
  * Rock 1, Milestone 1 punch list fixes: pro-forma auto-save on leaving the
  * page, the pro-forma numbers button with nothing linked, the Zillow paste
  * box, the featured order tie-break, the case study property search, one
- * agent card for properties and case studies, and no revenue or return
- * figures in a property's public meta text.
+ * agent card for properties and case studies, no revenue or return
+ * figures in a property's public meta text, page titles that fit in 60
+ * characters, AI text cut at a sentence end, and half baths counted as halves.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -11,7 +12,17 @@ import { describe, expect, it } from "vitest";
 import { proformaSnapshot } from "../client/src/lib/proformaSnapshot";
 import { CASE_STUDY_ASK_COPY } from "../client/src/lib/caseStudyAskCopy";
 import { isCaseStudyLeadPath, websiteFormLeadSource } from "../shared/websiteLeadSources";
-import { buildSeoMessages, PROPERTY_META_HIDDEN_FACTS } from "./websiteSeoWriter";
+import {
+  buildSeoMessages,
+  fitToSentence,
+  parseSeoAnswer,
+  PROPERTY_META_HIDDEN_FACTS,
+  SEO_DESCRIPTION_MAX,
+  SEO_TITLE_MAX,
+} from "./websiteSeoWriter";
+import { websitePageTitle } from "../shared/websitePageTitle";
+import { pageTitle } from "./websiteSeoPages";
+import { bathroomCountFromText, mapZillowPropertyResponse, zillowBathroomCount } from "./externalApis";
 
 const read = (file: string) => readFileSync(path.resolve(__dirname, "..", file), "utf8");
 const proformaPage = read("client/src/pages/ProformaPage.tsx");
@@ -209,5 +220,105 @@ describe("property meta text carries no revenue or return figures", () => {
       expect(ai).not.toContain(key);
     }
     expect(websiteRouter).not.toContain("proformaBaseCaseGrossRevenue");
+  });
+});
+
+describe("page titles fit in 60 characters", () => {
+  it("adds the site name to a page's own meta title only when it still fits", () => {
+    expect(websitePageTitle("Repeat-client portfolio growth in Asheville", { ownMetaTitle: true })).toBe(
+      "Repeat-client portfolio growth in Asheville"
+    );
+    expect(websitePageTitle("Orem, UT turnkey STR", { ownMetaTitle: true })).toBe("Orem, UT turnkey STR | Savvy STR Agents");
+    const sixty = "x".repeat(41); // 41 + " | Savvy STR Agents" (19) = 60
+    expect(websitePageTitle(sixty, { ownMetaTitle: true })).toBe(`${sixty} | Savvy STR Agents`);
+    expect(websitePageTitle(`${sixty}y`, { ownMetaTitle: true })).toBe(`${sixty}y`);
+  });
+
+  it("always adds it to anything that is not a meta title, and the server agrees", () => {
+    const address = "9304 South Old Oregon Inlet Road, Nags Head, NC 27959 and more";
+    expect(websitePageTitle(address)).toBe(`${address} | Savvy STR Agents`);
+    expect(websitePageTitle("")).toBe("Savvy STR Agents");
+    expect(pageTitle("Nags Head, NC semi-oceanfront 7-bed vacation home", { ownMetaTitle: true })).toBe(
+      "Nags Head, NC semi-oceanfront 7-bed vacation home"
+    );
+  });
+
+  it("is used by the server for property and case study meta titles, and by the browser tab", () => {
+    const seo = read("server/websiteSeo.ts");
+    expect(seo).toContain("ownMetaTitle: !!row.metaTitle?.trim(),");
+    expect(seo).toContain("ownMetaTitle: !!seo?.metaTitle?.trim(),");
+    expect(seo).toContain("pageTitle(found.title, { ownMetaTitle: found.ownMetaTitle })");
+    const publicSite = read("client/src/pages/PublicWebsite.tsx");
+    expect(publicSite).toContain("document.title = websitePageTitle(title, { ownMetaTitle });");
+    expect(publicSite).toContain('usePageTitle(item?.metaTitle || item?.title || "Case Study", { ownMetaTitle: !!item?.metaTitle?.trim() });');
+    expect(websiteRouter).toContain("metaTitle: seo?.metaTitle ?? null");
+  });
+});
+
+describe("Write with AI lengths", () => {
+  it("asks for at most 55 and 130 to 150 characters", () => {
+    const [system] = buildSeoMessages({ kind: "property", facts: { city: "Nags Head" } });
+    expect(system.content).toContain("at most 55 characters");
+    expect(system.content).toContain("130 to 150 characters");
+  });
+
+  it("caps at 60 and 155, ending a description at its last full sentence", () => {
+    const description =
+      "Semi-oceanfront 7 bed, 7.5 bath home in South Nags Head, NC with a pool and hot tub. Listed at $1,599,000. Verify permits and operating rules during diligence.";
+    const answer = parseSeoAnswer(
+      JSON.stringify({ metaTitle: "Nags Head NC semi-oceanfront 7 bed single family home for sale now", metaDescription: description }),
+      "property"
+    );
+    expect(answer.metaTitle.length).toBeLessThanOrEqual(SEO_TITLE_MAX);
+    expect(answer.metaDescription).toBe(
+      "Semi-oceanfront 7 bed, 7.5 bath home in South Nags Head, NC with a pool and hot tub. Listed at $1,599,000."
+    );
+    expect(answer.metaDescription.length).toBeLessThanOrEqual(SEO_DESCRIPTION_MAX);
+  });
+
+  it("falls back to a word cut when no sentence ends past 100 characters", () => {
+    const text = "Short one. " + "word ".repeat(60);
+    const cut = fitToSentence(text, 155);
+    expect(cut.length).toBeLessThanOrEqual(155);
+    expect(cut).not.toBe("Short one.");
+    expect(cut.endsWith(" ")).toBe(false);
+  });
+
+  it("leaves a description that fits alone", () => {
+    expect(fitToSentence("Fits. Easily", 155)).toBe("Fits. Easily");
+  });
+});
+
+describe("bathroom counts", () => {
+  const nineThreeOhFour = {
+    bathrooms: 8,
+    resoFacts: {
+      bathrooms: 8,
+      bathroomsFull: 7,
+      bathroomsHalf: null,
+      bathroomsOneQuarter: null,
+      bathroomsPartial: 1,
+      bathroomsFloat: 8,
+      bathroomsThreeQuarter: null,
+    },
+  };
+
+  it("counts Zillow's half bath as a half (real 9304 / 6927 response shape)", () => {
+    expect(zillowBathroomCount(nineThreeOhFour)).toBe(7.5);
+    expect(zillowBathroomCount({ bathrooms: 3, resoFacts: { bathroomsFull: 2, bathroomsHalf: 2 } })).toBe(3);
+    expect(zillowBathroomCount({ bathrooms: 3, resoFacts: { bathroomsFull: 2, bathroomsThreeQuarter: 1, bathroomsPartial: 1 } })).toBe(3);
+    expect(zillowBathroomCount({ bathrooms: 4 })).toBe(4);
+    expect(zillowBathroomCount({})).toBeNull();
+  });
+
+  it("uses that count when mapping a Zillow lookup", () => {
+    const mapped = mapZillowPropertyResponse({ propertyDetails: { ...nineThreeOhFour, price: 1599000 } });
+    expect(mapped?.bathrooms).toBe(7.5);
+  });
+
+  it("reads decimals from Airbnb listing text", () => {
+    expect(bathroomCountFromText("Salt Shaker: 7 bedrooms, 7.5 baths, pool")).toBe(7.5);
+    expect(bathroomCountFromText("3 bedroom 2 bathroom cabin")).toBe(2);
+    expect(bathroomCountFromText("no count here")).toBeNull();
   });
 });

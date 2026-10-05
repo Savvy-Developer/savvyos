@@ -131,7 +131,7 @@ describe("Write with AI", () => {
       "property"
     );
     expect(answer.metaTitle).toBe("3BR Gatlinburg Cabin , Hot Tub");
-    expect(answer.metaDescription.length <= SEO_DESCRIPTION_MAX + 10).toBe(true);
+    expect(answer.metaDescription.length <= SEO_DESCRIPTION_MAX).toBe(true);
     expect(answer.metaDescription.endsWith(" ")).toBe(false);
     let failed = false;
     try {

@@ -54,6 +54,7 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { CASE_STUDY_ASK_COPY } from "@/lib/caseStudyAskCopy";
+import { websitePageTitle } from "@shared/websitePageTitle";
 import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 import { PUBLIC_SITE_BASE, publicPath } from "@/lib/publicSitePaths";
 import { captureVisitAttribution, formAttribution } from "@/lib/visitAttribution";
@@ -177,10 +178,12 @@ const roomCount = (value: unknown) => {
   return String(Math.round(parsed * 10) / 10);
 };
 
-function usePageTitle(title: string) {
+function usePageTitle(title: string, options: { ownMetaTitle?: boolean } = {}) {
+  const ownMetaTitle = !!options.ownMetaTitle;
   useEffect(() => {
-    document.title = title ? `${title} | Savvy STR Agents` : "Savvy STR Agents";
-  }, [title]);
+    // Same rule as the server's <title> (shared/websitePageTitle.ts).
+    document.title = websitePageTitle(title, { ownMetaTitle });
+  }, [title, ownMetaTitle]);
 }
 
 /**
@@ -1593,7 +1596,9 @@ function PropertyDetailPage({ slug }: { slug: string }) {
   const others = trpc.website.publicProperties.useQuery(undefined, {
     staleTime: 5 * 60_000,
   });
-  usePageTitle(query.data?.metaTitle || query.data?.address || "Property");
+  usePageTitle(query.data?.metaTitle || query.data?.address || "Property", {
+    ownMetaTitle: !!query.data?.metaTitle?.trim(),
+  });
   // Recorded for the signed-in investor only, and only once per listing per
   // visit. Anonymous browsing is not tracked to an account that does not exist.
   useRecordPropertyView((query.data as any)?.propertyId);
@@ -3028,7 +3033,7 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
   const item: any = query.data;
   // Which card button opened the form: none (Message), analysis or financing.
   const [caseAsk, setCaseAsk] = useState<null | "analysis" | "financing">(null);
-  usePageTitle(item?.title || "Case Study");
+  usePageTitle(item?.metaTitle || item?.title || "Case Study", { ownMetaTitle: !!item?.metaTitle?.trim() });
   useRecordArticleView("case_study", item?.id);
   if (query.isLoading) return <LoadingPage />;
   if (!item) return <NotFoundPage />;

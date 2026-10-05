@@ -23,6 +23,13 @@ export type SeoKind = "property" | "post" | "case" | "caseSeo";
 /** Search engines cut titles near 60 characters and descriptions near 155. */
 export const SEO_TITLE_MAX = 60;
 export const SEO_DESCRIPTION_MAX = 155;
+/**
+ * What the model is asked for: a little under the hard caps above, so an
+ * answer that runs slightly long still fits without being cut.
+ */
+export const SEO_TITLE_ASK = 55;
+export const SEO_DESCRIPTION_ASK_MIN = 130;
+export const SEO_DESCRIPTION_ASK_MAX = 150;
 export const CASE_EXCERPT_MAX = 300;
 
 export type SeoContext = {
@@ -104,9 +111,9 @@ export function buildSeoMessages(context: SeoContext) {
   const ask =
     context.kind === "case"
       ? `Return JSON: {"metaTitle": "", "metaDescription": "<a ${CASE_EXCERPT_MAX}-character-or-shorter excerpt: 1 to 2 sentences that make an investor want to read the story, leading with the result when the facts give one>"}.`
-      : `Return JSON: {"metaTitle": "<at most ${SEO_TITLE_MAX} characters${
+      : `Return JSON: {"metaTitle": "<at most ${SEO_TITLE_ASK} characters${
           context.kind === "property" ? ", include the city and state" : ""
-        }>", "metaDescription": "<${SEO_DESCRIPTION_MAX - 25} to ${SEO_DESCRIPTION_MAX} characters, one or two sentences${
+        }>", "metaDescription": "<${SEO_DESCRIPTION_ASK_MIN} to ${SEO_DESCRIPTION_ASK_MAX} characters, one or two complete sentences${
           context.kind === "caseSeo"
               ? ", lead with the result the client got when the facts give one"
               : ""
@@ -138,6 +145,20 @@ export function fitTo(text: string, max: number): string {
   return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : clean.slice(0, max)).replace(/[\s,;:-]+$/, "").trim();
 }
 
+/**
+ * Trim a description to a limit at the end of its last full sentence, so it
+ * never stops mid-thought ("...verify permits during"). Only when no sentence
+ * ends past 100 characters does it fall back to the word cut.
+ */
+export function fitToSentence(text: string, max: number, minSentenceEnd = 100): string {
+  const clean = fitTo(text, Number.MAX_SAFE_INTEGER);
+  if (clean.length <= max) return clean;
+  const head = clean.slice(0, max);
+  let end = -1;
+  for (const match of Array.from(head.matchAll(/[.!?](?=\s|$)/g))) end = (match.index ?? -1) + 1;
+  return end > minSentenceEnd ? head.slice(0, end).trim() : fitTo(clean, max);
+}
+
 /** Read the model's answer. Tolerates code fences and stray text around the JSON. */
 export function parseSeoAnswer(content: unknown, kind: SeoKind): SeoResult {
   const raw = typeof content === "string" ? content : "";
@@ -152,8 +173,8 @@ export function parseSeoAnswer(content: unknown, kind: SeoKind): SeoResult {
   const description = typeof parsed?.metaDescription === "string" ? parsed.metaDescription : "";
   if (!title.trim() && !description.trim()) throw new Error("The AI answer could not be read. Try again.");
   return {
-    metaTitle: fitTo(title, SEO_TITLE_MAX + 10),
-    metaDescription: fitTo(description, kind === "case" ? CASE_EXCERPT_MAX : SEO_DESCRIPTION_MAX + 10),
+    metaTitle: fitTo(title, SEO_TITLE_MAX),
+    metaDescription: fitToSentence(description, kind === "case" ? CASE_EXCERPT_MAX : SEO_DESCRIPTION_MAX),
   };
 }
 

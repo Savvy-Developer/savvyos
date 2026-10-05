@@ -88,7 +88,7 @@ import { getSignupSegmentId, saveSignupSegmentId } from "../websiteSignupAudienc
 import { moveWebsiteImages } from "../websiteImageRehost";
 import { ZillowLookupInputError, extractZillowDescription, extractZillowPhotoUrls, fetchAddressSuggestions, fetchZillowListing } from "../externalApis";
 import { allowSeoWrite, writeSeoText } from "../websiteSeoWriter";
-import { saveCaseStudySeo, withCaseStudySeo } from "../websiteCaseStudySeo";
+import { loadCaseStudySeo, saveCaseStudySeo, withCaseStudySeo } from "../websiteCaseStudySeo";
 import { importOldSiteListings, importedListingCounts, publishReadyImportedListings } from "../oldSiteListingImport";
 
 /** A zillow.com listing link, normalised, or null for anything else. */
@@ -2079,7 +2079,10 @@ export const websiteRouter = router({
         )
         .limit(1);
       const row = rows[0];
-      return row ? { ...row, agentBookingUrl: normalizeBookingUrl(row.agentBookingUrl) } : null;
+      if (!row) return null;
+      // Its meta title, so the browser tab matches the <title> Google reads.
+      const seo = (await loadCaseStudySeo(db, [row.id])).get(row.id);
+      return { ...row, metaTitle: seo?.metaTitle ?? null, agentBookingUrl: normalizeBookingUrl(row.agentBookingUrl) };
     }),
 
   publicPosts: publicProcedure.query(async () => {
