@@ -15,6 +15,8 @@ const smartPlans = vi.hoisted(() => ({ trigger: vi.fn(async () => undefined) }))
 const leadSource = vi.hoisted(() => ({ id: 77 as number | null }));
 vi.mock("./smartPlanScheduler", () => ({ triggerSmartPlansForContact: smartPlans.trigger }));
 vi.mock("./websiteLeadSources", () => ({ websiteLeadSourceId: vi.fn(async () => leadSource.id) }));
+const ghl = vi.hoisted(() => ({ sync: vi.fn() }));
+vi.mock("./_core/ghlSync", () => ({ triggerGhlContactSync: ghl.sync }));
 
 import {
   REPEAT_VIEW_QUIET_MS,
@@ -70,6 +72,7 @@ const home = { address: "12 Shore Rd", city: "Destin", state: "FL", zip: "32541"
 
 beforeEach(() => {
   smartPlans.trigger.mockClear();
+  ghl.sync.mockClear();
   leadSource.id = 77;
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
 });
@@ -209,6 +212,9 @@ describe("recording what an account did", () => {
     expect(created.values).toMatchObject({ action: "contact_created", entityId: 501 });
     expect(favourite.values).toMatchObject({ action: "property_favorited", entityId: 501 });
     expect(smartPlans.trigger).toHaveBeenCalledWith(501, 77);
+    // Like every other new contact, and like the old site's favourites did
+    // through the inbound webhook, it goes to GoHighLevel.
+    expect(ghl.sync).toHaveBeenCalledWith(501);
   });
 
   it("creates the contact on registration", async () => {
@@ -228,6 +234,7 @@ describe("recording what an account did", () => {
     await recordWebsiteAccountActivity(db, account, { action: "user_registered" });
     expect(db.inserts.map(insert => insert.table)).toEqual([activityLog]);
     expect(smartPlans.trigger).not.toHaveBeenCalled();
+    expect(ghl.sync).not.toHaveBeenCalled();
   });
 
   it("never creates a contact for a view alone", async () => {
