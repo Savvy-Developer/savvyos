@@ -4,7 +4,7 @@ import {
   renderDailyPropertyEmail,
   type EmailListing,
 } from "./dailyPropertyEmail";
-import { MARKETING_POSTAL_ADDRESS } from "./websiteDailyEmailLogic";
+import { BOOK_A_CALL_URL, EMAIL_LOGO_WHITE_URL, MARKETING_POSTAL_ADDRESS } from "./websiteDailyEmailLogic";
 
 const listing = (overrides: Partial<EmailListing> = {}): EmailListing => ({
   propertyId: 1,
@@ -17,6 +17,8 @@ const listing = (overrides: Partial<EmailListing> = {}): EmailListing => ({
   listPrice: "725000",
   beds: "4",
   heroImageUrl: "https://example.com/hero.jpg",
+  baths: "3.5",
+  sqft: 2100,
   publishedAt: new Date("2026-09-15T12:00:00Z"),
   ...overrides,
 });
@@ -49,30 +51,65 @@ describe("renderDailyPropertyEmail", () => {
     expect(html).not.toContain("Hi ,");
   });
 
-  /**
-   * The rule that matters most here. Those figures sit behind the login on the
-   * site, and an email is the least private place there is. Putting them in
-   * the email would quietly undo the gating rather than respect it.
-   */
-  it("never carries the gated figures", () => {
-    const withFigures = {
-      ...listing(),
-      projectedRevenue: "98000",
-      cashOnCash: "0.114",
-      capRate: "0.072",
-      occupancyRate: "0.68",
-      averageDailyRate: "412",
-    } as any;
-    const { html } = renderDailyPropertyEmail("Dana", [withFigures], null);
-    for (const secret of [
-      "98000",
-      "0.114",
-      "0.072",
-      "0.68",
-      "412",
-    ]) {
-      expect(html).not.toContain(secret);
-    }
+  // The old site's digest showed revenue and ROI, and the people this goes to
+  // have accounts, so the figures are back in (Rock 1 M2 parity).
+  it("shows ROI and projected revenue, as the old digest did", () => {
+    const { html, text } = renderDailyPropertyEmail(
+      "Dana",
+      [listing({ projectedRevenue: "98000", cashOnCash: "0.114" })],
+      null,
+      { runDate: "2026-10-05" }
+    );
+    expect(html).toContain("11.4% ROI");
+    expect(html).toContain("$98,000 / yr projected revenue");
+    expect(text).toContain("11.4% ROI");
+    expect(text).toContain("$98,000 / yr projected revenue");
+  });
+
+  it("leaves out ROI and revenue for a listing without them, with no placeholder", () => {
+    const { html } = renderDailyPropertyEmail("Dana", [listing()], null, { runDate: "2026-10-05" });
+    expect(html).not.toContain("% ROI");
+    expect(html).not.toContain("projected revenue");
+    expect(html).not.toContain("NaN");
+  });
+
+  it("has the logo, the Book a Call block, the unsubscribe link and the postal address", () => {
+    const { html, text } = renderDailyPropertyEmail(
+      "Dana",
+      [listing()],
+      "https://os.savvy-agents.com/api/unsubscribe?token=abc",
+      { runDate: "2026-10-05" }
+    );
+    expect(html).toContain(`src="${EMAIL_LOGO_WHITE_URL}"`);
+    expect(html).toContain("STR Success Starts with The Perfect Market Match");
+    expect(html).toContain("Book a Call with Our Market Advisors Today");
+    expect(html).toContain(">Book a Call</a>");
+    expect(html).toContain(`${BOOK_A_CALL_URL}?utm_source=savvy`);
+    expect(html).toContain("token=abc");
+    expect(html).toContain(">Unsubscribe</a>");
+    expect(html).toContain(MARKETING_POSTAL_ADDRESS);
+    expect(text).toContain("Book a Call with Our Market Advisors Today");
+    expect(text).toContain(MARKETING_POSTAL_ADDRESS);
+  });
+
+  it("carries the old digest's headline, sub-line and date", () => {
+    const { html } = renderDailyPropertyEmail(
+      "Dana",
+      [listing(), listing({ propertyId: 2, slug: "second" })],
+      null,
+      { runDate: "2026-10-05" }
+    );
+    expect(html).toContain("Don't Sleep on These 2 New STR Deals");
+    expect(html).toContain("2 New Hand-Picked Properties");
+    expect(html).toContain("Monday, October 5, 2026");
+    expect(html).toContain("Open before these properties are snatched up");
+  });
+
+  it("stacks on a phone", () => {
+    const { html } = renderDailyPropertyEmail("Dana", [listing()], null, { runDate: "2026-10-05" });
+    expect(html).toContain('name="viewport"');
+    expect(html).toContain("@media only screen and (max-width:600px)");
+    expect(html).toContain("max-width:600px");
   });
 
   // The agent's blurb used to be held back with the figures. The client asked
@@ -95,7 +132,7 @@ describe("renderDailyPropertyEmail", () => {
     ).html;
     expect(long).toContain("See more...</a>");
     expect(long.match(/Walk to the creek/g)!.length).toBeLessThan(20);
-    expect(long).toContain('href="https://home.savvy-agents.com/newsite/properties/88-creekside-lane-gatlinburg"');
+    expect(long).toContain('href="https://home.savvy-agents.com/newsite/properties/88-creekside-lane-gatlinburg?utm_source=savvy');
   });
 
   it("leaves the card as it was for a listing with no blurb", () => {
@@ -104,10 +141,10 @@ describe("renderDailyPropertyEmail", () => {
     expect(html).not.toContain("See more...");
   });
 
-  it("shows the price and bedrooms a logged out visitor may see", () => {
+  it("shows the price, bedrooms, bathrooms and size", () => {
     const { html } = renderDailyPropertyEmail("Dana", [listing()], null);
     expect(html).toContain("$725,000");
-    expect(html).toContain("4 bed");
+    expect(html).toContain("4 bd &middot; 3.5 ba &middot; 2,100 sqft");
     expect(html).toContain("Gatlinburg, TN");
   });
 
@@ -118,8 +155,7 @@ describe("renderDailyPropertyEmail", () => {
       null
     );
     expect(html).not.toContain("$NaN");
-    expect(html).not.toContain("—");
-    expect(html).toContain("4 bed");
+    expect(html).toContain("4 bd");
   });
 
   it("links each listing to its page on the site", () => {
@@ -139,10 +175,10 @@ describe("renderDailyPropertyEmail", () => {
     expect(html).toContain("token=abc");
   });
 
-  it("always offers the preferences page, even with no unsubscribe link", () => {
+  it("always offers the preferences page, and unsubscribes there with no one-click link", () => {
     const { html } = renderDailyPropertyEmail("Dana", [listing()], null);
     expect(html).toContain("/newsite/account/preferences");
-    expect(html).not.toContain("Unsubscribe");
+    expect(html).toContain('href="https://home.savvy-agents.com/newsite/account/preferences" style="color:#aebcc4;text-decoration:underline;">Unsubscribe</a>');
   });
 
   it("escapes a headline that contains markup", () => {
@@ -175,7 +211,9 @@ describe("renderDailyPropertyEmail", () => {
       [listing({ heroImageUrl: null })],
       null
     );
-    expect(html).not.toContain("<img");
+    // Only the two logos remain.
+    expect(html.match(/<img/g)).toHaveLength(2);
+    expect(html).not.toContain('src="null"');
     expect(html).toContain("Creekside cabin");
   });
 });

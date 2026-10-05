@@ -132,10 +132,20 @@ export type SignupAudienceResult = { attempted: boolean; success: boolean; reaso
  */
 export async function addSignupToResendAudience(
   db: any,
-  account: { email: string; firstName?: string | null; lastName?: string | null }
+  account: { email: string; firstName?: string | null; lastName?: string | null },
+  options: {
+    /**
+     * The list to use when none is chosen in Website Studio. Only the
+     * confirmed-email path passes one (see websiteSignupConfirmation.ts); the
+     * plain sign-up path leaves it out, so it still sends nothing until a list
+     * is chosen.
+     */
+    fallbackSegmentId?: string | null;
+  } = {}
 ): Promise<SignupAudienceResult> {
   try {
-    const segmentId = await getSignupSegmentId(db);
+    const segmentId =
+      (await getSignupSegmentId(db)) ?? cleanSegmentId(options.fallbackSegmentId);
     if (!segmentId) return { attempted: false, success: false, reason: "No list chosen" };
     if (await emailIsSuppressed(db, account.email)) {
       return { attempted: false, success: false, reason: "Unsubscribed or bounced in SavvyOS" };

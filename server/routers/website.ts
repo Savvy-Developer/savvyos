@@ -19,6 +19,7 @@ import {
   websiteFeaturedListings,
   websiteLeads,
   websiteLeadAttempts,
+  activityLog,
   websitePages,
   websiteProperties,
   websiteSiteSettings,
@@ -85,6 +86,8 @@ import {
   setApproval as setDailyEmailApproval,
 } from "../websiteDailyEmail";
 import { listResendSegments } from "../_core/resendMarketingBroadcast";
+import { dealsSender } from "../websiteDailyEmailLogic";
+import { priceDropMinPercent } from "../websitePriceDropLogic";
 import { getSignupSegmentId, saveSignupSegmentId } from "../websiteSignupAudience";
 import { moveWebsiteImages } from "../websiteImageRehost";
 import { ZillowLookupInputError, extractZillowDescription, extractZillowPhotoUrls, fetchAddressSuggestions, fetchZillowListing } from "../externalApis";
@@ -123,6 +126,12 @@ import { websiteLeadSourceId } from "../websiteLeadSources";
 import { isCaseStudyLeadPath, websiteFormLeadSource } from "@shared/websiteLeadSources";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { recordWebsiteRequestActivity } from "../websiteActivity";
+import {
+  FINANCING_PARTNER_ACTION,
+  loadFinancingPageFacts,
+  queueFinancingPartnerFeed,
+  startOfEasternDay,
+} from "../financingPartnerFeed";
 
 /**
  * Whether the visitor making this request has an investor account session.
@@ -2477,6 +2486,39 @@ export const websiteRouter = router({
           agentId,
         });
       }
+      // A financing request also goes to the lending partners, as it did on
+      // the old site. In the background, after this answer, and only when
+      // FINANCING_PARTNER_FEED_ENABLED is on. See financingPartnerFeed.ts.
+      if (input.requestType === "financing") {
+        queueFinancingPartnerFeed(
+          {
+            requestType: input.requestType,
+            contactId: contactId || null,
+            firstName: input.firstName,
+            lastName: input.lastName,
+            email: normalizedEmail,
+            phone: input.phone || null,
+            propertyId: input.propertyId ?? null,
+            sourcePath: input.sourcePath || null,
+          },
+          {
+            loadFacts: feedInput => loadFinancingPageFacts(db, feedInput),
+            logTimeline: entry => logActivity(entry),
+            countSentToday: async () => {
+              const [row] = await db
+                .select({ count: sql<number>`count(*)` })
+                .from(activityLog)
+                .where(
+                  and(
+                    eq(activityLog.action, FINANCING_PARTNER_ACTION),
+                    gte(activityLog.createdAt, startOfEasternDay())
+                  )
+                );
+              return Number(row?.count || 0);
+            },
+          }
+        );
+      }
       return { success: true };
     }),
 
@@ -4029,7 +4071,8 @@ export const websiteRouter = router({
       getSignupSegmentId(db),
     ]);
     return {
-      priceDropAlerts: { enabled: priceDropsOn, recent: priceDrops },
+      priceDropAlerts: { enabled: priceDropsOn, recent: priceDrops, minPercent: priceDropMinPercent() },
+      sender: dealsSender(),
       signupAudience: { segmentId: signupSegmentId },
       settings,
       masterSwitch: dailyEmailMasterSwitchOn(),

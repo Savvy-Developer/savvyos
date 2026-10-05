@@ -135,6 +135,8 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "website_showing_request",
   "website_listing_expired",
   "website_inquiry_unassigned",
+  "website_account_email_confirmation",
+  "website_daily_email_internal_copy",
   "pto_request_submitted",
   "pto_request_decision",
   "vendor_featured_payment_invitation",
@@ -195,6 +197,8 @@ interface EmailContext {
   propertyAddress?: string;
   /** Public savvy-agents.com listing URL for website lead handoff emails. */
   propertyUrl?: string;
+  /** The one-time link a new website account opens to confirm its email. */
+  websiteConfirmUrl?: string;
   reviewUrl?: string;
   reviewRating?: string;
   reviewComment?: string;
@@ -577,6 +581,34 @@ const TEMPLATES: Record<
     websiteLeadHandoffTemplate(ctx, "financing"),
 
   website_showing_request: ctx => websiteLeadHandoffTemplate(ctx, "showing"),
+
+  // Sent to a new investor account on the public website, when
+  // WEBSITE_SIGNUP_CONFIRMATION_ENABLED is on. Confirming adds them to the
+  // sign-up email list, as confirming did on the old savvy-agents.com.
+  website_account_email_confirmation: ctx => ({
+    subject: "Confirm your email for Savvy STR Agents",
+    html: emailLayout(
+      `${heading("Confirm your email")}
+      ${greeting(ctx.recipientName ? escapeHtml(ctx.recipientName) : undefined)}
+      ${bodyText("Thanks for creating your Savvy STR Agents account. Please confirm this is your email address so we can send you new properties and market updates.")}
+      ${ctaButton("Confirm my email", escapeHtml(ctx.websiteConfirmUrl ?? "https://savvy-agents.com"))}
+      ${bodyText("This link works once and expires in 7 days. Your account already works, so you can keep using the site in the meantime.")}
+      ${bodyText("If you did not create an account, you can ignore this email.")}`,
+      "Confirm your email for Savvy STR Agents"
+    ),
+  }),
+
+  // Only its recipient list is used: the daily property email's internal copy
+  // goes to whoever is saved under Recipients (none by default). The copy
+  // itself is the day's digest, rendered by websiteDailyEmail.ts.
+  website_daily_email_internal_copy: () => ({
+    subject: "Daily property email (internal copy)",
+    html: emailLayout(
+      `${heading("Daily property email, internal copy")}
+      ${bodyText("When the daily property email goes out, the people on this list get a copy of the same email. Set them under Recipients; nobody gets a copy until someone is added.")}`,
+      "Daily property email (internal copy)"
+    ),
+  }),
 
   // Same notice the old savvy-agents.com sent when a listing hit 90 days.
   website_listing_expired: ctx => {

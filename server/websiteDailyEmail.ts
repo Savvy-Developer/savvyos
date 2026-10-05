@@ -4,6 +4,7 @@ import {
   properties,
   users,
   websiteAccounts,
+  websiteAgentProfiles,
   websiteDailyEmailClicks,
   websiteDailyEmailEngagement,
   websiteDailyEmailRuns,
@@ -11,6 +12,7 @@ import {
   websiteProperties,
 } from "../drizzle/schema";
 import { getDb } from "./db";
+import { resolveNotificationRecipients } from "./_core/resendEmail";
 import { ENV } from "./_core/env";
 import { invokeLLM } from "./_core/llm";
 import {
@@ -26,8 +28,12 @@ import {
   type EmailListing,
 } from "./dailyPropertyEmail";
 import {
+  dealsSender,
   isScheduledSendDue,
   linkKeyFromUrl,
+  PREFERENCES_URL,
+  resolveDailyEmailSettings,
+  type DailyEmailSettingsShape,
   parseEmailList,
   renderBroadcastEmail,
   renderSubject,
@@ -63,45 +69,20 @@ export function masterSwitchOn(): boolean {
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 
-export type DailyEmailSettings = {
-  enabled: boolean;
-  sendHourEt: number;
-  segmentIds: string[];
-  internalRecipients: string[];
-  personalEmailsEnabled: boolean;
-  subjectTemplate: string | null;
-  introText: string | null;
-  updatedAt: Date | null;
-};
+export type DailyEmailSettings = DailyEmailSettingsShape;
 
-const DEFAULT_SETTINGS: DailyEmailSettings = {
-  enabled: false,
-  sendHourEt: 17,
-  segmentIds: [],
-  internalRecipients: [],
-  personalEmailsEnabled: true,
-  subjectTemplate: null,
-  introText: null,
-  updatedAt: null,
-};
-
+/**
+ * The saved settings. Lists and internal recipients never saved fall back to
+ * the old site's (see resolveDailyEmailSettings), and the send hour to its
+ * 5 PM Eastern.
+ */
 export async function getDailyEmailSettings(db: any): Promise<DailyEmailSettings> {
   const [row] = await db
     .select()
     .from(websiteDailyEmailSettings)
     .where(eq(websiteDailyEmailSettings.singletonKey, "primary"))
     .limit(1);
-  if (!row) return { ...DEFAULT_SETTINGS };
-  return {
-    enabled: !!row.enabled,
-    sendHourEt: row.sendHourEt ?? 17,
-    segmentIds: Array.isArray(row.segmentIds) ? row.segmentIds : [],
-    internalRecipients: Array.isArray(row.internalRecipients) ? row.internalRecipients : [],
-    personalEmailsEnabled: !!row.personalEmailsEnabled,
-    subjectTemplate: row.subjectTemplate ?? null,
-    introText: row.introText ?? null,
-    updatedAt: row.updatedAt ?? null,
-  };
+  return resolveDailyEmailSettings(row ?? null);
 }
 
 export async function saveDailyEmailSettings(
@@ -153,6 +134,11 @@ const queueColumns = {
   // "Why I like this property" and whose words they are, for the card.
   agentBlurb: websiteProperties.agentBlurb,
   agentName: users.name,
+  agentPhotoUrl: websiteAgentProfiles.imageUrl,
+  // Revenue and ROI, as the old digest showed them.
+  projectedRevenue: websiteProperties.projectedRevenue,
+  cashOnCash: websiteProperties.cashOnCash,
+  sqft: properties.sqft,
   address: properties.address,
   city: properties.city,
   state: properties.state,
@@ -169,6 +155,7 @@ export async function loadQueue(db: any): Promise<QueueListing[]> {
     .from(websiteProperties)
     .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
     .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
+    .leftJoin(websiteAgentProfiles, eq(websiteAgentProfiles.userId, users.id))
     .where(
       and(
         eq(websiteProperties.status, "published"),
@@ -199,6 +186,7 @@ async function sampleListings(db: any, queue: QueueListing[]): Promise<{
     .from(websiteProperties)
     .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
     .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
+    .leftJoin(websiteAgentProfiles, eq(websiteAgentProfiles.userId, users.id))
     .where(eq(websiteProperties.status, "published"))
     .orderBy(desc(websiteProperties.publishedAt))
     .limit(3);
@@ -305,7 +293,7 @@ export async function sendTestDailyEmail(
     subject,
     intro: settings.introText,
     runDate,
-    unsubscribeUrl: "https://home.savvy-agents.com/newsite/account/preferences",
+    unsubscribeUrl: PREFERENCES_URL,
   });
   let sent = 0;
   const errors: string[] = [];
@@ -406,7 +394,9 @@ export async function runDailyEmail(params: {
     runDate,
   });
 
-  // 1. The big list, one broadcast per segment.
+  // 1. The big list, one broadcast per segment, from the deals lane the old
+  //    digest used.
+  const sender = dealsSender();
   const broadcastIds: string[] = [];
   const broadcastErrors: string[] = [];
   for (const segmentId of settings.segmentIds) {
@@ -416,6 +406,8 @@ export async function runDailyEmail(params: {
       subject,
       html,
       text,
+      from: sender.from,
+      replyTo: sender.replyTo,
     });
     if (!created.success) {
       broadcastErrors.push(`${segmentId}: ${created.error}`);
@@ -434,15 +426,16 @@ export async function runDailyEmail(params: {
   // 2. The internal copy. Resend's unsubscribe placeholder only works on a
   //    broadcast, so the copy links to the preferences page instead.
   let internalSent = 0;
-  if (settings.internalRecipients.length) {
+  const internalRecipients = await dailyEmailInternalRecipients(settings.internalRecipients);
+  if (internalRecipients.length) {
     const copy = renderBroadcastEmail({
       listings: batch,
       subject,
       intro: settings.introText,
       runDate,
-      unsubscribeUrl: "https://home.savvy-agents.com/newsite/account/preferences",
+      unsubscribeUrl: PREFERENCES_URL,
     });
-    for (const to of settings.internalRecipients) {
+    for (const to of internalRecipients) {
       const result = await deliver(to, subject, copy.html, runId, copy.text);
       if (result.sent) internalSent += 1;
     }
@@ -468,7 +461,7 @@ export async function runDailyEmail(params: {
   const allOk =
     broadcastErrors.length === 0 &&
     personalFailed === 0 &&
-    internalSent === settings.internalRecipients.length;
+    internalSent === internalRecipients.length;
   const status = !reachedAnyone ? "failed" : allOk ? "sent" : "partial";
 
   // Stamp only when something went out, so a failed day retries tomorrow.
@@ -791,4 +784,16 @@ export async function analyzeDailyEmailWithAi(db: any): Promise<string> {
     console.warn("[DailyEmail] AI review failed.", error);
     return "The AI review is unavailable right now. The numbers above are still accurate.";
   }
+}
+
+/**
+ * Who gets the internal copy of the daily email: the list saved in Website
+ * Studio, if any, else the Recipients saved for "Daily property email
+ * (internal copy)" under Email Notifications. Nobody by default; there is
+ * no address in the code.
+ */
+export async function dailyEmailInternalRecipients(studioList: string[]): Promise<string[]> {
+  if (studioList.length) return studioList;
+  const saved = await resolveNotificationRecipients("website_daily_email_internal_copy", []);
+  return saved.map(recipient => recipient.email);
 }

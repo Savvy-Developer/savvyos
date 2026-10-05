@@ -588,6 +588,7 @@ export default function ContactDetail() {
     "property_contact_requested",
     "market_searched",
     "property_shared",
+    "article_shared",
     "user_registered",
     "analysis_requested",
     "showing_requested",

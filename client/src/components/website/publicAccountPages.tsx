@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   BookOpen,
@@ -25,6 +25,15 @@ import { toast } from "sonner";
 
 import { trpc } from "@/lib/trpc";
 import { publicPath, safeNextPath } from "@/lib/publicSitePaths";
+import {
+  isEmptySearch,
+  normalizeSearchCriteria,
+  searchSignature,
+  type WebsiteSearchCriteria,
+  type WebsiteSearchSource,
+  type WebsiteShareChannel,
+  type WebsiteShareTarget,
+} from "@shared/websiteSearchShareActivity";
 
 /**
  * Investor accounts on the public website.
@@ -47,6 +56,7 @@ export const accountPath = {
   signUp: publicPath("/sign-up"),
   forgot: publicPath("/forgot-password"),
   reset: publicPath("/reset-password"),
+  confirmEmail: publicPath("/confirm-email"),
   saved: publicPath("/account/saved"),
   preferences: publicPath("/account/preferences"),
   history: publicPath("/account/history"),
@@ -553,6 +563,106 @@ export function ResetPasswordBody() {
   );
 }
 
+/**
+ * Where the link in the sign-up confirmation email lands. The token is spent
+ * by the page, not by the GET, so a mail scanner opening the link does not
+ * use it up.
+ */
+export function ConfirmEmailBody() {
+  const token = useMemo(
+    () => new URLSearchParams(window.location.search).get("token") || "",
+    []
+  );
+  const account = useWebsiteAccount();
+  const started = useRef(false);
+  const confirm = trpc.websiteAccount.confirmEmail.useMutation();
+  const resend = trpc.websiteAccount.resendEmailConfirmation.useMutation({
+    onSuccess: result => {
+      if (result.sent) toast.success("A new link is on its way. Check your email.");
+      else if (result.reason === "confirmed") toast.success("Your email is already confirmed.");
+      else toast.error("Email confirmation is not available right now.");
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  useEffect(() => {
+    if (!token || started.current) return;
+    started.current = true;
+    confirm.mutate({ token });
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const home = (
+    <a className="font-bold text-cyan-600" href={publicPath()}>
+      Go to the homepage
+    </a>
+  );
+
+  if (!token) {
+    return (
+      <AuthCard
+        title="That link is not complete"
+        subtitle="Open the link from your confirmation email again."
+        footer={home}
+      >
+        <div />
+      </AuthCard>
+    );
+  }
+  if (confirm.isSuccess) {
+    return (
+      <AuthCard
+        title="Your email is confirmed"
+        subtitle={
+          confirm.data.alreadyConfirmed
+            ? "This email was already confirmed. You are all set."
+            : "Thanks. You will now get new properties and market updates from Savvy STR Agents."
+        }
+        footer={home}
+      >
+        <div />
+      </AuthCard>
+    );
+  }
+  if (confirm.isError) {
+    return (
+      <AuthCard
+        title="We could not confirm your email"
+        subtitle={confirm.error.message}
+        footer={
+          account.data ? (
+            home
+          ) : (
+            <a className="font-bold text-cyan-600" href={`${accountPath.signIn}?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}>
+              Sign in to get a new link
+            </a>
+          )
+        }
+      >
+        {account.data ? (
+          <form
+            className="mt-6"
+            onSubmit={event => {
+              event.preventDefault();
+              resend.mutate();
+            }}
+          >
+            <SubmitButton pending={resend.isPending}>Send me a new link</SubmitButton>
+          </form>
+        ) : (
+          <div />
+        )}
+      </AuthCard>
+    );
+  }
+  return (
+    <AuthCard title="Confirming your email" subtitle="One moment.">
+      <div className="mt-6 flex justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-cyan-600" />
+      </div>
+    </AuthCard>
+  );
+}
+
 // ─── Header account control ──────────────────────────────────────────────────
 
 /** The Savvy staff member signed in on the website, or null. */
@@ -975,6 +1085,104 @@ export function useRecordPropertyView(propertyId: number | null | undefined) {
     // Once per listing per visit. Re-firing on every render would turn the
     // view count into a render count.
   }, [signedIn, propertyId, mutate]);
+}
+
+/**
+ * How long a search has to stand before it counts. Filters change in one
+ * click, but the search box changes per keystroke; a search the visitor has
+ * stopped changing for this long is the one they meant.
+ */
+export const COMMITTED_SEARCH_MS = 2000;
+
+const sessionSeen = new Set<string>();
+const SESSION_KEY = "savvy:searchActivity";
+
+/**
+ * True the first time `key` is seen in this browser session, and remembers it.
+ * Session storage keeps a reload from logging the same search again; the
+ * in-memory set covers a browser that refuses storage.
+ */
+export function firstThisSession(key: string): boolean {
+  if (sessionSeen.has(key)) return false;
+  let stored: string[] = [];
+  try {
+    stored = JSON.parse(window.sessionStorage.getItem(SESSION_KEY) || "[]");
+    if (!Array.isArray(stored)) stored = [];
+  } catch {
+    stored = [];
+  }
+  if (stored.includes(key)) {
+    sessionSeen.add(key);
+    return false;
+  }
+  sessionSeen.add(key);
+  try {
+    // The last hundred is plenty for one visit and keeps the entry small.
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify([...stored, key].slice(-100)));
+  } catch {
+    // Storage refused: the in-memory set still holds for this page.
+  }
+  return true;
+}
+
+/**
+ * Put a signed-in investor's search on their contact timeline, as the old site
+ * did. Fires once the search has stood for COMMITTED_SEARCH_MS, and at most
+ * once per identical search per session. Anonymous visitors send nothing.
+ * Pass null while the page does not yet know what was searched.
+ */
+export function useRecordSearch(
+  criteria: WebsiteSearchCriteria | null,
+  source: WebsiteSearchSource,
+  delayMs: number = COMMITTED_SEARCH_MS
+) {
+  const account = useWebsiteAccount();
+  const record = trpc.websiteAccount.recordSearch.useMutation();
+  const signedIn = !!account.data;
+  const mutate = record.mutate;
+  const signature = criteria && !isEmptySearch(criteria) ? searchSignature(criteria, source) : null;
+  const latest = useRef(criteria);
+  latest.current = criteria;
+  useEffect(() => {
+    if (!signedIn || !signature) return;
+    const timer = window.setTimeout(() => {
+      const current = latest.current;
+      if (!current || !firstThisSession(`search:${signature}`)) return;
+      const n = normalizeSearchCriteria(current);
+      mutate({
+        source,
+        query: n.query ?? undefined,
+        marketId: n.marketId ?? undefined,
+        state: n.state ?? undefined,
+        propertyType: n.propertyType ?? undefined,
+        minBeds: n.minBeds ?? undefined,
+        minBaths: n.minBaths ?? undefined,
+        minPrice: n.minPrice ?? undefined,
+        maxPrice: n.maxPrice ?? undefined,
+      });
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [signedIn, signature, source, delayMs, mutate]);
+}
+
+/**
+ * A function that puts a signed-in investor's share on their contact
+ * timeline. Does nothing for an anonymous visitor or a missing target.
+ */
+export function useRecordShare() {
+  const account = useWebsiteAccount();
+  const record = trpc.websiteAccount.recordShare.useMutation();
+  const signedIn = !!account.data;
+  const mutate = record.mutate;
+  return useCallback(
+    (target: WebsiteShareTarget | null | undefined, channel: WebsiteShareChannel) => {
+      if (!signedIn || !target) return;
+      const id = target.kind === "property" ? target.propertyId : target.contentId;
+      if (!id) return;
+      mutate({ target, channel });
+    },
+    [signedIn, mutate]
+  );
 }
 
 // ─── Account pages ───────────────────────────────────────────────────────────

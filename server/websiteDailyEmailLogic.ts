@@ -35,6 +35,13 @@ export type BroadcastListing = {
   agentBlurb?: string | null;
   /** The assigned agent's name, for the heading over the blurb. */
   agentName?: string | null;
+  /** The assigned agent's photo, shown beside the blurb. */
+  agentPhotoUrl?: string | null;
+  sqft?: string | number | null;
+  /** Shown as "/ yr projected revenue", as the old digest did. */
+  projectedRevenue?: string | number | null;
+  /** A fraction (0.114); shown as the ROI badge, as on the site's cards. */
+  cashOnCash?: string | number | null;
 };
 
 export const DEFAULT_SUBJECT_TEMPLATE = "{count} new STR investment properties";
@@ -257,7 +264,7 @@ export function blurbHeading(agentName: string | null | undefined): string {
   return name ? `Why ${name} likes this property` : "Why we like this property";
 }
 
-type BlurbSource = { agentBlurb?: string | null; agentName?: string | null };
+type BlurbSource = { agentBlurb?: string | null; agentName?: string | null; agentPhotoUrl?: string | null };
 
 /**
  * The blurb block for a listing card: heading, up to five lines, and a
@@ -267,14 +274,22 @@ type BlurbSource = { agentBlurb?: string | null; agentName?: string | null };
 export function renderBlurbHtml(listing: BlurbSource, url: string): string {
   const { lines, truncated } = clampBlurb(listing.agentBlurb);
   if (!lines.length) return "";
-  const body = lines.map(escapeHtml).join("<br />");
+  const body = lines.map(escapeHtml).join("<br>");
   const more = truncated
-    ? ` <a href="${escapeHtml(url)}" style="color:#0891b2;font-weight:bold;text-decoration:none;white-space:nowrap;">See more...</a>`
+    ? ` <a href="${escapeHtml(url)}" target="_blank" style="color:#0b7a8c;font-weight:bold;text-decoration:underline;white-space:nowrap;">See more...</a>`
     : "";
-  return `<div style="margin-top:12px;padding:10px 12px;background:#f1f5f9;border-left:3px solid #10c0df;border-radius:6px;">
-                <div style="color:#05314a;font-size:12px;font-weight:bold;">${escapeHtml(blurbHeading(listing.agentName))}</div>
-                <div style="color:#334155;font-size:13px;line-height:1.5;margin-top:4px;">${body}${more}</div>
-              </div>`;
+  const photo = (listing.agentPhotoUrl || "").trim();
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:14px 0 4px 0;background-color:#f7f9fa;border-radius:8px;"><tr>
+                ${
+                  photo
+                    ? `<td width="52" valign="top" style="padding:14px 0 14px 14px;"><img src="${escapeHtml(photo)}" alt="${escapeHtml(listing.agentName || "Savvy agent")}" width="40" height="40" style="display:block;width:40px;height:40px;border-radius:50%;border:0;"></td>`
+                    : ""
+                }
+                <td valign="top" style="padding:14px 16px 14px ${photo ? "10px" : "16px"};font-family:Arial,Helvetica,sans-serif;">
+                  <p style="margin:0 0 4px 0;font-size:12px;font-weight:bold;color:#14323b;text-transform:uppercase;letter-spacing:.4px;">${escapeHtml(blurbHeading(listing.agentName))}</p>
+                  <p style="margin:0;font-size:14px;line-height:1.55;color:#3d4b54;">${body}${more}</p>
+                </td>
+              </tr></table>`;
 }
 
 /** The same block for the plain-text email, one entry per line. */
@@ -284,15 +299,318 @@ export function renderBlurbText(listing: BlurbSource, url: string): string[] {
   return [blurbHeading(listing.agentName), ...lines, ...(truncated ? [`See more: ${url}`] : [])];
 }
 
+// ─── The old site's digest, rebuilt ─────────────────────────────────────────
+
 /**
- * The shared email sent to the big list.
+ * The old site's daily digest went out at 5 PM Eastern, every day, as a
+ * Resend broadcast to these three lists (read from its sends in Resend,
+ * Oct 2026). With no lists saved in the Studio, the new email goes to the
+ * same three, so switching over changes the sender of nothing and the
+ * audience of nothing.
+ */
+export const OLD_SITE_DIGEST_SEGMENTS: ReadonlyArray<{ id: string; name: string }> = [
+  { id: "21d6ce52-d41a-4fcd-823e-f8bf5ea5e26d", name: "All Savvy-Agent Users" },
+  { id: "a307bd8e-aa16-4238-85f6-55d93663acb6", name: "Old Lofty Leads" },
+  { id: "d5fcb6ad-7ce6-43bd-9f7b-69fbcf05d240", name: "Platform Leads" },
+];
+
+/** The old site's operator copy (its DIGEST_EMAIL default). */
+
+/** 5 PM Eastern, the old digest's send time. */
+export const DEFAULT_SEND_HOUR_ET = 17;
+
+/**
+ * The deals lane the old site sent its digest and price drop alerts from.
+ * deals.savvy-agents.com is verified in Resend with click tracking on, and
+ * keeps marketing volume off the apex domain that carries login email.
+ * EMAIL_FROM_DEALS and EMAIL_REPLY_TO_DEALS override it, the same names the
+ * old site used.
+ */
+export const DEFAULT_DEALS_FROM = "Savvy <deals@deals.savvy-agents.com>";
+export const DEFAULT_DEALS_REPLY_TO = "hello@savvy-agents.com";
+
+export function dealsSender(
+  env: Record<string, string | undefined> = process.env
+): { from: string; replyTo: string } {
+  return {
+    from: (env.EMAIL_FROM_DEALS || "").trim() || DEFAULT_DEALS_FROM,
+    replyTo: (env.EMAIL_REPLY_TO_DEALS || "").trim() || DEFAULT_DEALS_REPLY_TO,
+  };
+}
+
+export type DailyEmailSettingsShape = {
+  enabled: boolean;
+  sendHourEt: number;
+  segmentIds: string[];
+  internalRecipients: string[];
+  personalEmailsEnabled: boolean;
+  subjectTemplate: string | null;
+  introText: string | null;
+  updatedAt: Date | null;
+};
+
+/**
+ * The settings row as the email uses it. Lists that were never saved (null)
+ * fall back to the old site's; an empty list someone saved on purpose stays
+ * empty. Internal recipients have no coded default (see dailyEmailInternalRecipients).
+ */
+export function resolveDailyEmailSettings(row: Record<string, any> | null | undefined): DailyEmailSettingsShape {
+  const segmentIds = Array.isArray(row?.segmentIds)
+    ? (row!.segmentIds as string[])
+    : OLD_SITE_DIGEST_SEGMENTS.map(segment => segment.id);
+  // No coded default: the internal copy goes to the Studio list if one was
+  // saved, else to the Email Notifications recipients (empty by default).
+  const internalRecipients = Array.isArray(row?.internalRecipients) ? (row!.internalRecipients as string[]) : [];
+  const hour = row?.sendHourEt == null || row.sendHourEt === "" ? NaN : Number(row.sendHourEt);
+  return {
+    enabled: !!row?.enabled,
+    sendHourEt: Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : DEFAULT_SEND_HOUR_ET,
+    segmentIds,
+    internalRecipients,
+    personalEmailsEnabled: row ? !!row.personalEmailsEnabled : true,
+    subjectTemplate: row?.subjectTemplate ?? null,
+    introText: row?.introText ?? null,
+    updatedAt: row?.updatedAt ?? null,
+  };
+}
+
+/**
+ * The white logo the old digest used, served by this app from
+ * client/public/images, so it keeps working after the old site is gone.
+ */
+export const EMAIL_LOGO_WHITE_URL = "https://home.savvy-agents.com/images/savvy-logo-white.png";
+
+export const BOOK_A_CALL_URL = `${PUBLIC_SITE_BASE}/contact`;
+export const PREFERENCES_URL = `${PUBLIC_SITE_BASE}/account/preferences`;
+
+/** The old digest's fixed copy. */
+export const DIGEST_PREHEADER = "Open before these properties are snatched up";
+export function digestHeadline(count: number): string {
+  return count === 1 ? "Don't Sleep on This New STR Deal" : `Don't Sleep on These ${count} New STR Deals`;
+}
+export function digestSubLine(count: number): string {
+  return `${count} New Hand-Picked ${count === 1 ? "Property" : "Properties"}`;
+}
+
+/** "Monday, October 5, 2026" for a YYYY-MM-DD send date. */
+export function digestDateLabel(runDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(runDate ?? "");
+  if (!match) return "";
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * The return shown on a card, as a percentage with one decimal: the cash on
+ * cash figure, which is what the site's own cards label ROI.
+ */
+export function roiPercent(cashOnCash: string | number | null | undefined): number | null {
+  if (cashOnCash === null || cashOnCash === undefined || cashOnCash === "") return null;
+  const value = Number(cashOnCash);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Math.round(value * 1000) / 10;
+}
+
+/** "$98,000 / yr projected revenue", or null without a figure. */
+export function revenueLine(projectedRevenue: string | number | null | undefined): string | null {
+  const amount = money(projectedRevenue ?? null);
+  return amount ? `${amount} / yr projected revenue` : null;
+}
+
+const FONT = "Arial,Helvetica,sans-serif";
+
+/**
+ * The email both daily emails share: the old digest's layout (dark header with
+ * the white logo, a card per listing with price, ROI, revenue and the agent's
+ * note, the Book a Call block, and the footer with the postal address and
+ * unsubscribe link), reworked to stack cleanly on a phone.
  *
- * Same rule as the personal email: only what a logged-out visitor may see
- * (photo, headline, place, price, beds, baths), plus the first five lines of
- * the agent's "Why I like this property" with a link to the rest, which the
- * client asked for on 3 Oct. Revenue and returns stay behind the login on the
- * site. The unsubscribe link is Resend's own
- * placeholder, which Resend fills in per recipient on a broadcast.
+ * Revenue and ROI are shown, as they were in the old digest: the people on
+ * these lists signed up for exactly that.
+ */
+export function renderDigestEmail(params: {
+  listings: BroadcastListing[];
+  runDate: string;
+  unsubscribeUrl: string;
+  /** Shown under the headline, e.g. "Hi Dana," for the personal email. */
+  greeting?: string | null;
+  intro?: string | null;
+  /** Utm campaign; defaults to the dated daily campaign. */
+  campaign?: string;
+  logoUrl?: string;
+}): { html: string; text: string } {
+  const { listings, runDate } = params;
+  const count = listings.length;
+  const headline = digestHeadline(count);
+  const subLine = digestSubLine(count);
+  const dateLabel = digestDateLabel(runDate);
+  const intro = (params.intro || "").trim();
+  const greeting = (params.greeting || "").trim();
+  const logo = params.logoUrl || EMAIL_LOGO_WHITE_URL;
+  const track = (url: string) => trackedUrl(url, runDate);
+  const browseUrl = track(`${PUBLIC_SITE_BASE}/properties`);
+  const bookCallUrl = track(BOOK_A_CALL_URL);
+  const unsubscribe = params.unsubscribeUrl;
+
+  const cards = listings
+    .map(listing => {
+      const url = track(listingUrl(listing.slug));
+      const href = escapeHtml(url);
+      const title = escapeHtml(listing.headline || listing.address || "New listing");
+      const place = [listing.city, listing.state].filter(Boolean).map(value => escapeHtml(String(value))).join(", ");
+      const price = money(listing.listPrice);
+      const roi = roiPercent(listing.cashOnCash);
+      const revenue = revenueLine(listing.projectedRevenue);
+      const beds = trimNumber(listing.beds);
+      const baths = trimNumber(listing.baths);
+      const sqft = Number(listing.sqft);
+      const facts = [
+        beds ? `${beds} bd` : null,
+        baths ? `${baths} ba` : null,
+        Number.isFinite(sqft) && sqft > 0 ? `${Math.round(sqft).toLocaleString("en-US")} sqft` : null,
+      ]
+        .filter(Boolean)
+        .join(" &middot; ");
+      const roiBadge =
+        roi !== null
+          ? `<span style="display:inline-block;background-color:#e6f8fb;color:#0b7a8c;font-size:13px;font-weight:bold;padding:5px 11px;border-radius:999px;white-space:nowrap;">${roi}% ROI</span>`
+          : "";
+      return `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e7ec;border-radius:12px;overflow:hidden;margin:0 0 22px 0;background-color:#ffffff;">
+            ${
+              listing.heroImageUrl
+                ? `<tr><td style="padding:0;font-size:0;line-height:0;"><a href="${href}" target="_blank"><img src="${escapeHtml(listing.heroImageUrl)}" alt="${title}" width="510" style="display:block;width:100%;max-width:510px;height:auto;border:0;"></a></td></tr>`
+                : ""
+            }
+            <tr><td class="card-content" style="padding:18px 22px 22px 22px;font-family:${FONT};">
+              <p style="margin:0 0 2px 0;font-size:18px;font-weight:bold;color:#14323b;line-height:1.35;"><a href="${href}" target="_blank" style="color:#14323b;text-decoration:none;">${title}</a></p>
+              ${place ? `<p style="margin:0 0 12px 0;font-size:14px;color:#5b6770;">${place}</p>` : ""}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+                <td valign="middle" class="price-col" style="padding:0 0 4px 0;">
+                  ${price ? `<span style="font-size:22px;font-weight:bold;color:#14323b;vertical-align:middle;white-space:nowrap;">${price}</span>` : ""}
+                  ${roiBadge ? `<span style="margin-left:8px;vertical-align:middle;">${roiBadge}</span>` : ""}
+                </td>
+                <td align="right" valign="middle" class="specs-col" style="padding:0 0 4px 0;">
+                  ${facts ? `<p style="margin:0 0 2px 0;font-size:14px;color:#5b6770;">${facts}</p>` : ""}
+                  ${revenue ? `<p style="margin:0;font-size:14px;color:#0b7a8c;font-weight:bold;">${escapeHtml(revenue)}</p>` : ""}
+                </td>
+              </tr></table>
+              ${renderBlurbHtml(listing, url)}
+              <table role="presentation" cellpadding="0" cellspacing="0" class="cta" style="margin-top:16px;"><tr><td align="center" style="background-color:#10c0df;border-radius:8px;">
+                <a href="${href}" target="_blank" style="display:inline-block;padding:12px 26px;font-size:15px;font-weight:bold;color:#06303a;text-decoration:none;font-family:${FONT};">Show me more</a>
+              </td></tr></table>
+            </td></tr>
+          </table>`;
+    })
+    .join("");
+
+  const html = `<!DOCTYPE html><html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<style>
+  @media only screen and (max-width:600px) {
+    .digest-outer  { padding: 12px 6px !important; }
+    .digest-header { padding: 22px 14px 20px 14px !important; }
+    .digest-inner  { padding-left: 14px !important; padding-right: 14px !important; }
+    .card-content  { padding: 16px 14px 18px 14px !important; }
+    .price-col, .specs-col { display: block !important; width: 100% !important; }
+    .specs-col     { text-align: left !important; padding-top: 6px !important; }
+    .cta, .cta td  { width: 100% !important; }
+    .cta a         { display: block !important; }
+  }
+</style>
+</head><body style="margin:0;padding:0;background-color:#eef1f4;font-family:${FONT};">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#eef1f4;opacity:0;">${escapeHtml(DIGEST_PREHEADER)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef1f4;"><tr><td align="center" class="digest-outer" style="padding:28px 16px;">
+  <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background-color:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e2e7ec;">
+    <tr><td align="center" class="digest-header" style="background-color:#14323b;padding:30px 40px 26px 40px;">
+      <img src="${escapeHtml(logo)}" alt="Savvy STR Agents" width="172" style="display:block;width:172px;height:auto;border:0;">
+    </td></tr>
+    <tr><td style="height:4px;line-height:4px;font-size:0;background-color:#10c0df;">&nbsp;</td></tr>
+    <tr><td class="digest-inner" style="padding:32px 44px 8px 44px;font-family:${FONT};">
+      ${greeting ? `<p style="margin:0 0 10px 0;font-size:15px;color:#3d4b54;">${escapeHtml(greeting)}</p>` : ""}
+      <h1 style="margin:0 0 6px 0;font-size:23px;line-height:1.3;color:#14323b;">${escapeHtml(headline)}</h1>
+      <p style="margin:0 0 4px 0;font-size:15px;font-weight:bold;color:#0b7a8c;">${escapeHtml(subLine)}</p>
+      ${dateLabel ? `<p style="margin:0 0 ${intro ? "12px" : "18px"} 0;font-size:14px;color:#5b6770;">${dateLabel}</p>` : ""}
+      ${intro ? `<p style="margin:0 0 18px 0;font-size:15px;line-height:1.5;color:#3d4b54;">${escapeHtml(intro)}</p>` : ""}
+    </td></tr>
+    <tr><td class="digest-inner" style="padding:0 44px 4px 44px;">${cards}</td></tr>
+    <tr><td align="center" class="digest-inner" style="padding:0 44px 22px 44px;font-family:${FONT};">
+      <a href="${escapeHtml(browseUrl)}" target="_blank" style="color:#0b7a8c;font-weight:bold;font-size:14px;">Browse every property</a>
+    </td></tr>
+    <tr><td align="center" class="digest-inner" style="padding:4px 44px 28px 44px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0fafc;border:1px solid #cdeef5;border-radius:12px;"><tr><td align="center" style="padding:26px 22px;font-family:${FONT};">
+        <p style="margin:0 0 6px 0;font-size:18px;font-weight:bold;color:#14323b;">STR Success Starts with The Perfect Market Match&trade;</p>
+        <p style="margin:0 0 16px 0;font-size:14px;color:#5b6770;">Book a Call with Our Market Advisors Today</p>
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr><td align="center" style="background-color:#10c0df;border-radius:8px;">
+          <a href="${escapeHtml(bookCallUrl)}" target="_blank" style="display:inline-block;padding:12px 26px;font-size:15px;font-weight:bold;color:#06303a;text-decoration:none;">Book a Call</a>
+        </td></tr></table>
+      </td></tr></table>
+    </td></tr>
+    <tr><td class="digest-inner" style="background-color:#14323b;padding:30px 44px;font-family:${FONT};">
+      <img src="${escapeHtml(logo)}" alt="Savvy" width="120" style="display:block;width:120px;height:auto;margin-bottom:14px;border:0;">
+      <p style="margin:0 0 6px 0;font-size:13px;line-height:1.55;color:#aebcc4;">Savvy Expansion Agents &middot; Powered by eXp Realty &mdash; short-term rentals nationwide.</p>
+      <p style="margin:0 0 6px 0;font-size:12px;line-height:1.55;color:#7d9099;">Projected revenue and ROI are estimates, not guarantees. Verify regulations, financing and operating assumptions before investing.</p>
+      <p style="margin:0 0 6px 0;font-size:12px;line-height:1.55;color:#7d9099;">${MARKETING_POSTAL_ADDRESS}</p>
+      <p style="margin:0;font-size:12px;line-height:1.55;color:#7d9099;">&copy; ${runDate.slice(0, 4) || new Date().getFullYear()} Savvy STR Agents. All rights reserved. &middot; <a href="${escapeHtml(PREFERENCES_URL)}" style="color:#aebcc4;text-decoration:underline;">Email preferences</a> &middot; <a href="${escapeHtml(unsubscribe)}" style="color:#aebcc4;text-decoration:underline;">Unsubscribe</a></p>
+    </td></tr>
+  </table>
+  <!--[if mso]></td></tr></table><![endif]-->
+</td></tr></table>
+</body></html>`;
+
+  const text = [
+    "Savvy STR Agents",
+    "",
+    ...(greeting ? [greeting, ""] : []),
+    headline,
+    subLine,
+    ...(dateLabel ? [dateLabel] : []),
+    ...(intro ? ["", intro] : []),
+    "",
+    ...listings.map(listing => {
+      const place = [listing.city, listing.state].filter(Boolean).join(", ");
+      const roi = roiPercent(listing.cashOnCash);
+      const url = track(listingUrl(listing.slug));
+      return [
+        listing.headline || listing.address || "New listing",
+        place,
+        [money(listing.listPrice), roi !== null ? `${roi}% ROI` : null].filter(Boolean).join(" · "),
+        revenueLine(listing.projectedRevenue) ?? "",
+        ...renderBlurbText(listing, url),
+        `Show me more: ${url}`,
+        "",
+      ]
+        .filter((line, index, all) => line !== "" || index === all.length - 1)
+        .join("\n");
+    }),
+    `Browse every property: ${browseUrl}`,
+    "",
+    "STR Success Starts with The Perfect Market Match",
+    `Book a Call with Our Market Advisors Today: ${bookCallUrl}`,
+    "",
+    "Projected revenue and ROI are estimates, not guarantees.",
+    `Email preferences: ${PREFERENCES_URL}`,
+    `Unsubscribe: ${unsubscribe}`,
+    MARKETING_POSTAL_ADDRESS,
+  ].join("\n");
+
+  return { html, text };
+}
+
+/**
+ * The shared email sent to the big list: the digest above. The unsubscribe
+ * link is Resend's own placeholder, which Resend fills in per recipient on a
+ * broadcast.
  */
 export function renderBroadcastEmail(params: {
   listings: BroadcastListing[];
@@ -300,101 +618,15 @@ export function renderBroadcastEmail(params: {
   intro: string | null | undefined;
   runDate: string;
   unsubscribeUrl?: string;
+  logoUrl?: string;
 }): { html: string; text: string } {
-  const { listings, runDate } = params;
-  const intro = (params.intro || "").trim() || DEFAULT_INTRO;
-  const unsubscribe = params.unsubscribeUrl ?? "{{{RESEND_UNSUBSCRIBE_URL}}}";
-  const browseUrl = trackedUrl(`${PUBLIC_SITE_BASE}/properties`, runDate);
-  const signUpUrl = trackedUrl(`${PUBLIC_SITE_BASE}/sign-up`, runDate);
-
-  const cards = listings
-    .map(listing => {
-      const url = trackedUrl(listingUrl(listing.slug), runDate);
-      const place = [listing.city, listing.state].filter(Boolean).join(", ");
-      const beds = trimNumber(listing.beds);
-      const baths = trimNumber(listing.baths);
-      const facts = [
-        money(listing.listPrice),
-        beds ? `${beds} bed` : null,
-        baths ? `${baths} bath` : null,
-      ]
-        .filter(Boolean)
-        .join(" &middot; ");
-      const title = escapeHtml(listing.headline || listing.address || "New listing");
-      return `
-        <tr><td style="padding:0 0 16px 0;">
-          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;background:#ffffff;">
-            ${
-              listing.heroImageUrl
-                ? `<tr><td><a href="${escapeHtml(url)}"><img src="${escapeHtml(listing.heroImageUrl)}" width="100%" alt="${title}" style="display:block;width:100%;max-height:240px;object-fit:cover;" /></a></td></tr>`
-                : ""
-            }
-            <tr><td style="padding:16px 18px;">
-              <a href="${escapeHtml(url)}" style="color:#05314a;font-size:17px;font-weight:bold;text-decoration:none;">${title}</a>
-              ${place ? `<div style="color:#64748b;font-size:13px;margin-top:4px;">${escapeHtml(place)}</div>` : ""}
-              ${facts ? `<div style="color:#0f172a;font-size:14px;margin-top:8px;font-weight:600;">${facts}</div>` : ""}
-              ${renderBlurbHtml(listing, url)}
-              <a href="${escapeHtml(url)}" style="display:inline-block;margin-top:14px;background:#10c0df;color:#03293c;font-weight:bold;font-size:13px;text-decoration:none;padding:9px 16px;border-radius:8px;">View the property</a>
-            </td></tr>
-          </table>
-        </td></tr>`;
-    })
-    .join("");
-
-  const html = `<!doctype html>
-<html><body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:24px 12px;">
-    <tr><td align="center">
-      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
-        <tr><td style="padding-bottom:18px;">
-          <div style="color:#05314a;font-size:20px;font-weight:800;">Savvy STR Agents</div>
-          <div style="color:#0f172a;font-size:15px;margin-top:10px;line-height:1.5;">${escapeHtml(intro)}</div>
-        </td></tr>
-        ${cards}
-        <tr><td style="padding:4px 0 20px 0;" align="center">
-          <a href="${escapeHtml(browseUrl)}" style="color:#0891b2;font-weight:bold;font-size:14px;">Browse every property</a>
-        </td></tr>
-        <tr><td style="padding-top:8px;color:#64748b;font-size:12px;line-height:1.6;">
-          <p style="margin:0 0 10px 0;">
-            Projected revenue and returns are on each property page. <a href="${escapeHtml(signUpUrl)}" style="color:#0891b2;">Create a free account</a> to see them and get emails matched to your budget and markets.
-          </p>
-          <p style="margin:0 0 10px 0;">
-            <a href="${escapeHtml(unsubscribe)}" style="color:#64748b;">Unsubscribe</a>
-          </p>
-          <p style="margin:0;color:#94a3b8;">
-            Projections are estimates, not guarantees. Verify regulations, financing and operating assumptions before investing.
-          </p>
-          ${postalAddressHtml()}
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`;
-
-  const text = [
-    "Savvy STR Agents",
-    "",
-    intro,
-    "",
-    ...listings.map(listing => {
-      const place = [listing.city, listing.state].filter(Boolean).join(", ");
-      const price = money(listing.listPrice);
-      const url = trackedUrl(listingUrl(listing.slug), runDate);
-      return [
-        listing.headline || listing.address || "New listing",
-        [place, price].filter(Boolean).join(" · "),
-        ...renderBlurbText(listing, url),
-        url,
-        "",
-      ].join("\n");
-    }),
-    `Browse every property: ${browseUrl}`,
-    "",
-    `Unsubscribe: ${unsubscribe}`,
-    MARKETING_POSTAL_ADDRESS,
-  ].join("\n");
-
-  return { html, text };
+  return renderDigestEmail({
+    listings: params.listings,
+    runDate: params.runDate,
+    intro: params.intro,
+    unsubscribeUrl: params.unsubscribeUrl ?? "{{{RESEND_UNSUBSCRIBE_URL}}}",
+    logoUrl: params.logoUrl,
+  });
 }
 
 /**

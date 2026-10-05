@@ -100,6 +100,11 @@ const IGNORED_PATHS = new Set([
   "system.health",
   "emailTest.sendAll",
   "emailTest.sendOne",
+  // Website visitor telemetry. The timeline entry is the record, written only
+  // when WEBSITE_TIMELINE_SEARCH_SHARE_ENABLED is on; a generic audit row per
+  // search would write to activity_log even while the switch is off.
+  "websiteAccount.recordSearch",
+  "websiteAccount.recordShare",
 ]);
 
 // ─── Entity type inference from path ────────────────────────────────────────────

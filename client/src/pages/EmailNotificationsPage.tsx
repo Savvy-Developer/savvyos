@@ -48,6 +48,8 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "website_financing_request", name: "Website Financing Handoff", description: "Sent to the assigned agent, with the requesting client copied, including the agent's call link.", trigger: "An investor requests financing information from a savvy-agents.com property page", triggerType: "Event", recipient: "Client + Assigned Agent", category: "Leads & CRM" },
   { id: "website_showing_request", name: "Website Showing Handoff", description: "Sent to the assigned agent, with the requesting client copied, including the agent's call link.", trigger: "An investor requests a showing from a savvy-agents.com property page", triggerType: "Event", recipient: "Client + Assigned Agent", category: "Leads & CRM" },
   { id: "website_inquiry_unassigned", name: "Website Lead, No Agent", description: "Sent to the office when someone sends a Savvy website form that is not tied to an agent (the Sell page, the contact page, a general buying enquiry), with their details and message. Goes to Tyler until a list is saved under Recipients.", trigger: "A website form is sent with no agent to route it to", triggerType: "Event", recipient: "Designated Leadership", category: "Leads & CRM" },
+  { id: "website_daily_email_internal_copy", name: "Daily Property Email, Internal Copy", description: "Who gets a copy of the daily property email when it goes out. Nobody until a list is saved under Recipients (a list saved in Website Studio > Daily Email wins over this one). Only the recipient list is used here; the copy is the day's email itself.", trigger: "The daily property email is sent", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Leads & CRM" },
+  { id: "website_account_email_confirmation", name: "Website Account Email Confirmation", description: "Sent to someone who just created an investor account on the Savvy website, with a one-time link to confirm their email. Confirming adds them to the sign-up email list. Only sent while WEBSITE_SIGNUP_CONFIRMATION_ENABLED is on for the server.", trigger: "An investor creates an account on the Savvy website", triggerType: "Event", recipient: "Account Holder", category: "Leads & CRM" },
   // ── Transactions ──────────────────────────────────────────────────────────
   { id: "transaction_created", name: "Transaction Created", description: "Sent only to the agent assigned to the new transaction.", trigger: "New transaction created with an assigned agent", triggerType: "Event", recipient: "Assigned Agent", category: "Transactions" },
   { id: "transaction_status_changed", name: "Transaction Status Changed", description: "Sent only to the agent assigned to the transaction whose status changed.", trigger: "Transaction status updated", triggerType: "Event", recipient: "Assigned Agent", category: "Transactions" },
@@ -179,6 +181,7 @@ const EDITABLE_RECIPIENT_NOTIFICATIONS = new Set([
   "monthly_featured_vendor_earnings",
   "vendor_featured_payment_received",
   "website_inquiry_unassigned",
+  "website_daily_email_internal_copy",
 ]);
 
 // ─── Component ────────────────────────────────────────────────────────────────

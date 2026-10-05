@@ -312,7 +312,8 @@ describe("where it is wired in", () => {
     expect(accountRouter).toContain('action: "property_viewed",');
     // Only a new save, and only a view outside the quiet period.
     expect(accountRouter).toContain("if (!alreadySaved) {");
-    expect(accountRouter).toContain("if (!isRepeatView(previous?.lastViewedAt)) {");
+    expect(accountRouter).toContain("const repeat = isRepeatView(previous?.lastViewedAt);");
+    expect(accountRouter).toContain("if (!repeat) {");
   });
 
   it("does not wait on the timeline before answering the visitor", () => {
@@ -325,7 +326,9 @@ describe("where it is wired in", () => {
     // staff decision. See myTransactions.
     const activity = read("server/websiteActivity.ts");
     expect(activity).not.toContain(".update(");
-    expect(activity).toContain('import { activityLog, contacts, properties } from "../drizzle/schema";');
+    expect(activity).toContain(
+      'import { activityLog, contacts, marketProfiles, properties, websiteBlogPosts } from "../drizzle/schema";'
+    );
   });
 
   it("logs the request action after the inquiry, inside the same contact check", () => {
