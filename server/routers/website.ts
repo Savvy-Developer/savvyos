@@ -121,6 +121,7 @@ import { resolveOrganicSocialLeadSourceId } from "../organicSocialLeadSources";
 import { websiteLeadSourceId } from "../websiteLeadSources";
 import { websiteFormLeadSource } from "@shared/websiteLeadSources";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
+import { recordWebsiteRequestActivity } from "../websiteActivity";
 
 /**
  * Whether the visitor making this request has an investor account session.
@@ -2358,6 +2359,17 @@ export const websiteRouter = router({
             sourcePath: input.sourcePath || null,
             attribution: input.attribution || {},
           },
+        });
+        // The old site's action for the same button (showing_requested,
+        // analysis_requested and so on), which is what Hot Leads, the lead
+        // score and the reports count. The entry above keeps the message.
+        await recordWebsiteRequestActivity(db, {
+          contactId,
+          requestType: input.requestType,
+          intent: input.intent,
+          propertyId: input.propertyId,
+          propertyAddress,
+          agentId,
         });
       }
       return { success: true };
