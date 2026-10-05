@@ -35,7 +35,6 @@ import {
 import { getDb, logActivity } from "../db";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { resolveNotificationRecipients, sendTransactionalEmail } from "../_core/resendEmail";
-import { triggerGhlContactSync } from "../_core/ghlSync";
 import { normalizeBookingLink } from "@shared/bookingLink";
 import { notifyMobileUsers } from "../mobileNotifications";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
@@ -2355,10 +2354,6 @@ export const websiteRouter = router({
           ...(adCampaign ? { campaignSource: adCampaign } : {}),
         });
         contactId = Number((result as any)[0]?.insertId);
-        // Every other way a contact is created syncs it to GoHighLevel, and
-        // the old site's leads did too (through the inbound webhook). Never
-        // blocks or fails the form.
-        if (contactId) triggerGhlContactSync(contactId);
         // Website contacts had no lead source, so they never started a Smart
         // Plan. Now they do, like every other intake with a source. Never
         // blocks or fails the visitor's form.

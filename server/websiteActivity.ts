@@ -4,7 +4,6 @@ import { activityLog, contacts, properties } from "../drizzle/schema";
 import { WEBSITE_ACCOUNT_LEAD_SOURCE } from "@shared/websiteLeadSources";
 import { websiteLeadSourceId } from "./websiteLeadSources";
 import { triggerSmartPlansForContact } from "./smartPlanScheduler";
-import { triggerGhlContactSync } from "./_core/ghlSync";
 
 /**
  * What an investor does on the new website, written to the SavvyOS contact
@@ -134,9 +133,6 @@ async function createContactForAccount(db: any, account: WebsiteAccountIdentity)
   });
   const contactId = Number((inserted as any)?.[0]?.insertId);
   if (!Number.isInteger(contactId) || contactId <= 0) return null;
-  // As every other contact create path does, and as the old site's sign-ups
-  // and favourites did through the inbound webhook. Fire and forget.
-  triggerGhlContactSync(contactId);
   await db.insert(activityLog).values({
     userId: null,
     action: "contact_created",

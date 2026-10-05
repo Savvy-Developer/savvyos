@@ -9,7 +9,6 @@ const email = vi.hoisted(() => ({
 
 vi.mock("../db", () => ({ getDb: vi.fn(), logActivity: vi.fn() }));
 vi.mock("./permissions", () => ({ canAdminUsePermission: vi.fn() }));
-vi.mock("../_core/ghlSync", () => ({ triggerGhlContactSync: vi.fn() }));
 vi.mock("../_core/resendEmail", async importOriginal => ({
   ...(await importOriginal<typeof import("../_core/resendEmail")>()),
   resolveNotificationRecipients: email.recipients,
@@ -107,12 +106,5 @@ describe("where it is wired in", () => {
     expect(agentBranch).toBeGreaterThan(-1);
     expect(officeBranch).toBeGreaterThan(agentBranch);
     expect(submitLead.match(/alertOfficeOfUnassignedInquiry\(/g)).toHaveLength(1);
-  });
-
-  it("syncs a new website contact to GoHighLevel, like every other create path", () => {
-    const insert = submitLead.indexOf("contactId = Number((result as any)[0]?.insertId);");
-    const sync = submitLead.indexOf("if (contactId) triggerGhlContactSync(contactId);");
-    expect(insert).toBeGreaterThan(-1);
-    expect(sync).toBeGreaterThan(insert);
   });
 });

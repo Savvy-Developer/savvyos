@@ -16,7 +16,7 @@ Audited 5 Oct 2026. Old-site paths are relative to the savvy-web repo; new-site 
 | 5 | Seller inquiry email | `/api/contact`, source `seller`; "New Lead Received - Savvy" from `alerts@notify.savvy-agents.com` to `LEAD_NOTIFICATION_EMAIL` or tyler@savvy.realty | Contact created, tagged "Seller lead", Smart Plan started, but **no email to anyone** (no agent to route to) | **Gap, fixed in this PR**: new "Website Lead, No Agent" email to Tyler by default, editable in Email Notifications |
 | 6 | Zaps and webhooks | See the table in section 6 | See section 6 | **Needs decision** per Zap |
 
-Also fixed in this PR: new website contacts were not being sent to GoHighLevel, though every other contact create path does that and the old site's leads reached GHL through the inbound webhook.
+New website contacts are not sent to GoHighLevel, though every other contact create path does that. GoHighLevel sync moved to PR #173.
 
 ## 1. New sign-ups reach the Resend audience
 
@@ -186,9 +186,9 @@ Zapier references in SavvyOS are all inbound intake (Calendly, partner leads, Ma
 
 1. **Seller and other no-agent inquiries email the office again.** New `website_inquiry_unassigned` email type and template (`server/_core/resendEmail.ts`), sender in `server/routers/website.ts` (`alertOfficeOfUnassignedInquiry`, `websiteInquiryLabel`), listed with an editable recipient list in `client/src/pages/EmailNotificationsPage.tsx`.
 2. **Postal address in marketing emails.** `MARKETING_POSTAL_ADDRESS` and `postalAddressHtml()` in `server/websiteDailyEmailLogic.ts`, used in the daily broadcast (HTML and text), the personal daily email and the price drop email (HTML and text). Same address as the old footers.
-3. **New website contacts sync to GoHighLevel.** `triggerGhlContactSync` after the contact insert in `submitLead` and in `createContactForAccount` (`server/websiteActivity.ts`), as every other create path does (`server/db.ts:434`, `server/webhookHandlers.ts:385, 894`).
+3. **GoHighLevel:** GoHighLevel sync moved to PR #173.
 
-Tests: `server/routers/website.unassignedInquiry.test.ts` (new), plus additions to `server/_core/resendEmail.test.ts`, `server/websiteDailyEmailLogic.test.ts`, `server/websitePriceDropLogic.test.ts`, `server/dailyPropertyEmailRender.test.ts`, `server/websiteActivity.test.ts`.
+Tests: `server/routers/website.unassignedInquiry.test.ts` (new), plus additions to `server/_core/resendEmail.test.ts`, `server/websiteDailyEmailLogic.test.ts`, `server/websitePriceDropLogic.test.ts`, `server/dailyPropertyEmailRender.test.ts`.
 
 ## Decisions for Tyler/Dhruv
 
@@ -204,5 +204,5 @@ Tests: `server/routers/website.unassignedInquiry.test.ts` (new), plus additions 
 10. **Old-site webhook subscribers:** someone with Supabase access lists the `webhooks` table (names, events, host only) so nothing unknown is lost at switch-off.
 11. **Financing partners:** the new site does not send financing requests to mystrhomeloan.com or the second lead system the old site posted to. Keep those feeds? Either way, rotate the two API keys hard-coded in the old site's source.
 12. **Airtable and Google Sheet feeds:** still used by anyone? If not, let them end with the old site.
-13. **GoHighLevel:** this PR sends new website contacts to GHL like every other intake. If GHL is being retired, say so and it can be dropped.
+13. **GoHighLevel:** GoHighLevel sync moved to PR #173. Merge it only if GHL is still wanted.
 14. **Search and share events:** the old site logged market searches and shares on the contact timeline. The new site does not. Needed for Hot Leads or reports?
