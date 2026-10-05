@@ -18,7 +18,9 @@ import { trpc } from "@/lib/trpc";
  * drafts" creates the properties and website listings, credited to the same
  * agents, as drafts. "Publish the ready ones" then publishes the imported
  * drafts that have a photo, price, beds, baths, city, state and ZIP.
- * Safe to run again: anything already imported is skipped.
+ * Safe to run again: anything already imported is skipped. A listing that
+ * looks like a property SavvyOS already has, written differently, is listed
+ * as a possible duplicate and skipped.
  */
 export function OldSiteListingsCard() {
   const utils = trpc.useUtils();
@@ -142,6 +144,22 @@ export function OldSiteListingsCard() {
               <p className="text-amber-800">
                 Skipped {report.slugTaken.length} whose web address is already used by a different property.
               </p>
+            )}
+            {report.possibleDuplicates?.length > 0 && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                <p className="font-semibold">
+                  {report.dryRun ? "Will skip" : "Skipped"} {report.possibleDuplicates.length} that look like a property
+                  SavvyOS already has, with the address written differently. Check each one and fix the address if it is
+                  the same home:
+                </p>
+                <ul className="mt-1 list-disc pl-5">
+                  {report.possibleDuplicates.map((item: any) => (
+                    <li key={item.slug}>
+                      {item.address} ({item.slug}): {item.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             {report.failed.length > 0 && (
               <div className="flex gap-2 rounded-md border border-rose-200 bg-rose-50 p-3 text-rose-900">

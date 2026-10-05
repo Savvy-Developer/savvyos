@@ -13,6 +13,9 @@
  *   site is skipped. A house SavvyOS already has (same street, city, state)
  *   gets the website listing attached to it only when it has none yet; its
  *   own facts are left exactly as they are.
+ * - A house that is probably one SavvyOS already has, written differently
+ *   ("360 E Overlook Ln" vs "360 E Overlook"), is not created. It is listed
+ *   as a possible duplicate for a person to sort out, and never merged.
  * - The listing is credited to the same agent as on the old site (matched by
  *   website profile slug, then by email). Unmatched agents are reported; the
  *   importing admin is recorded as the one who added the property.
@@ -21,6 +24,7 @@
 import { eq } from "drizzle-orm";
 
 import { properties, users, websiteAgentProfiles, websiteProperties } from "../drizzle/schema";
+import { findLooseDuplicate, looseStreetKey, possibleDuplicateMessage } from "./addressNormalization";
 import { createProperty, getDb } from "./db";
 import {
   OLD_SITE_ORIGIN,
@@ -89,6 +93,8 @@ export type OldSiteImportReport = {
   notReadyToPublish: number;
   missingZip: number;
   failed: Array<{ slug: string; reason: string }>;
+  /** Not created: probably a property SavvyOS already has, with its address written differently. */
+  possibleDuplicates: Array<{ slug: string; address: string; existingId: number; message: string }>;
 };
 
 export async function importOldSiteListings(params: {
@@ -102,7 +108,7 @@ export async function importOldSiteListings(params: {
   const importedOn = new Date().toISOString().slice(0, 10);
 
   const [existingProperties, existingListings, profiles, userRows] = await Promise.all([
-    db.select({ id: properties.id, address: properties.address, city: properties.city, state: properties.state }).from(properties),
+    db.select({ id: properties.id, address: properties.address, city: properties.city, state: properties.state, zip: properties.zip }).from(properties),
     db.select({ propertyId: websiteProperties.propertyId, slug: websiteProperties.slug }).from(websiteProperties),
     db.select({ slug: websiteAgentProfiles.slug, userId: websiteAgentProfiles.userId }).from(websiteAgentProfiles),
     db.select({ id: users.id, email: users.email }).from(users),
@@ -112,6 +118,18 @@ export async function importOldSiteListings(params: {
     const key = streetKey(row.address, row.city, row.state);
     if (key && !propertyByStreet.has(key)) propertyByStreet.set(key, row.id);
   }
+  // For the possible-duplicate check: properties grouped by their loose street
+  // key, so each listing only compares against the same house number and name.
+  type KnownProperty = (typeof existingProperties)[number];
+  const propertiesByLooseStreet = new Map<string, KnownProperty[]>();
+  const rememberLoose = (row: KnownProperty) => {
+    const loose = looseStreetKey(row.address);
+    if (!loose) return;
+    const group = propertiesByLooseStreet.get(loose);
+    if (group) group.push(row);
+    else propertiesByLooseStreet.set(loose, [row]);
+  };
+  existingProperties.forEach(rememberLoose);
   const listedPropertyIds = new Set(existingListings.map(row => row.propertyId));
   const slugToPropertyId = new Map(existingListings.map(row => [row.slug.toLowerCase(), row.propertyId]));
   const userBySlug = new Map(profiles.map(row => [row.slug.toLowerCase(), row.userId]));
@@ -135,6 +153,7 @@ export async function importOldSiteListings(params: {
     notReadyToPublish: 0,
     missingZip: 0,
     failed: [],
+    possibleDuplicates: [],
   };
   const unmatchedAgents = new Map<string, number>();
 
@@ -154,6 +173,24 @@ export async function importOldSiteListings(params: {
     if (existingId && listedPropertyIds.has(existingId)) {
       report.alreadyOnNewSite += 1;
       continue;
+    }
+    // No exact match, but maybe the same house written differently. Creating
+    // it would make a second record for one home (property 1991 was made this
+    // way next to 861), so it is reported on the check and skipped on import.
+    if (!existingId) {
+      const similar = findLooseDuplicate(
+        mapped.property,
+        propertiesByLooseStreet.get(looseStreetKey(mapped.property.address)) ?? []
+      );
+      if (similar) {
+        report.possibleDuplicates.push({
+          slug,
+          address: mapped.property.address,
+          existingId: similar.id,
+          message: possibleDuplicateMessage(similar),
+        });
+        continue;
+      }
     }
 
     const agentUserId =
@@ -199,6 +236,10 @@ export async function importOldSiteListings(params: {
       listedPropertyIds.add(propertyId);
       slugToPropertyId.set(slug, propertyId);
       if (key) propertyByStreet.set(key, propertyId);
+      if (!existingId) {
+        const { address, city, state, zip } = mapped.property;
+        rememberLoose({ id: propertyId, address, city, state, zip });
+      }
       if (existingId) report.attached += 1;
       else report.created += 1;
       if (goLive) report.published += 1;
@@ -212,7 +253,7 @@ export async function importOldSiteListings(params: {
     .sort((a, b) => b.listings - a.listings);
   if (!params.dryRun) {
     console.info(
-      `[OldSiteListings] found ${report.found}, created ${report.created}, attached ${report.attached}, published ${report.published}, failed ${report.failed.length}.`
+      `[OldSiteListings] found ${report.found}, created ${report.created}, attached ${report.attached}, published ${report.published}, possible duplicates ${report.possibleDuplicates.length}, failed ${report.failed.length}.`
     );
   }
   return report;

@@ -90,7 +90,7 @@ export default function PropertiesPage() {
       refetch();
       navigate(`/properties/${data.id}`);
     },
-    onError: (e) => {
+    onError: (e, variables) => {
       // Handle duplicate property error
       try {
         const parsed = JSON.parse(e.message);
@@ -99,6 +99,14 @@ export default function PropertiesPage() {
           return;
         }
       } catch {}
+      // Not an exact match, but probably the same home written differently.
+      // Only the person adding it can say, so ask before creating it anyway.
+      if (e.message.startsWith("Possible duplicate of #") && !variables.allowPossibleDuplicate) {
+        if (window.confirm(`${e.message}.\n\nIs this a different home? Choose OK to add it anyway.`)) {
+          create.mutate({ ...variables, allowPossibleDuplicate: true });
+        }
+        return;
+      }
       toast.error(e.message);
     },
   });

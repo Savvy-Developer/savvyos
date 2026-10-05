@@ -284,3 +284,241 @@ export function areAddressesSimilar(key1: string, key2: string): boolean {
   if (!key1 || !key2) return false;
   return key1 === key2;
 }
+
+// ─── Loose matching ──────────────────────────────────────────────────────────
+// The exact key above cannot tell that "360 E Overlook" and "360 E Overlook
+// Ln" are the same home, because one of them has no street suffix at all.
+// The loose key drops the parts people leave off or write differently
+// (direction words and the street suffix) and keeps the parts that tell two
+// homes apart (house number, street name, unit, and ZIP or city/state). It is
+// only ever used to flag a possible duplicate for a person to look at, never
+// to merge records on its own.
+
+const DIRECTION_WORDS = new Set([
+  "n", "s", "e", "w", "ne", "nw", "se", "sw",
+  "north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest",
+]);
+
+// Street suffixes from USPS Publication 28, appendix C1, in both the
+// abbreviated and the full form. Only used to drop a trailing suffix, so a
+// word like "park" or "ridge" in the middle of a street name is kept.
+const STREET_SUFFIX_WORDS = new Set([
+  "alley", "aly", "allee", "ally",
+  "anex", "anx", "annex",
+  "arcade", "arc",
+  "avenue", "ave", "av", "aven", "avenu", "avn", "avnue",
+  "bayou", "byu",
+  "beach", "bch",
+  "bend", "bnd",
+  "bluff", "blf", "bluffs", "blfs",
+  "bottom", "btm",
+  "boulevard", "blvd", "boul", "boulv",
+  "branch", "br", "brnch",
+  "bridge", "brg",
+  "brook", "brk", "brooks", "brks",
+  "burg", "bg",
+  "bypass", "byp",
+  "camp", "cp",
+  "canyon", "cyn",
+  "cape", "cpe",
+  "causeway", "cswy",
+  "center", "ctr", "centre", "cntr",
+  "circle", "cir", "circ", "circles", "cirs",
+  "cliff", "clf", "cliffs", "clfs",
+  "club", "clb",
+  "common", "cmn", "commons", "cmns",
+  "corner", "cor", "corners", "cors",
+  "course", "crse",
+  "court", "ct", "courts", "cts",
+  "cove", "cv", "coves", "cvs",
+  "creek", "crk",
+  "crescent", "cres",
+  "crest", "crst",
+  "crossing", "xing",
+  "crossroad", "xrd",
+  "curve", "curv",
+  "dale", "dl",
+  "dam", "dm",
+  "divide", "dv",
+  "drive", "dr", "drv", "drives", "drs",
+  "estate", "est", "estates", "ests",
+  "expressway", "expy",
+  "extension", "ext",
+  "fall", "falls", "fls",
+  "ferry", "fry",
+  "field", "fld", "fields", "flds",
+  "flat", "flt", "flats", "flts",
+  "ford", "frd",
+  "forest", "frst",
+  "forge", "frg",
+  "fork", "frk", "forks", "frks",
+  "fort", "ft",
+  "freeway", "fwy",
+  "garden", "gdn", "gardens", "gdns",
+  "gateway", "gtwy",
+  "glen", "gln",
+  "green", "grn",
+  "grove", "grv",
+  "harbor", "hbr",
+  "haven", "hvn",
+  "heights", "hts", "ht",
+  "highway", "hwy",
+  "hill", "hl", "hills", "hls",
+  "hollow", "holw",
+  "inlet", "inlt",
+  "island", "is", "islands", "iss", "isle",
+  "junction", "jct",
+  "key", "ky",
+  "knoll", "knl", "knolls", "knls",
+  "lake", "lk", "lakes", "lks",
+  "landing", "lndg",
+  "lane", "ln",
+  "loop", "lp",
+  "manor", "mnr",
+  "meadow", "mdw", "meadows", "mdws",
+  "mews",
+  "mill", "ml",
+  "mission", "msn",
+  "motorway", "mtwy",
+  "mount", "mt",
+  "mountain", "mtn",
+  "orchard", "orch",
+  "oval",
+  "overpass", "opas",
+  "park", "prk", "parks",
+  "parkway", "pkwy", "pky",
+  "pass",
+  "path",
+  "pike", "pke",
+  "pine", "pne", "pines", "pnes",
+  "place", "pl",
+  "plain", "pln", "plains", "plns",
+  "plaza", "plz",
+  "point", "pt", "points", "pts",
+  "port", "prt",
+  "prairie", "pr",
+  "ranch", "rnch",
+  "rapid", "rpd", "rapids", "rpds",
+  "rest", "rst",
+  "ridge", "rdg", "ridges", "rdgs",
+  "river", "riv",
+  "road", "rd", "roads", "rds",
+  "route", "rte",
+  "row",
+  "run",
+  "shore", "shr", "shores", "shrs",
+  "spring", "spg", "springs", "spgs",
+  "square", "sq",
+  "station", "sta",
+  "stream", "strm",
+  "street", "st", "str", "streets", "sts",
+  "summit", "smt",
+  "terrace", "ter",
+  "trace", "trce",
+  "track", "trak",
+  "trail", "trl", "tr",
+  "tunnel", "tunl",
+  "turnpike", "tpke",
+  "union", "un",
+  "valley", "vly",
+  "view", "vw", "views", "vws",
+  "village", "vlg",
+  "ville", "vl",
+  "vista", "vis",
+  "walk",
+  "wall",
+  "way", "wy", "ways",
+  "well", "wl", "wells", "wls",
+]);
+
+export type LooseAddress = {
+  address: string | null | undefined;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+};
+
+/**
+ * The street part of the loose key: house number, street name and unit.
+ * "360 E Overlook Ln" and "360 E Overlook" both give "360 overlook".
+ * Empty when there is no house number, because "Overlook" on its own could be
+ * any house on the street.
+ */
+export function looseStreetKey(address: string | null | undefined): string {
+  const words = normalizeAddressString(address).split(" ").filter(Boolean);
+  if (!words.length || !/^\d/.test(words[0])) return "";
+  const houseNumber = words[0];
+  // normalizeAddressString writes every apt/suite/lot/# as "unit <n>". The
+  // unit stays in the key so two condos in one building never match, and a
+  // unit never matches the same street address with no unit.
+  const unitAt = words.indexOf("unit", 1);
+  // normalizeAddressString leaves a final "n" or "e" as is, so spell every
+  // direction out here for the cases below that keep them.
+  const street = (unitAt === -1 ? words.slice(1) : words.slice(1, unitAt)).map(word => DIRECTIONAL_ABBREVIATIONS[word] ?? word);
+  const unit = unitAt === -1 ? "" : words.slice(unitAt + 1).join(" ");
+
+  const withoutDirections = street.filter(word => !DIRECTION_WORDS.has(word));
+  // Keep the directions when they carry the meaning. On a grid street
+  // ("100 W 300 N", "12 E 5th St") they are what tells two homes apart, and
+  // in "North St" the direction is the street name.
+  const isGrid = /^\d/.test(withoutDirections[0] ?? "");
+  const onlySuffixesLeft = withoutDirections.every(word => STREET_SUFFIX_WORDS.has(word));
+  const name = isGrid || onlySuffixesLeft ? [...street] : withoutDirections;
+  // Drop the trailing suffixes, but never the whole name.
+  while (name.length > 1 && STREET_SUFFIX_WORDS.has(name[name.length - 1])) name.pop();
+
+  return [houseNumber, ...name, ...(unit ? ["unit", unit] : [])].join(" ");
+}
+
+const looseZip = (zip: string | null | undefined) => zip?.match(/\d{5}/)?.[0] ?? "";
+const looseCityState = (city: string | null | undefined, state: string | null | undefined) => {
+  const cleanCity = (city ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  const cleanState = (state ?? "").toLowerCase().trim();
+  return cleanCity && cleanState ? `${cleanCity} ${cleanState}` : "";
+};
+
+/**
+ * A looser comparison key than buildNormalizedKey, for showing a single
+ * address's loose form. Uses the 5-digit ZIP when there is one, otherwise
+ * city and state. To compare two addresses use looseAddressMatch, which only
+ * uses the ZIP when both sides have one.
+ */
+export function looseAddressKey(
+  address: string | null | undefined,
+  city?: string | null,
+  state?: string | null,
+  zip?: string | null,
+): string {
+  const street = looseStreetKey(address);
+  const place = looseZip(zip) || looseCityState(city, state);
+  return street && place ? `${street} | ${place}` : "";
+}
+
+/**
+ * Whether two addresses are probably the same home written differently.
+ * Same house number, street name and unit, and the same 5-digit ZIP when both
+ * have one; when either has no ZIP, the same city and state instead.
+ */
+export function looseAddressMatch(a: LooseAddress, b: LooseAddress): boolean {
+  const streetA = looseStreetKey(a.address);
+  if (!streetA || streetA !== looseStreetKey(b.address)) return false;
+  const zipA = looseZip(a.zip);
+  const zipB = looseZip(b.zip);
+  if (zipA && zipB) return zipA === zipB;
+  const placeA = looseCityState(a.city, a.state);
+  return Boolean(placeA) && placeA === looseCityState(b.city, b.state);
+}
+
+/** "Possible duplicate of #861 (360 E Overlook, Glendale, UT 84729)" */
+export function possibleDuplicateMessage(existing: { id: number } & LooseAddress): string {
+  const where = [existing.address, existing.city, [existing.state, existing.zip].filter(Boolean).join(" ")]
+    .filter(Boolean)
+    .join(", ");
+  return `Possible duplicate of #${existing.id} (${where})`;
+}
+
+/** The first of `rows` that loosely matches `target`, if any. */
+export function findLooseDuplicate<T extends LooseAddress>(target: LooseAddress, rows: readonly T[]): T | undefined {
+  if (!looseStreetKey(target.address)) return undefined;
+  return rows.find(row => looseAddressMatch(target, row));
+}

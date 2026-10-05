@@ -1638,15 +1638,25 @@ export const transactionsRouter = router({
           if (existingProp) {
             propertyId = existingProp.id;
           } else {
-            const propId = await (await import("../db")).createProperty({
-              address: row.propertyAddress.trim(),
-              city: row.propertyCity?.trim() ?? null,
-              state: row.propertyState?.trim() ?? null,
-              zip: row.propertyZip?.trim() ?? null,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            } as any);
-            propertyId = propId;
+            const { createProperty, DuplicatePropertyError, PossibleDuplicatePropertyError } = await import("../db");
+            try {
+              propertyId = await createProperty({
+                address: row.propertyAddress.trim(),
+                city: row.propertyCity?.trim() ?? null,
+                state: row.propertyState?.trim() ?? null,
+                zip: row.propertyZip?.trim() ?? null,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              } as any);
+            } catch (error) {
+              // A possible duplicate needs a person to look at it, so this
+              // row is reported and skipped instead of stopping the upload.
+              if (error instanceof PossibleDuplicatePropertyError) errors.push(`${error.message}. Use the existing property's exact address, or add the property first.`);
+              // The same house written with different capitalization or
+              // abbreviations: it is the property this row means.
+              else if (error instanceof DuplicatePropertyError) propertyId = error.existingProperty.id;
+              else throw error;
+            }
           }
         }
 
