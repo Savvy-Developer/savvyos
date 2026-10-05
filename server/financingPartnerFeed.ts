@@ -417,7 +417,28 @@ export async function runFinancingPartnerFeed(
   try {
     if (input.requestType !== "financing") return null;
     const config = readFinancingPartnerConfig(deps.env ?? process.env);
-    if (!config.enabled) return null;
+    if (!config.enabled) {
+      // Leave a trace, so a financing request that did not reach the lender
+      // is visible on the contact and in the server log (5 Oct end-to-end test).
+      console.info("[FinancingPartnerFeed] Not sent to lender partners: FINANCING_PARTNER_FEED_ENABLED is off.");
+      if (input.contactId) {
+        await deps
+          .logTimeline({
+            userId: null,
+            action: FINANCING_PARTNER_SKIPPED_ACTION,
+            entityType: "contact",
+            entityId: input.contactId,
+            relatedContactId: input.contactId,
+            details: {
+              summary: "Not sent to lender partners: the financing partner feed is turned off",
+              reason: "feed_disabled",
+              via: "savvy-website",
+            },
+          })
+          .catch(error => warn(`[FinancingPartnerFeed] Timeline entry not written: ${error?.message ?? error}`));
+      }
+      return null;
+    }
     if (config.missing.length) {
       warn(`[FinancingPartnerFeed] Not set: ${config.missing.join(", ")}. Those partners are skipped.`);
     }

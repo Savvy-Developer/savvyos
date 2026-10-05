@@ -2110,7 +2110,7 @@ function PropertyDetailPage({ slug }: { slug: string }) {
               {showLead && (
                 <div id="property-lead-form">
                   <LeadForm
-                    agentUserId={item.assignedAgentId}
+                    agentUserId={item.assignedAgentId ?? undefined}
                     propertyId={item.propertyId}
                     intent="property"
                     requestType={ask ?? undefined}

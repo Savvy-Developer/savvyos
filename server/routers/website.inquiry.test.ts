@@ -70,3 +70,27 @@ describe("resolveInquiryAgent", () => {
     expect(result.propertyAddress).toBe("1 Main, NC");
   });
 });
+
+describe("submitLead from a listing with no agent", () => {
+  it("accepts agentUserId and propertyId sent as null (the 5 Oct end-to-end test failed here)", async () => {
+    const { websiteRouter } = await import("./website");
+    const caller = websiteRouter.createCaller({ req: { headers: {}, ip: "127.0.0.1" }, res: {}, user: null } as any);
+    const attempt = caller.submitLead({
+      firstName: "Test",
+      lastName: "No Agent",
+      email: "no-agent@example.test",
+      intent: "property",
+      agentUserId: null,
+      propertyId: null,
+    } as any);
+    // Past input validation: it only stops at the (mocked, absent) database.
+    await expect(attempt).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+
+  it("the property page no longer sends null for a listing without an agent", async () => {
+    const { readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    const page = readFileSync(path.resolve(__dirname, "../../client/src/pages/PublicWebsite.tsx"), "utf8");
+    expect(page).toContain("agentUserId={item.assignedAgentId ?? undefined}");
+  });
+});
