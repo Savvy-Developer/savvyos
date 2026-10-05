@@ -102,6 +102,7 @@ describe("websitePageStatus", () => {
       "/newsite/team",
       "/newsite/sell",
       "/newsite/sign-in",
+      "/newsite/confirm-email",
       "/newsite/account/saved",
     ]) {
       expect(status(p, "missing")).toBe(200);
