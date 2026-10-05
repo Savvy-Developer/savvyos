@@ -325,7 +325,9 @@ describe("where it is wired in", () => {
     // staff decision. See myTransactions.
     const activity = read("server/websiteActivity.ts");
     expect(activity).not.toContain(".update(");
-    expect(activity).toContain('import { activityLog, contacts, properties } from "../drizzle/schema";');
+    expect(activity).toContain(
+      'import { activityLog, contacts, marketProfiles, properties, websiteBlogPosts } from "../drizzle/schema";'
+    );
   });
 
   it("logs the request action after the inquiry, inside the same contact check", () => {

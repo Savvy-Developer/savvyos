@@ -648,6 +648,8 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
     case "market_searched":
       title = "Searched Market";
       lines = [
+        // New-site searches carry a one-line summary of what was searched.
+        ...(details.searchSummary ? [`Search: ${details.searchSummary as string}`] : []),
         ...(details.propertyAddress ? [details.propertyAddress as string] : []),
         ...formatWebhookDetailLines(details),
       ];
@@ -658,7 +660,17 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       title = "Shared Property";
       lines = [
         ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...(details.shareChannelLabel ? [`Shared via: ${details.shareChannelLabel as string}`] : []),
         ...formatWebhookDetailLines(details),
+      ];
+      icon = "check";
+      break;
+
+    case "article_shared":
+      title = "Shared Article";
+      lines = [
+        ...(details.contentTitle ? [details.contentTitle as string] : []),
+        ...(details.shareChannelLabel ? [`Shared via: ${details.shareChannelLabel as string}`] : []),
       ];
       icon = "check";
       break;

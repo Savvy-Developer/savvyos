@@ -13,6 +13,10 @@ export const ENV = {
   // environment or a restored database all mean nobody is emailed by
   // accident. Turning it on is a deliberate act.
   dailyPropertyEmailEnabled: process.env.DAILY_PROPERTY_EMAIL_ENABLED ?? "",
+  // Market searches and shares by signed-in website investors, logged on the
+  // contact timeline as the old site did. Off unless exactly "true", like
+  // every other new-site behaviour until switch day.
+  websiteTimelineSearchShareEnabled: process.env.WEBSITE_TIMELINE_SEARCH_SHARE_ENABLED ?? "",
   // GoHighLevel (LeadConnector) — outbound contact sync. Sync is no-op when
   // GHL_LOCATION_TOKEN is empty (e.g. local dev) — see server/_core/ghlSync.ts.
   ghlLocationToken: process.env.GHL_LOCATION_TOKEN ?? "",

@@ -20,7 +20,8 @@ import {
   X,
 } from "lucide-react";
 import { publicPath } from "@/lib/publicSitePaths";
-import { SaveButton, accountPath } from "@/components/website/publicAccountPages";
+import { SaveButton, accountPath, useRecordShare } from "@/components/website/publicAccountPages";
+import type { WebsiteShareChannel, WebsiteShareTarget } from "@shared/websiteSearchShareActivity";
 
 /**
  * The public site's cards and shared pieces, built to look like the live
@@ -220,9 +221,21 @@ function CardGallery({ photos, alt }: { photos: string[]; alt: string }) {
  * Share a listing: copy the link, or open X, Facebook or WhatsApp. The round
  * icon sits on a card's photo; the pill is the property page's top bar.
  */
-export function ShareButton({ url, text, pill = false }: { url: string; text: string; pill?: boolean }) {
+export function ShareButton({
+  url,
+  text,
+  pill = false,
+  target,
+}: {
+  url: string;
+  text: string;
+  pill?: boolean;
+  /** What is being shared, for a signed-in investor's contact timeline. */
+  target?: WebsiteShareTarget | null;
+}) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const recordShare = useRecordShare();
   const stop = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -233,14 +246,16 @@ export function ShareButton({ url, text, pill = false }: { url: string; text: st
       await navigator.clipboard.writeText(url);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
+      recordShare(target, "copy_link");
     } catch {
       // Clipboard can be refused (an insecure context, a browser setting);
       // the link is still on screen to copy by hand.
     }
   };
-  const open_ = (href: string) => (event: React.MouseEvent) => {
+  const open_ = (href: string, channel: WebsiteShareChannel) => (event: React.MouseEvent) => {
     stop(event);
     window.open(href, "_blank", "noopener,noreferrer");
+    recordShare(target, channel);
   };
   return (
     <div className={pill ? "relative" : "absolute right-3 top-3"}>
@@ -301,15 +316,15 @@ export function ShareButton({ url, text, pill = false }: { url: string; text: st
               </button>
             </div>
             <div className="grid grid-cols-3 gap-2">
-              {[
-                ["X", "bg-black", `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`],
-                ["Facebook", "bg-blue-600", `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`],
-                ["WhatsApp", "bg-green-500", `https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`],
-              ].map(([label, colour, href]) => (
+              {([
+                ["X", "bg-black", `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`, "x"],
+                ["Facebook", "bg-blue-600", `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, "facebook"],
+                ["WhatsApp", "bg-green-500", `https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`, "whatsapp"],
+              ] as Array<[string, string, string, WebsiteShareChannel]>).map(([label, colour, href, channel]) => (
                 <button
                   key={label}
                   type="button"
-                  onClick={open_(href)}
+                  onClick={open_(href, channel)}
                   className="flex flex-col items-center gap-1 rounded-xl p-2 transition-colors hover:bg-gray-50"
                 >
                   <span className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${colour}`}>
@@ -372,7 +387,11 @@ export function LivePropertyCard({ item }: { item: any }) {
           >
             <SaveButton propertyId={item.propertyId} compact />
           </div>
-          <ShareButton url={shareUrl} text={title} />
+          <ShareButton
+            url={shareUrl}
+            text={title}
+            target={item.propertyId ? { kind: "property", propertyId: Number(item.propertyId) } : null}
+          />
         </div>
 
         <div className="space-y-2 p-4 pb-2">
