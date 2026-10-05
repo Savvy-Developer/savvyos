@@ -17,6 +17,7 @@ import ProformaHowToDialog from "@/components/ProformaHowToDialog";
 import { ArrowLeft, Check, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil, ChevronDown, Mail, Search, SlidersHorizontal, X } from "lucide-react";
 import { useParams, useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { proformaSnapshot } from "@/lib/proformaSnapshot";
 
 // ─── Formatting Helpers ──────────────────────────────────────────────────────
 const fmtDollar = (val: number): string => {
@@ -348,10 +349,15 @@ export default function ProformaPage() {
   const isSavingRef = useRef(false);
   const hasDirtyChanges = useRef(false);
   const pendingSaveNeeded = useRef(false);
+  // What was last saved: the form and the name together, so a rename alone
+  // still counts as a change.
   const lastSavedForm = useRef<string>("");
+  const isEditingRef = useRef(editing);
+  const mountedRef = useRef(true);
   formRef.current = form;
   titleRef.current = title;
   editingIdRef.current = editingId;
+  isEditingRef.current = editing;
 
   const doAutoSave = useCallback(async () => {
     if (isSavingRef.current) {
@@ -360,9 +366,9 @@ export default function ProformaPage() {
       return;
     }
     const currentForm = formRef.current;
-    const formJson = JSON.stringify(currentForm);
+    const snapshot = proformaSnapshot(currentForm, titleRef.current);
     // Don't save if nothing changed since last save
-    if (formJson === lastSavedForm.current && editingIdRef.current) return;
+    if (snapshot === lastSavedForm.current && editingIdRef.current) return;
     
     isSavingRef.current = true;
     setSaving(true);
@@ -382,11 +388,27 @@ export default function ProformaPage() {
         await updateMutation.mutateAsync({ id: editingIdRef.current, title: titleRef.current, formData, notes: currentForm.notes });
       } else {
         const result = await createMutation.mutateAsync({ propertyId, title: titleRef.current, formData, notes: currentForm.notes });
-        setEditingId(result.id);
+        // Set the ref now, not on the next render: a save queued while this
+        // create was in flight (or a flush on leaving) must update this row,
+        // not create a second one.
+        editingIdRef.current = result.id;
+        if (mountedRef.current) {
+          setEditingId(result.id);
+          // Swap ?new=true for ?load=<id> so a refresh reopens this pro-forma
+          // instead of starting another blank one.
+          navigate(`/properties/${propertyId}/proforma?load=${result.id}`, { replace: true });
+        }
       }
-      lastSavedForm.current = formJson;
-      hasDirtyChanges.current = false;
-    } catch (e) { console.error("Auto-save failed:", e); }
+      lastSavedForm.current = snapshot;
+      // Edits typed while the save was in flight are still unsaved.
+      hasDirtyChanges.current = proformaSnapshot(formRef.current, titleRef.current) !== snapshot;
+      // The property page and its Website tab list pro-formas; show this one there now.
+      void utils.properties.listProformas.invalidate({ propertyId });
+      void utils.website.propertyWebsiteContent.invalidate({ propertyId });
+    } catch (e) {
+      console.error("Auto-save failed:", e);
+      if (mountedRef.current) toast.error("Auto-save failed. Your changes are still on screen; press Save to try again.");
+    }
     isSavingRef.current = false;
     setSaving(false);
     // If changes came in while we were saving, save again
@@ -405,6 +427,37 @@ export default function ProformaPage() {
     autoSaveTimer.current = setTimeout(() => { doAutoSave(); }, 2000);
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
   }, [form, title, editing, doAutoSave]);
+
+  // Save straight away, instead of after the 2s wait, when the user leaves:
+  // a route change (unmount), switching tabs or closing the window. Without
+  // this, an edit made in the last 2 seconds was dropped.
+  const doAutoSaveRef = useRef(doAutoSave);
+  doAutoSaveRef.current = doAutoSave;
+  const hasUnsavedChanges = () =>
+    isEditingRef.current && proformaSnapshot(formRef.current, titleRef.current) !== lastSavedForm.current && hasDirtyChanges.current;
+  const flushAutoSave = () => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = null;
+    if (hasUnsavedChanges()) void doAutoSaveRef.current();
+  };
+  useEffect(() => {
+    mountedRef.current = true;
+    const onHidden = () => { if (document.visibilityState === "hidden") flushAutoSave(); };
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      const unsaved = hasUnsavedChanges() || isSavingRef.current;
+      flushAutoSave();
+      // The save above may not finish before the page closes, so ask.
+      if (unsaved) event.preventDefault();
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      mountedRef.current = false;
+      flushAutoSave();
+    };
+  }, []);
 
   // Auto-load proforma from ?load=ID URL parameter, or auto-start new from ?new=true
   const loadIdFromUrl = (() => {
@@ -434,7 +487,7 @@ export default function ProformaPage() {
     setTitle(autoLoadProforma.title || "STR Investment Analysis");
     setEditingId(autoLoadProforma.id);
     setEditing(true);
-    lastSavedForm.current = JSON.stringify(loadedForm);
+    lastSavedForm.current = proformaSnapshot(loadedForm, autoLoadProforma.title || "STR Investment Analysis");
     hasDirtyChanges.current = false;
     setAutoLoadDone(true);
   }, [autoLoadProforma, loadIdFromUrl, autoLoadDone]);
@@ -867,7 +920,7 @@ export default function ProformaPage() {
       setEditingId(fullData.id);
       setEditing(true);
       // Mark the loaded state as the "last saved" so we don't re-save unchanged data
-      lastSavedForm.current = JSON.stringify(loadedForm);
+      lastSavedForm.current = proformaSnapshot(loadedForm, fullData.title || "STR Investment Analysis");
       hasDirtyChanges.current = false;
     } catch (e: any) {
       alert(`Failed to load pro-forma: ${e.message}`);
@@ -1088,7 +1141,7 @@ export default function ProformaPage() {
           id="proforma-name"
           className="mt-1 max-w-xl text-lg font-semibold"
           value={title}
-          onChange={e => setTitle(e.target.value)}
+          onChange={e => { hasDirtyChanges.current = true; setTitle(e.target.value); }}
           placeholder="e.g. 25% down, as-is"
         />
         <p className="text-sm text-slate-500">{[property?.address, [property?.city, property?.state, property?.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</p>

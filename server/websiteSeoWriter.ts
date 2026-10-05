@@ -59,6 +59,7 @@ function cleanFacts(facts: Record<string, unknown>) {
 
 const RULES = [
   "Use only the facts given. Never invent a number, amenity, location or return.",
+  "Any revenue or return figure is a projection: call it projected or estimated, never a promise.",
   "Write for short-term rental (STR) investors searching Google.",
   "Plain, specific, no hype words like 'stunning' or 'must-see', no emoji, no em dashes, no quotation marks around the text.",
   "No claims about who the property suits based on family status, religion, race, disability or other protected traits.",
@@ -75,14 +76,14 @@ export function buildSeoMessages(context: SeoContext) {
         : "a client case study on Savvy STR Agents (savvy-agents.com), a real estate team for short-term rental investors. Never name the client or give a street address";
   const ask =
     context.kind === "case"
-      ? `Return JSON: {"metaTitle": "", "metaDescription": "<a ${CASE_EXCERPT_MAX}-character-or-shorter excerpt: 1 to 2 sentences that make an investor want to read the story, leading with the result>"}.`
+      ? `Return JSON: {"metaTitle": "", "metaDescription": "<a ${CASE_EXCERPT_MAX}-character-or-shorter excerpt: 1 to 2 sentences that make an investor want to read the story, leading with the result when the facts give one>"}.`
       : `Return JSON: {"metaTitle": "<at most ${SEO_TITLE_MAX} characters${
           context.kind === "property" ? ", include the city and state" : ""
         }>", "metaDescription": "<${SEO_DESCRIPTION_MAX - 25} to ${SEO_DESCRIPTION_MAX} characters, one or two sentences${
           context.kind === "property"
             ? ", mention the projected revenue or return when given"
             : context.kind === "caseSeo"
-              ? ", lead with the result the client got"
+              ? ", lead with the result the client got when the facts give one"
               : ""
         }>"}.`;
   return [

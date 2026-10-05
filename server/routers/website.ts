@@ -1023,11 +1023,16 @@ async function homepageFeaturedListings(db: NonNullable<Awaited<ReturnType<typeo
     return await query()
       .leftJoin(websiteFeaturedListings, eq(websiteFeaturedListings.websitePropertyId, websiteProperties.id))
       .where(featured)
-      .orderBy(desc(websiteFeaturedListings.featuredAt), desc(websiteProperties.publishedAt))
+      // id last: an old-site import stamps a whole batch with one time, and
+      // ties must not shuffle between page loads.
+      .orderBy(desc(websiteFeaturedListings.featuredAt), desc(websiteProperties.publishedAt), desc(websiteProperties.id))
       .limit(HOMEPAGE_FEATURED_LIMIT);
   } catch (error) {
     console.error("[website] featured order unavailable, using publish date:", error);
-    return query().where(featured).orderBy(desc(websiteProperties.publishedAt)).limit(HOMEPAGE_FEATURED_LIMIT);
+    return query()
+      .where(featured)
+      .orderBy(desc(websiteProperties.publishedAt), desc(websiteProperties.id))
+      .limit(HOMEPAGE_FEATURED_LIMIT);
   }
 }
 
@@ -2907,7 +2912,13 @@ export const websiteRouter = router({
       // Properties a case study may be linked to: the ones this agent added,
       // or holds a transaction or listing on (the same rule as publishing).
       db
-        .selectDistinct({ propertyId: properties.id, address: properties.address, city: properties.city })
+        .selectDistinct({
+          propertyId: properties.id,
+          address: properties.address,
+          city: properties.city,
+          state: properties.state,
+          zip: properties.zip,
+        })
         .from(properties)
         .leftJoin(transactions, and(eq(transactions.propertyId, properties.id), eq(transactions.agentId, me)))
         .leftJoin(listings, and(eq(listings.propertyId, properties.id), eq(listings.agentId, me)))
