@@ -1,4 +1,5 @@
 import { websitePageTitle } from "@shared/websitePageTitle";
+import { websitePageSlug } from "@shared/websitePageSlug";
 /**
  * What search engines and link previews see for the public site at /newsite.
  *
@@ -55,7 +56,11 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
   const relative = trimmed.slice(WEBSITE_BASE_PATH.length) || "/";
   if (relative === "/") return { kind: "home" };
   if (ACCOUNT_PATHS.has(relative) || relative.startsWith("/account")) return { kind: "account" };
-  const segments = relative.split("/").filter(Boolean).map(s => {
+  // The client reads window.location.pathname, which arrives percent-encoded
+  // just like req.path. It decodes the listing, agent, article, case study and
+  // market segments, and hands a CMS page's segment to the page lookup as is.
+  const rawSegments = relative.split("/").filter(Boolean);
+  const segments = rawSegments.map(s => {
     try {
       return decodeURIComponent(s);
     } catch {
@@ -76,7 +81,10 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
       case "team": return { kind: "team" };
       case "sell": return { kind: "sell" };
     }
-    return SLUG.test(first) ? { kind: "page", slug: first } : null;
+    // A CMS page. The client looks it up by websitePageSlug, so /Some-Page
+    // and /some_page open the page saved as some-page; so does this.
+    const slug = websitePageSlug(rawSegments[0]);
+    return slug ? { kind: "page", slug } : null;
   }
   if (segments.length === 2 && SLUG.test(second)) {
     if (first === "properties") return { kind: "property", slug: second };
@@ -84,11 +92,88 @@ export function parseWebsitePath(path: string): WebsiteRoute | null {
     if (first === "case-studies") return { kind: "caseStudy", slug: second };
     if (first === "resources") return { kind: "resource", slug: second };
   }
-  // One market's page: /markets/<state>/<city>.
-  if (segments.length === 3 && first === "markets" && SLUG.test(second) && SLUG.test(segments[2])) {
-    return { kind: "market", state: second.toLowerCase(), city: segments[2].toLowerCase() };
+  // One market's page: /markets/<state>/<city>. Any segments, matched the way
+  // the client's findMarketForPage does (decoded, trimmed, any case), so a
+  // state saved with a space, /markets/north%20carolina/asheville, resolves.
+  if (segments.length === 3 && first === "markets") {
+    const state = second.trim().toLowerCase();
+    const city = segments[2].trim().toLowerCase();
+    if (state && city) return { kind: "market", state, city };
   }
   return null;
+}
+
+/** Whether a request path belongs to the public site at all. */
+export function isWebsitePath(path: string): boolean {
+  const trimmed = path.replace(/\/+$/, "") || "/";
+  return trimmed === WEBSITE_BASE_PATH || trimmed.startsWith(`${WEBSITE_BASE_PATH}/`);
+}
+
+/** Pages a signed-in Savvy team member can open as a Draft at its future address. */
+const DRAFT_PREVIEW_KINDS = new Set<WebsiteRoute["kind"]>(["property", "caseStudy", "resource"]);
+
+/** Pages that exist only when a row in the database says so. */
+const LOOKED_UP_KINDS = new Set<WebsiteRoute["kind"]>([
+  "property",
+  "agent",
+  "caseStudy",
+  "resource",
+  "market",
+  "page",
+]);
+
+export function canPreviewDraft(route: WebsiteRoute): boolean {
+  return DRAFT_PREVIEW_KINDS.has(route.kind);
+}
+
+/** What the database said about the item a route names. */
+export type WebsitePageLookup = "published" | "draft" | "missing";
+
+/**
+ * The HTTP status for a /newsite page. The HTML is the same single-page app
+ * either way, so a missing page still shows the site's "Page not found"; the
+ * 404 is for search engines and link checkers, which otherwise index every
+ * typo'd or retired address as a real, empty page.
+ *
+ * - Built-in pages (home, list pages, about, account screens): always 200.
+ * - An address the site does not route at all: 404.
+ * - A listing, agent, case study, article, market or CMS page: 200 when
+ *   published, 404 otherwise, except that a signed-in Savvy team member gets
+ *   200 for a Draft listing, case study or article, which the page shows them
+ *   as a preview.
+ */
+export function websitePageStatus(input: {
+  route: WebsiteRoute | null;
+  lookup: WebsitePageLookup;
+  visitorIsStaff: boolean;
+}): 200 | 404 {
+  const { route, lookup, visitorIsStaff } = input;
+  if (!route) return 404;
+  if (!LOOKED_UP_KINDS.has(route.kind)) return 200;
+  if (lookup === "published") return 200;
+  if (lookup === "draft" && visitorIsStaff && canPreviewDraft(route)) return 200;
+  return 404;
+}
+
+/**
+ * The status the single-page app is served with: 404 only for a public-site
+ * address the metadata step found missing (res.locals.websiteNotFound).
+ */
+export function spaStatus(locals: Record<string, unknown>): 200 | 404 {
+  return locals.websiteNotFound === true ? 404 : 200;
+}
+
+/**
+ * The page head for a 404: the not-found title the client sets anyway, and
+ * noindex so a missing address never lands in search results.
+ */
+export function injectNotFoundHead(html: string): string {
+  const title = `<title>${pageTitle("Page not found")}</title>`;
+  const robots = `<meta name="robots" content="noindex, nofollow" />`;
+  const withTitle = /<title>[\s\S]*?<\/title>/i.test(html)
+    ? html.replace(/<title>[\s\S]*?<\/title>/i, title)
+    : html.replace(/<head([^>]*)>/i, `<head$1>\n    ${title}`);
+  return withTitle.replace(/<\/head>/i, `    ${robots}\n  </head>`);
 }
 
 /**

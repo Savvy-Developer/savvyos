@@ -71,6 +71,7 @@ import { missingForPublish, publishBlockedMessage } from "@shared/websitePublish
 import { nextPublishedAt, ownsCaseStudy, ownsPost } from "@shared/websiteContentOwnership";
 import { cleanTags } from "@shared/websiteContentFilters";
 import { EDITABLE_PAGE_SLUGS } from "@shared/websiteEditablePages";
+import { websitePageSlug } from "@shared/websitePageSlug";
 import {
   analyzeDailyEmailWithAi,
   getDailyEmailSettings,
@@ -401,12 +402,7 @@ export const RESERVED_PAGE_SLUGS = new Set([
 ]);
 
 function cleanSlug(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 240);
+  return websitePageSlug(value);
 }
 
 /** Append -2, -3 ... until the slug is free. Slugs are unique per table. */

@@ -77,11 +77,12 @@ import { RECRUITING_PUBLIC_TRPC_PATHS } from "../routers/recruiting";
 import { registerShortLinkRedirects } from "../shortLinkRedirects";
 import { getLandingPageMetadata } from "../landingPageHtml";
 import {
-  getWebsitePageMetadata,
   registerWebsiteSeoRoutes,
+  resolveWebsitePage,
 } from "../websiteSeo";
 import { websiteTagsForRequest } from "../websiteTracking";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
+import { registerWebsitePathRedirects } from "../websitePathRedirects";
 import { registerLegacySiteRedirects } from "../legacySiteRedirects";
 import { registerWebsiteLinkForwarding } from "../websiteLinkForwarding";
 import { registerWebsiteMetaCatalog } from "../websiteMetaCatalog";
@@ -270,12 +271,18 @@ async function startServer() {
     try {
       // Landing pages first; /newsite addresses never match a landing slug
       // (they contain a slash), so the two never compete for a request.
-      res.locals.landingPageMetadata =
-        (await getLandingPageMetadata(req)) ??
-        (await getWebsitePageMetadata(req));
+      res.locals.landingPageMetadata = await getLandingPageMetadata(req);
+      if (!res.locals.landingPageMetadata) {
+        // A /newsite address that names nothing published answers 404 (the
+        // app still renders its "Page not found"); see websitePageStatus.
+        const page = await resolveWebsitePage(req);
+        res.locals.landingPageMetadata = page?.metadata ?? null;
+        res.locals.websiteNotFound = page?.status === 404;
+      }
     } catch (error) {
       console.error("[LandingPages] Metadata lookup failed:", error);
       res.locals.landingPageMetadata = null;
+      res.locals.websiteNotFound = false;
     }
     return next();
   });
@@ -360,6 +367,10 @@ async function startServer() {
   // Legacy GHL paths resolve first so a migration redirect never competes with
   // a landing-page slug or a branded short link.
   registerLandingPageRedirects(app);
+  // Fixed /newsite path redirects (retired listing slugs, renamed markets),
+  // from shared/websitePathRedirects.ts. After the hand-made redirects, so
+  // those always win.
+  registerWebsitePathRedirects(app);
   // Old savvy-agents.com addresses, for when that domain points here. After
   // the hand-made redirects above, so those always win.
   registerLegacySiteRedirects(app);

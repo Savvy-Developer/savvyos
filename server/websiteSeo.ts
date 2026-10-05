@@ -32,6 +32,11 @@ import {
 import {
   STATIC_PAGES,
   absoluteImage,
+  canPreviewDraft,
+  isWebsitePath,
+  websitePageStatus,
+  type WebsitePageLookup,
+  type WebsiteRoute,
   buildRobotsTxt,
   buildSitemapXml,
   describeText,
@@ -41,6 +46,7 @@ import {
   type SitemapEntry,
 } from "./websiteSeoPages";
 import { EDITABLE_PAGE_SLUGS } from "@shared/websiteEditablePages";
+import { staffFromRequest } from "./staffWebsiteHandoff";
 
 const publicHost = (process.env.PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
 const publicHosts = new Set([publicHost, `www.${publicHost}`]);
@@ -58,9 +64,17 @@ type Described = {
   description: string | null;
   image: string | null;
   noindex?: boolean;
+  /**
+   * The page's own address, for the canonical link, when several addresses
+   * open it (/Some-Page and /some-page; any case of a market's state). Without
+   * it the request path is used.
+   */
+  path?: string;
 };
 
-async function siteDefaults(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
+type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+async function siteDefaults(db: Db) {
   const [settings] = await db
     .select({ heroBody: websiteSiteSettings.heroBody, heroImageUrl: websiteSiteSettings.heroImageUrl })
     .from(websiteSiteSettings)
@@ -79,11 +93,86 @@ async function siteDefaults(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) 
  * does not preview as a real page.
  */
 export async function getWebsitePageMetadata(req: Request): Promise<LandingMetadata | null> {
+  return (await resolveWebsitePage(req))?.metadata ?? null;
+}
+
+export type WebsitePageResult = {
+  /** 404 for an address that names nothing a visitor may see. */
+  status: 200 | 404;
+  /** Search and preview metadata; null for a 404 or a staff draft preview. */
+  metadata: LandingMetadata | null;
+};
+
+/**
+ * The status and metadata for a /newsite request, or null when the request is
+ * not for the public site or the database can not be asked (then the page is
+ * served as before, 200 and undescribed, rather than a 404 nobody earned).
+ */
+export async function resolveWebsitePage(req: Request): Promise<WebsitePageResult | null> {
   if (!isPublicHost(req)) return null;
+  if (!isWebsitePath(req.path)) return null;
   const route = parseWebsitePath(req.path);
-  if (!route) return null;
+  if (!route) return { status: websitePageStatus({ route, lookup: "missing", visitorIsStaff: false }), metadata: null };
   const db = await getDb();
   if (!db) return null;
+  const found = await describeWebsiteRoute(db, route);
+  if (found) return { status: 200, metadata: toMetadata(req, found) };
+  // Not published. A Savvy team member signed in on the website may be
+  // previewing a Draft, which the page shows them; everyone else gets a 404.
+  let staff = false;
+  let lookup: WebsitePageLookup = "missing";
+  if (canPreviewDraft(route) && (await requestIsStaff(req)) && (await draftExists(db, route))) {
+    staff = true;
+    lookup = "draft";
+  }
+  return { status: websitePageStatus({ route, lookup, visitorIsStaff: staff }), metadata: null };
+}
+
+async function requestIsStaff(req: Request): Promise<boolean> {
+  try {
+    return (await staffFromRequest(req)) != null;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the listing, case study or article at this route is a Draft. */
+async function draftExists(db: Db, route: WebsiteRoute): Promise<boolean> {
+  if (route.kind === "property") {
+    const [row] = await db.select({ id: websiteProperties.id }).from(websiteProperties)
+      .where(and(eq(websiteProperties.slug, route.slug), eq(websiteProperties.status, "draft"))).limit(1);
+    return !!row;
+  }
+  if (route.kind === "caseStudy") {
+    const [row] = await db.select({ id: websiteCaseStudies.id }).from(websiteCaseStudies)
+      .where(and(eq(websiteCaseStudies.slug, route.slug), eq(websiteCaseStudies.status, "draft"))).limit(1);
+    return !!row;
+  }
+  if (route.kind === "resource") {
+    const [row] = await db.select({ id: websiteBlogPosts.id }).from(websiteBlogPosts)
+      .where(and(eq(websiteBlogPosts.slug, route.slug), eq(websiteBlogPosts.status, "draft"))).limit(1);
+    return !!row;
+  }
+  return false;
+}
+
+function toMetadata(req: Request, found: Described): LandingMetadata {
+  const path = found.path ?? (req.path.replace(/\/+$/, "").slice("/newsite".length) || "/");
+  return {
+    slug: "",
+    canonicalUrl: websiteUrl(ORIGIN, path),
+    pageTitle: pageTitle(found.title, { ownMetaTitle: found.ownMetaTitle }),
+    metaDescription: found.description,
+    socialImageUrl: found.image,
+    noindex: !!found.noindex,
+    // Analytics tags for the website come from server/websiteTracking.ts,
+    // which also covers pages without metadata (sign-in, account, not found).
+    trackingSettings: {},
+  };
+}
+
+/** What a published page says about itself, or null when nothing is published there. */
+async function describeWebsiteRoute(db: Db, route: WebsiteRoute): Promise<Described | null> {
   const defaults = await siteDefaults(db);
 
   let found: Described | null = null;
@@ -249,12 +338,14 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
           title: marketPageTitle(market),
           description: describeText(marketPageDescription(market)),
           image: defaults.image,
+          path: marketPagePath(market),
         };
       }
       break;
     }
     case "page": {
-      if (RESERVED_PAGE_SLUGS.has(route.slug)) break;
+      // No reserved-slug check: the client's publicPage lookup has none, so
+      // /newsite/About shows a published About CMS page and must not 404.
       const [row] = await db
         .select({
           name: websitePages.name,
@@ -274,25 +365,13 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
             describeText(row.heroSubtitle) ??
             describeText(row.bodyMarkdown),
           image: defaults.image,
+          path: `/${route.slug}`,
         };
       }
       break;
     }
   }
-  if (!found) return null;
-
-  const path = req.path.replace(/\/+$/, "").slice("/newsite".length) || "/";
-  return {
-    slug: "",
-    canonicalUrl: websiteUrl(ORIGIN, path),
-    pageTitle: pageTitle(found.title, { ownMetaTitle: found.ownMetaTitle }),
-    metaDescription: found.description,
-    socialImageUrl: found.image,
-    noindex: !!found.noindex,
-    // Analytics tags for the website come from server/websiteTracking.ts,
-    // which also covers pages without metadata (sign-in, account, not found).
-    trackingSettings: {},
-  };
+  return found;
 }
 
 /** Every published page, for sitemap.xml. */

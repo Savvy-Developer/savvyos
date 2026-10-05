@@ -100,17 +100,45 @@ export function legacyTarget(rawPath: string): LegacyTarget | null {
   return null;
 }
 
-/** The address to send someone to, given whether the item is published. */
+/**
+ * The address to send someone to, given whether the item is published.
+ * `redirectFor` is the fixed /newsite path redirects
+ * (shared/websitePathRedirects.ts): when the new address has moved, the old
+ * one goes straight to where it lives now, one hop instead of two.
+ */
 export function resolveLegacyTarget(
   target: LegacyTarget,
-  published: boolean
+  published: boolean,
+  redirectFor: (path: string) => string | null = () => null
 ): { to: string; permanent: boolean } {
+  const newPath = target.kind === "fixed" ? target.to : `${BASE}/${target.section}/${target.slug}`;
+  const moved = redirectFor(newPath);
+  if (moved) return { to: moved, permanent: true };
   if (target.kind === "fixed") return { to: target.to, permanent: target.permanent };
   // A match is the same page, so it is permanent. A fallback to the list is
   // temporary: if the item is published later, the redirect should find it.
   return published
     ? { to: `${BASE}/${target.section}/${target.slug}`, permanent: true }
     : { to: `${BASE}/${target.section}`, permanent: false };
+}
+
+/** The state and city of a /newsite market page address, or null. */
+export function marketPageParts(to: string): { state: string; city: string } | null {
+  const match = /^\/newsite\/markets\/([^/]+)\/([^/?]+)$/.exec(to);
+  return match ? { state: match[1], city: match[2] } : null;
+}
+
+/**
+ * An old market page whose market SavvyOS does not have would land on a
+ * "page not found" (404). Send it to the list of markets instead, temporarily,
+ * so it finds the market if one is added under that name later.
+ */
+export function withMarketFallback(
+  resolved: { to: string; permanent: boolean },
+  marketExists: boolean
+): { to: string; permanent: boolean } {
+  if (!marketPageParts(resolved.to) || marketExists) return resolved;
+  return { to: `${BASE}/markets`, permanent: false };
 }
 
 /** Carry the query string across, so ad tracking tags survive the redirect. */
