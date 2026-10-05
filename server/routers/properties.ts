@@ -10,6 +10,7 @@ import {
   updateProperty,
   getDb,
   DuplicatePropertyError,
+  PossibleDuplicatePropertyError,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog, properties, proformas, documents, websiteProperties } from "../../drizzle/schema";
@@ -112,6 +113,8 @@ export const propertiesRouter = router({
       strNotes: z.string().optional().nullable(),
       notes: z.string().optional().nullable(),
       addressSource: z.enum(["manual", "google_selected"]).optional().default("manual"),
+      /** Set after the person confirms a "Possible duplicate of #id" is a different home. */
+      allowPossibleDuplicate: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -153,8 +156,13 @@ export const propertiesRouter = router({
           strNotes: input.strNotes,
           notes: input.notes,
           addedByUserId: ctx.user.id,
-        } as any);
+        } as any, { allowPossibleDuplicate: input.allowPossibleDuplicate });
       } catch (error) {
+        // Plain text rather than the DUPLICATE_PROPERTY JSON, so every screen
+        // that shows the error as-is still reads "Possible duplicate of #id".
+        if (error instanceof PossibleDuplicatePropertyError) {
+          throw new TRPCError({ code: "CONFLICT", message: error.message });
+        }
         if (error instanceof DuplicatePropertyError) {
           throw new TRPCError({
             code: "CONFLICT",
@@ -702,6 +710,13 @@ export const propertiesRouter = router({
           results.push({ row: rowNum, status: "created", address: cleanAddr });
           created++;
         } catch (err: any) {
+          // Skipped like an exact duplicate, with the property it may be, so
+          // one row does not stop the rest of the file.
+          if (err instanceof PossibleDuplicatePropertyError) {
+            results.push({ row: rowNum, status: "skipped", reason: err.message, address: row.address });
+            skipped++;
+            continue;
+          }
           results.push({ row: rowNum, status: "error", reason: err?.message ?? "Unknown error", address: row.address });
           errors++;
         }

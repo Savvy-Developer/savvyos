@@ -22,6 +22,10 @@ import {
   getTransactionExportHistory,
   getTransactionsForExport,
   getTransactionStats,
+  createProperty,
+  findPropertyDuplicate,
+  DuplicatePropertyError,
+  PossibleDuplicatePropertyError,
 } from "../db";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
@@ -162,6 +166,11 @@ const transactionExportFiltersSchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
   sortBy: z.enum(["contact", "property", "agent", "type", "price", "gci", "savvy_net", "lead_source", "status", "contract_date", "closing_date"]).default("closing_date"),
 });
+
+/** The bulk upload's row error for a property that is probably one SavvyOS already has. */
+function possibleDuplicateRowError(error: PossibleDuplicatePropertyError): string {
+  return `${error.message}. Use the existing property's exact address, or add the property first.`;
+}
 
 export const transactionsRouter = router({
   customFields: transactionCustomFieldsRouter,
@@ -1597,7 +1606,39 @@ export const transactionsRouter = router({
           }
         }
 
-        // ── 8. Contact: find or create ────────────────────────────────────────
+        // ── 8. Property: find, or check it can be created ────────────────────
+        // Before the contact step, so a row that is going to be rejected as a
+        // possible duplicate does not leave a new contact behind. Nothing is
+        // written here; a new property is created in step 10.
+        let propertyId: number | null = null;
+        let newProperty: { address: string; city: string | null; state: string | null; zip: string | null } | null = null;
+        if (errors.length === 0 && row.propertyAddress?.trim()) {
+          const [existingProp] = await db
+            .select({ id: properties.id })
+            .from(properties)
+            .where(sql`LOWER(${properties.address}) = ${row.propertyAddress.toLowerCase().trim()}`)
+            .limit(1);
+          if (existingProp) {
+            propertyId = existingProp.id;
+          } else {
+            const address = {
+              address: row.propertyAddress.trim(),
+              city: row.propertyCity?.trim() ?? null,
+              state: row.propertyState?.trim() ?? null,
+              zip: row.propertyZip?.trim() ?? null,
+            };
+            const duplicate = await findPropertyDuplicate(address);
+            // A possible duplicate needs a person to look at it, so this row
+            // is reported and skipped instead of stopping the upload.
+            if (duplicate instanceof PossibleDuplicatePropertyError) errors.push(possibleDuplicateRowError(duplicate));
+            // The same house written with different capitalization or
+            // abbreviations: it is the property this row means.
+            else if (duplicate) propertyId = duplicate.existingProperty.id;
+            else newProperty = address;
+          }
+        }
+
+        // ── 9. Contact: find or create ────────────────────────────────────────
         let primaryContactId: number | null = null;
         if (errors.length === 0) {
           // Try to find existing contact by email
@@ -1627,30 +1668,19 @@ export const transactionsRouter = router({
           }
         }
 
-        // ── 9. Property: find or create ───────────────────────────────────────
-        let propertyId: number | null = null;
-        if (errors.length === 0 && row.propertyAddress) {
-          const [existingProp] = await db
-            .select({ id: properties.id })
-            .from(properties)
-            .where(sql`LOWER(${properties.address}) = ${row.propertyAddress.toLowerCase().trim()}`)
-            .limit(1);
-          if (existingProp) {
-            propertyId = existingProp.id;
-          } else {
-            const propId = await (await import("../db")).createProperty({
-              address: row.propertyAddress.trim(),
-              city: row.propertyCity?.trim() ?? null,
-              state: row.propertyState?.trim() ?? null,
-              zip: row.propertyZip?.trim() ?? null,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            } as any);
-            propertyId = propId;
+        // ── 10. Create the new property, unless the row is being skipped ──────
+        if (newProperty && errors.length === 0 && agent && primaryContactId && txType && txStatus) {
+          try {
+            propertyId = await createProperty({ ...newProperty, createdAt: new Date(), updatedAt: new Date() } as any);
+          } catch (error) {
+            // Only if another upload added a matching property since step 8.
+            if (error instanceof PossibleDuplicatePropertyError) errors.push(possibleDuplicateRowError(error));
+            else if (error instanceof DuplicatePropertyError) propertyId = error.existingProperty.id;
+            else throw error;
           }
         }
 
-        // ── 10. Skip row if validation failed ─────────────────────────────────
+        // ── 10b. Skip row if validation failed ────────────────────────────────
         if (errors.length > 0 || !agent || !primaryContactId || !txType || !txStatus) {
           results.push({ rowIndex: row.rowIndex, success: false, errors, warnings });
           continue;

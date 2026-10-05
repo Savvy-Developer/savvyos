@@ -36,7 +36,7 @@ import {
 import { ENV } from "./_core/env";
 import { resolveActivityRecordLinks } from "./activityLinkResolver";
 import { normalizePhoneFields } from "@shared/phone";
-import { buildNormalizedKey } from "./addressNormalization";
+import { buildNormalizedKey, findLooseDuplicate, parseLooseAddress, possibleDuplicateMessage } from "./addressNormalization";
 import { buildPayoutSearchCondition } from "./payoutSearch";
 import { CONTACT_LEAD_SOURCE_UPDATE_SESSION_VARIABLE } from "./contactLeadSourceTrigger";
 
@@ -1138,16 +1138,34 @@ export async function getPropertyById(id: number) {
 }
 
 export class DuplicatePropertyError extends Error {
-  constructor(public readonly existingProperty: { id: number; address: string; city: string | null; state: string | null; zip: string | null }) {
-    super("A property with this address already exists.");
+  constructor(
+    public readonly existingProperty: { id: number; address: string; city: string | null; state: string | null; zip: string | null },
+    message = "A property with this address already exists.",
+  ) {
+    super(message);
     this.name = "DuplicatePropertyError";
   }
 }
 
-async function assertPropertyAddressIsUnique(
-  data: Pick<typeof properties.$inferInsert, "address" | "city" | "state" | "zip" | "normalizedAddress">,
-  excludeId?: number,
-): Promise<string> {
+/**
+ * The address is not an exact match for an existing property but is probably
+ * the same home written differently ("360 E Overlook" vs "360 E Overlook Ln").
+ * A sibling of DuplicatePropertyError so code that already catches that one
+ * still stops, but callers can tell the two apart: this one is a question for
+ * a person, not a certainty, and a person who confirms it is a different home
+ * can create it with allowPossibleDuplicate.
+ */
+export class PossibleDuplicatePropertyError extends DuplicatePropertyError {
+  constructor(existingProperty: DuplicatePropertyError["existingProperty"]) {
+    super(existingProperty, possibleDuplicateMessage(existingProperty));
+    this.name = "PossibleDuplicatePropertyError";
+  }
+}
+
+type PropertyAddressFields = Pick<typeof properties.$inferInsert, "address" | "city" | "state" | "zip" | "normalizedAddress">;
+
+/** The existing property with exactly this normalized address, if any. */
+async function findExactDuplicateProperty(data: PropertyAddressFields, excludeId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const normalizedAddress = data.normalizedAddress || buildNormalizedKey(data.address, data.city, data.state, data.zip);
@@ -1158,14 +1176,71 @@ async function assertPropertyAddressIsUnique(
     state: properties.state,
     zip: properties.zip,
   }).from(properties).where(eq(properties.normalizedAddress, normalizedAddress)).limit(1);
-  if (existing[0] && existing[0].id !== excludeId) throw new DuplicatePropertyError(existing[0]);
+  const hit = existing[0] && existing[0].id !== excludeId ? existing[0] : undefined;
+  return { normalizedAddress, hit };
+}
+
+async function assertPropertyAddressIsUnique(data: PropertyAddressFields, excludeId?: number): Promise<string> {
+  const { normalizedAddress, hit } = await findExactDuplicateProperty(data, excludeId);
+  if (hit) throw new DuplicatePropertyError(hit);
   return normalizedAddress;
 }
 
-export async function createProperty(data: typeof properties.$inferInsert) {
+/**
+ * A property that is probably the same home written differently. Needs a
+ * house number and a 5-digit ZIP; the candidates are the properties with the
+ * same ZIP and house number, compared one by one (see looseAddressMatch).
+ * Never merges.
+ */
+async function findPossibleDuplicateProperty(
+  data: Pick<typeof properties.$inferInsert, "address" | "city" | "state" | "zip">,
+) {
+  const parsed = parseLooseAddress(data.address, data.zip);
+  if (!parsed?.zip) return undefined;
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const nearby = await db.select({
+    id: properties.id,
+    address: properties.address,
+    city: properties.city,
+    state: properties.state,
+    zip: properties.zip,
+  }).from(properties).where(and(
+    like(properties.zip, `${parsed.zip}%`),
+    // Leading digits only, so the LIKE pattern is never more than digits.
+    sql`TRIM(${properties.address}) LIKE ${`${parsed.houseNumber.match(/^\d+/)![0]}%`}`,
+  ));
+  return findLooseDuplicate(data, nearby);
+}
+
+/**
+ * Check an address against existing properties without creating anything:
+ * the DuplicatePropertyError (exact match) or PossibleDuplicatePropertyError
+ * (loose match) that createProperty would throw, or null when it would create.
+ * For bulk paths that must know before they write anything else for the row.
+ */
+export async function findPropertyDuplicate(
+  data: PropertyAddressFields,
+  options: { allowPossibleDuplicate?: boolean } = {},
+): Promise<DuplicatePropertyError | null> {
+  const { hit } = await findExactDuplicateProperty(data);
+  if (hit) return new DuplicatePropertyError(hit);
+  if (options.allowPossibleDuplicate) return null;
+  const possible = await findPossibleDuplicateProperty(data);
+  return possible ? new PossibleDuplicatePropertyError(possible) : null;
+}
+
+export async function createProperty(
+  data: typeof properties.$inferInsert,
+  options: { allowPossibleDuplicate?: boolean } = {},
+) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const normalizedAddress = await assertPropertyAddressIsUnique(data);
+  if (!options.allowPossibleDuplicate) {
+    const possible = await findPossibleDuplicateProperty(data);
+    if (possible) throw new PossibleDuplicatePropertyError(possible);
+  }
   const [result] = await db.insert(properties).values({ ...data, normalizedAddress });
   return (result as any).insertId as number;
 }
