@@ -22,7 +22,14 @@ import {
 } from "./websiteSeoWriter";
 import { websitePageTitle } from "../shared/websitePageTitle";
 import { pageTitle } from "./websiteSeoPages";
-import { bathroomCountFromText, mapZillowPropertyResponse, zillowBathroomCount } from "./externalApis";
+import {
+  bathroomCountFromText,
+  fetchZillowListing,
+  mapZillowPropertyResponse,
+  rapidApiKey,
+  zillowBathroomCount,
+} from "./externalApis";
+import { missingForPublish } from "../shared/websitePublishChecklist";
 import { typedBaths } from "../client/src/lib/inputFormatters";
 
 const read = (file: string) => readFileSync(path.resolve(__dirname, "..", file), "utf8");
@@ -344,5 +351,40 @@ describe("half baths can be entered", () => {
     expect(typedBaths("123")).toBe("12");
     expect(dialog).toContain("baths: bathsText(property.baths),");
     expect(dialog).toContain('inputMode="decimal"');
+  });
+});
+
+describe("RapidAPI key comes from the environment only", () => {
+  const source = read("server/externalApis.ts");
+
+  it("has no key written in the source", () => {
+    expect(source).not.toMatch(/[0-9a-f]{8,}msh[0-9a-f]+p1[0-9a-f]+jsn[0-9a-f]{8,}/);
+    expect(source).not.toContain('"x-rapidapi-key": RAPIDAPI_KEY');
+  });
+
+  it("fails with a clear message when RAPIDAPI_KEY is not set", async () => {
+    const saved = process.env.RAPIDAPI_KEY;
+    delete process.env.RAPIDAPI_KEY;
+    try {
+      expect(rapidApiKey()).toBeNull();
+      await expect(fetchZillowListing("https://www.zillow.com/homedetails/48058497_zpid/")).rejects.toThrow(
+        "Zillow lookup is not configured"
+      );
+    } finally {
+      if (saved !== undefined) process.env.RAPIDAPI_KEY = saved;
+    }
+  });
+});
+
+describe("publish checklist and the public page agree on photos", () => {
+  const publicSite = read("client/src/pages/PublicWebsite.tsx");
+
+  it("both use only the listing's own hero and gallery", () => {
+    // The page's gallery: hero plus gallery, nothing else. A listing card's
+    // stock fallback photo is not a photo of the property.
+    expect(publicSite).toContain("new Set([item.heroImageUrl, ...(item.galleryImageUrls || [])].filter(Boolean))");
+    expect(missingForPublish({ heroImageUrl: "", galleryImageUrls: [], listPrice: 1, beds: 1, baths: 1, city: "a", state: "b", zip: "1" })).toEqual(["a photo"]);
+    expect(missingForPublish({ heroImageUrl: "https://x/hero.jpg", galleryImageUrls: [], listPrice: 1, beds: 1, baths: 1, city: "a", state: "b", zip: "1" })).toEqual([]);
+    expect(missingForPublish({ heroImageUrl: null, galleryImageUrls: ["https://x/1.jpg"], listPrice: 1, beds: 1, baths: 1, city: "a", state: "b", zip: "1" })).toEqual([]);
   });
 });

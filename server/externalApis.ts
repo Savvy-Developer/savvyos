@@ -5,7 +5,15 @@ import { requestGooglePlaces, type GooglePlacesAddressComponent } from "./_core/
 import { buildUnitAwareStreetAddress } from "./addressNormalization";
 
 const RAPIDAPI_HOST = "private-zillow.p.rapidapi.com";
-const RAPIDAPI_KEY = "526283dbe0msh15c17fdb8e08c0bp17f809jsn6eb94ee12316";
+/**
+ * The RapidAPI key, from the environment only. It used to be written here,
+ * in a public repo; that key must be treated as leaked and rotated.
+ */
+export const RAPIDAPI_NOT_CONFIGURED = "Zillow lookup is not configured (RAPIDAPI_KEY is not set).";
+export function rapidApiKey(): string | null {
+  const key = process.env.RAPIDAPI_KEY?.trim();
+  return key ? key : null;
+}
 
 export class ZillowLookupInputError extends Error {
   constructor(message: string) {
@@ -153,14 +161,14 @@ export function mapZillowPropertyResponse(data: any) {
 /** Look up one Zillow listing by URL. Throws ZillowLookupInputError for bad input. */
 export async function fetchZillowListing(zillowUrl: string): Promise<any> {
   const url = buildZillowLookupUrl({ zillowUrl });
-  const rapidApiKey = process.env.RAPIDAPI_KEY;
-  if (!rapidApiKey) throw new Error("Zillow import is not configured (RAPIDAPI_KEY).");
+  const key = rapidApiKey();
+  if (!key) throw new Error(RAPIDAPI_NOT_CONFIGURED);
   const response = await fetch(url, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
       "x-rapidapi-host": RAPIDAPI_HOST,
-      "x-rapidapi-key": rapidApiKey,
+      "x-rapidapi-key": key,
     },
   });
   if (!response.ok) throw new Error(`Zillow did not answer (${response.status}). Try again in a minute.`);
@@ -258,17 +266,17 @@ export function registerExternalApiRoutes(app: express.Application) {
         throw err;
       }
 
-      const rapidApiKey = process.env.RAPIDAPI_KEY;
-      if (!rapidApiKey) {
+      const key = rapidApiKey();
+      if (!key) {
         console.error("[ZillowLookup] RAPIDAPI_KEY is not configured");
-        return res.status(503).json({ error: "Zillow import is temporarily unavailable. Please try again later." });
+        return res.status(503).json({ error: RAPIDAPI_NOT_CONFIGURED });
       }
       const response = await fetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
           "x-rapidapi-host": RAPIDAPI_HOST,
-          "x-rapidapi-key": rapidApiKey,
+          "x-rapidapi-key": key,
         },
       });
 
@@ -308,13 +316,18 @@ export function registerExternalApiRoutes(app: express.Application) {
       }
       if (!id) return res.status(400).json({ error: "That link isn't an Airbnb listing. Paste the link to a listing page (it contains /rooms/ followed by a number)." });
 
+      const key = rapidApiKey();
+      if (!key) {
+        console.error("[AirbnbLookup] RAPIDAPI_KEY is not configured");
+        return res.status(503).json({ error: "Airbnb lookup is not configured (RAPIDAPI_KEY is not set)." });
+      }
       const detailUrl = `https://airbnb-search.p.rapidapi.com/stays/detail?listingId=${id}`;
       const response = await fetch(detailUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
           "x-rapidapi-host": "airbnb-search.p.rapidapi.com",
-          "x-rapidapi-key": RAPIDAPI_KEY,
+          "x-rapidapi-key": key,
         },
       });
 
