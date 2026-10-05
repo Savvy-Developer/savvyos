@@ -26,6 +26,8 @@ export const ACCOUNT_THROTTLE_RULES = {
   signUpPerIp: { limit: 5, windowMs: 60 * MINUTE },
   resetPerEmail: { limit: 3, windowMs: 60 * MINUTE },
   resetPerIp: { limit: 10, windowMs: 60 * MINUTE },
+  // Sending the email confirmation link again, per signed-in account.
+  confirmResendPerAccount: { limit: 3, windowMs: 60 * MINUTE },
 } satisfies Record<string, ThrottleRule>;
 
 export type ThrottleScope = keyof typeof ACCOUNT_THROTTLE_RULES;

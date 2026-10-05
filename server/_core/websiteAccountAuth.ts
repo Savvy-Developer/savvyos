@@ -39,7 +39,7 @@ export function normalizeAccountEmail(email: string): string {
   return String(email ?? "").trim().toLowerCase();
 }
 
-function hashToken(token: string): string {
+export function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 

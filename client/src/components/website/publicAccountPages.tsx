@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   BookOpen,
@@ -47,6 +47,7 @@ export const accountPath = {
   signUp: publicPath("/sign-up"),
   forgot: publicPath("/forgot-password"),
   reset: publicPath("/reset-password"),
+  confirmEmail: publicPath("/confirm-email"),
   saved: publicPath("/account/saved"),
   preferences: publicPath("/account/preferences"),
   history: publicPath("/account/history"),
@@ -549,6 +550,106 @@ export function ResetPasswordBody() {
           Set password and sign in
         </SubmitButton>
       </form>
+    </AuthCard>
+  );
+}
+
+/**
+ * Where the link in the sign-up confirmation email lands. The token is spent
+ * by the page, not by the GET, so a mail scanner opening the link does not
+ * use it up.
+ */
+export function ConfirmEmailBody() {
+  const token = useMemo(
+    () => new URLSearchParams(window.location.search).get("token") || "",
+    []
+  );
+  const account = useWebsiteAccount();
+  const started = useRef(false);
+  const confirm = trpc.websiteAccount.confirmEmail.useMutation();
+  const resend = trpc.websiteAccount.resendEmailConfirmation.useMutation({
+    onSuccess: result => {
+      if (result.sent) toast.success("A new link is on its way. Check your email.");
+      else if (result.reason === "confirmed") toast.success("Your email is already confirmed.");
+      else toast.error("Email confirmation is not available right now.");
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  useEffect(() => {
+    if (!token || started.current) return;
+    started.current = true;
+    confirm.mutate({ token });
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const home = (
+    <a className="font-bold text-cyan-600" href={publicPath()}>
+      Go to the homepage
+    </a>
+  );
+
+  if (!token) {
+    return (
+      <AuthCard
+        title="That link is not complete"
+        subtitle="Open the link from your confirmation email again."
+        footer={home}
+      >
+        <div />
+      </AuthCard>
+    );
+  }
+  if (confirm.isSuccess) {
+    return (
+      <AuthCard
+        title="Your email is confirmed"
+        subtitle={
+          confirm.data.alreadyConfirmed
+            ? "This email was already confirmed. You are all set."
+            : "Thanks. You will now get new properties and market updates from Savvy STR Agents."
+        }
+        footer={home}
+      >
+        <div />
+      </AuthCard>
+    );
+  }
+  if (confirm.isError) {
+    return (
+      <AuthCard
+        title="We could not confirm your email"
+        subtitle={confirm.error.message}
+        footer={
+          account.data ? (
+            home
+          ) : (
+            <a className="font-bold text-cyan-600" href={`${accountPath.signIn}?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}>
+              Sign in to get a new link
+            </a>
+          )
+        }
+      >
+        {account.data ? (
+          <form
+            className="mt-6"
+            onSubmit={event => {
+              event.preventDefault();
+              resend.mutate();
+            }}
+          >
+            <SubmitButton pending={resend.isPending}>Send me a new link</SubmitButton>
+          </form>
+        ) : (
+          <div />
+        )}
+      </AuthCard>
+    );
+  }
+  return (
+    <AuthCard title="Confirming your email" subtitle="One moment.">
+      <div className="mt-6 flex justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-cyan-600" />
+      </div>
     </AuthCard>
   );
 }
