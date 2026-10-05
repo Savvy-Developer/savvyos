@@ -4,6 +4,7 @@ import {
   renderDailyPropertyEmail,
   type EmailListing,
 } from "./dailyPropertyEmail";
+import { MARKETING_POSTAL_ADDRESS } from "./websiteDailyEmailLogic";
 
 const listing = (overrides: Partial<EmailListing> = {}): EmailListing => ({
   propertyId: 1,
@@ -21,6 +22,11 @@ const listing = (overrides: Partial<EmailListing> = {}): EmailListing => ({
 });
 
 describe("renderDailyPropertyEmail", () => {
+  it("carries the postal address in the footer (CAN-SPAM)", () => {
+    const { html } = renderDailyPropertyEmail("Dana", [listing()], "https://os.example.com/unsub");
+    expect(html).toContain(MARKETING_POSTAL_ADDRESS);
+  });
+
   it("names the recipient and counts the listings", () => {
     const { subject, html } = renderDailyPropertyEmail(
       "Dana",

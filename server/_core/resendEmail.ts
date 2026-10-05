@@ -134,6 +134,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "website_financing_request",
   "website_showing_request",
   "website_listing_expired",
+  "website_inquiry_unassigned",
   "pto_request_submitted",
   "pto_request_decision",
   "vendor_featured_payment_invitation",
@@ -302,6 +303,9 @@ interface EmailContext {
   expiryDays?: string;
   connectionId?: string;
   contactId?: string;
+  /** Website inquiry with no agent: the visitor's own details. */
+  contactEmail?: string;
+  contactPhone?: string;
   // Webinar marketing handoff-specific fields
   webinarTitle?: string;
   webinarDescription?: string;
@@ -589,6 +593,33 @@ const TEMPLATES: Record<
         ${bodyText("If it is still available, open it in SavvyOS, check the price and photos, and publish it again from its Website tab. That starts a new " + days + " days.")}
         ${ctaButton("Open in SavvyOS", APP_URL + (ctx.propertyId ? `/properties/${encodeURIComponent(ctx.propertyId)}` : "/properties"))}`,
         `Listing moved to Draft: ${ctx.propertyAddress ?? "your website listing"}`
+      ),
+    };
+  },
+
+  // The old savvy-agents.com emailed every form lead to the office (Tyler by
+  // default) when no agent was attached, the Sell page above all. The new
+  // site routes those to no one, so this is that email.
+  website_inquiry_unassigned: ctx => {
+    const name = escapeHtml(ctx.contactName ?? "A website visitor");
+    const what = ctx.leadSourceLabel ?? "Website inquiry";
+    const rows = [
+      `<strong style="color:${BLACK};">Name</strong>&nbsp;&nbsp; ${name}`,
+      ...(ctx.contactEmail ? [`<strong style="color:${BLACK};">Email</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactEmail)}`] : []),
+      ...(ctx.contactPhone ? [`<strong style="color:${BLACK};">Phone</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactPhone)}`] : []),
+      `<strong style="color:${BLACK};">Form</strong>&nbsp;&nbsp; ${escapeHtml(what)}`,
+      ...(ctx.propertyAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`] : []),
+      ...(ctx.notes ? [`<strong style="color:${BLACK};">Message</strong><br>${escapeHtml(ctx.notes).replace(/\n/g, "<br>")}`] : []),
+    ];
+    return {
+      subject: `New website lead: ${ctx.contactName ?? "website visitor"} (${what})`,
+      html: emailLayout(
+        `${heading("New Website Lead")}
+        ${subheading("Savvy STR Agents · No agent assigned yet")}
+        ${bodyText("Someone sent a form on the Savvy website that is not tied to an agent, so nobody has been notified. They are in SavvyOS as a New Lead. Assign them to an agent or reach out.")}
+        ${infoCard(rows)}
+        ${ctaButton("Open the contact", APP_URL + (ctx.contactId ? `/contacts/${encodeURIComponent(ctx.contactId)}` : "/contacts"))}`,
+        `New website lead: ${name}`
       ),
     };
   },

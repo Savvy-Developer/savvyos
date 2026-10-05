@@ -7,6 +7,7 @@ import {
   renderPriceDropEmail,
   shouldAlertAccount,
 } from "./websitePriceDropLogic";
+import { MARKETING_POSTAL_ADDRESS } from "./websiteDailyEmailLogic";
 
 describe("checkPrice", () => {
   it("starts tracking a listing without alerting", () => {
@@ -94,6 +95,11 @@ describe("renderPriceDropEmail", () => {
     );
     expect(email.html).toContain("Creekside &lt;cabin&gt;");
     expect(email.subject).toBe("Price drop: Creekside <cabin>");
+  });
+
+  it("carries the postal address, as the old site's price drop email did", () => {
+    expect(email.html).toContain(MARKETING_POSTAL_ADDRESS);
+    expect(email.text).toContain(MARKETING_POSTAL_ADDRESS);
   });
 
   it("has an unsubscribe link and no return figures", () => {
