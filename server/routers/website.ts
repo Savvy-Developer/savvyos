@@ -123,6 +123,7 @@ import { websiteLeadSourceId } from "../websiteLeadSources";
 import { isCaseStudyLeadPath, websiteFormLeadSource } from "@shared/websiteLeadSources";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { recordWebsiteRequestActivity } from "../websiteActivity";
+import { loadFinancingPageFacts, queueFinancingPartnerFeed } from "../financingPartnerFeed";
 
 /**
  * Whether the visitor making this request has an investor account session.
@@ -2476,6 +2477,27 @@ export const websiteRouter = router({
           propertyAddress,
           agentId,
         });
+      }
+      // A financing request also goes to the lending partners, as it did on
+      // the old site. In the background, after this answer, and only when
+      // FINANCING_PARTNER_FEED_ENABLED is on. See financingPartnerFeed.ts.
+      if (input.requestType === "financing") {
+        queueFinancingPartnerFeed(
+          {
+            requestType: input.requestType,
+            contactId: contactId || null,
+            firstName: input.firstName,
+            lastName: input.lastName,
+            email: normalizedEmail,
+            phone: input.phone || null,
+            propertyId: input.propertyId ?? null,
+            sourcePath: input.sourcePath || null,
+          },
+          {
+            loadFacts: feedInput => loadFinancingPageFacts(db, feedInput),
+            logTimeline: entry => logActivity(entry),
+          }
+        );
       }
       return { success: true };
     }),
