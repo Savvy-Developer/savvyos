@@ -41,6 +41,9 @@ const ACCOUNT_PATHS = new Set([
   "/sign-up",
   "/forgot-password",
   "/reset-password",
+  // The sign-up email confirmation link lands here (#174). Without it, the
+  // real-404 check (#172) answered 404 for a page the site does show.
+  "/confirm-email",
 ]);
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/i;
@@ -339,6 +342,7 @@ export function buildRobotsTxt(origin: string): string {
     `Disallow: ${WEBSITE_BASE_PATH}/sign-up`,
     `Disallow: ${WEBSITE_BASE_PATH}/forgot-password`,
     `Disallow: ${WEBSITE_BASE_PATH}/reset-password`,
+    `Disallow: ${WEBSITE_BASE_PATH}/confirm-email`,
     "",
     `Sitemap: ${origin}/sitemap.xml`,
     "",

@@ -31,7 +31,7 @@ describe("parseWebsitePath", () => {
   });
 
   it("treats account screens as account pages, so they get noindex", () => {
-    for (const p of ["/newsite/sign-in", "/newsite/sign-up", "/newsite/account/saved", "/newsite/reset-password"]) {
+    for (const p of ["/newsite/sign-in", "/newsite/sign-up", "/newsite/account/saved", "/newsite/reset-password", "/newsite/confirm-email"]) {
       expect(parseWebsitePath(p)).toEqual({ kind: "account" });
     }
   });
