@@ -35,6 +35,14 @@ Live test of every lead path on the new site, home.savvy-agents.com/newsite, usi
 | t20 | View 3 Old Marina three times (expected view count 1, 30-minute rule) | | | | | | | | **NOT VERIFIED**: no view row on any account since 5 Oct 16:00 UTC |
 | t21 | Account sign-up, confirmation **on**, then the confirm link | +t21 | 54579 | Account Sign-up ✓ | none | `contact_created`, `user_registered` | none | Confirmation email → +t21 only (opened) | **PASS**. Confirming set `emailVerifiedAt` and added the address to Resend list "All Savvy-Agent Users". The test address was then removed from that list (the Resend contact record isn't deleted). |
 
+**Second check, 6 Oct 20:06 UTC:** after a report that round 2 was done (incognito sign-up as +t20, favourite on 608 Touchstone, 3 Old Marina opened 3 times). Production SavvyOS still had:
+- no website account for +t20, and no account created after t21's (id 3);
+- no saved-property row newer than 5 Oct 07:10 UTC, and no view row newer than 5 Oct 07:02 UTC (both on another account);
+- no contact, agent connection or email for +t20;
+- no sign-up, favourite or view activity in the server logs.
+
+So the agent connection from the favourite, and an Account Sign-up contact for +t20, could not be checked. There is no t20 contact to tag.
+
 The t20 steps never reached SavvyOS. The newest website account is t21's (id 3), and there are no favourites or views on any account after the t21 test. They may have been done on the old site (www.savvy-agents.com), or the sign-up may not have completed. **To do:** repeat at https://home.savvy-agents.com/newsite/sign-up with dhruvchougle.dc+t20@gmail.com.
 
 ## Fixes made
@@ -84,7 +92,7 @@ Also left in place:
 - **Agent connections:** test contacts are connected to Test Agent (Dhruv) for t1–t9.
 
 ## Still open
-1. **t20, favourite and 3 views:** not verified (see above). Repeat on the new site.
+1. **t20, favourite and 3 views:** not verified after two checks (5 Oct and 6 Oct 20:06 UTC). Nothing reached SavvyOS. Repeat on **home.savvy-agents.com/newsite** (not www.savvy-agents.com, whose accounts live in the old site's Supabase).
 2. **No Smart Plan for new-site leads.**
    - The only website plan, "New Website Leads Text" (plan 6), fires on the old site's source (360015).
    - No active plan is triggered by any new-site source (360051–360059), so new-site leads get no follow-up texts or emails.
