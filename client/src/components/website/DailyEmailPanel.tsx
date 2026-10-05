@@ -464,6 +464,11 @@ export function DailyEmailPanel() {
           <CardTitle>Settings</CardTitle>
           <CardDescription>
             Who gets the email, when, and what it says.
+            {data?.sender ? (
+              <>
+                {" "}Sent from {data.sender.from}, replies to {data.sender.replyTo}.
+              </>
+            ) : null}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -741,9 +746,10 @@ export function DailyEmailPanel() {
         <CardHeader>
           <CardTitle>Price drop alerts</CardTitle>
           <CardDescription>
-            When a live listing's price drops by $1,000 or more, investors who
-            viewed it in the last 90 days or saved it get one email with the
-            old and new price. Each drop is sent once. People who turned email
+            When a live listing's price drops by{" "}
+            {data?.priceDropAlerts?.minPercent ?? 1}% or more, investors who
+            visited it 3 or more times in the last 90 days, or saved it, get one
+            email with the old and new price. Each drop is sent once. People who turned email
             off or unsubscribed are skipped.
           </CardDescription>
         </CardHeader>
@@ -788,7 +794,7 @@ export function DailyEmailPanel() {
             </Button>
           </div>
           <p className="text-xs text-slate-500">
-            The test uses the newest live listing with a made-up 5% drop, and
+            The test uses the newest live listing with a made-up 1% drop, and
             is built exactly like a real alert, including the unsubscribe link
             (clicking it really unsubscribes that address). It is not recorded
             and changes no prices.

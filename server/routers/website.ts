@@ -85,6 +85,8 @@ import {
   setApproval as setDailyEmailApproval,
 } from "../websiteDailyEmail";
 import { listResendSegments } from "../_core/resendMarketingBroadcast";
+import { dealsSender } from "../websiteDailyEmailLogic";
+import { priceDropMinPercent } from "../websitePriceDropLogic";
 import { getSignupSegmentId, saveSignupSegmentId } from "../websiteSignupAudience";
 import { moveWebsiteImages } from "../websiteImageRehost";
 import { ZillowLookupInputError, extractZillowDescription, extractZillowPhotoUrls, fetchAddressSuggestions, fetchZillowListing } from "../externalApis";
@@ -4029,7 +4031,8 @@ export const websiteRouter = router({
       getSignupSegmentId(db),
     ]);
     return {
-      priceDropAlerts: { enabled: priceDropsOn, recent: priceDrops },
+      priceDropAlerts: { enabled: priceDropsOn, recent: priceDrops, minPercent: priceDropMinPercent() },
+      sender: dealsSender(),
       signupAudience: { segmentId: signupSegmentId },
       settings,
       masterSwitch: dailyEmailMasterSwitchOn(),

@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BOOK_A_CALL_URL,
+  DEFAULT_DEALS_FROM,
+  DEFAULT_DEALS_REPLY_TO,
+  DEFAULT_SEND_HOUR_ET,
+  EMAIL_LOGO_WHITE_URL,
+  OLD_SITE_DIGEST_INTERNAL_RECIPIENTS,
+  OLD_SITE_DIGEST_SEGMENTS,
+  dealsSender,
+  digestHeadline,
+  digestSubLine,
+  resolveDailyEmailSettings,
+  roiPercent,
   MARKETING_POSTAL_ADDRESS,
   BLURB_LINE_CHARS,
   BLURB_MAX_LINES,
@@ -252,12 +264,36 @@ describe("renderBroadcastEmail", () => {
     expect(text).toContain("/newsite/properties/second?utm_source=savvy");
   });
 
-  it("shows only public facts", () => {
+  it("shows price, rooms, and ROI and revenue where the listing has them", () => {
     expect(html).toContain("$725,000");
-    expect(html).toContain("4 bed");
-    expect(html).toContain("3.5 bath");
-    expect(html.toLowerCase()).not.toContain("cash on cash");
+    expect(html).toContain("4 bd &middot; 3.5 ba");
+    const withFigures = renderBroadcastEmail({
+      listings: [listing({ projectedRevenue: "98000", cashOnCash: "0.114", sqft: 2100 })],
+      subject: "s",
+      intro: null,
+      runDate: "2026-09-24",
+    });
+    expect(withFigures.html).toContain("11.4% ROI");
+    expect(withFigures.html).toContain("$98,000 / yr projected revenue");
+    expect(withFigures.html).toContain("2,100 sqft");
+    expect(withFigures.text).toContain("$725,000 · 11.4% ROI");
+    // Cap rate and occupancy were never in the old digest and stay out.
     expect(html.toLowerCase()).not.toContain("cap rate");
+    expect(html).not.toContain("% ROI");
+  });
+
+  it("has the logo, the Book a Call block and the agent's photo by the note", () => {
+    expect(html).toContain(`src="${EMAIL_LOGO_WHITE_URL}"`);
+    expect(html).toContain("Book a Call with Our Market Advisors Today");
+    expect(html).toContain(`${BOOK_A_CALL_URL}?utm_source=savvy`);
+    const withAgent = renderBroadcastEmail({
+      listings: [listing({ agentBlurb: "Great creek.", agentName: "Liz Davis", agentPhotoUrl: "https://example.com/liz.jpg" })],
+      subject: "s",
+      intro: null,
+      runDate: "2026-09-24",
+    });
+    expect(withAgent.html).toContain('src="https://example.com/liz.jpg"');
+    expect(withAgent.html).toContain("Why Liz Davis likes this property");
   });
 
   it("escapes headlines", () => {
@@ -284,6 +320,70 @@ describe("renderBroadcastEmail", () => {
     expect(MARKETING_POSTAL_ADDRESS).toBe("Savvy STR Agents, 37 Haywood St., #300, Asheville, NC 28801");
     expect(html).toContain(MARKETING_POSTAL_ADDRESS);
     expect(text).toContain(MARKETING_POSTAL_ADDRESS);
+  });
+});
+
+describe("the old site's digest, as defaults", () => {
+  it("sends from the deals lane, overridable by EMAIL_FROM_DEALS and EMAIL_REPLY_TO_DEALS", () => {
+    expect(DEFAULT_DEALS_FROM).toBe("Savvy <deals@deals.savvy-agents.com>");
+    expect(dealsSender({})).toEqual({ from: DEFAULT_DEALS_FROM, replyTo: DEFAULT_DEALS_REPLY_TO });
+    expect(dealsSender({ EMAIL_FROM_DEALS: " Team <a@b.com> ", EMAIL_REPLY_TO_DEALS: "r@b.com" })).toEqual({
+      from: "Team <a@b.com>",
+      replyTo: "r@b.com",
+    });
+  });
+
+  it("goes to the old digest's three lists at 5 PM Eastern when nothing was saved", () => {
+    expect(OLD_SITE_DIGEST_SEGMENTS.map(segment => segment.name)).toEqual([
+      "All Savvy-Agent Users",
+      "Old Lofty Leads",
+      "Platform Leads",
+    ]);
+    const settings = resolveDailyEmailSettings(null);
+    expect(settings.segmentIds).toEqual(OLD_SITE_DIGEST_SEGMENTS.map(segment => segment.id));
+    expect(settings.internalRecipients).toEqual([...OLD_SITE_DIGEST_INTERNAL_RECIPIENTS]);
+    expect(settings.sendHourEt).toBe(17);
+    expect(DEFAULT_SEND_HOUR_ET).toBe(17);
+    expect(settings.enabled).toBe(false);
+    expect(settings.personalEmailsEnabled).toBe(true);
+  });
+
+  it("uses the old lists for a saved row that never chose any (null), but keeps a choice of none", () => {
+    const row = { enabled: 0, sendHourEt: 17, segmentIds: null, internalRecipients: null, personalEmailsEnabled: 1 };
+    expect(resolveDailyEmailSettings(row).segmentIds).toHaveLength(3);
+    expect(resolveDailyEmailSettings({ ...row, segmentIds: [] }).segmentIds).toEqual([]);
+    expect(resolveDailyEmailSettings({ ...row, internalRecipients: [] }).internalRecipients).toEqual([]);
+    expect(resolveDailyEmailSettings({ ...row, segmentIds: ["only-one"] }).segmentIds).toEqual(["only-one"]);
+    expect(resolveDailyEmailSettings({ ...row, sendHourEt: 9 }).sendHourEt).toBe(9);
+    expect(resolveDailyEmailSettings({ ...row, sendHourEt: null }).sendHourEt).toBe(17);
+  });
+
+  it("is due at the old send time and not before", () => {
+    const due = (easternHour: number) =>
+      isScheduledSendDue({
+        enabled: true,
+        masterSwitch: true,
+        sendHourEt: resolveDailyEmailSettings(null).sendHourEt,
+        easternHour,
+        alreadySentToday: false,
+      });
+    expect(due(16)).toBe(false);
+    expect(due(17)).toBe(true);
+  });
+
+  it("writes the old headline and sub-line, singular and plural", () => {
+    expect(digestHeadline(4)).toBe("Don't Sleep on These 4 New STR Deals");
+    expect(digestHeadline(1)).toBe("Don't Sleep on This New STR Deal");
+    expect(digestSubLine(1)).toBe("1 New Hand-Picked Property");
+    expect(digestSubLine(3)).toBe("3 New Hand-Picked Properties");
+  });
+
+  it("turns cash on cash into the ROI badge", () => {
+    expect(roiPercent("0.114")).toBe(11.4);
+    expect(roiPercent(0.08)).toBe(8);
+    expect(roiPercent(null)).toBeNull();
+    expect(roiPercent("0")).toBeNull();
+    expect(roiPercent("abc")).toBeNull();
   });
 });
 

@@ -540,19 +540,25 @@ export const websiteAccountRouter = router({
           )
         )
         .limit(1);
+      // A reload within half an hour is the same visit, so it does not add to
+      // the count. Price drop alerts go to people with three or more visits,
+      // as on the old site, which counted views the same way.
+      const repeat = isRepeatView(previous?.lastViewedAt);
       await db
         .insert(websiteAccountPropertyViews)
         .values({ accountId: ctx.account.id, propertyId: input.propertyId })
         .onDuplicateKeyUpdate({
           set: {
-            viewCount: sql`${websiteAccountPropertyViews.viewCount} + 1`,
+            viewCount: repeat
+              ? sql`${websiteAccountPropertyViews.viewCount}`
+              : sql`${websiteAccountPropertyViews.viewCount} + 1`,
             lastViewedAt: new Date(),
           },
         });
 
       // The view also goes on the contact's timeline, for Hot Leads and the
-      // daily agent report. A reload within half an hour is the same visit.
-      if (!isRepeatView(previous?.lastViewedAt)) {
+      // daily agent report.
+      if (!repeat) {
         void recordWebsiteAccountActivity(db, ctx.account, {
           action: "property_viewed",
           propertyId: input.propertyId,
