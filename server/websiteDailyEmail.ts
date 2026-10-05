@@ -12,6 +12,7 @@ import {
   websiteProperties,
 } from "../drizzle/schema";
 import { getDb } from "./db";
+import { resolveNotificationRecipients } from "./_core/resendEmail";
 import { ENV } from "./_core/env";
 import { invokeLLM } from "./_core/llm";
 import {
@@ -425,7 +426,8 @@ export async function runDailyEmail(params: {
   // 2. The internal copy. Resend's unsubscribe placeholder only works on a
   //    broadcast, so the copy links to the preferences page instead.
   let internalSent = 0;
-  if (settings.internalRecipients.length) {
+  const internalRecipients = await dailyEmailInternalRecipients(settings.internalRecipients);
+  if (internalRecipients.length) {
     const copy = renderBroadcastEmail({
       listings: batch,
       subject,
@@ -433,7 +435,7 @@ export async function runDailyEmail(params: {
       runDate,
       unsubscribeUrl: PREFERENCES_URL,
     });
-    for (const to of settings.internalRecipients) {
+    for (const to of internalRecipients) {
       const result = await deliver(to, subject, copy.html, runId, copy.text);
       if (result.sent) internalSent += 1;
     }
@@ -459,7 +461,7 @@ export async function runDailyEmail(params: {
   const allOk =
     broadcastErrors.length === 0 &&
     personalFailed === 0 &&
-    internalSent === settings.internalRecipients.length;
+    internalSent === internalRecipients.length;
   const status = !reachedAnyone ? "failed" : allOk ? "sent" : "partial";
 
   // Stamp only when something went out, so a failed day retries tomorrow.
@@ -782,4 +784,16 @@ export async function analyzeDailyEmailWithAi(db: any): Promise<string> {
     console.warn("[DailyEmail] AI review failed.", error);
     return "The AI review is unavailable right now. The numbers above are still accurate.";
   }
+}
+
+/**
+ * Who gets the internal copy of the daily email: the list saved in Website
+ * Studio, if any, else the Recipients saved for "Daily property email
+ * (internal copy)" under Email Notifications. Nobody by default; there is
+ * no address in the code.
+ */
+export async function dailyEmailInternalRecipients(studioList: string[]): Promise<string[]> {
+  if (studioList.length) return studioList;
+  const saved = await resolveNotificationRecipients("website_daily_email_internal_copy", []);
+  return saved.map(recipient => recipient.email);
 }

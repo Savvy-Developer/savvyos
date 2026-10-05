@@ -14,8 +14,12 @@ import {
   financingLeadContext,
   formatBudget,
   queueFinancingPartnerFeed,
+  FINANCING_PARTNER_SKIPPED_ACTION,
+  partnerUrlStatus,
   readFinancingPartnerConfig,
+  resetLocalFinancingSendCount,
   runFinancingPartnerFeed,
+  startOfEasternDay,
   type FinancingFeedInput,
   type FinancingPageFacts,
 } from "./financingPartnerFeed";
@@ -86,7 +90,10 @@ function deps(overrides: Partial<Parameters<typeof runFinancingPartnerFeed>[1]> 
 const callTo = (fetchMock: any, url: string) => fetchMock.mock.calls.find((call: any[]) => call[0] === url);
 const bodyOf = (call: any[]) => JSON.parse(call[1].body);
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  resetLocalFinancingSendCount();
+});
 
 describe("the switch", () => {
   it("is on only for exactly on or true", () => {
@@ -337,5 +344,119 @@ describe("website.submitLead", () => {
     // double click is never passed on.
     expect(submitLead.indexOf("queueFinancingPartnerFeed(")).toBeGreaterThan(submitLead.indexOf("recentDuplicate[0]"));
     expect(submitLead.indexOf("queueFinancingPartnerFeed(")).toBeGreaterThan(submitLead.indexOf("if (input.website)"));
+  });
+});
+
+describe("partner URLs must be https", () => {
+  it("accepts https, refuses http unless FINANCING_PARTNER_ALLOW_HTTP is on, and refuses junk", () => {
+    expect(partnerUrlStatus("https://lender.test/x", false)).toBe("ok");
+    expect(partnerUrlStatus("http://104.0.0.1:3000/api", false)).toBe("refused");
+    expect(partnerUrlStatus("http://104.0.0.1:3000/api", true)).toBe("insecure-allowed");
+    expect(partnerUrlStatus("ftp://lender.test", true)).toBe("refused");
+    expect(partnerUrlStatus("not a url", true)).toBe("refused");
+  });
+
+  it("skips an http partner by default, with a warning naming the setting, and still sends to the other", async () => {
+    const fetchImpl = okFetch();
+    const d = deps({
+      env: { ...ENV, FINANCING_PARTNER_INBOUND_URL: "http://inbound.test:3000/api/leads/inbound" },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await runFinancingPartnerFeed(propertyInput, d);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(callTo(fetchImpl, MSTR_URL)).toBeTruthy();
+    const warnings = d.warn.mock.calls.map((call: any[]) => String(call[0])).join("\n");
+    expect(warnings).toContain("Refused FINANCING_PARTNER_INBOUND_URL");
+    expect(warnings).toContain("FINANCING_PARTNER_ALLOW_HTTP");
+    expect(warnings).not.toContain("test-inbound-token");
+  });
+
+  it("sends to an http partner when allowed, and warns that it is not encrypted", async () => {
+    const httpUrl = "http://inbound.test:3000/api/leads/inbound";
+    const fetchImpl = okFetch();
+    const d = deps({
+      env: { ...ENV, FINANCING_PARTNER_INBOUND_URL: httpUrl, FINANCING_PARTNER_ALLOW_HTTP: "on" },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await runFinancingPartnerFeed(propertyInput, d);
+    expect(callTo(fetchImpl, httpUrl)).toBeTruthy();
+    const warnings = d.warn.mock.calls.map((call: any[]) => String(call[0])).join("\n");
+    expect(warnings).toContain("plain http to FINANCING_PARTNER_INBOUND_URL");
+  });
+
+  it("reports refused URLs by name only", () => {
+    const config = readFinancingPartnerConfig({ ...ENV, FINANCING_PARTNER_MSTR_URL: "http://lender.test" });
+    expect(config.mstr).toBeNull();
+    expect(config.refused).toEqual(["FINANCING_PARTNER_MSTR_URL"]);
+  });
+});
+
+describe("daily cap", () => {
+  it("defaults to 50 and can be configured", () => {
+    expect(readFinancingPartnerConfig(ENV).dailyCap).toBe(50);
+    expect(readFinancingPartnerConfig({ ...ENV, FINANCING_PARTNER_DAILY_CAP: "5" }).dailyCap).toBe(5);
+    expect(readFinancingPartnerConfig({ ...ENV, FINANCING_PARTNER_DAILY_CAP: "junk" }).dailyCap).toBe(50);
+  });
+
+  it("skips and logs once today's count reaches the cap, without calling any partner", async () => {
+    const fetchImpl = okFetch();
+    const d = deps({
+      env: { ...ENV, FINANCING_PARTNER_DAILY_CAP: "50" },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      countSentToday: vi.fn(async () => 50),
+    });
+    const result = await runFinancingPartnerFeed(propertyInput, d);
+    expect(result).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(d.warn.mock.calls.map((call: any[]) => String(call[0])).join("\n")).toContain("Daily cap of 50 reached");
+    expect(d.logTimeline).toHaveBeenCalledWith(
+      expect.objectContaining({ action: FINANCING_PARTNER_SKIPPED_ACTION, entityId: propertyInput.contactId })
+    );
+  });
+
+  it("sends below the cap, and counts this server's own sends when the database count is unavailable", async () => {
+    const fetchImpl = okFetch();
+    const d = deps({
+      env: { ...ENV, FINANCING_PARTNER_DAILY_CAP: "2" },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      countSentToday: vi.fn(async () => {
+        throw new Error("db down");
+      }),
+    });
+    await runFinancingPartnerFeed(propertyInput, d);
+    await runFinancingPartnerFeed(propertyInput, d);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    await runFinancingPartnerFeed(propertyInput, d);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it("counts from midnight Eastern", () => {
+    const start = startOfEasternDay(new Date("2026-10-05T15:30:00Z"));
+    expect(start.toISOString()).toBe("2026-10-05T04:00:00.000Z");
+  });
+
+  it("is wired in submitLead from today's timeline entries", () => {
+    const router = readFileSync(path.resolve(__dirname, "routers/website.ts"), "utf8");
+    expect(router).toContain("eq(activityLog.action, FINANCING_PARTNER_ACTION)");
+    expect(router).toContain("gte(activityLog.createdAt, startOfEasternDay())");
+  });
+});
+
+describe("spam checks run before any partner send", () => {
+  it("honeypot, IP/email throttle and the 60-second duplicate check come before the feed in submitLead", () => {
+    const router = readFileSync(path.resolve(__dirname, "routers/website.ts"), "utf8");
+    const start = router.indexOf("  submitLead: publicProcedure");
+    const body = router.slice(start);
+    const at = (needle: string) => body.indexOf(needle);
+    const feed = at("queueFinancingPartnerFeed(");
+    expect(feed).toBeGreaterThan(0);
+    for (const check of [
+      "if (input.website) return { success: true };",
+      "await enforceLeadThrottle(db, ctx.req, normalizedEmail);",
+      "if (recentDuplicate[0]) return { success: true };",
+    ]) {
+      expect(at(check)).toBeGreaterThan(0);
+      expect(at(check)).toBeLessThan(feed);
+    }
   });
 });

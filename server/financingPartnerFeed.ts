@@ -31,6 +31,13 @@ import { WEBSITE_BASE_PATH } from "./websiteSeoPages";
  *  FINANCING_PARTNER_MSTR_API_KEY   Its x-api-key.
  *  FINANCING_PARTNER_INBOUND_URL    The second inbound leads API URL.
  *  FINANCING_PARTNER_INBOUND_TOKEN  Its Bearer token.
+ *  FINANCING_PARTNER_ALLOW_HTTP     "on" or "true" to allow a partner URL
+ *                                   that is not https (logged as a warning
+ *                                   on every send). Otherwise such a partner
+ *                                   is refused and skipped.
+ *  FINANCING_PARTNER_DAILY_CAP      Most partner sends per day (Eastern),
+ *                                   default 50. Past it, requests are logged
+ *                                   and skipped.
  *
  * A partner whose URL or key is missing is skipped with a warning; the other
  * still gets the lead.
@@ -44,6 +51,9 @@ import { WEBSITE_BASE_PATH } from "./websiteSeoPages";
 
 export const FINANCING_PARTNER_TIMEOUT_MS = 10_000;
 export const FINANCING_PARTNER_ACTION = "financing_partner_feed";
+/** Timeline action for a request the daily cap held back. */
+export const FINANCING_PARTNER_SKIPPED_ACTION = "financing_partner_feed_skipped";
+export const FINANCING_PARTNER_DEFAULT_DAILY_CAP = 50;
 const TAGS = ["buyer", "STR"];
 
 export type PartnerKey = "mstr" | "inbound";
@@ -60,7 +70,35 @@ export type FinancingPartnerConfig = {
   inbound: { url: string; token: string } | null;
   /** Names (never values) of settings that are needed and not set. */
   missing: string[];
+  /** URL settings refused because they are not https (names only). */
+  refused: string[];
+  /** URL settings that are not https but allowed by FINANCING_PARTNER_ALLOW_HTTP. */
+  insecureAllowed: string[];
+  dailyCap: number;
 };
+
+/**
+ * A partner URL may only be used over https, unless FINANCING_PARTNER_ALLOW_HTTP
+ * is on: the request carries a key and a person's name, email and phone.
+ */
+export function partnerUrlStatus(url: string, allowHttp: boolean): "ok" | "insecure-allowed" | "refused" {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "refused";
+  }
+  if (parsed.protocol === "https:") return "ok";
+  if (parsed.protocol === "http:" && allowHttp) return "insecure-allowed";
+  return "refused";
+}
+
+export function financingDailyCap(value: string | undefined): number {
+  const parsed = Number((value ?? "").trim());
+  return (value ?? "").trim() !== "" && Number.isInteger(parsed) && parsed >= 0
+    ? parsed
+    : FINANCING_PARTNER_DEFAULT_DAILY_CAP;
+}
 
 export function financingFeedEnabled(value: string | undefined): boolean {
   const flag = (value ?? "").trim().toLowerCase();
@@ -70,12 +108,22 @@ export function financingFeedEnabled(value: string | undefined): boolean {
 export function readFinancingPartnerConfig(env: Env = process.env): FinancingPartnerConfig {
   const read = (name: string) => (env[name] ?? "").trim();
   const missing: string[] = [];
+  const refused: string[] = [];
+  const insecureAllowed: string[] = [];
+  const allowHttp = financingFeedEnabled(env.FINANCING_PARTNER_ALLOW_HTTP);
   const pair = (urlName: string, keyName: string) => {
     const url = read(urlName);
     const key = read(keyName);
     if (!url) missing.push(urlName);
     if (!key) missing.push(keyName);
-    return url && key ? { url, key } : null;
+    if (!url || !key) return null;
+    const status = partnerUrlStatus(url, allowHttp);
+    if (status === "refused") {
+      refused.push(urlName);
+      return null;
+    }
+    if (status === "insecure-allowed") insecureAllowed.push(urlName);
+    return { url, key };
   };
   const mstr = pair("FINANCING_PARTNER_MSTR_URL", "FINANCING_PARTNER_MSTR_API_KEY");
   const inbound = pair("FINANCING_PARTNER_INBOUND_URL", "FINANCING_PARTNER_INBOUND_TOKEN");
@@ -84,6 +132,9 @@ export function readFinancingPartnerConfig(env: Env = process.env): FinancingPar
     mstr: mstr ? { url: mstr.url, apiKey: mstr.key } : null,
     inbound: inbound ? { url: inbound.url, token: inbound.key } : null,
     missing,
+    refused,
+    insecureAllowed,
+    dailyCap: financingDailyCap(env.FINANCING_PARTNER_DAILY_CAP),
   };
 }
 
@@ -345,6 +396,11 @@ export type FinancingFeedDeps = {
     userId: null;
     details: Record<string, unknown>;
   }) => Promise<unknown>;
+  /**
+   * How many requests were already sent to the partners today (Eastern).
+   * Missing, or failing, falls back to this server's own count.
+   */
+  countSentToday?: () => Promise<number>;
   warn?: (message: string) => void;
 };
 
@@ -365,7 +421,43 @@ export async function runFinancingPartnerFeed(
     if (config.missing.length) {
       warn(`[FinancingPartnerFeed] Not set: ${config.missing.join(", ")}. Those partners are skipped.`);
     }
+    if (config.refused.length) {
+      warn(
+        `[FinancingPartnerFeed] Refused ${config.refused.join(", ")}: not an https URL. ` +
+          "Set FINANCING_PARTNER_ALLOW_HTTP=on to allow it. Those partners are skipped."
+      );
+    }
+    if (config.insecureAllowed.length) {
+      warn(
+        `[FinancingPartnerFeed] Sending over plain http to ${config.insecureAllowed.join(", ")} ` +
+          "because FINANCING_PARTNER_ALLOW_HTTP is on. The key and the lead are not encrypted in transit."
+      );
+    }
     if (!config.mstr && !config.inbound) return null;
+    // Daily cap: a burst of spam that gets past the form's throttle must not
+    // turn into a burst of leads at the lender.
+    const sentToday = await countSentToday(deps);
+    if (sentToday >= config.dailyCap) {
+      warn(`[FinancingPartnerFeed] Daily cap of ${config.dailyCap} reached (${sentToday} sent today). Skipped.`);
+      if (input.contactId) {
+        await deps
+          .logTimeline({
+            userId: null,
+            action: FINANCING_PARTNER_SKIPPED_ACTION,
+            entityType: "contact",
+            entityId: input.contactId,
+            relatedContactId: input.contactId,
+            details: {
+              summary: `Not sent to lender partners: the daily cap of ${config.dailyCap} was reached`,
+              dailyCap: config.dailyCap,
+              via: "savvy-website",
+            },
+          })
+          .catch(error => warn(`[FinancingPartnerFeed] Timeline entry not written: ${error?.message ?? error}`));
+      }
+      return null;
+    }
+    recordLocalSend();
     const facts = await deps.loadFacts(input).catch(error => {
       warn(`[FinancingPartnerFeed] Could not read the page details: ${error?.message ?? error}`);
       return { property: null, marketName: null, caseStudy: null } as FinancingPageFacts;
@@ -397,6 +489,58 @@ export async function runFinancingPartnerFeed(
     warn(`[FinancingPartnerFeed] Failed: ${error?.message ?? error}`);
     return null;
   }
+}
+
+/** This server's own count of partner sends per Eastern day, the floor for the cap. */
+const localSends = { day: "", count: 0 };
+function easternDay(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(now);
+}
+function recordLocalSend(): void {
+  const day = easternDay();
+  if (localSends.day !== day) {
+    localSends.day = day;
+    localSends.count = 0;
+  }
+  localSends.count += 1;
+}
+function localSendsToday(): number {
+  return localSends.day === easternDay() ? localSends.count : 0;
+}
+/** For tests. */
+export function resetLocalFinancingSendCount(): void {
+  localSends.day = "";
+  localSends.count = 0;
+}
+async function countSentToday(deps: FinancingFeedDeps): Promise<number> {
+  const local = localSendsToday();
+  if (!deps.countSentToday) return local;
+  try {
+    return Math.max(local, Number(await deps.countSentToday()) || 0);
+  } catch {
+    return local;
+  }
+}
+
+/** Midnight Eastern today, as a Date, for counting today's sends. */
+export function startOfEasternDay(now = new Date()): Date {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+      .formatToParts(now)
+      .map(part => [part.type, part.value])
+  ) as Record<string, string>;
+  const hour = Number(parts.hour) % 24;
+  const secondsIntoDay = hour * 3600 + Number(parts.minute) * 60 + Number(parts.second);
+  return new Date(Math.floor(now.getTime() / 1000) * 1000 - secondsIntoDay * 1000);
 }
 
 /**

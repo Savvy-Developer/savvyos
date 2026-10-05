@@ -19,6 +19,7 @@ import {
   websiteFeaturedListings,
   websiteLeads,
   websiteLeadAttempts,
+  activityLog,
   websitePages,
   websiteProperties,
   websiteSiteSettings,
@@ -125,7 +126,12 @@ import { websiteLeadSourceId } from "../websiteLeadSources";
 import { isCaseStudyLeadPath, websiteFormLeadSource } from "@shared/websiteLeadSources";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { recordWebsiteRequestActivity } from "../websiteActivity";
-import { loadFinancingPageFacts, queueFinancingPartnerFeed } from "../financingPartnerFeed";
+import {
+  FINANCING_PARTNER_ACTION,
+  loadFinancingPageFacts,
+  queueFinancingPartnerFeed,
+  startOfEasternDay,
+} from "../financingPartnerFeed";
 
 /**
  * Whether the visitor making this request has an investor account session.
@@ -2498,6 +2504,18 @@ export const websiteRouter = router({
           {
             loadFacts: feedInput => loadFinancingPageFacts(db, feedInput),
             logTimeline: entry => logActivity(entry),
+            countSentToday: async () => {
+              const [row] = await db
+                .select({ count: sql<number>`count(*)` })
+                .from(activityLog)
+                .where(
+                  and(
+                    eq(activityLog.action, FINANCING_PARTNER_ACTION),
+                    gte(activityLog.createdAt, startOfEasternDay())
+                  )
+                );
+              return Number(row?.count || 0);
+            },
           }
         );
       }

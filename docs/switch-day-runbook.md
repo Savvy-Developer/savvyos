@@ -34,6 +34,8 @@ Everything new ships **off**. On switch day, work through these steps in order. 
 ## 4. Financing partner feed
 
 1. Railway: `FINANCING_PARTNER_FEED_ENABLED=on`. The URLs and keys are already set: `FINANCING_PARTNER_MSTR_URL`, `FINANCING_PARTNER_MSTR_API_KEY`, `FINANCING_PARTNER_INBOUND_URL`, `FINANCING_PARTNER_INBOUND_TOKEN` (rotated in step 0).
+   - **Plain-http partner:** the inbound partner's URL is plain `http://` and is **refused** unless `FINANCING_PARTNER_ALLOW_HTTP=on`. With it on, every send logs a warning that the token and lead aren't encrypted. Better: ask the partner for an https URL.
+   - **Daily cap:** at most `FINANCING_PARTNER_DAILY_CAP` sends per Eastern day (default 50). Past it, requests are logged ("Not Sent to Lender Partners" on the timeline) and skipped.
 2. Do this **at the same moment** as step 6.2, so the lender gets each lead from exactly one site.
 3. **Check:** the next real financing request shows "Sent to Lender Partners" on its contact timeline with "ok" for both partners. Do not submit a test financing request: it would reach the lender.
 4. **Rollback:** set `FINANCING_PARTNER_FEED_ENABLED=off` and turn the old site's financing sends back on in the same step.
@@ -42,7 +44,7 @@ Everything new ships **off**. On switch day, work through these steps in order. 
 
 1. Website Studio → Daily Email:
    - **Lists:** the old site's three, "All Savvy-Agent Users", "Old Lofty Leads" and "Platform Leads". They are the defaults if never saved; check what's shown.
-   - **Internal recipients:** default lindsey.gordon@savvy.realty. Confirm.
+   - **Internal copy:** there's no default recipient. Add who should get a copy under Email Notifications → "Daily Property Email, Internal Copy" → Recipients (a list saved in Website Studio → Daily Email wins over it).
    - **Send hour:** 17:00 ET.
    - **Sender:** deals@deals.savvy-agents.com (verified in Resend).
 2. Railway: `DAILY_PROPERTY_EMAIL_ENABLED=true`. This one variable also lets price drops run.
@@ -51,7 +53,7 @@ Everything new ships **off**. On switch day, work through these steps in order. 
 5. **Same day:** stop the old digest and price-drop jobs (step 6.1). Otherwise investors get two emails.
 6. **Check:**
    - At 5 PM ET the next day, one broadcast per list shows in Resend.
-   - The internal copy arrives.
+   - The internal copy arrives (if recipients were set).
    - A real 1%+ price cut produces an alert within about 30 minutes.
 7. **Rollback:** turn the Studio toggles off; that stops sends at once. Also set `DAILY_PROPERTY_EMAIL_ENABLED=false` (redeploys). Then turn the old crons back on (step 6.1 rollback).
 

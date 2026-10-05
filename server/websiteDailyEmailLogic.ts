@@ -315,7 +315,6 @@ export const OLD_SITE_DIGEST_SEGMENTS: ReadonlyArray<{ id: string; name: string 
 ];
 
 /** The old site's operator copy (its DIGEST_EMAIL default). */
-export const OLD_SITE_DIGEST_INTERNAL_RECIPIENTS: ReadonlyArray<string> = ["lindsey.gordon@savvy.realty"];
 
 /** 5 PM Eastern, the old digest's send time. */
 export const DEFAULT_SEND_HOUR_ET = 17;
@@ -351,17 +350,17 @@ export type DailyEmailSettingsShape = {
 };
 
 /**
- * The settings row as the email uses it. Lists and internal recipients that
- * were never saved (null) fall back to the old site's; an empty list someone
- * saved on purpose stays empty.
+ * The settings row as the email uses it. Lists that were never saved (null)
+ * fall back to the old site's; an empty list someone saved on purpose stays
+ * empty. Internal recipients have no coded default (see dailyEmailInternalRecipients).
  */
 export function resolveDailyEmailSettings(row: Record<string, any> | null | undefined): DailyEmailSettingsShape {
   const segmentIds = Array.isArray(row?.segmentIds)
     ? (row!.segmentIds as string[])
     : OLD_SITE_DIGEST_SEGMENTS.map(segment => segment.id);
-  const internalRecipients = Array.isArray(row?.internalRecipients)
-    ? (row!.internalRecipients as string[])
-    : [...OLD_SITE_DIGEST_INTERNAL_RECIPIENTS];
+  // No coded default: the internal copy goes to the Studio list if one was
+  // saved, else to the Email Notifications recipients (empty by default).
+  const internalRecipients = Array.isArray(row?.internalRecipients) ? (row!.internalRecipients as string[]) : [];
   const hour = row?.sendHourEt == null || row.sendHourEt === "" ? NaN : Number(row.sendHourEt);
   return {
     enabled: !!row?.enabled,

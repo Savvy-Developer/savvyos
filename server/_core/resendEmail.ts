@@ -136,6 +136,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "website_listing_expired",
   "website_inquiry_unassigned",
   "website_account_email_confirmation",
+  "website_daily_email_internal_copy",
   "pto_request_submitted",
   "pto_request_decision",
   "vendor_featured_payment_invitation",
@@ -594,6 +595,18 @@ const TEMPLATES: Record<
       ${bodyText("This link works once and expires in 7 days. Your account already works, so you can keep using the site in the meantime.")}
       ${bodyText("If you did not create an account, you can ignore this email.")}`,
       "Confirm your email for Savvy STR Agents"
+    ),
+  }),
+
+  // Only its recipient list is used: the daily property email's internal copy
+  // goes to whoever is saved under Recipients (none by default). The copy
+  // itself is the day's digest, rendered by websiteDailyEmail.ts.
+  website_daily_email_internal_copy: () => ({
+    subject: "Daily property email (internal copy)",
+    html: emailLayout(
+      `${heading("Daily property email, internal copy")}
+      ${bodyText("When the daily property email goes out, the people on this list get a copy of the same email. Set them under Recipients; nobody gets a copy until someone is added.")}`,
+      "Daily property email (internal copy)"
     ),
   }),
 

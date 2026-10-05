@@ -6,7 +6,6 @@ import {
   DEFAULT_DEALS_REPLY_TO,
   DEFAULT_SEND_HOUR_ET,
   EMAIL_LOGO_WHITE_URL,
-  OLD_SITE_DIGEST_INTERNAL_RECIPIENTS,
   OLD_SITE_DIGEST_SEGMENTS,
   dealsSender,
   digestHeadline,
@@ -341,7 +340,8 @@ describe("the old site's digest, as defaults", () => {
     ]);
     const settings = resolveDailyEmailSettings(null);
     expect(settings.segmentIds).toEqual(OLD_SITE_DIGEST_SEGMENTS.map(segment => segment.id));
-    expect(settings.internalRecipients).toEqual([...OLD_SITE_DIGEST_INTERNAL_RECIPIENTS]);
+    // No coded internal recipient: the copy goes to the Email Notifications list.
+    expect(settings.internalRecipients).toEqual([]);
     expect(settings.sendHourEt).toBe(17);
     expect(DEFAULT_SEND_HOUR_ET).toBe(17);
     expect(settings.enabled).toBe(false);
@@ -471,5 +471,21 @@ describe("listUnsubscribeHeaders", () => {
       "List-Unsubscribe": "<https://os.example.com/api/unsubscribe?token=abc>",
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     });
+  });
+});
+
+describe("internal copy recipients", () => {
+  it("has no address in the code: the Studio list, else the Email Notifications recipients (none by default)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    const read = (file: string) => readFileSync(path.resolve(__dirname, file), "utf8");
+    for (const file of ["websiteDailyEmail.ts", "websiteDailyEmailLogic.ts"]) {
+      expect(read(file)).not.toMatch(/@savvy\.realty/);
+    }
+    const send = read("websiteDailyEmail.ts");
+    expect(send).toContain('resolveNotificationRecipients("website_daily_email_internal_copy", [])');
+    expect(send).toContain("const internalRecipients = await dailyEmailInternalRecipients(settings.internalRecipients);");
+    expect(read("_core/resendEmail.ts")).toContain('"website_daily_email_internal_copy",');
+    expect(read("../client/src/pages/EmailNotificationsPage.tsx")).toContain('"website_daily_email_internal_copy",\n]);');
   });
 });

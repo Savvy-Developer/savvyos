@@ -749,6 +749,14 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       break;
     }
 
+    case "financing_partner_feed_skipped": {
+      // The daily cap in server/financingPartnerFeed.ts held this one back.
+      title = "Not Sent to Lender Partners";
+      lines = [String(details.summary ?? "The daily cap was reached")];
+      icon = "alert";
+      break;
+    }
+
     case "lead_created": {
       // Fired by the savvy-web "lead.created" event (Message Agent, Financing buttons).
       // The source field inside webhookData indicates which CTA was clicked.
