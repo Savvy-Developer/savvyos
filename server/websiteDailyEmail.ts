@@ -1,7 +1,10 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 
 import {
+  marketProfiles,
+  marketZipCodes,
   properties,
+  users,
   websiteAccounts,
   websiteDailyEmailClicks,
   websiteDailyEmailEngagement,
@@ -18,7 +21,8 @@ import {
 } from "./_core/resendMarketingBroadcast";
 import type { ResendWebhookEvent } from "./_core/resendWebhook";
 import { easternDateKey, getEasternTimeParts } from "./agentProductionReportScheduler";
-import { dailyPropertyEmailEnabled } from "./dailyPropertyEmailMatching";
+import { dailyPropertyEmailEnabled, normalizeZip } from "./dailyPropertyEmailMatching";
+import { PUBLIC_MARKET_STATUSES } from "./publicMarketDirectory";
 import {
   deliver,
   sendPersonalPropertyEmails,
@@ -149,6 +153,10 @@ const queueColumns = {
   heroImageUrl: websiteProperties.heroImageUrl,
   publishedAt: websiteProperties.publishedAt,
   approvedAt: websiteProperties.dailyEmailApprovedAt,
+  // "Why I like this property" and who wrote it. Both columns are already
+  // read by the public site, so the email adds nothing new to the database.
+  agentBlurb: websiteProperties.agentBlurb,
+  agentName: users.name,
   address: properties.address,
   city: properties.city,
   state: properties.state,
@@ -158,12 +166,52 @@ const queueColumns = {
   baths: properties.baths,
 };
 
+/**
+ * Name the market each listing sits in, for the subject line. A market owns a
+ * listing through its ZIP territories, the same rule the public site uses,
+ * and only markets the site shows are named. A listing outside every market
+ * is left as it is and the subject falls back to its city.
+ *
+ * Never fails the email: if the lookup breaks, every listing goes by its city.
+ */
+async function withMarketNames<T extends { zip: string | null }>(
+  db: any,
+  listings: T[]
+): Promise<Array<T & { marketName: string | null }>> {
+  const named = new Map<string, string>();
+  const zips = Array.from(
+    new Set(listings.map(listing => normalizeZip(listing.zip)).filter((zip): zip is string => !!zip))
+  );
+  if (zips.length) {
+    try {
+      const rows = await db
+        .select({ zipCode: marketZipCodes.zipCode, name: marketProfiles.name })
+        .from(marketZipCodes)
+        .innerJoin(marketProfiles, eq(marketZipCodes.marketProfileId, marketProfiles.id))
+        .where(
+          and(
+            inArray(marketZipCodes.zipCode, zips),
+            inArray(marketProfiles.status, [...PUBLIC_MARKET_STATUSES])
+          )
+        );
+      for (const row of rows) named.set(row.zipCode, row.name);
+    } catch (error) {
+      console.error("[DailyEmail] Market names unavailable, subject will use cities.", error);
+    }
+  }
+  return listings.map(listing => ({
+    ...listing,
+    marketName: named.get(normalizeZip(listing.zip) ?? "") ?? null,
+  }));
+}
+
 /** Published listings that have not gone out in a daily email yet. */
 export async function loadQueue(db: any): Promise<QueueListing[]> {
   const rows = await db
     .select(queueColumns)
     .from(websiteProperties)
     .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
+    .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
     .where(
       and(
         eq(websiteProperties.status, "published"),
@@ -173,7 +221,8 @@ export async function loadQueue(db: any): Promise<QueueListing[]> {
     )
     .orderBy(desc(websiteProperties.publishedAt))
     .limit(200);
-  return rows.map((row: any) => ({ ...row, approved: !!row.approvedAt }));
+  const queue: QueueListing[] = rows.map((row: any) => ({ ...row, approved: !!row.approvedAt }));
+  return withMarketNames(db, queue);
 }
 
 /**
@@ -189,14 +238,15 @@ async function sampleListings(db: any, queue: QueueListing[]): Promise<{
   const approved = queue.filter(listing => listing.approved);
   if (approved.length) return { listings: approved, usingApproved: true };
   if (queue.length) return { listings: queue.slice(0, 3), usingApproved: false };
-  const recent = await db
+  const recent: Array<BroadcastListing & { zip: string | null }> = await db
     .select(queueColumns)
     .from(websiteProperties)
     .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
+    .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
     .where(eq(websiteProperties.status, "published"))
     .orderBy(desc(websiteProperties.publishedAt))
     .limit(3);
-  return { listings: recent, usingApproved: false };
+  return { listings: await withMarketNames(db, recent), usingApproved: false };
 }
 
 export async function setApproval(
@@ -235,7 +285,7 @@ export async function previewDailyEmail(db: any): Promise<{
   // checked.
   const { listings, usingApproved } = await sampleListings(db, queue);
   const runDate = todayEastern();
-  const subject = renderSubject(settings.subjectTemplate, listings.length);
+  const subject = renderSubject(settings.subjectTemplate, listings, runDate);
   const { html } = renderBroadcastEmail({
     listings,
     subject,
@@ -283,7 +333,7 @@ export async function sendTestDailyEmail(
     return { runId: null, status: "blocked", message: "There are no live listings on the site to put in a test." };
   }
   const runDate = todayEastern();
-  const subject = `[Test] ${renderSubject(settings.subjectTemplate, listings.length)}`;
+  const subject = `[Test] ${renderSubject(settings.subjectTemplate, listings, runDate)}`;
   const runId = await insertRun(db, {
     runDate,
     trigger: "test",
@@ -375,7 +425,7 @@ export async function runDailyEmail(params: {
     return { runId: null, status: "skipped", message: "No approved listings to send." };
   }
 
-  const subject = renderSubject(settings.subjectTemplate, batch.length);
+  const subject = renderSubject(settings.subjectTemplate, batch, runDate);
   let runId: number;
   try {
     runId = await insertRun(db, {
@@ -450,6 +500,7 @@ export async function runDailyEmail(params: {
       const personal = await sendPersonalPropertyEmails({
         candidates: batch as EmailListing[],
         runId,
+        runDate,
       });
       personalSent = personal.sent;
       personalFailed = personal.failed;

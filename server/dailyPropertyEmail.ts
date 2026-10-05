@@ -16,7 +16,14 @@ import {
   type Listing,
   type Preferences,
 } from "./dailyPropertyEmailMatching";
-import { DAILY_EMAIL_TAG, PUBLIC_SITE_BASE, listUnsubscribeHeaders } from "./websiteDailyEmailLogic";
+import {
+  DAILY_EMAIL_TAG,
+  PUBLIC_SITE_BASE,
+  buildSubject,
+  listUnsubscribeHeaders,
+  renderBlurbHtml,
+  renderBlurbText,
+} from "./websiteDailyEmailLogic";
 
 /**
  * The personal new-property email for investors with a new-site account.
@@ -38,6 +45,12 @@ export type EmailListing = Listing & {
   city: string | null;
   state: string | null;
   heroImageUrl: string | null;
+  /** "Why I like this property", in the assigned agent's words. */
+  agentBlurb?: string | null;
+  /** The assigned agent's name, for the heading over their note. */
+  agentName?: string | null;
+  /** The public market that owns the listing's ZIP, when one does. */
+  marketName?: string | null;
 };
 
 const money = (value: string | number | null) => {
@@ -61,30 +74,36 @@ const escapeHtml = (value: string) =>
 /**
  * The email body.
  *
- * Deliberately shows only what a logged out person may see: address, price,
- * beds and baths. The revenue and return figures are behind the login on the
- * site, and an email is the least private place there is, so putting them here
- * would undo the gating rather than respect it. The link is the invitation to
- * go and look.
+ * Shows what a logged out person may see (address, price, beds), plus the
+ * agent's "Why I like this property" note when there is one, cut to five
+ * lines with a link to the rest. The revenue and return figures are behind the
+ * login on the site, and an email is the least private place there is, so
+ * putting them here would undo the gating rather than respect it. The link is
+ * the invitation to go and look.
+ *
+ * The subject is written from this person's own listings by the same builder
+ * as the big-list email (buildSubject), so it rotates the same way and is the
+ * same for a given run date and set of listings.
  */
 export function renderDailyPropertyEmail(
   firstName: string | null,
   listings: EmailListing[],
-  unsubscribeUrl: string | null
-): { subject: string; html: string } {
+  unsubscribeUrl: string | null,
+  runDate: string
+): { subject: string; html: string; text: string } {
   const count = listings.length;
-  const subject =
-    count === 1
-      ? `A new investment property in your search`
-      : `${count} new investment properties in your search`;
+  const subject = buildSubject(listings, runDate);
 
   const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : "Hi,";
+  const summary = `${count === 1 ? "A new property" : `${count} new properties`} matching what you are looking for.`;
+  const listingUrl = (listing: EmailListing) =>
+    `${SITE_BASE}/properties/${encodeURIComponent(listing.slug)}`;
 
   const cards = listings
     .map(listing => {
       const price = money(listing.listPrice);
       const place = [listing.city, listing.state].filter(Boolean).join(", ");
-      const url = `${SITE_BASE}/properties/${encodeURIComponent(listing.slug)}`;
+      const url = listingUrl(listing);
       const beds = listing.beds == null ? null : String(listing.beds);
       const facts = [
         price,
@@ -106,6 +125,7 @@ export function renderDailyPropertyEmail(
               </a>
               ${place ? `<div style="color:#64748b;font-size:13px;margin-top:4px;">${escapeHtml(place)}</div>` : ""}
               ${facts ? `<div style="color:#0f172a;font-size:14px;margin-top:8px;font-weight:600;">${facts}</div>` : ""}
+              ${renderBlurbHtml(listing, url)}
               <a href="${url}" style="display:inline-block;margin-top:14px;background:#10c0df;color:#03293c;font-weight:bold;font-size:13px;text-decoration:none;padding:9px 16px;border-radius:8px;">View the property</a>
             </td></tr>
           </table>
@@ -122,7 +142,7 @@ export function renderDailyPropertyEmail(
           <div style="color:#05314a;font-size:20px;font-weight:800;">Savvy STR Agents</div>
           <div style="color:#64748b;font-size:14px;margin-top:8px;">${greeting}</div>
           <div style="color:#0f172a;font-size:15px;margin-top:6px;">
-            ${count === 1 ? "A new property" : `${count} new properties`} matching what you are looking for.
+            ${summary}
           </div>
         </td></tr>
         ${cards}
@@ -143,7 +163,28 @@ export function renderDailyPropertyEmail(
   </table>
 </body></html>`;
 
-  return { subject, html };
+  const text = [
+    "Savvy STR Agents",
+    "",
+    firstName ? `Hi ${firstName},` : "Hi,",
+    summary,
+    "",
+    ...listings.map(listing => {
+      const url = listingUrl(listing);
+      const place = [listing.city, listing.state].filter(Boolean).join(", ");
+      return [
+        listing.headline || listing.address || "New listing",
+        [place, money(listing.listPrice)].filter(Boolean).join(" · "),
+        ...renderBlurbText(listing, url),
+        url,
+        "",
+      ].join("\n");
+    }),
+    `Change what you hear about: ${SITE_BASE}/account/preferences`,
+    ...(unsubscribeUrl ? ["", `Unsubscribe: ${unsubscribeUrl}`] : []),
+  ].join("\n");
+
+  return { subject, html, text };
 }
 
 /** ZIP to market, the map the matcher needs to resolve market preferences. */
@@ -182,6 +223,8 @@ export type PersonalSendSummary = {
 export async function sendPersonalPropertyEmails(params: {
   candidates: EmailListing[];
   runId: number;
+  /** The run's Eastern date, "YYYY-MM-DD". Picks the day's subject pattern. */
+  runDate: string;
   cadence?: "daily" | "weekly";
   asOf?: Date;
 }): Promise<PersonalSendSummary> {
@@ -258,13 +301,14 @@ export async function sendPersonalPropertyEmails(params: {
     }
 
     const unsubscribeUrl = createMarketingUnsubscribeUrl(account.email);
-    const { subject, html } = renderDailyPropertyEmail(
+    const { subject, html, text } = renderDailyPropertyEmail(
       account.firstName,
       outcome.listings as EmailListing[],
-      unsubscribeUrl
+      unsubscribeUrl,
+      params.runDate
     );
 
-    const result = await deliver(account.email, subject, html, params.runId, undefined, unsubscribeUrl);
+    const result = await deliver(account.email, subject, html, params.runId, text, unsubscribeUrl);
     if (result.sent) {
       await recordSend(db, account.id, outcome.listings.length, asOf);
       summary.sent += 1;
