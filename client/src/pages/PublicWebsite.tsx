@@ -114,6 +114,8 @@ import {
   ViewHistoryBody,
   accountPath,
   useRecordPropertyView,
+  useRecordSearch,
+  useRecordShare,
   useWebsiteAccount,
 } from "@/components/website/publicAccountPages";
 import {
@@ -1047,6 +1049,23 @@ function PropertiesPage() {
     return () => window.clearTimeout(timer);
   }, [filters.search]);
 
+  // A signed-in investor's search goes on their contact timeline, once it has
+  // stood for a moment and once per identical search per visit (the old site
+  // logged these as market searches). Sort is not part of what was searched.
+  useRecordSearch(
+    {
+      query: debouncedSearch,
+      marketId: filters.market ? Number(filters.market) : null,
+      state: filters.state,
+      propertyType: filters.type,
+      minBeds: filters.beds ? Number(filters.beds) : null,
+      minBaths: filters.baths ? Number(filters.baths) : null,
+      minPrice: filters.minPrice ? Number(filters.minPrice) : null,
+      maxPrice: filters.maxPrice ? Number(filters.maxPrice) : null,
+    },
+    "properties"
+  );
+
   const facets = trpc.website.publicPropertyFacets.useQuery();
   const query = trpc.website.publicProperties.useQuery(
     {
@@ -1672,7 +1691,12 @@ function PropertyDetailPage({ slug }: { slug: string }) {
             Back to Properties
           </a>
           <div className="flex items-center gap-2">
-            <ShareButton url={shareUrl} text={item.address || "Savvy STR property"} pill />
+            <ShareButton
+              url={shareUrl}
+              text={item.address || "Savvy STR property"}
+              pill
+              target={item.propertyId ? { kind: "property", propertyId: Number(item.propertyId) } : null}
+            />
             <SaveButton propertyId={item.propertyId} pill />
           </div>
         </div>
@@ -3547,6 +3571,7 @@ function ResourceDetailPage({ slug }: { slug: string }) {
   const item: any = query.data;
   usePageTitle(item?.title || "Resource");
   useRecordArticleView("post", item?.id);
+  const recordShare = useRecordShare();
   if (query.isLoading) return <LoadingPage />;
   if (!item) return <NotFoundPage />;
   const authorName = item.authorName || "Savvy Team";
@@ -3558,11 +3583,13 @@ function ResourceDetailPage({ slug }: { slug: string }) {
     .filter(post => post.slug !== item.slug)
     .sort((a, b) => Number(b.category === item.category) - Number(a.category === item.category))
     .slice(0, 3);
+  const shareTarget = item.id ? { kind: "post" as const, contentId: Number(item.id) } : null;
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
+      recordShare(shareTarget, "copy_link");
     } catch {
       // Clipboard refused; the address bar still has the link.
     }
@@ -3669,6 +3696,7 @@ function ResourceDetailPage({ slug }: { slug: string }) {
                   href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(item.title)}&url=${encodeURIComponent(url)}`}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={() => recordShare(shareTarget, "x")}
                   className="rounded-lg bg-[#1DA1F2] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a8cd8]"
                 >
                   Share on X
@@ -3677,6 +3705,7 @@ function ResourceDetailPage({ slug }: { slug: string }) {
                   href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={() => recordShare(shareTarget, "linkedin")}
                   className="rounded-lg bg-[#0A66C2] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0958a8]"
                 >
                   LinkedIn
@@ -4795,6 +4824,8 @@ function MarketDetailPage({ state, city }: { state: string; city: string }) {
   const cityName = market ? String(market.name).split(",")[0].trim() : "";
   const place = market ? [cityName, market.state].filter(Boolean).join(", ") : "";
   usePageTitle(market ? marketPageTitle(market) : "Market");
+  // Opening a market's page is the new site's market search.
+  useRecordSearch(market?.id ? { marketId: Number(market.id) } : null, "market_page");
 
   if (directory.isLoading || agentsQuery.isLoading) return <LoadingPage />;
   if (!market) {

@@ -43,7 +43,21 @@ import {
   sessionCookieFor,
   verifyPassword,
 } from "../_core/websiteAccountAuth";
-import { recordWebsiteAccountActivity, isRepeatView } from "../websiteActivity";
+import {
+  accountSearchKey,
+  isRepeatView,
+  recordWebsiteAccountActivity,
+  recordWebsiteSearchActivity,
+  recordWebsiteShareActivity,
+  searchShareGuard,
+  websiteTimelineSearchShareEnabled,
+} from "../websiteActivity";
+import { ENV } from "../_core/env";
+import {
+  WEBSITE_SEARCH_SOURCES,
+  WEBSITE_SHARE_CHANNELS,
+  isEmptySearch,
+} from "@shared/websiteSearchShareActivity";
 import {
   STAFF_SITE_TARGET_KEYS,
   clearedStaffSiteCookie,
@@ -116,6 +130,8 @@ export const WEBSITE_ACCOUNT_PUBLIC_TRPC_PATHS = new Set([
   "websiteAccount.preferences",
   "websiteAccount.savePreferences",
   "websiteAccount.recordView",
+  "websiteAccount.recordSearch",
+  "websiteAccount.recordShare",
   "websiteAccount.viewHistory",
   "websiteAccount.myTransactions",
   "websiteAccount.staffMe",
@@ -626,6 +642,73 @@ export const websiteAccountRouter = router({
           propertyId: input.propertyId,
         });
       }
+      return { ok: true };
+    }),
+
+  // ─── Searches and shares ───────────────────────────────────────────────────
+  //
+  // The old site put these on the contact timeline ("market_searched",
+  // "property_shared"). Signed-in investors only, by websiteAccountProcedure;
+  // an account with no contact logs nothing. Switched off unless
+  // WEBSITE_TIMELINE_SEARCH_SHARE_ENABLED is "true". Both answer at once and
+  // write in the background, and both answer the same way whether or not
+  // anything was written, so they reveal nothing about the contact.
+
+  recordSearch: websiteAccountProcedure
+    .input(
+      z.object({
+        source: z.enum(WEBSITE_SEARCH_SOURCES),
+        query: z.string().max(200).optional(),
+        marketId: z.number().int().positive().optional(),
+        state: z.string().max(50).optional(),
+        propertyType: z.string().max(64).optional(),
+        minBeds: z.number().min(0).max(50).optional(),
+        minBaths: z.number().min(0).max(50).optional(),
+        minPrice: z.number().min(0).max(1_000_000_000).optional(),
+        maxPrice: z.number().min(0).max(1_000_000_000).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (!websiteTimelineSearchShareEnabled(ENV.websiteTimelineSearchShareEnabled)) return { ok: true };
+      const { source, ...criteria } = input;
+      if (isEmptySearch(criteria)) return { ok: true };
+      // Dedupe before the rate limit, so repeating one search does not use up
+      // the allowance for new ones.
+      if (!searchShareGuard.firstInWindow(accountSearchKey(ctx.account.id, criteria, source))) return { ok: true };
+      if (!searchShareGuard.allow("search", ctx.account.id)) return { ok: true };
+      const db = await getDb();
+      if (!db) return { ok: true };
+      void recordWebsiteSearchActivity(db, ctx.account, { criteria, source });
+      return { ok: true };
+    }),
+
+  recordShare: websiteAccountProcedure
+    .input(
+      z.object({
+        target: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("property"), propertyId: z.number().int().positive() }),
+          z.object({ kind: z.literal("post"), contentId: z.number().int().positive() }),
+        ]),
+        channel: z.enum(WEBSITE_SHARE_CHANNELS),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (!websiteTimelineSearchShareEnabled(ENV.websiteTimelineSearchShareEnabled)) return { ok: true };
+      const targetId = input.target.kind === "property" ? input.target.propertyId : input.target.contentId;
+      // Copying then posting the same listing is two shares; the same channel
+      // twice in a few minutes is one.
+      if (
+        !searchShareGuard.firstInWindow(
+          `share:${ctx.account.id}:${input.target.kind}:${targetId}:${input.channel}`,
+          10 * 60_000
+        )
+      ) {
+        return { ok: true };
+      }
+      if (!searchShareGuard.allow("share", ctx.account.id)) return { ok: true };
+      const db = await getDb();
+      if (!db) return { ok: true };
+      void recordWebsiteShareActivity(db, ctx.account, input);
       return { ok: true };
     }),
 

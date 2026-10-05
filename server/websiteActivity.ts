@@ -1,7 +1,19 @@
 import { eq } from "drizzle-orm";
 
-import { activityLog, contacts, properties } from "../drizzle/schema";
+import { activityLog, contacts, marketProfiles, properties, websiteBlogPosts } from "../drizzle/schema";
 import { WEBSITE_ACCOUNT_LEAD_SOURCE } from "@shared/websiteLeadSources";
+import {
+  WEBSITE_SHARE_CHANNEL_LABELS,
+  describeSearch,
+  isEmptySearch,
+  normalizeSearchCriteria,
+  searchSignature,
+  type WebsiteSearchCriteria,
+  type WebsiteSearchSource,
+  type WebsiteShareChannel,
+  type WebsiteShareTarget,
+} from "@shared/websiteSearchShareActivity";
+import { SlidingWindowThrottle, type ThrottleRule } from "./websiteAccountThrottle";
 import { websiteLeadSourceId } from "./websiteLeadSources";
 import { triggerSmartPlansForContact } from "./smartPlanScheduler";
 
@@ -278,4 +290,194 @@ export async function recordWebsiteRequestActivity(
     console.warn(`[WebsiteActivity] ${action} not recorded for contact ${input.contactId}.`, error);
     return null;
   }
+}
+
+// ─── Searches and shares ─────────────────────────────────────────────────────
+
+/**
+ * Whether market searches and shares go on the contact timeline. Off unless
+ * WEBSITE_TIMELINE_SEARCH_SHARE_ENABLED is exactly "true", like every other
+ * new-site behaviour before switch day. Off means the two procedures answer
+ * and write nothing.
+ */
+export function websiteTimelineSearchShareEnabled(flagValue: string | null | undefined): boolean {
+  return String(flagValue ?? "").trim().toLowerCase() === "true";
+}
+
+/** A search repeated inside this window is the same search. */
+export const REPEAT_SEARCH_QUIET_MS = 30 * 60_000;
+
+/** Per account. Generous for a person, a ceiling for a script. */
+export const SEARCH_SHARE_THROTTLE_RULES = {
+  search: { limit: 30, windowMs: 60 * 60_000 },
+  share: { limit: 20, windowMs: 60 * 60_000 },
+} satisfies Record<string, ThrottleRule>;
+
+/**
+ * The server's own guard on the two endpoints: a rate limit per account and a
+ * memory of recent identical searches, so a client that ignores its own
+ * once-per-session rule still cannot fill a timeline. In memory, like the
+ * account throttle, for the same reasons (one process, no migration).
+ */
+export class SearchShareGuard {
+  private throttle: SlidingWindowThrottle;
+  private recent = new Map<string, number>();
+
+  constructor(private now: () => number = Date.now, private maxRemembered = 5_000) {
+    this.throttle = new SlidingWindowThrottle(now);
+  }
+
+  /** True when this account may log one more of `kind` now. */
+  allow(kind: keyof typeof SEARCH_SHARE_THROTTLE_RULES, accountId: number): boolean {
+    return this.throttle.attempt(`${kind}:${accountId}`, SEARCH_SHARE_THROTTLE_RULES[kind]);
+  }
+
+  /** True the first time a key is seen inside the quiet window; remembers it. */
+  firstInWindow(key: string, windowMs: number = REPEAT_SEARCH_QUIET_MS): boolean {
+    const now = this.now();
+    const last = this.recent.get(key);
+    if (last != null && now - last < windowMs) return false;
+    if (this.recent.size >= this.maxRemembered) {
+      this.recent.forEach((at, k) => {
+        if (now - at >= windowMs) this.recent.delete(k);
+      });
+      // Still full of fresh keys: drop the oldest rather than grow.
+      if (this.recent.size >= this.maxRemembered) {
+        const oldest = this.recent.keys().next().value;
+        if (oldest !== undefined) this.recent.delete(oldest);
+      }
+    }
+    this.recent.delete(key);
+    this.recent.set(key, now);
+    return true;
+  }
+}
+
+export const searchShareGuard = new SearchShareGuard();
+
+async function marketName(db: any, marketId: number | null): Promise<string | null> {
+  if (!marketId) return null;
+  const [row] = await db
+    .select({ name: marketProfiles.name, state: marketProfiles.state })
+    .from(marketProfiles)
+    .where(eq(marketProfiles.id, marketId))
+    .limit(1);
+  if (!row) return null;
+  const name = String(row.name ?? "").trim();
+  if (!name) return null;
+  // Market names are often "Destin, FL" already.
+  return row.state && !name.includes(",") ? `${name}, ${row.state}` : name;
+}
+
+/**
+ * A market search on the contact's timeline, as "market_searched". Only for an
+ * account that already has a contact: a search alone never makes one, and
+ * nothing here sends an email or starts a Smart Plan. Never throws.
+ */
+export async function recordWebsiteSearchActivity(
+  db: any,
+  account: WebsiteAccountIdentity,
+  input: { criteria: WebsiteSearchCriteria; source: WebsiteSearchSource }
+): Promise<WebsiteActivityResult> {
+  const nothing = { logged: false, contactId: null, createdContact: false };
+  if (isEmptySearch(input.criteria)) return nothing;
+  try {
+    const contactId = await contactIdForAccount(db, account);
+    if (!contactId) return nothing;
+    const criteria = normalizeSearchCriteria(input.criteria);
+    const market = await marketName(db, criteria.marketId);
+    await db.insert(activityLog).values({
+      userId: null,
+      action: "market_searched",
+      entityType: "contact",
+      entityId: contactId,
+      relatedContactId: contactId,
+      details: {
+        searchSummary: describeSearch(criteria, market),
+        searchQuery: criteria.query,
+        marketId: criteria.marketId,
+        marketName: market,
+        filters: {
+          state: criteria.state,
+          propertyType: criteria.propertyType,
+          minBeds: criteria.minBeds,
+          minBaths: criteria.minBaths,
+          minPrice: criteria.minPrice,
+          maxPrice: criteria.maxPrice,
+        },
+        searchSource: input.source,
+        occurredAt: new Date().toISOString(),
+        event: "activity.search",
+        via: WEBSITE_ACTIVITY_VIA,
+      },
+    });
+    return { logged: true, contactId, createdContact: false };
+  } catch (error) {
+    console.warn(`[WebsiteActivity] market_searched not recorded for account ${account.id}.`, error);
+    return nothing;
+  }
+}
+
+/**
+ * A share on the contact's timeline: "property_shared" for a listing, as the
+ * old site logged it, and "article_shared" for a Resources article, which the
+ * old site had no share tracking for. Same contact rule as searches. Never
+ * throws.
+ */
+export async function recordWebsiteShareActivity(
+  db: any,
+  account: WebsiteAccountIdentity,
+  input: { target: WebsiteShareTarget; channel: WebsiteShareChannel }
+): Promise<WebsiteActivityResult> {
+  const nothing = { logged: false, contactId: null, createdContact: false };
+  const action = input.target.kind === "property" ? "property_shared" : "article_shared";
+  try {
+    const contactId = await contactIdForAccount(db, account);
+    if (!contactId) return nothing;
+    const common = {
+      shareChannel: input.channel,
+      shareChannelLabel: WEBSITE_SHARE_CHANNEL_LABELS[input.channel],
+      occurredAt: new Date().toISOString(),
+      event: "activity.share",
+      via: WEBSITE_ACTIVITY_VIA,
+    };
+    let details: Record<string, unknown>;
+    if (input.target.kind === "property") {
+      details = {
+        propertyId: input.target.propertyId,
+        ...(await propertyPlace(db, input.target.propertyId)),
+        ...common,
+      };
+    } else {
+      const [post] = await db
+        .select({ title: websiteBlogPosts.title, slug: websiteBlogPosts.slug })
+        .from(websiteBlogPosts)
+        .where(eq(websiteBlogPosts.id, input.target.contentId))
+        .limit(1);
+      details = {
+        contentKind: "post",
+        contentId: input.target.contentId,
+        contentTitle: post?.title ?? null,
+        contentSlug: post?.slug ?? null,
+        ...common,
+      };
+    }
+    await db.insert(activityLog).values({
+      userId: null,
+      action,
+      entityType: "contact",
+      entityId: contactId,
+      relatedContactId: contactId,
+      details,
+    });
+    return { logged: true, contactId, createdContact: false };
+  } catch (error) {
+    console.warn(`[WebsiteActivity] ${action} not recorded for account ${account.id}.`, error);
+    return nothing;
+  }
+}
+
+/** The server-side dedupe key for one account's search. */
+export function accountSearchKey(accountId: number, criteria: WebsiteSearchCriteria, source: WebsiteSearchSource): string {
+  return `${accountId}:${searchSignature(criteria, source)}`;
 }

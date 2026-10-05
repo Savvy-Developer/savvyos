@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   BookOpen,
@@ -25,6 +25,15 @@ import { toast } from "sonner";
 
 import { trpc } from "@/lib/trpc";
 import { publicPath, safeNextPath } from "@/lib/publicSitePaths";
+import {
+  isEmptySearch,
+  normalizeSearchCriteria,
+  searchSignature,
+  type WebsiteSearchCriteria,
+  type WebsiteSearchSource,
+  type WebsiteShareChannel,
+  type WebsiteShareTarget,
+} from "@shared/websiteSearchShareActivity";
 
 /**
  * Investor accounts on the public website.
@@ -1076,6 +1085,104 @@ export function useRecordPropertyView(propertyId: number | null | undefined) {
     // Once per listing per visit. Re-firing on every render would turn the
     // view count into a render count.
   }, [signedIn, propertyId, mutate]);
+}
+
+/**
+ * How long a search has to stand before it counts. Filters change in one
+ * click, but the search box changes per keystroke; a search the visitor has
+ * stopped changing for this long is the one they meant.
+ */
+export const COMMITTED_SEARCH_MS = 2000;
+
+const sessionSeen = new Set<string>();
+const SESSION_KEY = "savvy:searchActivity";
+
+/**
+ * True the first time `key` is seen in this browser session, and remembers it.
+ * Session storage keeps a reload from logging the same search again; the
+ * in-memory set covers a browser that refuses storage.
+ */
+export function firstThisSession(key: string): boolean {
+  if (sessionSeen.has(key)) return false;
+  let stored: string[] = [];
+  try {
+    stored = JSON.parse(window.sessionStorage.getItem(SESSION_KEY) || "[]");
+    if (!Array.isArray(stored)) stored = [];
+  } catch {
+    stored = [];
+  }
+  if (stored.includes(key)) {
+    sessionSeen.add(key);
+    return false;
+  }
+  sessionSeen.add(key);
+  try {
+    // The last hundred is plenty for one visit and keeps the entry small.
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify([...stored, key].slice(-100)));
+  } catch {
+    // Storage refused: the in-memory set still holds for this page.
+  }
+  return true;
+}
+
+/**
+ * Put a signed-in investor's search on their contact timeline, as the old site
+ * did. Fires once the search has stood for COMMITTED_SEARCH_MS, and at most
+ * once per identical search per session. Anonymous visitors send nothing.
+ * Pass null while the page does not yet know what was searched.
+ */
+export function useRecordSearch(
+  criteria: WebsiteSearchCriteria | null,
+  source: WebsiteSearchSource,
+  delayMs: number = COMMITTED_SEARCH_MS
+) {
+  const account = useWebsiteAccount();
+  const record = trpc.websiteAccount.recordSearch.useMutation();
+  const signedIn = !!account.data;
+  const mutate = record.mutate;
+  const signature = criteria && !isEmptySearch(criteria) ? searchSignature(criteria, source) : null;
+  const latest = useRef(criteria);
+  latest.current = criteria;
+  useEffect(() => {
+    if (!signedIn || !signature) return;
+    const timer = window.setTimeout(() => {
+      const current = latest.current;
+      if (!current || !firstThisSession(`search:${signature}`)) return;
+      const n = normalizeSearchCriteria(current);
+      mutate({
+        source,
+        query: n.query ?? undefined,
+        marketId: n.marketId ?? undefined,
+        state: n.state ?? undefined,
+        propertyType: n.propertyType ?? undefined,
+        minBeds: n.minBeds ?? undefined,
+        minBaths: n.minBaths ?? undefined,
+        minPrice: n.minPrice ?? undefined,
+        maxPrice: n.maxPrice ?? undefined,
+      });
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [signedIn, signature, source, delayMs, mutate]);
+}
+
+/**
+ * A function that puts a signed-in investor's share on their contact
+ * timeline. Does nothing for an anonymous visitor or a missing target.
+ */
+export function useRecordShare() {
+  const account = useWebsiteAccount();
+  const record = trpc.websiteAccount.recordShare.useMutation();
+  const signedIn = !!account.data;
+  const mutate = record.mutate;
+  return useCallback(
+    (target: WebsiteShareTarget | null | undefined, channel: WebsiteShareChannel) => {
+      if (!signedIn || !target) return;
+      const id = target.kind === "property" ? target.propertyId : target.contentId;
+      if (!id) return;
+      mutate({ target, channel });
+    },
+    [signedIn, mutate]
+  );
 }
 
 // ─── Account pages ───────────────────────────────────────────────────────────
