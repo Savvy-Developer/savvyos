@@ -23,6 +23,7 @@ import {
 import { websitePageTitle } from "../shared/websitePageTitle";
 import { pageTitle } from "./websiteSeoPages";
 import { bathroomCountFromText, mapZillowPropertyResponse, zillowBathroomCount } from "./externalApis";
+import { typedBaths } from "../client/src/lib/inputFormatters";
 
 const read = (file: string) => readFileSync(path.resolve(__dirname, "..", file), "utf8");
 const proformaPage = read("client/src/pages/ProformaPage.tsx");
@@ -320,5 +321,28 @@ describe("bathroom counts", () => {
     expect(bathroomCountFromText("Salt Shaker: 7 bedrooms, 7.5 baths, pool")).toBe(7.5);
     expect(bathroomCountFromText("3 bedroom 2 bathroom cabin")).toBe(2);
     expect(bathroomCountFromText("no count here")).toBeNull();
+  });
+});
+
+describe("half baths can be entered", () => {
+  const propertiesRouter = read("server/routers/properties.ts");
+  const dialog = read("client/src/components/EditPropertyFactsDialog.tsx");
+
+  it("lets the server take 7.5 baths but not 7.3", () => {
+    const rule = /^\d{1,2}(\.[05])?$/;
+    expect(propertiesRouter).toContain('z.string().regex(/^\\d{1,2}(\\.[05])?$/, "Baths must be a whole or half number, like 2 or 2.5")');
+    expect(propertiesRouter.match(/baths: bathCount\.optional\(\)\.nullable\(\)/g)?.length).toBe(2);
+    expect(["7.5", "8", "2.0"].every(value => rule.test(value))).toBe(true);
+    expect(["7.3", "7.", "100"].some(value => rule.test(value))).toBe(false);
+  });
+
+  it("keeps the decimal point while typing, and shows 7.5 instead of rounding to 8", () => {
+    expect(typedBaths("7.5")).toBe("7.5");
+    expect(typedBaths("7.")).toBe("7.");
+    expect(typedBaths("7.3")).toBe("7.");
+    expect(typedBaths("12a")).toBe("12");
+    expect(typedBaths("123")).toBe("12");
+    expect(dialog).toContain("baths: bathsText(property.baths),");
+    expect(dialog).toContain('inputMode="decimal"');
   });
 });

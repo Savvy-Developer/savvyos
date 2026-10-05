@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { typedBaths } from "@/lib/inputFormatters";
 
 /**
  * Edit a property's facts: price, beds, baths, size, type, year built, ZIP.
@@ -47,6 +48,11 @@ const whole = (value: unknown) => {
   const n = Number(value);
   return value == null || value === "" || !Number.isFinite(n) ? "" : String(Math.round(n));
 };
+/** Baths keep a half: 7.5 shows as "7.5", 8.0 as "8". */
+const bathsText = (value: unknown) => {
+  const n = Number(value);
+  return value == null || value === "" || !Number.isFinite(n) ? "" : String(Math.round(n * 2) / 2);
+};
 
 export default function EditPropertyFactsDialog({
   property,
@@ -72,7 +78,7 @@ export default function EditPropertyFactsDialog({
     setForm({
       listPrice: property.listPrice ? String(Math.round(Number(property.listPrice))) : "",
       beds: whole(property.beds),
-      baths: whole(property.baths),
+      baths: bathsText(property.baths),
       sqft: property.sqft != null ? String(property.sqft) : "",
       yearBuilt: property.yearBuilt != null ? String(property.yearBuilt) : "",
       propertyType: property.propertyType ?? "",
@@ -99,7 +105,7 @@ export default function EditPropertyFactsDialog({
     // key, so it is left out unless it was actually edited.
     const data: Record<string, unknown> = {};
     if (form.beds && form.beds !== whole(property.beds)) data.beds = form.beds;
-    if (form.baths && form.baths !== whole(property.baths)) data.baths = form.baths;
+    if (form.baths && Number(form.baths) !== Number(bathsText(property.baths))) data.baths = form.baths.replace(/\.$/, "");
     if (form.sqft && Number(form.sqft) !== property.sqft) data.sqft = Number(form.sqft);
     if (form.yearBuilt && Number(form.yearBuilt) !== property.yearBuilt) data.yearBuilt = Number(form.yearBuilt);
     if (form.listPrice && Number(form.listPrice) !== Number(property.listPrice ?? 0)) data.listPrice = form.listPrice;
@@ -138,7 +144,7 @@ export default function EditPropertyFactsDialog({
           </div>
           <div>
             <Label>Baths</Label>
-            <Input className="mt-1" inputMode="numeric" value={form.baths} onChange={e => set("baths", e.target.value.replace(/\D/g, "").slice(0, 2))} />
+            <Input className="mt-1" inputMode="decimal" value={form.baths} onChange={e => set("baths", typedBaths(e.target.value))} />
           </div>
           <div>
             <Label>Sqft</Label>
