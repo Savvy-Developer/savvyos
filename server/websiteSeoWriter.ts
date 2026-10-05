@@ -2,8 +2,12 @@
  * "Write with AI" for the website editors (1 Oct call with Tyler): the meta
  * title and meta description of a property listing or blog post, and a case
  * study's excerpt, written from everything SavvyOS knows about it: the
- * property's facts, the linked pro-forma's base-case numbers, the listing
- * text (often the Zillow description), and the post or story itself.
+ * property's facts, the listing text (often the Zillow description), and the
+ * post or story itself.
+ *
+ * A property's meta text never carries revenue or return figures: it is
+ * public and indexed, while the page keeps those numbers behind sign-in.
+ * A case study may lead with its result, because its page shows it to all.
  *
  * The pure part (building the request, reading the answer) is here so it can
  * be tested; the router gathers the data and calls the model.
@@ -19,6 +23,13 @@ export type SeoKind = "property" | "post" | "case" | "caseSeo";
 /** Search engines cut titles near 60 characters and descriptions near 155. */
 export const SEO_TITLE_MAX = 60;
 export const SEO_DESCRIPTION_MAX = 155;
+/**
+ * What the model is asked for: a little under the hard caps above, so an
+ * answer that runs slightly long still fits without being cut.
+ */
+export const SEO_TITLE_ASK = 55;
+export const SEO_DESCRIPTION_ASK_MIN = 130;
+export const SEO_DESCRIPTION_ASK_MAX = 150;
 export const CASE_EXCERPT_MAX = 300;
 
 export type SeoContext = {
@@ -47,6 +58,26 @@ export function plainText(value: unknown, max = 6000): string {
     .slice(0, max);
 }
 
+/**
+ * Figures a property's meta text must not see. The page shows them only to
+ * signed-in investors, and Google shows meta text to everyone.
+ */
+export const PROPERTY_META_HIDDEN_FACTS = [
+  "projectedAnnualRevenue",
+  "cashOnCashPercent",
+  "capRatePercent",
+  "occupancyPercent",
+  "averageDailyRate",
+  // "Why I like this property": the agent's quote, also behind sign-in.
+  "agentBlurb",
+  "proformaBaseCaseGrossRevenue",
+  "proformaBaseCaseCashOnCash",
+  "proformaBaseCaseCapRate",
+] as const;
+
+const PROPERTY_META_RULE =
+  "Never state revenue, cash-on-cash, cap rate, occupancy, nightly rate or any other return figure, even if the text mentions one. You may say a projected investment analysis is available.";
+
 function cleanFacts(facts: Record<string, unknown>) {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(facts)) {
@@ -59,6 +90,7 @@ function cleanFacts(facts: Record<string, unknown>) {
 
 const RULES = [
   "Use only the facts given. Never invent a number, amenity, location or return.",
+  "Any revenue or return figure is a projection: call it projected or estimated, never a promise.",
   "Write for short-term rental (STR) investors searching Google.",
   "Plain, specific, no hype words like 'stunning' or 'must-see', no emoji, no em dashes, no quotation marks around the text.",
   "No claims about who the property suits based on family status, religion, race, disability or other protected traits.",
@@ -67,6 +99,9 @@ const RULES = [
 /** The chat messages for one request. */
 export function buildSeoMessages(context: SeoContext) {
   const facts = cleanFacts(context.facts);
+  if (context.kind === "property") {
+    for (const key of PROPERTY_META_HIDDEN_FACTS) delete facts[key];
+  }
   const subject =
     context.kind === "property"
       ? "a short-term rental property listed for sale on Savvy STR Agents (savvy-agents.com)"
@@ -75,20 +110,24 @@ export function buildSeoMessages(context: SeoContext) {
         : "a client case study on Savvy STR Agents (savvy-agents.com), a real estate team for short-term rental investors. Never name the client or give a street address";
   const ask =
     context.kind === "case"
-      ? `Return JSON: {"metaTitle": "", "metaDescription": "<a ${CASE_EXCERPT_MAX}-character-or-shorter excerpt: 1 to 2 sentences that make an investor want to read the story, leading with the result>"}.`
-      : `Return JSON: {"metaTitle": "<at most ${SEO_TITLE_MAX} characters${
+      ? `Return JSON: {"metaTitle": "", "metaDescription": "<a ${CASE_EXCERPT_MAX}-character-or-shorter excerpt: 1 to 2 sentences that make an investor want to read the story, leading with the result when the facts give one>"}.`
+      : `Return JSON: {"metaTitle": "<at most ${SEO_TITLE_ASK} characters${
           context.kind === "property" ? ", include the city and state" : ""
-        }>", "metaDescription": "<${SEO_DESCRIPTION_MAX - 25} to ${SEO_DESCRIPTION_MAX} characters, one or two sentences${
-          context.kind === "property"
-            ? ", mention the projected revenue or return when given"
-            : context.kind === "caseSeo"
-              ? ", lead with the result the client got"
+        }>", "metaDescription": "<${SEO_DESCRIPTION_ASK_MIN} to ${SEO_DESCRIPTION_ASK_MAX} characters, one or two complete sentences${
+          context.kind === "caseSeo"
+              ? ", lead with the result the client got when the facts give one"
               : ""
         }>"}.`;
   return [
     {
       role: "system" as const,
-      content: [`You write search listing text for ${subject}.`, ...RULES, ask, "Return only the JSON object."].join(" "),
+      content: [
+        `You write search listing text for ${subject}.`,
+        ...RULES,
+        ...(context.kind === "property" ? [PROPERTY_META_RULE] : []),
+        ask,
+        "Return only the JSON object.",
+      ].join(" "),
     },
     {
       role: "user" as const,
@@ -106,6 +145,20 @@ export function fitTo(text: string, max: number): string {
   return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : clean.slice(0, max)).replace(/[\s,;:-]+$/, "").trim();
 }
 
+/**
+ * Trim a description to a limit at the end of its last full sentence, so it
+ * never stops mid-thought ("...verify permits during"). Only when no sentence
+ * ends past 100 characters does it fall back to the word cut.
+ */
+export function fitToSentence(text: string, max: number, minSentenceEnd = 100): string {
+  const clean = fitTo(text, Number.MAX_SAFE_INTEGER);
+  if (clean.length <= max) return clean;
+  const head = clean.slice(0, max);
+  let end = -1;
+  for (const match of Array.from(head.matchAll(/[.!?](?=\s|$)/g))) end = (match.index ?? -1) + 1;
+  return end > minSentenceEnd ? head.slice(0, end).trim() : fitTo(clean, max);
+}
+
 /** Read the model's answer. Tolerates code fences and stray text around the JSON. */
 export function parseSeoAnswer(content: unknown, kind: SeoKind): SeoResult {
   const raw = typeof content === "string" ? content : "";
@@ -120,8 +173,8 @@ export function parseSeoAnswer(content: unknown, kind: SeoKind): SeoResult {
   const description = typeof parsed?.metaDescription === "string" ? parsed.metaDescription : "";
   if (!title.trim() && !description.trim()) throw new Error("The AI answer could not be read. Try again.");
   return {
-    metaTitle: fitTo(title, SEO_TITLE_MAX + 10),
-    metaDescription: fitTo(description, kind === "case" ? CASE_EXCERPT_MAX : SEO_DESCRIPTION_MAX + 10),
+    metaTitle: fitTo(title, SEO_TITLE_MAX),
+    metaDescription: fitToSentence(description, kind === "case" ? CASE_EXCERPT_MAX : SEO_DESCRIPTION_MAX),
   };
 }
 

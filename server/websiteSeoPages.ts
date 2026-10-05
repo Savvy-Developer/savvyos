@@ -1,3 +1,4 @@
+import { websitePageTitle } from "@shared/websitePageTitle";
 /**
  * What search engines and link previews see for the public site at /newsite.
  *
@@ -172,9 +173,9 @@ export const STATIC_PAGES: Record<
   },
 };
 
-export function pageTitle(title: string | null | undefined): string {
-  const clean = (title ?? "").trim();
-  return clean ? `${clean} | ${SITE_NAME}` : SITE_NAME;
+/** See shared/websitePageTitle.ts: a page's own meta title drops the site name when both don't fit in 60. */
+export function pageTitle(title: string | null | undefined, options: { ownMetaTitle?: boolean } = {}): string {
+  return websitePageTitle(title, options);
 }
 
 /**

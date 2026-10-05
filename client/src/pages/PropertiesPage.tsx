@@ -17,7 +17,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import AddressAutocompleteInput from "@/components/AddressAutocompleteInput";
 import { CurrencyInput } from "@/components/ui/currency-input";
-import { formatCurrency } from "@/lib/inputFormatters";
+import { formatCurrency, typedBaths } from "@/lib/inputFormatters";
 
 const PROPERTY_TYPES = ["single_family","multi_family","condo","townhouse","cabin","vacation_rental","commercial","land","other"];
 
@@ -126,7 +126,7 @@ export default function PropertiesPage() {
       addressSource: addressVerified ? "google_selected" : "manual",
       propertyType: form.propertyType as any,
       beds: form.beds || null,
-      baths: form.baths || null,
+      baths: form.baths.replace(/\.$/, "") || null,
       sqft: form.sqft ? parseInt(form.sqft) : null,
       listPrice: form.listPrice || null,
       notes: form.notes || null,
@@ -352,7 +352,7 @@ export default function PropertiesPage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div><Label>Beds</Label><Input inputMode="numeric" maxLength={2} value={form.beds} onChange={(e) => setForm({ ...form, beds: e.target.value.replace(/\D/g, "").slice(0, 2) })} /></div>
-              <div><Label>Baths</Label><Input inputMode="numeric" maxLength={2} value={form.baths} onChange={(e) => setForm({ ...form, baths: e.target.value.replace(/\D/g, "").slice(0, 2) })} /></div>
+              <div><Label>Baths</Label><Input inputMode="decimal" maxLength={4} value={form.baths} onChange={(e) => setForm({ ...form, baths: typedBaths(e.target.value) })} /></div>
               <div><Label>Sqft</Label><Input inputMode="numeric" maxLength={5} value={form.sqft} onChange={(e) => setForm({ ...form, sqft: e.target.value.replace(/\D/g, "").slice(0, 5) })} /></div>
             </div>
             <div><Label>List Price</Label><CurrencyInput placeholder="450,000.00" value={form.listPrice} onChange={(listPrice) => setForm(current => ({ ...current, listPrice }))} /></div>

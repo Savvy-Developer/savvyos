@@ -53,6 +53,8 @@ function isPublicHost(req: Request) {
 
 type Described = {
   title: string | null;
+  /** The title is a meta title someone wrote, so the site name is added only if it fits. */
+  ownMetaTitle?: boolean;
   description: string | null;
   image: string | null;
   noindex?: boolean;
@@ -157,6 +159,7 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
         found = {
           // Matches the client: metaTitle, else the street address.
           title: row.metaTitle || row.address || "Property",
+          ownMetaTitle: !!row.metaTitle?.trim(),
           description:
             describeText(row.metaDescription) ??
             describeText(row.summary) ??
@@ -205,6 +208,7 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
         const seo = (await loadCaseStudySeo(db, [row.id])).get(row.id);
         found = {
           title: seo?.metaTitle || row.title,
+          ownMetaTitle: !!seo?.metaTitle?.trim(),
           description: describeText(seo?.metaDescription) ?? describeText(row.excerpt) ?? describeText(row.body),
           image: absoluteImage(row.heroImageUrl, ORIGIN) ?? defaults.image,
         };
@@ -281,7 +285,7 @@ export async function getWebsitePageMetadata(req: Request): Promise<LandingMetad
   return {
     slug: "",
     canonicalUrl: websiteUrl(ORIGIN, path),
-    pageTitle: pageTitle(found.title),
+    pageTitle: pageTitle(found.title, { ownMetaTitle: found.ownMetaTitle }),
     metaDescription: found.description,
     socialImageUrl: found.image,
     noindex: !!found.noindex,

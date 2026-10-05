@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, ExternalLink, Globe2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -627,14 +628,10 @@ export default function PropertyWebsiteTab({
   const aiContent = () => ({
     headline: draft.headline,
     summary: draft.summary,
-    agentBlurb: draft.agentBlurb,
     featureTags: splitLines(draft.featureTags),
     investmentHighlights: splitLines(draft.investmentHighlights),
-    projectedAnnualRevenue: draft.projectedRevenue,
-    cashOnCashPercent: draft.cashOnCash,
-    capRatePercent: draft.capRate,
-    occupancyPercent: draft.occupancyRate,
-    averageDailyRate: draft.averageDailyRate,
+    // No revenue or return figures and no "Why I like this" quote: meta text is
+    // public, and the listing keeps those behind sign-in.
     regulationSummary: draft.regulationSummary,
   });
 
@@ -761,7 +758,9 @@ export default function PropertyWebsiteTab({
                   </Button>
                 }
               />
-              {zillowPasteOpen && !zillowLink.trim() && (
+              {/* Stays open while the link is typed: it used to vanish after
+                  the first character, so only a one-shot paste worked. */}
+              {zillowPasteOpen && (
                 <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                   <Input
                     autoFocus
@@ -770,11 +769,13 @@ export default function PropertyWebsiteTab({
                     placeholder="Paste the Zillow link: https://www.zillow.com/homedetails/..."
                     className="flex-1"
                   />
-                </div>
-              )}
-              {zillowPasteOpen && zillowLink.trim() && !importZillow.isPending && (
-                <div className="mt-2">
-                  <Button type="button" size="sm" variant="outline" onClick={() => runZillowImport("summary")}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!draft.sourceUrl.trim() || importZillow.isPending}
+                    onClick={() => runZillowImport("summary")}
+                  >
                     <Download className="mr-2 h-4 w-4" /> Import description and photos
                   </Button>
                 </div>
@@ -916,6 +917,8 @@ export default function PropertyWebsiteTab({
           )}
           <ProformaNumbersHint
             proforma={proformaOptions.find((item: any) => String(item.id) === draft.sourceProformaId)}
+            hasProformas={proformaOptions.length > 0}
+            propertyId={propertyId}
             draft={draft}
             onUse={values => setDraft(current => ({ ...current, ...values }))}
           />
@@ -1063,14 +1066,48 @@ export default function PropertyWebsiteTab({
  */
 function ProformaNumbersHint({
   proforma,
+  hasProformas,
+  propertyId,
   draft,
   onUse,
 }: {
   proforma: any;
+  hasProformas: boolean;
+  propertyId: number;
   draft: { projectedRevenue: string; cashOnCash: string; capRate: string };
   onUse: (values: { projectedRevenue: string; cashOnCash: string; capRate: string }) => void;
 }) {
-  if (!proforma) return null;
+  // In-app navigation, like PropertyDetail: a full page load would drop
+  // unsaved edits on a published listing.
+  const [, navigate] = useLocation();
+  // The button always shows. With nothing linked it is disabled and says what
+  // to do first (Rock 1 punch list).
+  if (!proforma) {
+    return (
+      <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <p>
+          {hasProformas
+            ? "Link a pro-forma above first, then its numbers can fill these fields."
+            : "This property has no pro-forma yet. Create one, then link it here to use its numbers."}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="outline" disabled>
+            Use the pro-forma numbers
+          </Button>
+          {!hasProformas && (
+            <Button
+              type="button"
+              size="sm"
+              variant="link"
+              onClick={() => navigate(`/properties/${propertyId}/proforma?new=true`)}
+            >
+              Create a pro-forma
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
   // Rounded so 0.0375 shows as 3.75, not 3.7499999999999996.
   const tidy = (value: string) => (value === "" ? "" : String(Math.round(Number(value) * 100) / 100));
   const fromProforma = {

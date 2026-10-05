@@ -5,7 +5,15 @@ import { requestGooglePlaces, type GooglePlacesAddressComponent } from "./_core/
 import { buildUnitAwareStreetAddress } from "./addressNormalization";
 
 const RAPIDAPI_HOST = "private-zillow.p.rapidapi.com";
-const RAPIDAPI_KEY = "526283dbe0msh15c17fdb8e08c0bp17f809jsn6eb94ee12316";
+/**
+ * The RapidAPI key, from the environment only. It used to be written here,
+ * in a public repo; that key must be treated as leaked and rotated.
+ */
+export const RAPIDAPI_NOT_CONFIGURED = "Zillow lookup is not configured (RAPIDAPI_KEY is not set).";
+export function rapidApiKey(): string | null {
+  const key = process.env.RAPIDAPI_KEY?.trim();
+  return key ? key : null;
+}
 
 export class ZillowLookupInputError extends Error {
   constructor(message: string) {
@@ -90,6 +98,32 @@ export function extractZillowDescription(data: any): string | null {
   return text ? text.slice(0, 4000) : null;
 }
 
+/**
+ * The bathroom count with half baths as halves. Zillow's top-level
+ * `bathrooms` counts every bath as a whole one: a home with 7 full and 1 half
+ * bath comes back as 8. Its resoFacts carry the breakdown; in real responses
+ * (9304 S Old Oregon Inlet Rd, 6927 S Virginia Dare Tr, 5 Oct) the half bath
+ * sits in `bathroomsPartial` with `bathroomsHalf` null. Three-quarter baths
+ * count as full. Falls back to `bathrooms` when there is no breakdown.
+ */
+export function zillowBathroomCount(pd: any): number | null {
+  const reso = pd?.resoFacts ?? {};
+  const num = (value: unknown) => (value == null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value));
+  const full = num(reso.bathroomsFull);
+  const fallback = num(pd?.bathrooms) ?? num(reso.bathrooms);
+  if (full == null) return fallback;
+  const threeQuarter = num(reso.bathroomsThreeQuarter) ?? 0;
+  const oneQuarter = num(reso.bathroomsOneQuarter) ?? 0;
+  const half = num(reso.bathroomsHalf) ?? Math.max(0, (num(reso.bathroomsPartial) ?? 0) - threeQuarter - oneQuarter);
+  return full + threeQuarter + 0.5 * half;
+}
+
+/** "7.5 baths" in listing text as 7.5. Whole numbers only used to read it as 5. */
+export function bathroomCountFromText(text: string): number | null {
+  const match = text.match(/(\d+(?:\.\d+)?)\s*bath(?:room)?s?/i);
+  return match ? parseFloat(match[1]) : null;
+}
+
 export function mapZillowPropertyResponse(data: any) {
   const pd = data?.propertyDetails;
   if (!pd || typeof pd !== "object" || Array.isArray(pd) || Object.keys(pd).length === 0) return null;
@@ -104,7 +138,7 @@ export function mapZillowPropertyResponse(data: any) {
     price: pd.price ?? null,
     zestimate: pd.zestimate ?? null,
     bedrooms: pd.bedrooms ?? null,
-    bathrooms: pd.bathrooms ?? null,
+    bathrooms: zillowBathroomCount(pd),
     sqft: pd.livingArea ?? null,
     yearBuilt: pd.yearBuilt ?? null,
     propertyType: pd.homeType ?? null,
@@ -127,14 +161,14 @@ export function mapZillowPropertyResponse(data: any) {
 /** Look up one Zillow listing by URL. Throws ZillowLookupInputError for bad input. */
 export async function fetchZillowListing(zillowUrl: string): Promise<any> {
   const url = buildZillowLookupUrl({ zillowUrl });
-  const rapidApiKey = process.env.RAPIDAPI_KEY;
-  if (!rapidApiKey) throw new Error("Zillow import is not configured (RAPIDAPI_KEY).");
+  const key = rapidApiKey();
+  if (!key) throw new Error(RAPIDAPI_NOT_CONFIGURED);
   const response = await fetch(url, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
       "x-rapidapi-host": RAPIDAPI_HOST,
-      "x-rapidapi-key": rapidApiKey,
+      "x-rapidapi-key": key,
     },
   });
   if (!response.ok) throw new Error(`Zillow did not answer (${response.status}). Try again in a minute.`);
@@ -232,17 +266,17 @@ export function registerExternalApiRoutes(app: express.Application) {
         throw err;
       }
 
-      const rapidApiKey = process.env.RAPIDAPI_KEY;
-      if (!rapidApiKey) {
+      const key = rapidApiKey();
+      if (!key) {
         console.error("[ZillowLookup] RAPIDAPI_KEY is not configured");
-        return res.status(503).json({ error: "Zillow import is temporarily unavailable. Please try again later." });
+        return res.status(503).json({ error: RAPIDAPI_NOT_CONFIGURED });
       }
       const response = await fetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
           "x-rapidapi-host": RAPIDAPI_HOST,
-          "x-rapidapi-key": rapidApiKey,
+          "x-rapidapi-key": key,
         },
       });
 
@@ -282,13 +316,18 @@ export function registerExternalApiRoutes(app: express.Application) {
       }
       if (!id) return res.status(400).json({ error: "That link isn't an Airbnb listing. Paste the link to a listing page (it contains /rooms/ followed by a number)." });
 
+      const key = rapidApiKey();
+      if (!key) {
+        console.error("[AirbnbLookup] RAPIDAPI_KEY is not configured");
+        return res.status(503).json({ error: "Airbnb lookup is not configured (RAPIDAPI_KEY is not set)." });
+      }
       const detailUrl = `https://airbnb-search.p.rapidapi.com/stays/detail?listingId=${id}`;
       const response = await fetch(detailUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
           "x-rapidapi-host": "airbnb-search.p.rapidapi.com",
-          "x-rapidapi-key": RAPIDAPI_KEY,
+          "x-rapidapi-key": key,
         },
       });
 
@@ -353,9 +392,8 @@ export function registerExternalApiRoutes(app: express.Application) {
 
       // Try to parse from title or description
       const bedroomMatch = (title + " " + description).match(/(\d+)\s*bed(?:room)?s?/i);
-      const bathroomMatch = (title + " " + description).match(/(\d+)\s*bath(?:room)?s?/i);
       if (bedroomMatch) bedrooms = parseInt(bedroomMatch[1]);
-      if (bathroomMatch) bathrooms = parseInt(bathroomMatch[1]);
+      bathrooms = bathroomCountFromText(title + " " + description);
 
       // Extract city from loggingContext or title
       let city: string | null = loggingContext.listingCity || loggingContext.city || null;

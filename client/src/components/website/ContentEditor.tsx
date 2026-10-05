@@ -231,7 +231,7 @@ export function ContentEditor({
         </div>
         {isCase ? (
           <Field
-            label="Eyebrow"
+            label="Eyebrow (short label above the title)"
             value={draft.eyebrow || ""}
             onChange={value => set("eyebrow", value)}
             placeholder="Smoky Mountains cabin, first-time investor"
@@ -252,12 +252,12 @@ export function ContentEditor({
           </div>
         )}
         <Area
-          label="Excerpt"
+          label="Excerpt (card summary)"
           value={draft.excerpt || ""}
           onChange={value => set("excerpt", value)}
           hint={
             isCase
-              ? "One or two sentences under the title on the case study card, and the description Google shows. Lead with the result."
+              ? "One or two sentences under the title on the case study card. Google shows it too when the Meta description below is blank. Lead with the result."
               : "One or two sentences under the title on the blog card and at the top of the article."
           }
           action={
@@ -540,14 +540,19 @@ function PropertyPicker({
   const chosen = properties.find(item => String(item.propertyId) === value);
   const placeOf = (item: any) => [item.city, item.state].filter(Boolean).join(", ");
   const matches = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return [];
+    // Every typed word must appear somewhere in the address, city, state,
+    // zip or headline, so "Touchstone Port Orange" finds it as well as
+    // "Touchstone" or "Port Orange".
+    const words = search.toLowerCase().split(/[\s,]+/).filter(Boolean);
+    if (!words.length) return [];
     return properties
-      .filter(item =>
-        [item.address, item.city, item.state, item.zip, item.headline]
+      .filter(item => {
+        const haystack = [item.address, item.city, item.state, item.zip, item.headline]
           .filter(Boolean)
-          .some(text => String(text).toLowerCase().includes(needle))
-      )
+          .join(" ")
+          .toLowerCase();
+        return words.every(word => haystack.includes(word));
+      })
       .slice(0, 8);
   }, [properties, search]);
 

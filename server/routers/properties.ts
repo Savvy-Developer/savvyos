@@ -21,6 +21,11 @@ const wholePropertyCount = z.union([
   z.string().regex(/^\d{1,2}$/, "Must be a whole number with no more than two digits"),
   z.literal(""),
 ]);
+/** Baths come in halves: "7.5" is 7 full baths and a half bath. */
+const bathCount = z.union([
+  z.string().regex(/^\d{1,2}(\.[05])?$/, "Baths must be a whole or half number, like 2 or 2.5"),
+  z.literal(""),
+]);
 const MAX_PROFORMA_COMPS = 8;
 
 function validateProformaCompLimit(formData: any): void {
@@ -98,7 +103,7 @@ export const propertiesRouter = router({
       state: z.string().min(1, "State is required"),
       zip: z.string().min(3, "ZIP code is required"),
       beds: wholePropertyCount.optional().nullable(),
-      baths: wholePropertyCount.optional().nullable(),
+      baths: bathCount.optional().nullable(),
       sqft: z.number().int().min(0).max(99999, "Sqft cannot exceed five digits").optional().nullable(),
       propertyType: z.enum(["single_family","multi_family","condo","townhouse","cabin","vacation_rental","commercial","land","other"]).optional().nullable(),
       yearBuilt: z.number().optional().nullable(),
@@ -214,7 +219,7 @@ export const propertiesRouter = router({
         state: z.string().optional().nullable(),
         zip: z.string().optional().nullable(),
         beds: wholePropertyCount.optional().nullable(),
-        baths: wholePropertyCount.optional().nullable(),
+        baths: bathCount.optional().nullable(),
         sqft: z.number().int().min(0).max(99999, "Sqft cannot exceed five digits").optional().nullable(),
         propertyType: z.enum(["single_family","multi_family","condo","townhouse","cabin","vacation_rental","commercial","land","other"]).optional().nullable(),
         yearBuilt: z.number().optional().nullable(),

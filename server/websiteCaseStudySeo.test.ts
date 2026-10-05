@@ -8,7 +8,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { WEBSITE_CASE_STUDY_SEO_DDL, cleanCaseStudySeo, loadCaseStudySeo, saveCaseStudySeo, withCaseStudySeo } from "./websiteCaseStudySeo";
-import { CASE_EXCERPT_MAX, SEO_TITLE_MAX, buildSeoMessages } from "./websiteSeoWriter";
+import { CASE_EXCERPT_MAX, SEO_TITLE_ASK, buildSeoMessages } from "./websiteSeoWriter";
 
 const root = path.resolve(import.meta.dirname, "..");
 // Normalised: the Windows checkout is CRLF.
@@ -99,7 +99,7 @@ describe("what Google gets", () => {
 describe("Write with AI for a case study", () => {
   it("writes a meta title and description for caseSeo, and still an excerpt for case", () => {
     const [seoSystem] = buildSeoMessages({ kind: "caseSeo", facts: {} });
-    expect(seoSystem.content).toContain(`at most ${SEO_TITLE_MAX} characters`);
+    expect(seoSystem.content).toContain(`at most ${SEO_TITLE_ASK} characters`);
     expect(seoSystem.content).toContain("lead with the result the client got");
     expect(seoSystem.content).toContain("Never name the client or give a street address");
     const [excerptSystem] = buildSeoMessages({ kind: "case", facts: {} });

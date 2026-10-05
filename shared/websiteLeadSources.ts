@@ -32,6 +32,11 @@ export type WebsiteLeadSource = (typeof WEBSITE_LEAD_SOURCES)[number];
 /** The sub-source for a contact that came from an account, not a form. */
 export const WEBSITE_ACCOUNT_LEAD_SOURCE: WebsiteLeadSource = "Account Sign-up";
 
+/** Whether a lead was sent from a case study page (/newsite/case-studies/<slug>). */
+export function isCaseStudyLeadPath(sourcePath: string | null | undefined): boolean {
+  return (sourcePath ?? "").trim().toLowerCase().includes("/case-studies/");
+}
+
 /** Which sub-source a new-site form belongs to. */
 export function websiteFormLeadSource(input: {
   intent?: string | null;
@@ -47,7 +52,7 @@ export function websiteFormLeadSource(input: {
   if (intent === "sell") return "Seller Enquiry";
   if (intent === "agent") return "Agent Message";
   // The case study page reuses the property form ("Ask about this deal").
-  if (path.includes("/case-studies/")) return "Case Study Inquiry";
+  if (isCaseStudyLeadPath(path)) return "Case Study Inquiry";
   if (intent === "property") return "Property Inquiry";
   return "General Inquiry";
 }

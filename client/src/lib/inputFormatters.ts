@@ -91,3 +91,12 @@ export function formatPercent(value: string | number | null | undefined): string
   if (isNaN(num)) return "";
   return `${num}%`;
 }
+
+/**
+ * What may be typed in a baths box: up to two digits, then optionally ".5"
+ * ("7.5" is 7 full baths and a half). Anything else is dropped as it is typed.
+ */
+export function typedBaths(value: string): string {
+  const match = value.replace(/[^\d.]/g, "").match(/^(\d{0,2})(\.?)([05])?/);
+  return match ? `${match[1]}${match[2]}${match[3] ?? ""}` : "";
+}

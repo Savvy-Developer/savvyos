@@ -88,7 +88,7 @@ import { getSignupSegmentId, saveSignupSegmentId } from "../websiteSignupAudienc
 import { moveWebsiteImages } from "../websiteImageRehost";
 import { ZillowLookupInputError, extractZillowDescription, extractZillowPhotoUrls, fetchAddressSuggestions, fetchZillowListing } from "../externalApis";
 import { allowSeoWrite, writeSeoText } from "../websiteSeoWriter";
-import { saveCaseStudySeo, withCaseStudySeo } from "../websiteCaseStudySeo";
+import { loadCaseStudySeo, saveCaseStudySeo, withCaseStudySeo } from "../websiteCaseStudySeo";
 import { importOldSiteListings, importedListingCounts, publishReadyImportedListings } from "../oldSiteListingImport";
 
 /** A zillow.com listing link, normalised, or null for anything else. */
@@ -119,7 +119,7 @@ import {
 } from "@shared/adAttribution";
 import { resolveOrganicSocialLeadSourceId } from "../organicSocialLeadSources";
 import { websiteLeadSourceId } from "../websiteLeadSources";
-import { websiteFormLeadSource } from "@shared/websiteLeadSources";
+import { isCaseStudyLeadPath, websiteFormLeadSource } from "@shared/websiteLeadSources";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { recordWebsiteRequestActivity } from "../websiteActivity";
 
@@ -1023,11 +1023,16 @@ async function homepageFeaturedListings(db: NonNullable<Awaited<ReturnType<typeo
     return await query()
       .leftJoin(websiteFeaturedListings, eq(websiteFeaturedListings.websitePropertyId, websiteProperties.id))
       .where(featured)
-      .orderBy(desc(websiteFeaturedListings.featuredAt), desc(websiteProperties.publishedAt))
+      // id last: an old-site import stamps a whole batch with one time, and
+      // ties must not shuffle between page loads.
+      .orderBy(desc(websiteFeaturedListings.featuredAt), desc(websiteProperties.publishedAt), desc(websiteProperties.id))
       .limit(HOMEPAGE_FEATURED_LIMIT);
   } catch (error) {
     console.error("[website] featured order unavailable, using publish date:", error);
-    return query().where(featured).orderBy(desc(websiteProperties.publishedAt)).limit(HOMEPAGE_FEATURED_LIMIT);
+    return query()
+      .where(featured)
+      .orderBy(desc(websiteProperties.publishedAt), desc(websiteProperties.id))
+      .limit(HOMEPAGE_FEATURED_LIMIT);
   }
 }
 
@@ -1458,7 +1463,12 @@ export const websiteRouter = router({
         isStaff = false;
       }
       const rows = await db
-        .select({ ...propertyProjection, listingStatus: websiteProperties.status })
+        .select({
+          ...propertyProjection,
+          listingStatus: websiteProperties.status,
+          // The agent card's Schedule a Call, same as on a case study.
+          assignedAgentBookingUrl: websiteAgentProfiles.bookingUrl,
+        })
         .from(websiteProperties)
         .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
         .leftJoin(users, eq(websiteProperties.assignedAgentId, users.id))
@@ -1476,7 +1486,10 @@ export const websiteRouter = router({
           )
         )
         .limit(1);
-      return rows[0] ? gateProperty(rows[0], signedIn) : null;
+      const row = rows[0];
+      return row
+        ? gateProperty({ ...row, assignedAgentBookingUrl: normalizeBookingUrl(row.assignedAgentBookingUrl) }, signedIn)
+        : null;
     }),
 
   /**
@@ -2066,7 +2079,10 @@ export const websiteRouter = router({
         )
         .limit(1);
       const row = rows[0];
-      return row ? { ...row, agentBookingUrl: normalizeBookingUrl(row.agentBookingUrl) } : null;
+      if (!row) return null;
+      // Its meta title, so the browser tab matches the <title> Google reads.
+      const seo = (await loadCaseStudySeo(db, [row.id])).get(row.id);
+      return { ...row, metaTitle: seo?.metaTitle ?? null, agentBookingUrl: normalizeBookingUrl(row.agentBookingUrl) };
     }),
 
   publicPosts: publicProcedure.query(async () => {
@@ -2319,7 +2335,9 @@ export const websiteRouter = router({
           connectionId = Number((inserted as any)[0]?.insertId) || null;
           connectionCreated = true;
         }
-        if (input.requestType && input.propertyId) {
+        // Not from a case study: the handoff email copies the visitor and
+        // names the property's street address, which a case study never shows.
+        if (input.requestType && input.propertyId && !isCaseStudyLeadPath(input.sourcePath)) {
           sendWebsiteHandoffEmail(db, {
             agentId,
             contactId,
@@ -2907,7 +2925,13 @@ export const websiteRouter = router({
       // Properties a case study may be linked to: the ones this agent added,
       // or holds a transaction or listing on (the same rule as publishing).
       db
-        .selectDistinct({ propertyId: properties.id, address: properties.address, city: properties.city })
+        .selectDistinct({
+          propertyId: properties.id,
+          address: properties.address,
+          city: properties.city,
+          state: properties.state,
+          zip: properties.zip,
+        })
         .from(properties)
         .leftJoin(transactions, and(eq(transactions.propertyId, properties.id), eq(transactions.agentId, me)))
         .leftJoin(listings, and(eq(listings.propertyId, properties.id), eq(listings.agentId, me)))
@@ -3332,18 +3356,8 @@ export const websiteRouter = router({
           if (input.kind === "property") Object.assign(facts, property);
           else Object.assign(facts, { city: property.city, state: property.state });
         }
-        if (input.kind === "property" && input.sourceProformaId) {
-          const [proforma] = await db
-            .select({ grossRevenue: proformas.grossRevenue, cashOnCash: proformas.cashOnCash, capRate: proformas.capRate })
-            .from(proformas)
-            .where(and(eq(proformas.id, input.sourceProformaId), eq(proformas.propertyId, input.propertyId)))
-            .limit(1);
-          if (proforma) {
-            facts.proformaBaseCaseGrossRevenue = proforma.grossRevenue;
-            facts.proformaBaseCaseCashOnCash = proforma.cashOnCash == null ? null : `${(Number(proforma.cashOnCash) * 100).toFixed(1)}%`;
-            facts.proformaBaseCaseCapRate = proforma.capRate == null ? null : `${(Number(proforma.capRate) * 100).toFixed(1)}%`;
-          }
-        }
+        // No pro-forma numbers for a property's meta text: it is public, and
+        // the listing keeps revenue and returns behind sign-in.
       }
       try {
         return await writeSeoText({
