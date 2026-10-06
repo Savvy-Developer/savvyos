@@ -833,7 +833,11 @@ async function writeEnquiry(
   }
 
   await tx.insert(activityLog).values({
-    userId: agentId,
+    // null, not the agent, exactly as savvyWebEventHandler wrote these rows.
+    // userId is who *did* the thing, and reports that count activity per user
+    // would otherwise credit agents with hundreds of actions they never took.
+    // The agent is named in details, as recordWebsiteRequestActivity does.
+    userId: null,
     action: lead.action,
     entityType: "contact",
     entityId: contactId,
@@ -842,6 +846,7 @@ async function writeEnquiry(
       propertyId: lead.oldPropertyId,
       savvyosPropertyId: propertyId,
       propertyCity: lead.propertyCity,
+      agentId,
       // The key a re-run matches on, written exactly where the old site's
       // webhook wrote it.
       leadId: lead.oldId,
