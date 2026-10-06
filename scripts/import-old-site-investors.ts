@@ -687,7 +687,9 @@ async function runLeads(db: Db | null, loaded: LoadedFile, index: OldPropertyInd
     const contactId = contactIds.get(person.email) ?? null;
     const fresh = person.enquiries.filter(entry => !recorded.has(entry.oldId));
     const alreadyThere = person.enquiries.length - fresh.length;
-    if (alreadyThere) counts.add("enquiry already on the timeline", alreadyThere);
+    if (alreadyThere) {
+      counts.add("enquiry already recorded (matched on details.leadId)", alreadyThere);
+    }
     if (fresh.length === 0) {
       counts.add("person needs nothing");
       continue;
@@ -703,9 +705,8 @@ async function runLeads(db: Db | null, loaded: LoadedFile, index: OldPropertyInd
     }
     for (const entry of fresh) {
       counts.add("will create a website_leads row");
-      if (entry.oldPropertyId) {
-        const resolved = propertyIndex.byOldId.get(entry.oldPropertyId.trim().toLowerCase());
-        if (resolved === undefined) counts.note("enquiry's listing does not map to SavvyOS", entry.oldPropertyId);
+      if (entry.oldPropertyId && !propertyIndex.byOldId.has(entry.oldPropertyId.trim().toLowerCase())) {
+        counts.add("enquiry whose listing does not map to SavvyOS");
       }
       if (entry.agentEmail && !agents.has(entry.agentEmail)) {
         counts.add("agent_email does not match any active SavvyOS agent");
@@ -714,6 +715,25 @@ async function runLeads(db: Db | null, loaded: LoadedFile, index: OldPropertyInd
         counts.add(`lead source missing in SavvyOS: ${entry.leadSourceName}`);
       }
     }
+  }
+
+  // How far the listing import got, counted per listing rather than per
+  // enquiry: 459 enquiries name about 225 distinct old listings, and one
+  // unmapped listing would otherwise be reported as many unmapped enquiries.
+  counts.add("SavvyOS listings carrying an old-site id", propertyIndex.byOldId.size);
+  const referenced = new Map<string, boolean>();
+  for (const person of plan.people) {
+    for (const entry of person.enquiries) {
+      if (!entry.oldPropertyId) continue;
+      const key = entry.oldPropertyId.trim().toLowerCase();
+      if (!referenced.has(key)) referenced.set(key, propertyIndex.byOldId.has(key));
+    }
+  }
+  const mapped = Array.from(referenced.values()).filter(Boolean).length;
+  counts.add("distinct old listings named by enquiries", referenced.size);
+  counts.add("  of those, mapped to a SavvyOS listing", mapped);
+  for (const [oldId, isMapped] of Array.from(referenced.entries())) {
+    if (!isMapped) counts.note("  of those, unmapped (old listing id)", oldId);
   }
 
   if (!APPLY) return;
