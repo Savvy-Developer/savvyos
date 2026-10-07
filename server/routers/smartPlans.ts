@@ -1993,6 +1993,12 @@ export const smartPlansRouter = router({
         (plan.triggerLeadSourceId ? [plan.triggerLeadSourceId] : []);
       sourceIds.forEach(sourceId => coveredSourceIds.add(sourceId));
     }
+    // A plan on a parent source also starts for its sub-sources.
+    for (const source of sourceRows) {
+      if (source.parentId !== null && coveredSourceIds.has(source.parentId)) {
+        coveredSourceIds.add(source.id);
+      }
+    }
 
     return {
       globalPlanCoversAllSources,
