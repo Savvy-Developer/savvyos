@@ -1,0 +1,10 @@
+﻿{
+  "extends": "./tsconfig.json",
+  "include": [
+    "scripts/import-old-site-investors.ts",
+    "scripts/fix-old-site-import-review.ts",
+    "shared/**/*",
+    "server/**/*",
+    "drizzle/**/*"
+  ]
+}
