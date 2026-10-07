@@ -26,6 +26,7 @@ import { RockMeetingRoutingSelector } from "@/components/RockMeetingRoutingSelec
 import { currentProjectRockQuarter, ProjectRockQuarterSelect } from "@/components/ProjectRockQuarterSelect";
 import ProjectSortList from "@/components/ProjectSortList";
 import { hasDatedProjectRockMilestone, prepareProjectRockMilestones } from "@shared/projectRockMilestones";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import MyTodosDashboard from "@/components/MyTodosDashboard";
 import ProjectsWorkloadView from "@/components/ProjectsWorkloadView";
 import ProjectsWeeklyUpdatesHub from "@/components/ProjectsWeeklyUpdatesHub";
@@ -369,13 +370,13 @@ export default function ProjectsPage() {
   const [, navigate] = useLocation();
   const [workspace, setWorkspace] = useState<"projects" | "my-todos" | "workload" | "weekly-updates">("projects");
   const [showAll, setShowAll] = useState(false);
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [filterPriority, setFilterPriority] = useState<string>("all");
-  const [filterDept, setFilterDept] = useState<string>("all");
-  const [filterOwner, setFilterOwner] = useState<string>("all");
-  const [filterSchedule, setFilterSchedule] = useState<string>("all");
-  const [filterCollaborator, setFilterCollaborator] = useState<string>("all");
+  const [search, setSearch] = usePersistentState("projects.search", "");
+  const [filterStatus, setFilterStatus] = usePersistentState("projects.statusFilter", "all");
+  const [filterPriority, setFilterPriority] = usePersistentState("projects.priorityFilter", "all");
+  const [filterDept, setFilterDept] = usePersistentState("projects.departmentFilter", "all");
+  const [filterOwner, setFilterOwner] = usePersistentState("projects.ownerFilter", "all");
+  const [filterSchedule, setFilterSchedule] = usePersistentState("projects.scheduleFilter", "all");
+  const [filterCollaborator, setFilterCollaborator] = usePersistentState("projects.collaboratorFilter", "all");
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [isArranging, setIsArranging] = useState(false);
