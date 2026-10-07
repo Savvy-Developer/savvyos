@@ -59,6 +59,8 @@ import fs from "fs";
 import path from "path";
 import bcrypt from "bcryptjs";
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
 
 import {
   activityLog,
@@ -73,7 +75,6 @@ import {
   websiteLeads,
   websiteProperties,
 } from "../drizzle/schema";
-import { getDb } from "../server/db";
 import { WEBSITE_LEAD_PARENT } from "@shared/websiteLeadSources";
 import {
   INVESTOR_COLUMNS,
@@ -99,7 +100,9 @@ import {
   planLeads,
   readCsv,
   redact,
+  runTransaction,
   type CsvFile,
+  type MaskedError,
   type MappedInvestor,
   type MappedLead,
   type OldPropertyIndex,
@@ -253,6 +256,14 @@ function safeError(error: unknown): string {
   if (errno !== undefined) parts.push(`errno=${errno}`);
   if (sqlState) parts.push(`sqlState=${sqlState}`);
   if (sqlMessage) parts.push(`mysql="${redact(String(sqlMessage))}"`);
+  // A rollback that failed too is worth saying — it is how the connection
+  // announces it has gone — but it is not the cause, so it goes last and is
+  // labelled. inTransaction is what makes sure the cause is the error here.
+  const rollbackError = (error as MaskedError)?.rollbackError;
+  if (rollbackError) {
+    const message = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+    parts.push(`rollbackAlsoFailed="${redact(message.split(/params:/)[0].trim())}"`);
+  }
   return parts.join(" | ");
 }
 
@@ -381,22 +392,86 @@ function flushManifest(): void {
 
 // ─── Database reads ──────────────────────────────────────────────────────────
 
-type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+type Db = Awaited<ReturnType<typeof openConnection>>["db"];
 
-async function connect(): Promise<Db> {
+/** Pings while the import is busy elsewhere. Cleared by closeConnection. */
+let keepAlive: ReturnType<typeof setInterval> | null = null;
+let connection: mysql.Connection | null = null;
+
+/**
+ * The import's own connection. Deliberately not getDb().
+ *
+ * getDb() hands back a 15-connection pool, tuned for a web server: many short
+ * requests, and maxIdle/idleTimeout to hand back sockets nobody is using. Both
+ * of those are wrong here. A pool picks whichever connection is free per
+ * statement, so a run's reads and its transactions are spread over sockets that
+ * are opened and reaped underneath it for however long the import takes — and a
+ * socket the pool believes is idle is one the server may already have closed.
+ * That is the shape of a connection dying mid-run.
+ *
+ * One connection, created here and held for the whole import, cannot be
+ * recycled under us and keeps every statement of a transaction on the same
+ * socket. The script is its own process, so this was never the running app's
+ * pool object — but it was getDb()'s settings, opening up to 15 connections of
+ * its own against the live database and inheriting whatever the app is tuned
+ * for next. Now it is one connection, and server/db.ts is not imported at all.
+ */
+async function openConnection() {
   if (!process.env.DATABASE_URL) {
     console.error(
       "DATABASE_URL is not set. Either set it, or run with --offline to check the CSVs alone."
     );
     process.exit(2);
   }
-  const db = await getDb();
-  if (!db) {
-    console.error("Could not connect to the database.");
-    process.exit(2);
-  }
+  connection = await mysql.createConnection({
+    uri: process.env.DATABASE_URL,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10_000,
+  });
+  // TCP keep-alive stops the network dropping an idle socket. It does not stop
+  // MySQL's own wait_timeout, which counts from the last statement — and this
+  // import has long stretches with no statement at all, because bcrypt hashing
+  // happens outside the transaction on purpose. So say something periodically.
+  // unref() so the timer can never hold the process open, and a failed ping is
+  // left to the next real query, which reports it properly.
+  keepAlive = setInterval(() => {
+    void connection?.query("SELECT 1").catch(() => {});
+  }, 30_000);
+  keepAlive.unref();
+  return { db: drizzle(connection), connection };
+}
+
+async function connect(): Promise<Db> {
+  const { db } = await openConnection();
   await db.execute(sql`SELECT 1`);
   return db;
+}
+
+/**
+ * Lets the process exit on its own. Failing to close is not worth reporting —
+ * by the time this runs the work is decided — but a connection that is already
+ * broken throws on end(), which must not become the error the user sees.
+ */
+async function closeConnection(): Promise<void> {
+  if (keepAlive) clearInterval(keepAlive);
+  keepAlive = null;
+  try {
+    await connection?.end();
+  } catch {
+    /* already gone */
+  }
+  connection = null;
+}
+
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
+ * db.transaction, except that when a batch fails the reported error is the one
+ * that failed rather than whatever the rollback said afterwards. The reasoning
+ * is in runTransaction; safeError prints the rollback failure alongside.
+ */
+function inTransaction<T>(db: Db, body: (tx: Tx) => Promise<T>): Promise<T> {
+  return runTransaction<Tx, T>(open => db.transaction(open), body);
 }
 
 /** Existing website accounts, by normalized email. */
@@ -660,7 +735,7 @@ async function runAccounts(db: Db | null, loaded: LoadedFile): Promise<{
         ...(investor.createdAt ? { createdAt: investor.createdAt } : {}),
       });
     }
-    await db.transaction(async tx => {
+    await inTransaction(db, async tx => {
       for (let i = 0; i < batch.length; i += 1) {
         const inserted = await tx.insert(websiteAccounts).values(values[i] as never);
         const id = recordInsert("website_accounts", inserted);
@@ -671,7 +746,7 @@ async function runAccounts(db: Db | null, loaded: LoadedFile): Promise<{
     flushManifest();
   }
   for (const batch of chunks(toUpdate, BATCH_SIZE)) {
-    await db.transaction(async tx => {
+    await inTransaction(db, async tx => {
       for (const entry of batch) {
         await tx.update(websiteAccounts).set(entry.fields).where(eq(websiteAccounts.id, entry.accountId));
       }
@@ -747,7 +822,7 @@ async function runPreferences(
 
   if (!APPLY) return;
   for (const batch of chunks(toCreate, BATCH_SIZE)) {
-    await db.transaction(async tx => {
+    await inTransaction(db, async tx => {
       // One row at a time, so each id lands in the rollback manifest. See the
       // note there on why a batch's first insertId cannot stand in for the rest.
       for (const values of batch) {
@@ -824,7 +899,7 @@ async function runSavedProperties(
 
   if (!APPLY) return;
   for (const batch of chunks(toCreate, BATCH_SIZE)) {
-    await db.transaction(async tx => {
+    await inTransaction(db, async tx => {
       for (const values of batch) {
         recordInsert("website_account_saved_properties", await tx.insert(websiteAccountSavedProperties).values(values as never));
       }
@@ -930,7 +1005,7 @@ async function runLeads(db: Db | null, loaded: LoadedFile, index: OldPropertyInd
   if (!APPLY) return;
 
   for (const batch of chunks(work, BATCH_SIZE)) {
-    await db.transaction(async tx => {
+    await inTransaction(db, async tx => {
       for (const person of batch) {
         let contactId = person.contactId;
         if (!contactId && person.createFrom) {
@@ -1172,12 +1247,22 @@ async function main() {
   flushManifest();
   printSummary(problems, loaded);
   writeReport(problems, loaded);
+  await closeConnection();
   // A missing file is a real result, not a crash, but it must not look like success.
   process.exit(problems.length ? 1 : 0);
 }
 
-main().catch(error => {
+main().catch(async error => {
   // safeError, never the raw error: see the note on redact above.
   console.error("Import failed:", safeError(error));
+  // The manifest is the undo file, and a crash is exactly when it is needed.
+  // flushManifest already ran after every committed batch; this is the belt.
+  // Guarded, because nothing here may replace the cause printed just above.
+  try {
+    flushManifest();
+  } catch (writeError) {
+    console.error("Could not rewrite the rollback manifest:", safeError(writeError));
+  }
+  await closeConnection();
   process.exit(1);
 });

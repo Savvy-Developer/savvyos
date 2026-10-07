@@ -44,6 +44,7 @@ import {
   readCsv,
   redact,
   resolveOldProperty,
+  runTransaction,
 } from "./oldSiteInvestorImportLogic";
 
 /**
@@ -1098,5 +1099,90 @@ describe("re-running the import", () => {
     const markets = { ids: [1], unmatched: [] as string[] };
     expect(decidePreferences(prefs, 1, false, markets).action).toBe("create");
     expect(decidePreferences(prefs, 1, true, markets).action).toBe("exists");
+  });
+});
+
+describe("runTransaction keeps the error that actually failed", () => {
+  /**
+   * drizzle-orm/mysql2's transaction(), to the line:
+   *
+   *     try { result = await body(tx); await commit(); return result }
+   *     catch (err) { await rollback(); throw err }
+   *
+   * When rollback() rejects, that rejection leaves the catch block and `throw
+   * err` never runs. That is the bug being guarded, so the fake has to be able
+   * to do it rather than just report a failure.
+   */
+  const opener = (opts: { beginFails?: unknown; commitFails?: unknown; rollbackFails?: unknown } = {}) =>
+    async <T>(body: (tx: string) => Promise<T>): Promise<T> => {
+      if (opts.beginFails) throw opts.beginFails;
+      try {
+        const result = await body("tx");
+        if (opts.commitFails) throw opts.commitFails;
+        return result;
+      } catch (err) {
+        if (opts.rollbackFails) throw opts.rollbackFails;
+        throw err;
+      }
+    };
+
+  it("returns the body's value when nothing fails", async () => {
+    const seen: string[] = [];
+    const value = await runTransaction(opener(), async tx => {
+      seen.push(tx);
+      return 42;
+    });
+    expect(value).toBe(42);
+    expect(seen).toEqual(["tx"]);
+  });
+
+  it("rethrows the body's error unchanged when the rollback succeeds", async () => {
+    const real = new Error("Duplicate entry for key website_account_preferences.accountId");
+    await expect(
+      runTransaction(opener(), async () => {
+        throw real;
+      })
+    ).rejects.toBe(real);
+    expect((real as Error & { rollbackError?: unknown }).rollbackError).toBeUndefined();
+  });
+
+  it("reports the body's error, not the rollback's, when the connection is gone", async () => {
+    const real = new Error("Duplicate entry for key website_account_preferences.accountId");
+    const masking = new Error("Can't add new command when connection is in closed state");
+    const thrown = await runTransaction(opener({ rollbackFails: masking }), async () => {
+      throw real;
+    }).catch((error: unknown) => error);
+
+    expect(thrown).toBe(real);
+    expect((thrown as Error & { rollbackError?: unknown }).rollbackError).toBe(masking);
+  });
+
+  it("leaves a BEGIN failure alone: the body never ran, so nothing was masked", async () => {
+    const begin = new Error("connect ETIMEDOUT");
+    let bodyRan = false;
+    await expect(
+      runTransaction(opener({ beginFails: begin }), async () => {
+        bodyRan = true;
+        return 1;
+      })
+    ).rejects.toBe(begin);
+    expect(bodyRan).toBe(false);
+  });
+
+  it("reports a COMMIT failure as itself", async () => {
+    const commit = new Error("Lock wait timeout exceeded");
+    const thrown = await runTransaction(opener({ commitFails: commit }), async () => 1).catch(
+      (error: unknown) => error
+    );
+    expect(thrown).toBe(commit);
+  });
+
+  it("names both when the body threw something that cannot carry the rollback failure", async () => {
+    const thrown = await runTransaction(opener({ rollbackFails: new Error("connection lost") }), async () => {
+      throw "batch 21 aborted";
+    }).catch((error: unknown) => error);
+
+    expect((thrown as Error).message).toContain("batch 21 aborted");
+    expect((thrown as Error).message).toContain("connection lost");
   });
 });

@@ -1045,3 +1045,56 @@ export function decideLead(
   if (!contactId) return { action: "create-contact", lead };
   return { action: "attach", contactId, lead };
 }
+
+// ─── Transactions ────────────────────────────────────────────────────────────
+
+/** An error that reached us in place of the one that actually failed. */
+export type MaskedError = { rollbackError?: unknown };
+
+/**
+ * Runs a transaction body and keeps the error that actually failed.
+ *
+ * drizzle-orm/mysql2 ends a failed transaction with
+ *
+ *     catch (err) { await tx.execute(sql`rollback`); throw err; }
+ *
+ * which is right until the broken thing is the connection itself. Then the
+ * ROLLBACK throws too, that rejection escapes the catch block before `throw
+ * err` is ever reached, and the caller is handed the second error. This is not
+ * hypothetical: the preferences run died reporting a dead connection, and the
+ * first failure — the one that says why — was gone.
+ *
+ * So the body's error is stashed on the way out, and if what emerges is
+ * something else, the original is thrown instead with the rollback failure
+ * attached on .rollbackError. Both get reported; only one is the cause.
+ *
+ * Still no database in this file: the transaction opener is the caller's, which
+ * is also what lets a test play the part of a connection that dies on rollback.
+ */
+export async function runTransaction<Tx, T>(
+  openTransaction: (body: (tx: Tx) => Promise<T>) => Promise<T>,
+  body: (tx: Tx) => Promise<T>
+): Promise<T> {
+  let failed = false;
+  let original: unknown;
+  try {
+    return await openTransaction(async tx => {
+      try {
+        return await body(tx);
+      } catch (error) {
+        failed = true;
+        original = error;
+        throw error;
+      }
+    });
+  } catch (error) {
+    // Not the body's fault (BEGIN or COMMIT failed), or nothing masked it.
+    if (!failed || error === original) throw error;
+    if (original instanceof Error) {
+      (original as Error & MaskedError).rollbackError = error;
+      throw original;
+    }
+    // A thrown non-Error has nowhere to carry the rollback failure, so say both.
+    throw new Error(`${String(original)} (rollback then failed: ${String(error)})`);
+  }
+}
