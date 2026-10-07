@@ -42,6 +42,7 @@ import {
   planInvestors,
   planLeads,
   readCsv,
+  redact,
   resolveOldProperty,
 } from "./oldSiteInvestorImportLogic";
 
@@ -49,6 +50,56 @@ import {
  * Every value here is invented. No row, address, hash or name from the real
  * export appears in this file, and none should be added to it.
  */
+
+// ─── Redaction ───────────────────────────────────────────────────────────────
+
+describe("redact", () => {
+  it("takes out the parameter list drizzle puts in a failed query's message", () => {
+    // This is the shape that actually leaked 245 addresses to the console.
+    const message =
+      "Failed query: select `id`, `email` from `contacts` where `email` in (?, ?)\n" +
+      "params: first.person@example.test,second@example.test";
+    const safe = redact(message);
+    expect(safe).not.toContain("first.person@example.test");
+    expect(safe).not.toContain("second@example.test");
+    expect(safe).toContain("[email]");
+    // The useful part survives.
+    expect(safe).toContain("Failed query");
+    expect(safe).toContain("contacts");
+  });
+
+  it("takes out the value MySQL quotes back in a duplicate-key error", () => {
+    const safe = redact("Duplicate entry 'someone@example.test' for key 'website_accounts.email'");
+    expect(safe).not.toContain("someone@example.test");
+    expect(safe).toContain("[email]");
+    expect(safe).toContain("website_accounts.email");
+  });
+
+  it("takes out password hashes", () => {
+    const hash = bcrypt.hashSync("a throwaway test password", 10);
+    const safe = redact(`passwordHash=${hash} rejected`);
+    expect(safe).not.toContain(hash);
+    expect(safe).toContain("[hash]");
+  });
+
+  it("takes out phone numbers in the shapes the export uses", () => {
+    for (const phone of ["555-0100", "+1 (555) 010-0100", "5550100100", "555.010.0100"]) {
+      const safe = redact(`phone ${phone} invalid`);
+      expect(safe).not.toContain(phone);
+      expect(safe).toContain("[phone]");
+    }
+  });
+
+  it("leaves a message with nothing personal in it alone", () => {
+    const message = "Failed query: select count(*) from website_properties | code=ER_NO_SUCH_TABLE";
+    expect(redact(message)).toBe(message);
+  });
+
+  it("handles an empty or absent string", () => {
+    expect(redact("")).toBe("");
+    expect(redact(null as unknown as string)).toBe("");
+  });
+});
 
 // ─── CSV ─────────────────────────────────────────────────────────────────────
 
@@ -547,6 +598,38 @@ describe("matchMarketProfiles", () => {
 
   it("does not repeat an id when two names resolve to one market", () => {
     expect(matchMarketProfiles(["Poconos", "Poconos, PA"], profiles).ids).toEqual([1]);
+  });
+
+  it("reports a name two profiles share rather than tossing a coin", () => {
+    // SavvyOS really has two "Poconos" profiles, both PA. Picking whichever
+    // came back first would silently decide someone's market for them.
+    const twoPoconos = [
+      { id: 1, name: "Poconos", state: "PA" },
+      { id: 7, name: "Poconos", state: "PA" },
+    ];
+    const result = matchMarketProfiles(["Poconos"], twoPoconos);
+    expect(result.ids).toEqual([]);
+    expect(result.ambiguous).toEqual(["Poconos"]);
+    expect(result.unmatched).toEqual([]);
+  });
+
+  it("separates same-named profiles when the state distinguishes them", () => {
+    const twoStates = [
+      { id: 1, name: "Western", state: "NC" },
+      { id: 7, name: "Western", state: "SC" },
+    ];
+    expect(matchMarketProfiles(["Western, NC"], twoStates).ids).toEqual([1]);
+    expect(matchMarketProfiles(["Western, SC"], twoStates).ids).toEqual([7]);
+    // The bare name still cannot be resolved, and says so.
+    expect(matchMarketProfiles(["Western"], twoStates).ambiguous).toEqual(["Western"]);
+  });
+
+  it("reports a uuid as unmatched, which is what the real export holds", () => {
+    // preferred_locations turned out to carry the old site's market uuids,
+    // not names, so none of them can resolve without a markets export.
+    const result = matchMarketProfiles(["43020d53-69e6-4c63-99c2-80d48191c381"], profiles);
+    expect(result.ids).toEqual([]);
+    expect(result.unmatched).toHaveLength(1);
   });
 });
 

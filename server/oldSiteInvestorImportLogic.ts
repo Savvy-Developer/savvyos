@@ -27,6 +27,31 @@
  */
 import { oldSiteWebsiteLeadSource, type WebsiteLeadSource } from "@shared/websiteLeadSources";
 
+// ─── Redaction ───────────────────────────────────────────────────────────────
+
+/**
+ * Personal data taken out of a string that is about to be printed.
+ *
+ * This exists because of a real failure, not a hypothetical one: drizzle puts
+ * every bound parameter of a failed query into the Error message, so one
+ * failed contact lookup printed 245 real email addresses to the console.
+ * MySQL's own messages can carry a value too ("Duplicate entry 'x@y.test' for
+ * key ..."), which an --apply run could hit.
+ *
+ * Anything printed by the import goes through here. It lives in this module
+ * rather than in the script because the script is neither typechecked nor
+ * tested, and being wrong here leaks exactly what rule 6 forbids.
+ */
+export function redact(text: string): string {
+  return String(text ?? "")
+    // Email addresses, including the quoted form MySQL uses in its errors.
+    .replace(/[^\s,;'"<>()[\]]+@[^\s,;'"<>()[\]]+\.[A-Za-z]{2,}/g, "[email]")
+    // bcrypt hashes, whatever revision.
+    .replace(/\$2[a-z]\$\d{2}\$[./A-Za-z0-9]{53}/g, "[hash]")
+    // Phone numbers: seven or more digits with the usual separators.
+    .replace(/\+?\d[\d\s().-]{6,}\d/g, "[phone]");
+}
+
 // ─── CSV ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -550,30 +575,46 @@ function marketKey(value: string): string {
  * part ("Poconos, PA" → "Poconos"), counts. A fuzzy guess here would email
  * someone listings in a state they never asked about, so anything unresolved
  * is returned for the report instead.
+ *
+ * A name that two market profiles share is reported as ambiguous rather than
+ * resolved: SavvyOS really has two "Poconos" profiles, both in PA, and picking
+ * whichever the query returned first would be a coin toss that quietly decides
+ * which market somebody gets emailed about.
  */
 export function matchMarketProfiles(
   locations: readonly string[],
   profiles: readonly MarketProfileRow[]
-): { ids: number[]; unmatched: string[] } {
-  const byName = new Map<string, number>();
+): { ids: number[]; unmatched: string[]; ambiguous: string[] } {
+  const byName = new Map<string, number[]>();
+  const add = (key: string, id: number) => {
+    const existing = byName.get(key);
+    if (!existing) byName.set(key, [id]);
+    else if (!existing.includes(id)) existing.push(id);
+  };
   for (const profile of profiles) {
-    byName.set(marketKey(profile.name), profile.id);
-    byName.set(marketKey(`${profile.name} ${profile.state}`), profile.id);
-    byName.set(marketKey(`${profile.name}, ${profile.state}`), profile.id);
+    add(marketKey(profile.name), profile.id);
+    add(marketKey(`${profile.name} ${profile.state}`), profile.id);
+    add(marketKey(`${profile.name}, ${profile.state}`), profile.id);
   }
   const ids: number[] = [];
   const unmatched: string[] = [];
+  const ambiguous: string[] = [];
   for (const location of locations) {
-    const direct = byName.get(marketKey(location));
-    const head = byName.get(marketKey(location.split(",")[0] ?? ""));
-    const id = direct ?? head;
-    if (id === undefined) {
+    // The fuller key first: "Poconos, PA" can separate two "Poconos" profiles
+    // when they differ by state, where the bare name cannot.
+    const candidates =
+      byName.get(marketKey(location)) ?? byName.get(marketKey(location.split(",")[0] ?? ""));
+    if (!candidates || candidates.length === 0) {
       if (!unmatched.includes(location)) unmatched.push(location);
       continue;
     }
-    if (!ids.includes(id)) ids.push(id);
+    if (candidates.length > 1) {
+      if (!ambiguous.includes(location)) ambiguous.push(location);
+      continue;
+    }
+    if (!ids.includes(candidates[0])) ids.push(candidates[0]);
   }
-  return { ids, unmatched };
+  return { ids, unmatched, ambiguous };
 }
 
 export type MappedPreferences = {

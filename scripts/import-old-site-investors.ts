@@ -43,6 +43,11 @@
  *      name, phone, contact field or preferences row is changed. Conflicts are
  *      reported instead.
  *
+ * Undo: --apply writes a rollback manifest and a .sql beside the report, listing
+ * the id of every row it inserted. Deleting by id range would not work — SavvyOS
+ * is live, and real contacts and activity_log rows arrive with interleaved ids
+ * while this runs. See the note on the manifest below.
+ *
  * Privacy: this prints and writes counts, old export ids and SavvyOS row ids.
  * No email address, name, phone number or password hash is printed, logged, or
  * put in the report. The report goes in the source folder, never in the repo.
@@ -93,6 +98,7 @@ import {
   planInvestors,
   planLeads,
   readCsv,
+  redact,
   type CsvFile,
   type MappedInvestor,
   type MappedLead,
@@ -153,6 +159,9 @@ if (!path.relative(REPO_ROOT, reportPath).startsWith("..")) {
   console.error(`Refusing to write the report inside the repository: ${reportPath}`);
   process.exit(2);
 }
+
+const manifestPath = reportPath.replace(/(\.json)?$/, "") + ".rollback.json";
+const rollbackSqlPath = reportPath.replace(/(\.json)?$/, "") + ".rollback.sql";
 
 // ─── Source files ────────────────────────────────────────────────────────────
 
@@ -222,6 +231,31 @@ function loadSourceFiles(): { loaded: Map<Dataset, LoadedFile>; problems: string
 
 // ─── Counters ────────────────────────────────────────────────────────────────
 
+/**
+ * An error, with every trace of personal data taken out.
+ *
+ * The message is cut at "params:" — where drizzle lists a failed query's bound
+ * parameters, which for this import are email addresses — and what is left is
+ * redacted anyway. The SQL error code survives, which is what actually
+ * identifies the fault. See redact() for why this is not hypothetical.
+ */
+function safeError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const head = raw.split(/params:/)[0].trim();
+  const fields = error as { code?: string; errno?: number; sqlState?: string; sqlMessage?: string; cause?: unknown };
+  const cause = (fields?.cause ?? {}) as typeof fields;
+  const parts = [redact(head)];
+  const code = fields?.code ?? cause?.code;
+  const errno = fields?.errno ?? cause?.errno;
+  const sqlState = fields?.sqlState ?? cause?.sqlState;
+  const sqlMessage = fields?.sqlMessage ?? cause?.sqlMessage;
+  if (code) parts.push(`code=${code}`);
+  if (errno !== undefined) parts.push(`errno=${errno}`);
+  if (sqlState) parts.push(`sqlState=${sqlState}`);
+  if (sqlMessage) parts.push(`mysql="${redact(String(sqlMessage))}"`);
+  return parts.join(" | ");
+}
+
 type Counts = Record<string, number>;
 
 class Tally {
@@ -241,6 +275,109 @@ class Tally {
 
 const tallies: Partial<Record<Dataset, Tally>> = {};
 const tally = (dataset: Dataset) => (tallies[dataset] ??= new Tally());
+
+// ─── Rollback manifest ───────────────────────────────────────────────────────
+
+/**
+ * Every row id this run inserted, per table, so the import can be undone.
+ *
+ * Deliberately NOT a "delete everything above the old MAX(id)" range. SavvyOS is
+ * live: contacts, activity_log rows and agent_connections arrive from the
+ * website and from agents the whole time this runs, and their ids interleave
+ * with the import's. A range would delete the team's real rows along with this
+ * import's.
+ *
+ * Ids are recorded one row at a time rather than derived from a batch's first
+ * insertId, because a multi-row INSERT is only guaranteed a contiguous block of
+ * auto-increment values under innodb_autoinc_lock_mode=1, and MySQL 8 defaults
+ * to 2. That is why the preference and saved-property inserts below are per row.
+ *
+ * Flushed after every transaction, so a run that dies half way still leaves a
+ * manifest covering what it had already committed. Ids only: no email address,
+ * name, phone or hash, the same rule the report follows.
+ */
+const insertedIds: Record<string, number[]> = {};
+
+/**
+ * The one path that is not an insert: decideInvestor fills fields that were
+ * blank on an account that already existed. Undoing that means setting them back
+ * to NULL, which is what they were — so the account id and the field names are
+ * the whole pre-image, and no name or phone number has to be stored to reverse
+ * it. Empty in a run where every account is new.
+ */
+const filledBlankFields: Array<{ accountId: number; fields: string[] }> = [];
+
+/** Children before parents, so the generated SQL does not trip a foreign key. */
+const DELETE_ORDER = [
+  "website_account_saved_properties",
+  "website_account_preferences",
+  "website_accounts",
+  "website_leads",
+  "agent_connections",
+  "activity_log",
+  "contacts",
+] as const;
+
+/**
+ * Pulls the auto-increment id out of a drizzle-mysql2 insert result.
+ *
+ * Throws rather than returning null when there is no id. A row that was written
+ * but not recorded is the one thing the manifest exists to prevent: the import
+ * would finish looking clean while part of it could not be undone. Throwing
+ * happens inside the batch's transaction, so that batch rolls back, and earlier
+ * batches are already committed with their ids flushed. Re-running is safe — the
+ * guards make it idempotent.
+ */
+function recordInsert(table: string, result: unknown): number {
+  const id = Number((result as any)?.[0]?.insertId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error(
+      `Insert into ${table} returned no usable insertId, so the row could not be ` +
+        `recorded for rollback. Aborting this batch rather than writing rows that ` +
+        `cannot be undone.`
+    );
+  }
+  (insertedIds[table] ??= []).push(id);
+  return id;
+}
+
+function flushManifest(): void {
+  if (!APPLY) return;
+  const manifest = {
+    generatedAt: new Date().toISOString(),
+    note:
+      "Row ids inserted by this import run. Undo with the matching .rollback.sql. " +
+      "Do not delete by id range: live traffic interleaves its own rows with these.",
+    counts: Object.fromEntries(DELETE_ORDER.map(table => [table, insertedIds[table]?.length ?? 0])),
+    ids: Object.fromEntries(DELETE_ORDER.map(table => [table, insertedIds[table] ?? []])),
+    filledBlankFields,
+  };
+  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const lines = [
+    "-- Undo for the old-site investor import.",
+    `-- Generated ${manifest.generatedAt}. Only the rows this run inserted.`,
+    "-- Review the counts before running. Wrap in a transaction if you want a dry run.",
+    "",
+  ];
+  for (const table of DELETE_ORDER) {
+    const ids = insertedIds[table] ?? [];
+    if (!ids.length) continue;
+    lines.push(`-- ${table}: ${ids.length} rows`);
+    // Chunked so no single statement grows past what the server will parse.
+    for (const chunk of chunks(ids, 1000)) {
+      lines.push(`DELETE FROM ${table} WHERE id IN (${chunk.join(",")});`);
+    }
+    lines.push("");
+  }
+  for (const entry of filledBlankFields) {
+    const sets = entry.fields.map(field => `\`${field}\` = NULL`).join(", ");
+    lines.push(`-- website_accounts ${entry.accountId}: fields that were blank before the import`);
+    lines.push(`UPDATE website_accounts SET ${sets} WHERE id = ${entry.accountId};`);
+  }
+  fs.writeFileSync(rollbackSqlPath, `${lines.join("\n")}\n`);
+}
 
 // ─── Database reads ──────────────────────────────────────────────────────────
 
@@ -453,16 +590,34 @@ async function runAccounts(db: Db | null, loaded: LoadedFile): Promise<{
 
   const toCreate: MappedInvestor[] = [];
   const toUpdate: Array<{ accountId: number; fields: Record<string, unknown> }> = [];
+  /**
+   * A dry run has not inserted anything, so an account that "will create" has
+   * no id for preferences and saved properties to hang off. Without a stand-in
+   * every one of those rows reports "no imported account for this old user id",
+   * which says nothing about the import and hides the real unmapped listings.
+   * Negative ids cannot collide with a real one, nothing is written in a dry
+   * run, and --apply uses the actual insert ids instead of these.
+   */
+  let provisionalId = 0;
   for (const investor of plan.importable) {
     const decision = decideInvestor(investor, existing.get(investor.email));
     if (decision.action === "create") {
       toCreate.push(investor);
       counts.add("will create");
+      if (!APPLY) {
+        provisionalId -= 1;
+        accountIds.set(investor.oldId, provisionalId);
+      }
       if (investor.needsPasswordSetup) counts.note("new account needs a password email", investor.oldId);
     } else if (decision.action === "update") {
       toUpdate.push({ accountId: decision.accountId, fields: decision.fields });
       accountIds.set(investor.oldId, decision.accountId);
       counts.add("will update (blank fields only)");
+      // Drizzle property names, mapped to the real column names the undo SQL needs.
+      filledBlankFields.push({
+        accountId: decision.accountId,
+        fields: Object.keys(decision.fields).map(key => (websiteAccounts as any)[key]?.name ?? key),
+      });
     } else if (decision.action === "exists") {
       accountIds.set(investor.oldId, decision.accountId);
       counts.add("already exists");
@@ -482,7 +637,12 @@ async function runAccounts(db: Db | null, loaded: LoadedFile): Promise<{
     }
   }
 
-  if (!APPLY) return { investors, accountIds };
+  if (!APPLY) {
+    if (provisionalId < 0) {
+      counts.add("accounts counted below with a provisional id (dry run)", -provisionalId);
+    }
+    return { investors, accountIds };
+  }
 
   for (const batch of chunks(toCreate, BATCH_SIZE)) {
     // Hashing is slow, so it happens before the transaction opens.
@@ -503,11 +663,12 @@ async function runAccounts(db: Db | null, loaded: LoadedFile): Promise<{
     await db.transaction(async tx => {
       for (let i = 0; i < batch.length; i += 1) {
         const inserted = await tx.insert(websiteAccounts).values(values[i] as never);
-        const id = Number((inserted as any)[0]?.insertId);
-        if (Number.isInteger(id) && id > 0) accountIds.set(batch[i].oldId, id);
+        const id = recordInsert("website_accounts", inserted);
+        if (id) accountIds.set(batch[i].oldId, id);
       }
     });
     counts.add("created", batch.length);
+    flushManifest();
   }
   for (const batch of chunks(toUpdate, BATCH_SIZE)) {
     await db.transaction(async tx => {
@@ -553,10 +714,13 @@ async function runPreferences(
 
   const toCreate: Array<Record<string, unknown>> = [];
   const unmatchedLocations = new Set<string>();
+  const ambiguousLocations = new Set<string>();
   for (const entry of mapped) {
     const accountId = accountIds.get(entry.oldUserId);
     const markets = matchMarketProfiles(entry.locations, profiles);
     for (const name of markets.unmatched) unmatchedLocations.add(name);
+    for (const name of markets.ambiguous) ambiguousLocations.add(name);
+    if (entry.locations.length) counts.add("row naming at least one market");
     const decision = decidePreferences(entry, accountId, accountId ? existing.has(accountId) : false, markets);
     if (decision.action === "create") {
       toCreate.push(decision.values);
@@ -572,17 +736,26 @@ async function runPreferences(
       );
     }
   }
-  // Names, not people: a market name is not personal data.
-  if (unmatchedLocations.size) {
-    counts.note("unmapped location names", Array.from(unmatchedLocations).sort().join(" | "));
+  // One entry per name, so the count is the number of distinct names rather
+  // than 1. A market name is not personal data, so each is named in the report.
+  for (const name of Array.from(unmatchedLocations).sort()) {
+    counts.note("unmapped location (no matching market profile)", name);
+  }
+  for (const name of Array.from(ambiguousLocations).sort()) {
+    counts.note("ambiguous location (two market profiles share the name)", name);
   }
 
   if (!APPLY) return;
   for (const batch of chunks(toCreate, BATCH_SIZE)) {
     await db.transaction(async tx => {
-      await tx.insert(websiteAccountPreferences).values(batch as never);
+      // One row at a time, so each id lands in the rollback manifest. See the
+      // note there on why a batch's first insertId cannot stand in for the rest.
+      for (const values of batch) {
+        recordInsert("website_account_preferences", await tx.insert(websiteAccountPreferences).values(values as never));
+      }
     });
     counts.add("created", batch.length);
+    flushManifest();
   }
 }
 
@@ -607,6 +780,21 @@ async function runSavedProperties(
   const index = await oldPropertyIndex(db);
   counts.add("SavvyOS listings with an old-site id", index.byOldId.size);
   const seen = await existingSaves(db);
+
+  // Per listing as well as per save: 915 saves name far fewer listings, and
+  // "234 unmapped saves" could be 234 missing listings or a dozen popular
+  // ones. The two numbers answer different questions.
+  const referenced = new Map<string, boolean>();
+  for (const entry of mapped) {
+    const key = (entry.oldPropertyId ?? "").trim().toLowerCase();
+    if (!key) continue;
+    if (!referenced.has(key)) referenced.set(key, index.byOldId.has(key));
+  }
+  counts.add("distinct old listings named by saves", referenced.size);
+  counts.add("  of those, mapped to a SavvyOS listing", Array.from(referenced.values()).filter(Boolean).length);
+  for (const [oldId, isMapped] of Array.from(referenced.entries())) {
+    if (!isMapped) counts.note("  of those, unmapped (old listing id)", oldId);
+  }
 
   const toCreate: Array<Record<string, unknown>> = [];
   for (const entry of mapped) {
@@ -637,9 +825,12 @@ async function runSavedProperties(
   if (!APPLY) return;
   for (const batch of chunks(toCreate, BATCH_SIZE)) {
     await db.transaction(async tx => {
-      await tx.insert(websiteAccountSavedProperties).values(batch as never);
+      for (const values of batch) {
+        recordInsert("website_account_saved_properties", await tx.insert(websiteAccountSavedProperties).values(values as never));
+      }
     });
     counts.add("created", batch.length);
+    flushManifest();
   }
 }
 
@@ -754,6 +945,7 @@ async function runLeads(db: Db | null, loaded: LoadedFile, index: OldPropertyInd
         }
       }
     });
+    flushManifest();
   }
 }
 
@@ -781,9 +973,8 @@ async function createContact(
     notes: lead.message || "Savvy website inquiry (imported from savvy-agents.com)",
     ...(lead.createdAt ? { createdAt: lead.createdAt } : {}),
   });
-  const id = Number((inserted as any)?.[0]?.insertId);
-  if (!Number.isInteger(id) || id <= 0) return null;
-  await tx.insert(activityLog).values({
+  const id = recordInsert("contacts", inserted);
+  recordInsert("activity_log", await tx.insert(activityLog).values({
     userId: null,
     action: "contact_created",
     entityType: "contact",
@@ -791,7 +982,7 @@ async function createContact(
     relatedContactId: id,
     details: { via: "savvy-web", reason: "old_site_import", oldLeadId: lead.oldId },
     ...(lead.createdAt ? { createdAt: lead.createdAt } : {}),
-  });
+  }));
   return id;
 }
 
@@ -813,7 +1004,7 @@ async function writeEnquiry(
     ? (index.byOldId.get(lead.oldPropertyId.trim().toLowerCase()) ?? null)
     : null;
 
-  await tx.insert(websiteLeads).values({
+  recordInsert("website_leads", await tx.insert(websiteLeads).values({
     contactId,
     propertyId,
     agentUserId: agentId,
@@ -830,7 +1021,7 @@ async function writeEnquiry(
     // enquiry starts where a new one would.
     status: "new",
     ...(lead.createdAt ? { createdAt: lead.createdAt } : {}),
-  });
+  }));
 
   if (agentId) {
     const key = `${agentId}:${contactId}`;
@@ -841,18 +1032,18 @@ async function writeEnquiry(
         .where(and(eq(agentConnections.agentId, agentId), eq(agentConnections.contactId, contactId)))
         .limit(1);
       if (!existing) {
-        await tx.insert(agentConnections).values({
+        recordInsert("agent_connections", await tx.insert(agentConnections).values({
           agentId,
           contactId,
           pipelineStatus: "new_lead",
           agingUpdatedAt: lead.createdAt ?? new Date(),
-        });
+        }));
       }
       connections.add(key);
     }
   }
 
-  await tx.insert(activityLog).values({
+  recordInsert("activity_log", await tx.insert(activityLog).values({
     // null, not the agent, exactly as savvyWebEventHandler wrote these rows.
     // userId is who *did* the thing, and reports that count activity per user
     // would otherwise credit agents with hundreds of actions they never took.
@@ -877,7 +1068,7 @@ async function writeEnquiry(
       oldSource: lead.oldSource,
     },
     ...(lead.createdAt ? { createdAt: lead.createdAt } : {}),
-  });
+  }));
 }
 
 // ─── Reporting ───────────────────────────────────────────────────────────────
@@ -933,6 +1124,11 @@ function writeReport(problems: string[], loaded: Map<Dataset, LoadedFile>) {
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`  report: ${reportPath}`);
+  if (APPLY) {
+    const total = DELETE_ORDER.reduce((sum, table) => sum + (insertedIds[table]?.length ?? 0), 0);
+    console.log(`  rollback: ${rollbackSqlPath}`);
+    console.log(`            ${total} inserted row ids recorded, by id — not by range.`);
+  }
   console.log("");
 }
 
@@ -973,6 +1169,7 @@ async function main() {
     await runLeads(db, loaded.get("leads")!, db ? await oldPropertyIndex(db) : null);
   }
 
+  flushManifest();
   printSummary(problems, loaded);
   writeReport(problems, loaded);
   // A missing file is a real result, not a crash, but it must not look like success.
@@ -980,6 +1177,7 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error("Import failed:", error instanceof Error ? error.message : error);
+  // safeError, never the raw error: see the note on redact above.
+  console.error("Import failed:", safeError(error));
   process.exit(1);
 });
