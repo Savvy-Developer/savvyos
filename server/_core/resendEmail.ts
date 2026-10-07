@@ -136,6 +136,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "website_listing_expired",
   "website_inquiry_unassigned",
   "website_account_email_confirmation",
+  "website_account_password_reset",
   "website_daily_email_internal_copy",
   "pto_request_submitted",
   "pto_request_decision",
@@ -199,6 +200,8 @@ interface EmailContext {
   propertyUrl?: string;
   /** The one-time link a new website account opens to confirm its email. */
   websiteConfirmUrl?: string;
+  /** The one-time link a website account opens to set a new password. */
+  websiteResetUrl?: string;
   reviewUrl?: string;
   reviewRating?: string;
   reviewComment?: string;
@@ -595,6 +598,21 @@ const TEMPLATES: Record<
       ${bodyText("This link works once and expires in 7 days. Your account already works, so you can keep using the site in the meantime.")}
       ${bodyText("If you did not create an account, you can ignore this email.")}`,
       "Confirm your email for Savvy STR Agents"
+    ),
+  }),
+
+  // Sent to an investor account on the public website that asked to reset its
+  // password. Not the SavvyOS staff reset, which is "password_reset".
+  website_account_password_reset: ctx => ({
+    subject: "Reset your Savvy STR Agents password",
+    html: emailLayout(
+      `${heading("Reset your password")}
+      ${greeting(ctx.recipientName ? escapeHtml(ctx.recipientName) : undefined)}
+      ${bodyText("We got a request to reset the password on your Savvy STR Agents account. Use the button below to choose a new one.")}
+      ${ctaButton("Set a new password", escapeHtml(ctx.websiteResetUrl ?? "https://savvy-agents.com"))}
+      ${bodyText("This link works once and expires in 1 hour.")}
+      ${bodyText("If you did not ask for this, you can ignore this email. Your password stays the same.")}`,
+      "Reset your Savvy STR Agents password"
     ),
   }),
 

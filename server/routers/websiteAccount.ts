@@ -22,6 +22,7 @@ import {
   sendSignupConfirmation,
   signupConfirmationEnabled,
 } from "../websiteSignupConfirmation";
+import { sendPasswordResetEmail } from "../websitePasswordReset";
 import {
   adminProcedure,
   publicProcedure,
@@ -366,13 +367,21 @@ export const websiteAccountRouter = router({
       const db = await getDb();
       if (!db) return NEUTRAL_RESET_REPLY;
       const [account] = await db
-        .select({ id: websiteAccounts.id, status: websiteAccounts.status })
+        .select({
+          id: websiteAccounts.id,
+          status: websiteAccounts.status,
+          email: websiteAccounts.email,
+          firstName: websiteAccounts.firstName,
+        })
         .from(websiteAccounts)
         .where(eq(websiteAccounts.email, email))
         .limit(1);
       if (!account || account.status !== "active") return NEUTRAL_RESET_REPLY;
 
       const token = await createPasswordResetToken(account.id);
+      // Not awaited, so the reply takes no longer for a real account than for
+      // an unknown email. sendPasswordResetEmail never throws.
+      void sendPasswordResetEmail(account, token);
       const devToken = process.env.NODE_ENV === "production" ? undefined : token;
       return { ...NEUTRAL_RESET_REPLY, devToken };
     }),
