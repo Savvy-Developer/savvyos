@@ -244,13 +244,14 @@ describe("recording what an account did", () => {
     expect(db.inserts[0].values.details.event).toBe("property.viewed");
   });
 
-  it("still creates the contact when the lead source is missing, without Smart Plans", async () => {
+  it("still creates the contact when the lead source is missing, and only all-source plans can start", async () => {
     leadSource.id = null;
     const db = fakeDb({ newContactId: 700 });
     const result = await recordWebsiteAccountActivity(db, account, { action: "user_registered" });
     expect(result.createdContact).toBe(true);
     expect(db.inserts[0].values).not.toHaveProperty("leadSourceId");
-    expect(smartPlans.trigger).not.toHaveBeenCalled();
+    // A null source matches no lead-source plan; see leadSourcePlanMatches.
+    expect(smartPlans.trigger).toHaveBeenCalledWith(700, null);
   });
 
   it("never throws when the database fails", async () => {

@@ -153,11 +153,10 @@ async function createContactForAccount(db: any, account: WebsiteAccountIdentity)
     relatedContactId: contactId,
     details: { via: WEBSITE_ACTIVITY_VIA, reason: "website_account" },
   });
-  if (leadSourceId) {
-    await triggerSmartPlansForContact(contactId, leadSourceId).catch(error =>
-      console.error("[SmartPlan] Website account enrollment failed for contact", contactId, error)
-    );
-  }
+  // Called even without a source, so "all lead sources" plans still start.
+  await triggerSmartPlansForContact(contactId, leadSourceId).catch(error =>
+    console.error("[SmartPlan] Website account enrollment failed for contact", contactId, error)
+  );
   return contactId;
 }
 

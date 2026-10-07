@@ -511,6 +511,47 @@ function normalizedLeadSourceIds(config: TriggerConfiguration): number[] {
   return Array.from(new Set(ids));
 }
 
+/**
+ * A plan on a parent lead source also covers its sub-sources. Without this a
+ * plan on "Savvy-Agents.com" never fired, because every website lead is filed
+ * under one of its sub-sources (Property Inquiry, Book a Showing, ...), and a
+ * new sub-source silently fell outside every plan.
+ */
+export function expandLeadSourceIdsWithChildren(
+  ids: number[],
+  sources: Array<{ id: number; parentId: number | null }>,
+): number[] {
+  const selected = new Set(ids);
+  const expanded = new Set(ids);
+  for (const source of sources) {
+    if (source.parentId !== null && selected.has(source.parentId)) expanded.add(source.id);
+  }
+  return Array.from(expanded);
+}
+
+/** Whether a lead-source plan starts for a contact with this source (and its parent). */
+export function leadSourcePlanMatches(
+  plan: TriggerConfiguration,
+  leadSourceId: number | null,
+  parentLeadSourceId: number | null,
+): boolean {
+  if (plan.triggerType === "all_lead_sources") return true;
+  if (leadSourceId === null) return false;
+  const ids = normalizedLeadSourceIds(plan);
+  return ids.includes(leadSourceId) || (parentLeadSourceId !== null && ids.includes(parentLeadSourceId));
+}
+
+async function withChildLeadSources(ids: number[]): Promise<number[]> {
+  if (!ids.length) return ids;
+  const db = await getDb();
+  if (!db) return ids;
+  const children = await db
+    .select({ id: leadSources.id, parentId: leadSources.parentId })
+    .from(leadSources)
+    .where(inArray(leadSources.parentId, ids));
+  return expandLeadSourceIdsWithChildren(ids, children);
+}
+
 /** Convert a calendar date to the UTC boundary used by contact createdAt. */
 function calendarDateStart(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -568,7 +609,7 @@ async function matchingCurrentContactIds(config: TriggerConfiguration): Promise<
   }
 
   if (triggerType === "lead_source") {
-    const sourceIds = normalizedLeadSourceIds(config);
+    const sourceIds = await withChildLeadSources(normalizedLeadSourceIds(config));
     if (!sourceIds.length) return [];
     const rows = await db
       .select({ id: contacts.id })
@@ -678,9 +719,18 @@ export async function triggerSmartPlansForContact(contactId: number, leadSourceI
   if (!db) return;
 
   const plans = await db.select().from(smartPlans).where(and(eq(smartPlans.status, "active"), inArray(smartPlans.triggerType, ["lead_source", "all_lead_sources"])));
+  let parentLeadSourceId: number | null = null;
+  if (leadSourceId !== null && plans.length) {
+    const [source] = await db
+      .select({ parentId: leadSources.parentId })
+      .from(leadSources)
+      .where(eq(leadSources.id, leadSourceId))
+      .limit(1);
+    parentLeadSourceId = source?.parentId ?? null;
+  }
   for (const plan of plans) {
     if (plan.triggerScope === "manual") continue;
-    if (plan.triggerType === "all_lead_sources" || (leadSourceId !== null && normalizedLeadSourceIds(plan).includes(leadSourceId))) {
+    if (leadSourcePlanMatches(plan, leadSourceId, parentLeadSourceId)) {
       await enrollContactInPlan(contactId, plan.id);
     }
   }

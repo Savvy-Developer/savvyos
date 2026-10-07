@@ -2367,14 +2367,14 @@ export const websiteRouter = router({
         });
         contactId = Number((result as any)[0]?.insertId);
         // Website contacts had no lead source, so they never started a Smart
-        // Plan. Now they do, like every other intake with a source. Never
-        // blocks or fails the visitor's form.
-        if (leadSourceId) {
-          const newContactId = contactId;
-          await triggerSmartPlansForContact(newContactId, leadSourceId).catch(error =>
-            console.error("[SmartPlan] Website enrollment failed for contact", newContactId, error)
-          );
-        }
+        // Plan. Now they do, like every other intake with a source. Called
+        // even without a source (a missing sub-source), so "all lead sources"
+        // plans still start, as they do for webhook and imported contacts.
+        // Never blocks or fails the visitor's form.
+        const newContactId = contactId;
+        await triggerSmartPlansForContact(newContactId, leadSourceId).catch(error =>
+          console.error("[SmartPlan] Website enrollment failed for contact", newContactId, error)
+        );
       } else {
         const updates: Record<string, unknown> = {
           ...adAttributionUpdates(adAttribution),
