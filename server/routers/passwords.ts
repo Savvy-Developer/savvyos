@@ -5,6 +5,7 @@ import { getDb } from "../db";
 import { passwordEntries, passwordListShares, passwordLists, users } from "../../drizzle/schema";
 import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { capabilitiesForPasswordShare, normalizePasswordShareGrant, type PasswordShareGrant } from "../passwordListSharing";
+import { canAdminUsePermission } from "./permissions";
 
 const PASSWORD_LIST_SUPER_USERS = new Set([
   "tyler@savvy.realty",
@@ -26,6 +27,23 @@ type PasswordViewer = {
   email?: string | null;
   role?: string | null;
 };
+
+// Admins receive the Passwords feature through Super Permissions. List sharing
+// remains the separate, least-privilege rule that decides which credentials are
+// visible once the feature has been opened. Non-admin collaborators continue to
+// rely exclusively on their individual list grants.
+const passwordsProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (ctx.user.role === "admin") {
+    const allowed = await canAdminUsePermission(ctx.user, "canViewPasswords");
+    if (!allowed) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Passwords access has not been granted in Super Permissions.",
+      });
+    }
+  }
+  return next({ ctx });
+});
 
 function isPasswordListSuperUser(user: PasswordViewer) {
   return PASSWORD_LIST_SUPER_USERS.has((user.email ?? "").toLowerCase());
@@ -196,14 +214,14 @@ export const passwordsRouter = router({
   // ─── Lists ──────────────────────────────────────────────────────────────────
 
   /** Get only lists the current user owns, is shared on, or is a designated super user for. */
-  getLists: protectedProcedure.query(async ({ ctx }) => {
+  getLists: passwordsProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) return [];
     return getAccessibleLists(db, ctx.user as PasswordViewer);
   }),
 
   /** Lightweight access check for showing the Passwords navigation item to shared recipients. */
-  hasAccessibleLists: protectedProcedure.query(async ({ ctx }) => {
+  hasAccessibleLists: passwordsProcedure.query(async ({ ctx }) => {
     const viewer = ctx.user as PasswordViewer;
     const db = await getDb();
     if (!db) return { hasAccessibleLists: false, canCreateLists: canCreatePasswordLists(viewer) };
@@ -215,7 +233,7 @@ export const passwordsRouter = router({
   }),
 
   /** Active users available to a list owner when granting access. */
-  getShareableUsers: protectedProcedure.query(async ({ ctx }) => {
+  getShareableUsers: passwordsProcedure.query(async ({ ctx }) => {
     if (!canCreatePasswordLists(ctx.user as PasswordViewer)) {
       throw new TRPCError({ code: "FORBIDDEN" });
     }
@@ -233,7 +251,7 @@ export const passwordsRouter = router({
   }),
 
   /** Create a new password list owned by the creator and optionally shared with selected people. */
-  createList: protectedProcedure
+  createList: passwordsProcedure
     .input(z.object({
       name: z.string().min(1).max(255),
       description: z.string().optional(),
@@ -271,7 +289,7 @@ export const passwordsRouter = router({
     }),
 
   /** Update list details and sharing. Only the owner or a designated super user can manage a list. */
-  updateList: protectedProcedure
+  updateList: passwordsProcedure
     .input(z.object({
       id: z.number().int().positive(),
       name: z.string().min(1).max(255),
@@ -298,7 +316,7 @@ export const passwordsRouter = router({
     }),
 
   /** Delete a password list (cascades to sharing records and entries). */
-  deleteList: protectedProcedure
+  deleteList: passwordsProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -311,7 +329,7 @@ export const passwordsRouter = router({
   // ─── Entries ────────────────────────────────────────────────────────────────
 
   /** Get password entries only after confirming list-level visibility. */
-  getEntries: protectedProcedure
+  getEntries: passwordsProcedure
     .input(z.object({ listId: z.number().int().positive() }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
@@ -329,7 +347,7 @@ export const passwordsRouter = router({
     }),
 
   /** Search entries only across password lists visible to the current user. */
-  searchEntries: protectedProcedure
+  searchEntries: passwordsProcedure
     .input(z.object({ query: z.string().min(1) }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
@@ -375,7 +393,7 @@ export const passwordsRouter = router({
     }),
 
   /** Create a password entry when the owner or a share grant allows it. */
-  createEntry: protectedProcedure
+  createEntry: passwordsProcedure
     .input(z.object({
       listId: z.number().int().positive(),
       title: z.string().min(1).max(255),
@@ -401,7 +419,7 @@ export const passwordsRouter = router({
     }),
 
   /** Update a password entry when the owner or a share grant allows it. */
-  updateEntry: protectedProcedure
+  updateEntry: passwordsProcedure
     .input(z.object({
       id: z.number().int().positive(),
       title: z.string().min(1).max(255),
@@ -430,7 +448,7 @@ export const passwordsRouter = router({
     }),
 
   /** Delete a password entry when the owner or a share grant allows it. */
-  deleteEntry: protectedProcedure
+  deleteEntry: passwordsProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();

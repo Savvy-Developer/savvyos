@@ -1231,7 +1231,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const baseNavGroups = canUsePulseLayout
     ? buildPulseNav(pulseShell as PulseNavShell | undefined)
     : standardNavGroups;
-  // For admin users, filter nav by their permissions, then apply password-list visibility.
+  // For administrators, Super Permissions governs whether the Passwords feature
+  // is visible. Password-list sharing governs only which lists appear after the
+  // feature is opened, so an authorized admin can still reach its empty state.
   const permissionFilteredNavGroups: NavGroup[] =
     role === "admin"
       ? filterNavByPermissions(
@@ -1268,15 +1270,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     ? baseNavGroups
     : role === "admin"
       ? chatAwareNavGroups
-          .map(group => ({
-            ...group,
-            items: group.items.filter(
-              item =>
-                item.path !== "/passwords" ||
-                !!passwordAccess?.hasAccessibleLists
-            ),
-          }))
-          .filter(group => group.items.length > 0)
       : passwordAccess?.hasAccessibleLists
         ? chatAwareNavGroups.some(group => group.label === "Resources")
           ? chatAwareNavGroups.map(group =>

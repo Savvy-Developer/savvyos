@@ -173,7 +173,11 @@ export default function PasswordsPage() {
             Lists
           </p>
           {lists.length === 0 ? (
-            <p className="text-sm text-muted-foreground px-1">No lists yet. Create one to get started.</p>
+            <p className="text-sm text-muted-foreground px-1">
+              {passwordAccess?.canCreateLists
+                ? "No lists yet. Create one to get started."
+                : "No password lists have been shared with you yet."}
+            </p>
           ) : (
             lists.map((list: any) => (
               <button

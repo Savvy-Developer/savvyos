@@ -96,6 +96,16 @@ describe("admin navigation consolidation", () => {
     expect(appLayout).toContain('(collapsed || !isGroupCollapsed) && (');
   });
 
+  it("keeps Passwords visible for an administrator granted the Passwords Super Permission", () => {
+    const navGroupsStart = appLayout.indexOf("const navGroups: NavGroup[]");
+    const nonAdminPasswordGate = appLayout.indexOf(": passwordAccess?.hasAccessibleLists", navGroupsStart);
+    const adminNavBranch = appLayout.slice(navGroupsStart, nonAdminPasswordGate);
+
+    expect(appLayout).toContain('canViewPasswords: "/passwords"');
+    expect(adminNavBranch).toContain('role === "admin"');
+    expect(adminNavBranch).not.toContain("passwordAccess?.hasAccessibleLists");
+  });
+
   it("keeps relocated actions discoverable and governed by their existing permissions", () => {
     expect(reportingPage).toContain('const canViewCustomReports = !!(permissions as Record<string, boolean> | undefined)?.canViewCustomReports;');
     expect(reportingPage).toContain('onClick={() => navigate("/custom-reports")}');
