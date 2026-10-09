@@ -106,12 +106,15 @@ function buildAgentNav(
   hasActiveOnboarding: boolean,
   isGroupLeader: boolean,
   myOverdueTasks: number = 0,
-  userId: number | null = null
+  userId: number | null = null,
+  hasMlsProperties: boolean = false
 ): NavGroup[] {
   const dealsItems: NavItem[] = [
     { icon: FileText, label: "Transactions", path: "/transactions" },
     { icon: Building2, label: "Listings", path: "/listings" },
     { icon: Building2, label: "Properties", path: "/properties" },
+    // Shown only when an MLS manager has assigned this agent at least one MLS.
+    ...(hasMlsProperties ? [{ icon: MapPinned, label: "MLS Properties", path: "/mls-properties" }] : []),
     { icon: Wallet, label: "My Commission", path: "/commission" },
     { icon: Star, label: "Reviews", path: "/reviews" },
   ];
@@ -1096,6 +1099,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     undefined,
     { enabled: role === "admin", staleTime: 30000 }
   );
+  // Agents see MLS Properties only for MLSs assigned to them (Agent Assignments).
+  const { data: agentMlsAccess } = trpc.mlsProperties.myAccess.useQuery(
+    undefined,
+    { enabled: role === "agent", staleTime: 60000 }
+  );
   const canViewOperationsEscalations =
     isAdmin && !!adminPerms?.canViewOperationsEscalations;
   const { data: openOperationsEscalationsData } =
@@ -1224,7 +1232,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               hasActiveOnboarding,
               isGroupLeader,
               myOverdueTaskCount,
-              user?.id ?? null
+              user?.id ?? null,
+              !!agentMlsAccess?.canView
             );
   const canUsePulseLayout =
     isPulsePath && Boolean((pulseShell as any)?.hasPulseAccess);

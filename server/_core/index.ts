@@ -124,6 +124,7 @@ import { ensureOrganicSocialLeadSources } from "../organicSocialLeadSources";
 import { ensureWebsiteLeadSources } from "../websiteLeadSources";
 import { ensureMarketStateFix } from "../marketStateFix";
 import { ensureMlsSchema } from "../mls/schema";
+import { ensureMlsAccessSchema } from "../mls/access";
 import { registerMlsStatusRoute } from "../mls/status";
 import { startInProcessMlsIngestion } from "../mls/worker";
 import { ensurePulseRunnerIssueSourceSchema } from "../pulse/runnerIssueSourceSchema";
@@ -194,6 +195,9 @@ async function startServer() {
   // MLS Properties tables and its two admin permission columns. The columns
   // must exist before any request selects admin_permissions.
   await ensureMlsSchema();
+  // Agent MLS assignments and saved MLS views (app database). Retried on first
+  // use if this fails, so a blip here never blocks the rest of SavvyOS.
+  await ensureMlsAccessSchema().catch(error => console.error("[MLS] access tables not ready:", error instanceof Error ? error.message : error));
 
   const app = express();
   const server = createServer(app);

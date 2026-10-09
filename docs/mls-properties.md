@@ -11,8 +11,28 @@ MLS Properties is a standalone admin module for ingesting, normalizing, searchin
 | Property search | `/mls-properties` | Active/For sale/Newest defaults; responsive List and Split cards; map with photo previews, radius/polygon drawing, source-aware filters and shared map/list area |
 | Listing detail | `/mls-properties/listings/:id` | Gallery, facts, features, property history across transactions, other listings at the same property, open houses, seller opt-out notices, attribution and disclaimer, field lineage, raw payload (managers only) |
 | Feeds and mappings | `/mls-properties/feeds` | Sources (29 MLSs seeded), feeds, sync runs, field mappings, worker health and provider usage |
-| Permissions | `canViewMlsProperties`, `canManageMlsFeeds` | Both default off. Grant in Super Permissions. Manage depends on view: revoking view also revokes manage. |
+| Permissions | `canViewMlsProperties`, `canManageMlsFeeds` | Both default off. Grant in Super Permissions. Manage depends on view: revoking view also revokes manage. Agents get access only through Agent Assignments (below). |
+| Agent Assignments | **Agent Assignments** button on `/mls-properties` (MLS managers) | Pick which licensed MLSs each active agent can search. An agent with at least one MLS gets an **MLS Properties** tab in their sidebar. |
+| Saved Views | **Saved Views** button on `/mls-properties` (everyone with access) | Save the current filters, sort, view, map camera, map area and drawn shape under a name; pick one later; mark one as the default view. |
 | Ingestion worker | `server/mlsIngestionWorker.ts` | Separate Railway process (`SAVVYOS_PROCESS=mlsIngestionWorker`) |
+
+### Agent Assignments and Saved Views (Oct 9, 2026)
+
+**Who sees what.** `server/mls/access.ts` resolves one rule used by every MLS read route and by the private photo route:
+
+| User | Access |
+|---|---|
+| Admin with `canViewMlsProperties` | Every licensed MLS, as before |
+| Active agent (`role = agent`, full user) with assignments | Only listings from the assigned MLSs, and only listings still in the feed |
+| Agent with no assignment, ISA, agent support, inactive user | None. The tab is hidden and the routes return FORBIDDEN |
+
+The server narrows every agent query itself (`scopeSearchFilters`): search, exact total, map pins, single-MLS facets, listing detail, its history and other listings at the same address, and stored cover photos. Asking for an unassigned MLS matches nothing; it never falls back to all MLSs. A listing from another MLS returns the same NOT_FOUND as a missing one. Feed health, raw payloads, photo health, mappings and Agent Assignments stay with MLS managers.
+
+**Licensing.** Assign an MLS only to agents who are members of that MLS and covered by its agreement. Agents see that MLS's listings inside SavvyOS, including back office (BBO) fields. Nothing here makes MLS data public.
+
+**Saved Views.** Each user's views are private. Names are unique per user (up to 80 characters, 50 views per user). Exactly one default view per user is enforced by a unique generated column, not just app code. The default applies once when a browser tab first opens MLS Properties; after that the tab keeps whatever the user is looking at. Applying a view drops any MLS the user can no longer see. A view saved in a format that no longer validates comes back without a state and asks to be re-saved instead of breaking the list.
+
+**Storage.** `agent_mls_assignments` and `user_mls_saved_views` are user records, so they live in the **app** database (nightly backups), not the re-importable MLS database. Both cascade-delete with the user. The web process creates them at startup (`ensureMlsAccessSchema`); a failure there is logged and does not stop the site. Same DDL: `drizzle/20261009_mls_agent_access.sql`.
 
 ### Admin search and map
 
@@ -159,6 +179,8 @@ Pro formas, publishing to the public website, STR data and comps, seller and buy
 pnpm vitest run server/mls                      # unit tests
 MLS_E2E_DATABASE_URL=mysql://root@127.0.0.1:3307/savvyos_mls_e2e \
   pnpm vitest run server/mls/mls.e2e.test.ts    # end to end with local MySQL and a mock MLS Grid server
+MLS_E2E_DATABASE_URL=mysql://root@127.0.0.1:3307/savvyos_mls_e2e \
+  pnpm vitest run server/mls/mls.access.e2e.test.ts  # agent MLS scoping and saved views through the real router
 ```
 
 ## Licensed feeds declared in code

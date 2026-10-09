@@ -365,12 +365,15 @@ function RecruitingRoute({ children }: { children: React.ReactNode }) {
 
 function MlsPropertiesRoute({ children, manage = false }: { children: React.ReactNode; manage?: boolean }) {
   const { user } = useAuth();
-  const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
-  if (!isAdmin) return <NotFound />;
+  // Admins need MLS Properties permission. Agents get in only when an MLS is
+  // assigned to them; the server scopes every read to those MLSs regardless.
+  const role = (user as any)?.role;
+  const eligible = role === "admin" || role === "agent";
+  const { data: access, isLoading } = trpc.mlsProperties.myAccess.useQuery(undefined, { enabled: eligible, staleTime: 60_000 });
+  if (!eligible) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
-  if (!(permissions as any)?.canViewMlsProperties) return <NotFound />;
-  if (manage && !(permissions as any)?.canManageMlsFeeds) return <NotFound />;
+  if (!access?.canView) return <NotFound />;
+  if (manage && !access.canManage) return <NotFound />;
   return <>{children}</>;
 }
 
