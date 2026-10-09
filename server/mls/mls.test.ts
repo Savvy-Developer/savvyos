@@ -959,3 +959,32 @@ describe("per-MLS map centers", () => {
     }
   });
 });
+
+describe("agent MLS scoping", () => {
+  it("passes admins through and narrows agents to their assigned MLSs", async () => {
+    const { NO_SOURCE_ID, allowedSourceIds, canSeeSource, scopeSearchFilters } = await import("./access");
+    const all = { kind: "all", canManage: false } as const;
+    const amy = { kind: "assigned", sourceIds: [2, 5] } as const;
+    const none = { kind: "none" } as const;
+    const filters = { sourceIds: [1, 2], includeRemoved: true, statuses: ["active"] };
+    expect(scopeSearchFilters(filters, all)).toBe(filters);
+    expect(scopeSearchFilters(filters, amy)).toEqual({ sourceIds: [2], includeRemoved: undefined, statuses: ["active"] });
+    expect(scopeSearchFilters({}, amy)).toEqual({ sourceIds: [2, 5], includeRemoved: undefined });
+    // Asking only for MLSs you don't have matches nothing; it never widens to "all".
+    expect(scopeSearchFilters({ sourceIds: [1] }, amy).sourceIds).toEqual([NO_SOURCE_ID]);
+    expect(scopeSearchFilters({}, none).sourceIds).toEqual([NO_SOURCE_ID]);
+    expect([allowedSourceIds(all), allowedSourceIds(amy), allowedSourceIds(none)]).toEqual([null, [2, 5], [NO_SOURCE_ID]]);
+    expect([canSeeSource(all, 9), canSeeSource(amy, 5), canSeeSource(amy, 1), canSeeSource(none, 2)]).toEqual([true, true, false, false]);
+  });
+
+  it("validates saved view names and state", async () => {
+    const { savedViewNameSchema, savedViewStateSchema } = await import("./access");
+    expect(savedViewNameSchema.parse("  Downtown  ")).toBe("Downtown");
+    expect(savedViewNameSchema.safeParse("   ").success).toBe(false);
+    expect(savedViewNameSchema.safeParse("x".repeat(81)).success).toBe(false);
+    const state = { filters: { statuses: ["active"] }, sort: "newest", view: "map", searchInMap: true, camera: null, bounds: null, area: null };
+    expect(savedViewStateSchema.safeParse(state).success).toBe(true);
+    expect(savedViewStateSchema.safeParse({ ...state, view: "grid" }).success).toBe(false);
+    expect(savedViewStateSchema.safeParse({ ...state, sort: "random" }).success).toBe(false);
+  });
+});

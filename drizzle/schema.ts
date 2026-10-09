@@ -11642,5 +11642,48 @@ export const mobileDevices = mysqlTable(
 export type MobileDevice = typeof mobileDevices.$inferSelect;
 export type InsertMobileDevice = typeof mobileDevices.$inferInsert;
 
+// ─── MLS Properties: agent access and saved views ───────────────────────────
+// These are user records, not MLS replica data, so they live in the app
+// database (backed up nightly) rather than the re-importable MLS database.
+// Applied at startup by server/mls/access.ts; see drizzle/20261009_mls_agent_access.sql.
+// An assignment lets an agent search one MLS. sourceId refers to mls_sources in
+// the MLS database, so it is validated on write rather than by a foreign key.
+export const agentMlsAssignments = mysqlTable(
+  "agent_mls_assignments",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceId: int("sourceId").notNull(),
+    assignedById: int("assignedById").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("agent_mls_assignments_user_source_unique").on(table.userId, table.sourceId),
+    index("agent_mls_assignments_source_idx").on(table.sourceId),
+  ]
+);
+export type AgentMlsAssignment = typeof agentMlsAssignments.$inferSelect;
+// A named MLS Properties search (filters, sort, layout and map area) owned by one user.
+// The table also carries a generated defaultUserId column with a unique key, so a
+// user can never end up with two default views.
+export const userMlsSavedViews = mysqlTable(
+  "user_mls_saved_views",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 80 }).notNull(),
+    state: json("state").notNull(),
+    isDefault: boolean("isDefault").default(false).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [uniqueIndex("user_mls_saved_views_user_name_unique").on(table.userId, table.name)]
+);
+export type UserMlsSavedView = typeof userMlsSavedViews.$inferSelect;
+
 // MLS Properties module (separate from the legacy properties table).
 export * from "./mlsSchema";

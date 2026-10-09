@@ -30,7 +30,11 @@ import {
   type MlsFeed,
   type MlsSource,
 } from "../../drizzle/mlsSchema";
-import { adminProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
+import {
+  canSeeSource, createSavedView, deleteSavedView, listAgentAssignments, listSavedViews, mlsAccessFor,
+  savedViewNameSchema, savedViewStateSchema, scopeSearchFilters, setAgentAssignments, setDefaultSavedView, updateSavedView,
+} from "../mls/access";
 import { getMlsDb as getDb } from "../mls/db";
 import { adapterFor } from "../mls/adapters";
 import { clearTokenCache } from "../mls/adapters/trestle";
@@ -69,10 +73,20 @@ async function requireDb(): Promise<Db> {
   return db;
 }
 
-const viewProcedure = adminProcedure.use(async ({ ctx, next }) => {
-  if (!(await canAdminUsePermission(ctx.user as any, "canViewMlsProperties"))) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "MLS Properties permission is required." });
+// Admins with canViewMlsProperties see every licensed MLS. Agents see only the
+// MLSs assigned to them (server/mls/access.ts). Every view route below scopes
+// its reads with ctx.mlsAccess, so an agent can never widen the scope from the browser.
+const viewProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const mlsAccess = await mlsAccessFor(ctx.user as any);
+  if (mlsAccess.kind === "none") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "MLS Properties access is required." });
   }
+  return next({ ctx: { mlsAccess } });
+});
+
+/** Feed health and other back-office views stay with admins who can see every MLS. */
+const adminViewProcedure = viewProcedure.use(async ({ ctx, next }) => {
+  if (ctx.mlsAccess.kind !== "all") throw new TRPCError({ code: "FORBIDDEN", message: "MLS Properties permission is required." });
   return next();
 });
 
@@ -82,6 +96,18 @@ const manageProcedure = adminProcedure.use(async ({ ctx, next }) => {
   }
   return next();
 });
+
+/** Licensed MLS sources (any feed passes the license gate), in display order. */
+async function licensedSources(db: Db) {
+  const [sources, feeds] = await Promise.all([
+    db.select().from(mlsSources).orderBy(asc(mlsSources.sortOrder)),
+    db.select().from(mlsFeeds),
+  ]);
+  const licensed = new Set(feeds.filter(feed => !licenseError(feed)).map(feed => feed.sourceId));
+  return sources.filter(source => licensed.has(source.id));
+}
+
+const savedViewIdSchema = z.number().int().positive();
 
 const num = (value: string | number | null | undefined) => (value === null || value === undefined ? null : Number(value));
 
@@ -187,16 +213,26 @@ const mappingInputSchema = z.object({
 });
 
 export const mlsPropertiesRouter = router({
-  /** Everything the search page needs to render filters. */
-  filterOptions: viewProcedure.query(async () => {
-    const db = await requireDb();
-    const [sources, feeds] = await Promise.all([
-      db.select().from(mlsSources).orderBy(asc(mlsSources.sortOrder)),
-      db.select().from(mlsFeeds),
-    ]);
-    const licensedSources = new Set(feeds.filter(feed => !licenseError(feed)).map(feed => feed.sourceId));
+  /**
+   * What the signed-in user may do in MLS Properties. Never throws, so the
+   * sidebar and route guard can ask for any role.
+   */
+  myAccess: protectedProcedure.query(async ({ ctx }) => {
+    const access = await mlsAccessFor(ctx.user as any);
     return {
-      sources: sources.filter(source => licensedSources.has(source.id)).map(source => ({
+      canView: access.kind !== "none",
+      scope: access.kind,
+      sourceIds: access.kind === "assigned" ? access.sourceIds : [],
+      canManage: access.kind === "all" && access.canManage,
+    };
+  }),
+
+  /** Everything the search page needs to render filters. */
+  filterOptions: viewProcedure.query(async ({ ctx }) => {
+    const db = await requireDb();
+    const sources = (await licensedSources(db)).filter(source => canSeeSource(ctx.mlsAccess, source.id));
+    return {
+      sources: sources.map(source => ({
         id: source.id,
         name: source.name,
         shortName: source.shortName,
@@ -204,6 +240,7 @@ export const mlsPropertiesRouter = router({
         onboardingStatus: source.onboardingStatus,
         mapCenter: sourceMapCenter(source.code),
       })),
+      scope: ctx.mlsAccess.kind,
       statuses: CANONICAL_STATUSES.map(value => ({ value, label: STATUS_LABELS[value] })),
       propertyTypes: CANONICAL_PROPERTY_TYPES.map(value => ({ value, label: PROPERTY_TYPE_LABELS[value] })),
       sorts: SEARCH_SORTS,
@@ -211,7 +248,8 @@ export const mlsPropertiesRouter = router({
   }),
 
   /** Native facets are read only from already licensed Active rows, never from raw provider payloads. */
-  sourceFacets: viewProcedure.input(z.object({ sourceId: z.number().int().positive() })).query(async ({ input }) => {
+  sourceFacets: viewProcedure.input(z.object({ sourceId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    if (!canSeeSource(ctx.mlsAccess, input.sourceId)) throw new TRPCError({ code: "FORBIDDEN", message: "That MLS is not assigned to you." });
     const db = await requireDb();
     const scope = and(
       eq(mlsListings.sourceId, input.sourceId),
@@ -249,28 +287,35 @@ export const mlsPropertiesRouter = router({
         pageSize: z.number().int().min(1).max(100).default(24),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await requireDb();
-      return searchListings(db, { ...input, countMode: "none" });
+      return searchListings(db, { ...input, filters: scopeSearchFilters(input.filters, ctx.mlsAccess), countMode: "none" });
     }),
 
   /** Exact count is intentionally independent of the latency-sensitive page query. */
-  total: viewProcedure.input(z.object({ filters: searchFiltersSchema.default({}) })).query(async ({ input }) => {
+  total: viewProcedure.input(z.object({ filters: searchFiltersSchema.default({}) })).query(async ({ input, ctx }) => {
     const db = await requireDb();
-    return { total: await countListings(db, input.filters) };
+    return { total: await countListings(db, scopeSearchFilters(input.filters, ctx.mlsAccess)) };
   }),
 
   mapPoints: viewProcedure
     .input(z.object({ filters: searchFiltersSchema.default({}), bounds: boundsSchema, zoom: z.number().min(0).max(22) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await requireDb();
-      return mapPoints(db, { filters: { ...input.filters, bounds: undefined }, bounds: input.bounds, zoom: input.zoom });
+      const filters = scopeSearchFilters({ ...input.filters, bounds: undefined }, ctx.mlsAccess);
+      return mapPoints(db, { filters, bounds: input.bounds, zoom: input.zoom });
     }),
 
   listing: viewProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input, ctx }) => {
     const db = await requireDb();
     const [listing] = await db.select().from(mlsListings).where(eq(mlsListings.id, input.id)).limit(1);
     if (!listing) throw new TRPCError({ code: "NOT_FOUND", message: "Listing not found" });
+    // Agents only reach present listings from their assigned MLSs. A listing from
+    // another MLS looks exactly like a missing one.
+    const agentScope = ctx.mlsAccess.kind === "assigned" ? ctx.mlsAccess.sourceIds : null;
+    if (agentScope && (!agentScope.includes(listing.sourceId) || listing.removedFromFeedAt)) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Listing not found" });
+    }
     const [licensedFeed] = await db.select().from(mlsFeeds).where(eq(mlsFeeds.id, listing.feedId)).limit(1);
     if (!licensedFeed || licenseError(licensedFeed)) throw new TRPCError({ code: "NOT_FOUND", message: "Listing not found" });
     const [[source], [feed], [property], [insights]] = await Promise.all([
@@ -286,7 +331,9 @@ export const mlsPropertiesRouter = router({
         .where(
           and(
             eq(mlsListingHistory.propertyId, listing.propertyId),
-            sql.raw(`EXISTS (SELECT 1 FROM mls_listings AS hl WHERE hl.id = mls_listing_history.listingId AND ${approvedFeedSql("hf", "hl.feedId")})`)
+            sql.raw(`EXISTS (SELECT 1 FROM mls_listings AS hl WHERE hl.id = mls_listing_history.listingId AND ${approvedFeedSql("hf", "hl.feedId")}${
+              agentScope ? ` AND hl.sourceId IN (${agentScope.map(id => Number(id)).join(",")})` : ""
+            })`)
           )
         )
         .orderBy(desc(mlsListingHistory.eventAt), desc(mlsListingHistory.id))
@@ -328,7 +375,10 @@ export const mlsPropertiesRouter = router({
           removedFromFeedAt: mlsListings.removedFromFeedAt,
         })
         .from(mlsListings)
-        .where(and(eq(mlsListings.propertyId, listing.propertyId), ne(mlsListings.id, listing.id), sql.raw(approvedFeedSql())))
+        .where(and(
+          eq(mlsListings.propertyId, listing.propertyId), ne(mlsListings.id, listing.id), sql.raw(approvedFeedSql()),
+          ...(agentScope ? [inArray(mlsListings.sourceId, agentScope), isNull(mlsListings.removedFromFeedAt)] : []),
+        ))
         .orderBy(desc(mlsListings.originalEntryAt)),
     ]);
     // Older MLS history (Canopy before ~2013) carries only the agent and office
@@ -372,7 +422,7 @@ export const mlsPropertiesRouter = router({
     if (listing.internetAddressDisplayYN === false) optOuts.push("Seller opted out of address display.");
     if (listing.internetAvmDisplayYN === false) optOuts.push("Seller opted out of automated valuations next to this listing.");
     if (listing.internetConsumerCommentYN === false) optOuts.push("Seller opted out of consumer comments.");
-    const canManage = await canAdminUsePermission(ctx.user as any, "canManageMlsFeeds");
+    const canManage = ctx.mlsAccess.kind === "all" && ctx.mlsAccess.canManage;
     // MLS Grid galleries show straight from its CDN (MLS Grid permits direct
     // display of CDN links); our stored copy backs a link the CDN stops serving.
     // Other providers show only stored copies. The feed license gate above applies to both.
@@ -598,7 +648,7 @@ export const mlsPropertiesRouter = router({
     };
   }),
 
-  overview: viewProcedure.query(async () => {
+  overview: adminViewProcedure.query(async () => {
     const db = await requireDb();
     const [byStatus, [{ properties }], mediaByStatus, heartbeats] = await Promise.all([
       db
@@ -878,4 +928,45 @@ export const mlsPropertiesRouter = router({
       fields: fields.map(field => ({ ...field, mappedTo: mapped.get(field.name) ?? null })),
     };
   }),
+
+  // ─── Agent Assignments (MLS managers) ─────────────────────────────────────
+  /** Active agents and the MLSs each can search. */
+  agentAssignments: manageProcedure.query(async () => {
+    const db = await requireDb();
+    const [sources, agents] = await Promise.all([licensedSources(db), listAgentAssignments()]);
+    return {
+      sources: sources.map(source => ({ id: source.id, name: source.name, shortName: source.shortName })),
+      agents,
+    };
+  }),
+
+  /** Replaces one agent's MLS list. An empty list removes their MLS Properties tab. */
+  setAgentAssignments: manageProcedure
+    .input(z.object({ userId: z.number().int().positive(), sourceIds: z.array(z.number().int().positive()).max(100) }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const assignableSourceIds = (await licensedSources(db)).map(source => source.id);
+      const sourceIds = await setAgentAssignments({ actorId: ctx.user.id, userId: input.userId, sourceIds: input.sourceIds, assignableSourceIds });
+      return { userId: input.userId, sourceIds };
+    }),
+
+  // ─── Saved Views (each user's own) ────────────────────────────────────────
+  savedViews: viewProcedure.query(async ({ ctx }) => listSavedViews(ctx.user.id)),
+
+  createSavedView: viewProcedure
+    .input(z.object({ name: savedViewNameSchema, state: savedViewStateSchema, makeDefault: z.boolean().default(false) }))
+    .mutation(async ({ input, ctx }) => createSavedView(ctx.user.id, input)),
+
+  updateSavedView: viewProcedure
+    .input(z.object({ id: savedViewIdSchema, name: savedViewNameSchema.optional(), state: savedViewStateSchema.optional() }))
+    .mutation(async ({ input, ctx }) => updateSavedView(ctx.user.id, input.id, { name: input.name, state: input.state })),
+
+  /** Pass id null to clear the default. */
+  setDefaultSavedView: viewProcedure
+    .input(z.object({ id: savedViewIdSchema.nullable() }))
+    .mutation(async ({ input, ctx }) => setDefaultSavedView(ctx.user.id, input.id)),
+
+  deleteSavedView: viewProcedure
+    .input(z.object({ id: savedViewIdSchema }))
+    .mutation(async ({ input, ctx }) => deleteSavedView(ctx.user.id, input.id)),
 });

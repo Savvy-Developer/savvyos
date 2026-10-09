@@ -5,7 +5,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { mlsFeeds, mlsListings, mlsMedia } from "../../drizzle/mlsSchema";
 import { getMlsDb as getDb } from "./db";
 import { sdk } from "../_core/sdk";
-import { canAdminUsePermission } from "../routers/permissions";
+import { canSeeSource, mlsAccessFor } from "./access";
 import { licenseError } from "./license";
 
 /**
@@ -71,7 +71,10 @@ export function registerMlsMediaRoute(app: Express) {
     res.setHeader("Cache-Control", "private, no-store");
     try {
       const user = await sdk.authenticateRequest(req);
-      if (!user || user.isActive === false || user.role !== "admin" || !(await canAdminUsePermission(user, "canViewMlsProperties"))) {
+      // Same rule as the search routes: admins with MLS Properties permission, or
+      // agents for listings in the MLSs assigned to them.
+      const access = await mlsAccessFor(user);
+      if (access.kind === "none") {
         res.status(403).end(); return;
       }
       const key = typeof req.query.key === "string" ? req.query.key : "";
@@ -81,11 +84,11 @@ export function registerMlsMediaRoute(app: Express) {
       if (!/^[1-9]\d*$/.test(listingIdInput) || !Number.isSafeInteger(listingId)) { res.status(404).end(); return; }
       const db = await getDb();
       if (!db) { res.status(503).end(); return; }
-      const [row] = await db.select({ feed: mlsFeeds }).from(mlsMedia, { forceIndex: ["mls_media_listing_idx"] })
+      const [row] = await db.select({ feed: mlsFeeds, sourceId: mlsListings.sourceId }).from(mlsMedia, { forceIndex: ["mls_media_listing_idx"] })
         .innerJoin(mlsListings, eq(mlsListings.id, mlsMedia.listingId))
         .innerJoin(mlsFeeds, eq(mlsFeeds.id, mlsMedia.feedId))
         .where(and(eq(mlsMedia.listingId, listingId), eq(mlsMedia.s3Key, key), eq(mlsMedia.status, "stored"), isNull(mlsListings.removedFromFeedAt))).limit(1);
-      if (!row || licenseError(row.feed)) { res.status(404).end(); return; }
+      if (!row || licenseError(row.feed) || !canSeeSource(access, row.sourceId)) { res.status(404).end(); return; }
       // URL expires in one minute. Never persist signed object URLs in the DB.
       const url = await getSignedUrl(client(), new GetObjectCommand({ Bucket: bucket(), Key: key }), { expiresIn: 60 });
       res.redirect(302, url);

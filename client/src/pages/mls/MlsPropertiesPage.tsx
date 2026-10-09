@@ -15,6 +15,8 @@ import { trpc } from "@/lib/trpc";
 import type { MapArea, MapViewport } from "./MlsSearchMap";
 import { addressLine, cityLine, displayPrice, formatNumber, formatPrice, statusStyle, type MlsListingCard } from "./mlsFormat";
 import { formatNumericFilter, parseNumericFilter, sanitizeNumericInput, type NumericKind } from "./filterNumbers";
+import { MlsAgentAssignmentsButton } from "./MlsAgentAssignments";
+import { MlsSavedViewsButton, type MlsSavedViewState } from "./MlsSavedViews";
 
 // Neither map engine loads on the main List view. Leaflet remains a safe fallback.
 const MlsLeafletMap = lazy(() => import("./MlsSearchMap").then(module => ({ default: module.MlsSearchMap })));
@@ -191,6 +193,10 @@ export default function MlsPropertiesPage() {
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Remounts the map when a saved view moves the camera.
+  const [mapKey, setMapKey] = useState(0);
+  // A tab applies the user's default view once; after that it keeps whatever they are looking at.
+  const [defaultViewHandled, setDefaultViewHandled] = usePersistentState<boolean>("mls.search.defaultView.v1", false);
 
   useEffect(() => {
     setFilters(current => {
@@ -227,8 +233,10 @@ export default function MlsPropertiesPage() {
   const singleSourceId = filters.sourceIds?.length === 1 ? filters.sourceIds[0] : null;
   const facets = trpc.mlsProperties.sourceFacets.useQuery({ sourceId: singleSourceId ?? 0 }, { enabled: filtersOpen && !!singleSourceId, staleTime: 5 * 60_000 });
   const singleSource = options.data?.sources.find(source => source.id === singleSourceId);
-  const permissions = trpc.permissions.getMyPermissions.useQuery(undefined, { staleTime: 5 * 60_000 });
-  const canManage = !!(permissions.data as any)?.canManageMlsFeeds;
+  const access = trpc.mlsProperties.myAccess.useQuery(undefined, { staleTime: 60_000 });
+  const canManage = !!access.data?.canManage;
+  const scopedToAssignments = access.data?.scope === "assigned";
+  const savedViews = trpc.mlsProperties.savedViews.useQuery(undefined, { staleTime: 60_000, refetchOnWindowFocus: false });
   const results = trpc.mlsProperties.search.useQuery(
     { filters: listFilters as any, sort: sort as any, page, pageSize: PAGE_SIZE },
     {
@@ -256,6 +264,51 @@ export default function MlsPropertiesPage() {
       const center = selected?.mapCenter;
       setMapCamera(center ? { center: { lat: center.lat, lng: center.lng }, zoom: center.zoom } : { center: DEFAULT_CENTER, zoom: 10 });
     }
+  };
+  // Agents only search their assigned MLSs; drop any other MLS left in this tab's saved filters.
+  const permittedSourceIds = (ids: number[] | undefined) => {
+    const allowed = options.data?.sources.map(source => source.id);
+    if (!ids?.length || !allowed) return ids?.length ? ids : undefined;
+    const kept = ids.filter(id => allowed.includes(id));
+    return kept.length ? kept : undefined;
+  };
+  useEffect(() => {
+    if (!options.data) return;
+    setFilters(current => {
+      const kept = permittedSourceIds(current.sourceIds);
+      return (kept?.length ?? 0) === (current.sourceIds?.length ?? 0) ? current : { ...current, sourceIds: kept };
+    });
+  }, [options.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const applySavedView = (state: MlsSavedViewState) => {
+    const next = { ...(state.filters as Filters) };
+    next.sourceIds = permittedSourceIds(next.sourceIds);
+    setFilters(next);
+    setQueryText(next.q ?? "");
+    setSort(state.sort);
+    setView(state.view);
+    setSearchInMap(state.searchInMap);
+    if (state.camera) setMapCamera({ center: state.camera.center, zoom: state.camera.zoom });
+    setMapBounds(state.bounds);
+    setArea(state.area as MapArea | null);
+    setViewport(null);
+    setSelectedId(null);
+    setPage(1);
+    setMapKey(key => key + 1);
+  };
+  useEffect(() => {
+    if (defaultViewHandled || !savedViews.data || !options.data) return;
+    const preferred = savedViews.data.find(view => view.isDefault && view.state);
+    if (preferred?.state) applySavedView(preferred.state);
+    setDefaultViewHandled(true);
+  }, [defaultViewHandled, savedViews.data, options.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const currentViewState: MlsSavedViewState = {
+    filters: cleaned as MlsSavedViewState["filters"],
+    sort: sort as MlsSavedViewState["sort"],
+    view,
+    searchInMap,
+    camera: mapCamera,
+    bounds: mapBounds,
+    area,
   };
   const clearAll = () => { setFilters(DEFAULT_FILTERS); setQueryText(""); setMapBounds(null); setArea(null); setPage(1); };
   const openListing = (id: number) => { setSelectedId(id); navigate(`/mls-properties/listings/${id}`); };
@@ -288,9 +341,13 @@ export default function MlsPropertiesPage() {
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold leading-tight sm:text-2xl">MLS Properties</h1>
-          <p className="mt-0.5 hidden text-sm text-muted-foreground sm:block">Search listings from licensed MLS feeds as they arrive</p>
+          <p className="mt-0.5 hidden text-sm text-muted-foreground sm:block">{scopedToAssignments ? "Listings from the MLSs assigned to you" : "Search listings from licensed MLS feeds as they arrive"}</p>
         </div>
-        {canManage ? <Button variant="outline" size="sm" asChild><Link href="/mls-properties/feeds"><Settings2 className="mr-1.5 h-4 w-4" />Feeds</Link></Button> : null}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <MlsSavedViewsButton current={currentViewState} onApply={applySavedView} />
+          {canManage ? <MlsAgentAssignmentsButton /> : null}
+          {canManage ? <Button variant="outline" size="sm" asChild><Link href="/mls-properties/feeds"><Settings2 className="mr-1.5 h-4 w-4" />Feeds</Link></Button> : null}
+        </div>
       </div>
       <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
         <div className="relative min-w-[220px] flex-1">
@@ -306,7 +363,7 @@ export default function MlsPropertiesPage() {
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 pb-4" role="region" aria-label="MLS filters" tabIndex={0}>
             <section className="space-y-2 border-t pt-3">
               <h3 className="text-sm font-semibold">MLS and location</h3>
-              <div><Label className="mb-1 block text-xs text-slate-600">MLS</Label><MultiSelect options={sourceOptions} value={(filters.sourceIds ?? []).map(String)} onValueChange={changeSources} placeholder="All licensed MLSs" maxDisplay={1} popoverClassName="z-[2400]" /></div>
+              <div><Label className="mb-1 block text-xs text-slate-600">MLS</Label><MultiSelect options={sourceOptions} value={(filters.sourceIds ?? []).map(String)} onValueChange={changeSources} placeholder={scopedToAssignments ? "All my MLSs" : "All licensed MLSs"} maxDisplay={1} popoverClassName="z-[2400]" /></div>
               {singleSource ? <div className="space-y-2 rounded-lg border border-teal-100 bg-teal-50/60 p-3">
                 <p className="text-xs font-semibold text-teal-900">{singleSource.shortName}-specific filters</p>
                 {facets.isLoading ? <p className="text-xs text-muted-foreground">Loading MLS options…</p> : null}
@@ -387,7 +444,7 @@ export default function MlsPropertiesPage() {
           {!searching && !results.isError && results.data && (page > 1 || results.data.items.length > 0) ? <div className="flex items-center justify-between border-t pt-2 text-sm"><Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft className="mr-1 h-4 w-4" />Prev</Button><span className="text-muted-foreground">Page {page} out of {pages?.toLocaleString() ?? (totals.isError ? "unavailable" : "…")}</span><Button variant="ghost" size="sm" disabled={!hasMore} onClick={() => setPage(page + 1)}>Next<ChevronRight className="ml-1 h-4 w-4" /></Button></div> : null}
         </div> : null}
         {view !== "list" ? mapConfig.isPending ? <Skeleton className="h-[380px] w-full rounded-xl" /> : <Suspense fallback={<Skeleton className="h-[380px] w-full rounded-xl" />}><MapComponent
-          key={(filters.sourceIds ?? []).join(",") || "all"}
+          key={`${(filters.sourceIds ?? []).join(",") || "all"}:${mapKey}`}
           className={view === "map" ? "h-[70vh] lg:h-[calc(100vh-240px)]" : "order-last h-[420px] lg:h-[calc(100vh-240px)] lg:min-h-[500px]"}
           mapboxToken={mapConfig.data?.publicToken ?? undefined}
           filters={cleaned}
