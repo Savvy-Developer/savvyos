@@ -956,6 +956,74 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     }
   }, 90_000);
 
+  it("relink scans read one feed per status through the feed-status index, newest first, and wait for that index", async () => {
+    const original = state.properties;
+    const cdnLinks = await import("./cdnLinks");
+    try {
+      state.properties = ["scan1", "scan2", "scan3", "scan4", "scan5"].map((key, index) => listing(key, {
+        ModificationTimestamp: `2026-09-26T1${index}:00:00.000Z`,
+        StreetNumber: String(90 + index), PhotosCount: 3,
+        Media: [1, 2, 3].map(order => ({ MediaKey: `CAR${key}-${order}`, Order: order, MediaCategory: "Photo", MediaURL: "" })),
+      }));
+      // Canopy's feed types are taken by the other tests; any seeded source works.
+      const [source] = await q("SELECT id FROM mls_sources WHERE code='realtracs'");
+      await admin.query(
+        `INSERT INTO mls_feeds (sourceId, name, provider, feedType, baseUrl, originatingSystemName, keyPrefix, credentialRef, resources, options, enabled, mediaPolicy, syncIntervalMinutes, retentionPolicy)
+         VALUES (?, 'Relink scan test', 'mls_grid', 'vow', ?, 'carolina', 'CAR', 'E2EGRID', ?, ?, true, 'all', 5, 'purge')`,
+        [source.id, `${base}/v2`, JSON.stringify(["Property"]), JSON.stringify({ fastImportV1: true, license: { approved: true, internalUse: true, reference: "SYNTHETIC TEST FIXTURE ONLY" } })]
+      );
+      const [feed] = await q<any>("SELECT id FROM mls_feeds WHERE name='Relink scan test'");
+      expect((await modules.engine.runFeedCycle(feed.id, { workerId: "relink-scan-e2e" })).ok).toBe(true);
+      const ctx = (await modules.engine.loadFeedContext(feed.id))!;
+      const db = (await modules.db.getDb())!;
+      const lane = modules.http.getLane("mls_grid", "E2EGRID", modules.adapters.adapterFor("mls_grid").limits(ctx.feed));
+      const ids = (await q<any>("SELECT id FROM mls_listings WHERE feedId=? ORDER BY id", [feed.id])).map(row => Number(row.id));
+      expect(ids).toHaveLength(5);
+      // Newest first crosses statuses: pending, active, coming soon, under contract; the oldest is sold.
+      const statuses = ["closed", "active_under_contract", "coming_soon", "active", "pending"];
+      for (const [index, id] of ids.entries()) await admin.query("UPDATE mls_listings SET standardStatus=? WHERE id=?", [statuses[index], id]);
+      // Every photo already has a CDN link, so these scans cost no API calls.
+      const linked = await q<any>("SELECT COUNT(*) AS n FROM mls_media WHERE feedId=? AND sourceUrl LIKE 'https://cdn-%.mlsgrid.com/%'", [feed.id]);
+      expect(Number(linked[0].n)).toBe(15);
+      await admin.query(
+        "INSERT INTO mls_sync_cursors (feedId, resource, phase) VALUES (?, 'CdnLinksClosed', 'incremental'), (?, 'CdnLinksOffMarket', 'incremental')",
+        [feed.id, feed.id]
+      );
+      const apiCalls = () => state.requests.filter(request => request.includes("ListingId in (")).length;
+      const before = apiCalls();
+      const cursor = async () => Number((await q<any>("SELECT highWaterMark FROM mls_sync_cursors WHERE feedId=? AND resource='CdnLinksNewest'", [feed.id]))[0]?.highWaterMark ?? 0);
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx, { scanSize: 3 })).toEqual({ scope: "on_market", scanned: 3, relinked: 0, requests: 0, done: false });
+      // The three newest on-market listings, across three statuses.
+      expect(await cursor()).toBe(ids[2]);
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx, { scanSize: 3 })).toEqual({ scope: "on_market", scanned: 1, relinked: 0, requests: 0, done: false });
+      expect(await cursor()).toBe(ids[1]);
+      // The sold listing is another scope, and other feeds' listings never count.
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx, { scanSize: 3 })).toEqual({ scope: null, scanned: 0, relinked: 0, requests: 0, done: true });
+      expect(apiCalls() - before).toBe(0);
+
+      // The real query is one backward range on the index: no filesort, no other feeds' rows.
+      const scan = cdnLinks.relinkScanQuery(db, feed.id, "active", ids[4], 1000).toSQL();
+      const [plan] = await q<any>(`EXPLAIN ${scan.sql}`, scan.params);
+      expect(plan.key).toBe(cdnLinks.RELINK_SCAN_INDEX);
+      expect(String(plan.Extra ?? "")).not.toMatch(/filesort/i);
+
+      // Without the index the backfill waits instead of walking the table.
+      await admin.query("ALTER TABLE mls_listings DROP INDEX mls_listings_feed_status_idx");
+      cdnLinks.resetRelinkIndexAvailability();
+      await admin.query("DELETE FROM mls_sync_cursors WHERE feedId=? AND resource='CdnLinksNewest'", [feed.id]);
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scope: "index_pending", scanned: 0, relinked: 0, requests: 0, done: false });
+      // The worker's online build adds only the missing index. The cached
+      // answer holds for a minute, then the scan resumes.
+      expect(await modules.schema.applySearchCoverIndexes(admin as any)).toEqual(["mls_listings_feed_status_idx"]);
+      expect(await cdnLinks.relinkIndexReady(db)).toBe(false);
+      expect(await cdnLinks.relinkIndexReady(db, Date.now() + 61_000)).toBe(true);
+      expect(await cdnLinks.backfillCdnLinks(db, lane, ctx)).toEqual({ scope: "on_market", scanned: 4, relinked: 0, requests: 0, done: false });
+      expect(apiCalls() - before).toBe(0);
+    } finally {
+      state.properties = original;
+    }
+  }, 90_000);
+
   it("quarantines a bad row, advances the page, and recovers it when corrected", async () => {
     const original = state.properties;
     try {

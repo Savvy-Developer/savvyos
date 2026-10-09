@@ -93,10 +93,10 @@ export async function applyMlsSchema(connection: Connection, appConnection: Conn
   await seedMlsSources(connection);
 }
 
-/** Covering indexes for map clusters, exact counts and the MARIS BBO-over-IDX
- * check. They are large, so they build online in the background and never
- * hold up MLS requests (which await ensureMlsSchema). Search code forces them
- * only after MySQL lists them. */
+/** Covering indexes for map clusters, exact counts and the BBO-over-IDX
+ * check, plus the per-feed status index the CDN relink scans. They are large,
+ * so they build online in the background and never hold up MLS requests
+ * (which await ensureMlsSchema). Code forces them only after MySQL lists them. */
 export const SEARCH_COVER_INDEX_DDL = [
   {
     name: "mls_listings_search_cover_idx",
@@ -105,6 +105,10 @@ export const SEARCH_COVER_INDEX_DDL = [
   {
     name: "mls_listings_source_number_feed_idx",
     columns: "sourceId, listingNumber, feedId, removedFromFeedAt",
+  },
+  {
+    name: "mls_listings_feed_status_idx",
+    columns: "feedId, standardStatus, removedFromFeedAt",
   },
 ] as const;
 

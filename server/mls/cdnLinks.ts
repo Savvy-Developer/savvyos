@@ -52,6 +52,53 @@ export function backfillHasHeadroom(lane: ProviderLane) {
   return !day || day.used < day.limit * CDN_LINK_DAY_SHARE;
 }
 
+/**
+ * (feedId, standardStatus, removedFromFeedAt) plus InnoDB's implicit id: one
+ * status of one feed reads newest first as a single index range, so a scan
+ * costs only that feed's own rows. The old primary-key walk filtered on
+ * feedId, so the last step of every scope walked every other feed's rows down
+ * to id 1: a full table scan per feed per scope (35 minutes for MIBOR). Built
+ * online by schema.ts; until MySQL lists it the backfill waits, because FORCE
+ * INDEX on a missing index is an error and waiting keeps the build unblocked.
+ */
+export const RELINK_SCAN_INDEX = "mls_listings_feed_status_idx";
+const RELINK_INDEX_RECHECK_MS = 60_000;
+let relinkIndex = { ready: false, checkedAt: 0 };
+
+export function resetRelinkIndexAvailability() {
+  relinkIndex = { ready: false, checkedAt: 0 };
+}
+
+/** Cheap and cached: once the index exists this never queries again. */
+export async function relinkIndexReady(db: Db, now = Date.now()): Promise<boolean> {
+  if (relinkIndex.ready || now - relinkIndex.checkedAt < RELINK_INDEX_RECHECK_MS) return relinkIndex.ready;
+  try {
+    const [rows] = (await db.execute(sql`SELECT 1 AS present FROM information_schema.statistics
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mls_listings' AND INDEX_NAME = ${RELINK_SCAN_INDEX} LIMIT 1`)) as unknown as [Array<{ present: number }>];
+    relinkIndex = { ready: rows.length > 0, checkedAt: now };
+  } catch {
+    relinkIndex = { ...relinkIndex, checkedAt: now };
+  }
+  return relinkIndex.ready;
+}
+
+/** Newest `limit` listings of one feed and status below `belowId` that report photos. */
+export function relinkScanQuery(db: Db, feedId: number, status: CanonicalStatus, belowId: number | null, limit: number) {
+  return db.select({
+    id: mlsListings.id,
+    listingNumber: mlsListings.listingNumber,
+    photosCount: mlsListings.photosCount,
+  })
+    .from(mlsListings, { forceIndex: [RELINK_SCAN_INDEX] })
+    .where(and(
+      eq(mlsListings.feedId, feedId), eq(mlsListings.standardStatus, status),
+      isNull(mlsListings.removedFromFeedAt), gt(mlsListings.photosCount, 0),
+      belowId === null ? undefined : lt(mlsListings.id, belowId),
+    ))
+    .orderBy(desc(mlsListings.id))
+    .limit(limit);
+}
+
 export type CdnLinkProgress = { scope: string | null; scanned: number; relinked: number; requests: number; done: boolean };
 
 /** Runs one pass of the first unfinished scope; an empty scope finishes and hands over to the next. */
@@ -70,6 +117,7 @@ export async function backfillCdnLinks(
     if (cursor?.phase === "incremental") continue;
     if (options.signal?.aborted) return idle;
     if (!backfillHasHeadroom(lane)) return { scope: "api_headroom", scanned: 0, relinked: 0, requests: 0, done: false };
+    if (!(await relinkIndexReady(db))) return { scope: "index_pending", scanned: 0, relinked: 0, requests: 0, done: false };
     const progress = await backfillScope(db, lane, ctx, scope, cursor?.highWaterMark ?? null, options);
     if (progress.scanned) return progress;
   }
@@ -87,19 +135,12 @@ async function backfillScope(
   const progress: CdnLinkProgress = { scope: scope.scope, scanned: 0, relinked: 0, requests: 0, done: true };
   const lastId = Number(highWaterMark ?? 0);
   const belowId = Number.isSafeInteger(lastId) && lastId > 0 ? lastId : null;
-  const listings = await db.select({
-    id: mlsListings.id,
-    listingNumber: mlsListings.listingNumber,
-    photosCount: mlsListings.photosCount,
-  })
-    .from(mlsListings, { forceIndex: ["PRIMARY"] })
-    .where(and(
-      eq(mlsListings.feedId, ctx.feed.id), inArray(mlsListings.standardStatus, scope.statuses),
-      isNull(mlsListings.removedFromFeedAt), gt(mlsListings.photosCount, 0),
-      belowId === null ? undefined : lt(mlsListings.id, belowId),
-    ))
-    .orderBy(desc(mlsListings.id))
-    .limit(Math.max(1, options.scanSize ?? CDN_LINK_SCAN));
+  const limit = Math.max(1, options.scanSize ?? CDN_LINK_SCAN);
+  // One index range per status, newest first. The newest `limit` across all
+  // of them is exactly the scope's newest `limit`, so the cursor still holds.
+  const candidates: Array<{ id: number; listingNumber: string | null; photosCount: number | null }> = [];
+  for (const status of scope.statuses) candidates.push(...await relinkScanQuery(db, ctx.feed.id, status, belowId, limit));
+  const listings = candidates.sort((a, b) => b.id - a.id).slice(0, limit);
   progress.scanned = listings.length;
   if (!listings.length) {
     await db.insert(mlsSyncCursors).values({

@@ -434,6 +434,8 @@ export const mlsListings = mysqlTable(
       table.removedFromFeedAt, table.listPrice, table.sourceId, table.listingNumber
     ),
     index("mls_listings_source_number_feed_idx").on(table.sourceId, table.listingNumber, table.feedId, table.removedFromFeedAt),
+    // One feed's listings of one status, newest first (CDN relink scan).
+    index("mls_listings_feed_status_idx").on(table.feedId, table.standardStatus, table.removedFromFeedAt),
     index("mls_listings_postal_idx").on(table.postalCode),
     index("mls_listings_city_idx").on(table.city, table.stateOrProvince),
     index("mls_listings_modified_idx").on(table.sourceModifiedAt),

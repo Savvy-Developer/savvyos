@@ -316,6 +316,7 @@ export const MLS_TABLE_DDL: ReadonlyArray<{ table: string; sql: string }> = [
   KEY \`mls_listings_status_entry_idx\` (\`standardStatus\`,\`originalEntryAt\`),
   KEY \`mls_listings_search_cover_idx\` (\`standardStatus\`,\`latitude\`,\`longitude\`,\`feedId\`,\`propertyType\`,\`removedFromFeedAt\`,\`listPrice\`,\`sourceId\`,\`listingNumber\`),
   KEY \`mls_listings_source_number_feed_idx\` (\`sourceId\`,\`listingNumber\`,\`feedId\`,\`removedFromFeedAt\`),
+  KEY \`mls_listings_feed_status_idx\` (\`feedId\`,\`standardStatus\`,\`removedFromFeedAt\`),
   KEY \`mls_listings_postal_idx\` (\`postalCode\`),
   KEY \`mls_listings_city_idx\` (\`city\`,\`stateOrProvince\`),
   KEY \`mls_listings_modified_idx\` (\`sourceModifiedAt\`),
