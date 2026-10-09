@@ -64,7 +64,7 @@ export class MlsIngestionScheduler {
   private running = new Set<Promise<unknown>>();
   private lastActivity: Record<string, unknown> = {};
   /** One-time scale-down of covers stored before download-time scaling. In memory: a restart rescans quickly. */
-  private coverShrink = { running: false, done: false, cursor: 0, scanned: 0, shrunk: 0, savedBytes: 0, failed: 0 };
+  private coverShrink = { running: false, done: false, cursor: null as number | null, scanned: 0, shrunk: 0, savedBytes: 0, failed: 0 };
   private startedAt = new Date();
   private handedOff = false;
   private handoffLogged = false;
@@ -227,10 +227,10 @@ export class MlsIngestionScheduler {
     }
   }
 
-  /** Up to 30 s of stored-cover scaling per tick; no provider calls, two images at a time. */
+  /** Up to two minutes of stored-cover scaling per tick, newest first; no provider calls. */
   private async shrinkCovers(feedIds: number[]) {
     const state = this.coverShrink;
-    const until = Date.now() + 30_000;
+    const until = Date.now() + 120_000;
     try {
       while (Date.now() < until && !this.controller.signal.aborted) {
         const step = await shrinkStoredCovers(feedIds, state.cursor, { signal: this.controller.signal });

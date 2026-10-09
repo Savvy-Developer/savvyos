@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
 import { mlsListings, mlsMedia } from "../../drizzle/mlsSchema";
 import { getMlsDb as getDb } from "./db";
 import { privateMlsStorage, privateMlsStorageError } from "./privateMedia";
@@ -453,18 +453,21 @@ export async function hasPendingMedia(feedIds: number[]) {
 
 /** Cover rows sit at queue priority 1-40 (gallery photos at 50 and 100); see mediaPriority. */
 const COVER_PRIORITY_MAX = 40;
-export type CoverShrinkProgress = { scanned: number; shrunk: number; savedBytes: number; failed: number; cursor: number; done: boolean };
+export type CoverShrinkProgress = { scanned: number; shrunk: number; savedBytes: number; failed: number; cursor: number | null; done: boolean };
+const SHRUNK_SUFFIX = `-c${COVER_MAX_EDGE}.jpg`;
 
 /**
  * One bounded step of the pass that scales down covers stored before covers
- * were scaled at download. Reads up to `limit` stored covers after `cursor`
- * (id order, through the queue index), rewrites any over the size threshold to
- * a new key, and swaps the row and listing to it only if the row is still the
- * same stored copy. The old object is deleted after the swap. No provider calls.
+ * were scaled at download. Newest first, so current listings and the newest MLS
+ * are done first: reads up to `limit` stored cover ids below `cursor` (null
+ * starts at the top) from the queue index alone, then only those rows by
+ * primary key. Each oversized cover is rewritten to a new key, and the row and
+ * listing swap to it only if the row is still the same stored copy. The old
+ * object is deleted after the swap. No provider calls.
  */
 export async function shrinkStoredCovers(
   feedIds: number[],
-  cursor: number,
+  cursor: number | null,
   options: { limit?: number; concurrency?: number; signal?: AbortSignal } = {}
 ): Promise<CoverShrinkProgress> {
   const progress: CoverShrinkProgress = { scanned: 0, shrunk: 0, savedBytes: 0, failed: 0, cursor, done: false };
@@ -472,24 +475,37 @@ export async function shrinkStoredCovers(
   if (!feedIds.length || !read) return { ...progress, done: true };
   if (storage === privateMlsStorage && privateMlsStorageError()) return progress;
   const db = await requireDb();
+  // Index-only: the queue index carries the primary key, so no row is read here.
+  const page = await db
+    .select({ id: mlsMedia.id })
+    .from(mlsMedia, { forceIndex: ["mls_media_queue_idx"] })
+    .where(and(
+      eq(mlsMedia.status, "stored"),
+      lte(mlsMedia.priority, COVER_PRIORITY_MAX),
+      cursor === null ? undefined : lt(mlsMedia.id, cursor),
+    ))
+    .orderBy(desc(mlsMedia.id))
+    .limit(options.limit ?? 500);
+  progress.scanned = page.length;
+  if (!page.length) return { ...progress, done: true };
+  progress.cursor = page[page.length - 1].id;
   const rows = await db
     .select({
-      id: mlsMedia.id, feedId: mlsMedia.feedId, listingId: mlsMedia.listingId, isPrimary: mlsMedia.isPrimary,
+      id: mlsMedia.id, feedId: mlsMedia.feedId, listingId: mlsMedia.listingId, isPrimary: mlsMedia.isPrimary, status: mlsMedia.status,
       s3Key: mlsMedia.s3Key, url: mlsMedia.url, bytes: mlsMedia.bytes, mimeType: mlsMedia.mimeType,
     })
-    .from(mlsMedia, { forceIndex: ["mls_media_queue_idx"] })
-    .where(and(eq(mlsMedia.status, "stored"), lte(mlsMedia.priority, COVER_PRIORITY_MAX), gt(mlsMedia.id, cursor)))
-    .orderBy(mlsMedia.id)
-    .limit(options.limit ?? 500);
-  progress.scanned = rows.length;
-  if (!rows.length) return { ...progress, done: true };
-  progress.cursor = rows[rows.length - 1].id;
+    .from(mlsMedia)
+    .where(inArray(mlsMedia.id, page.map(row => row.id)));
   const wanted = new Set(feedIds);
-  const oversized = rows.filter(row => row.isPrimary && row.s3Key && wanted.has(row.feedId) && Number(row.bytes ?? 0) > COVER_SHRINK_ABOVE_BYTES);
-  await pool(oversized, options.concurrency ?? 2, async row => {
+  const oversized = rows.filter(row =>
+    row.status === "stored" && row.isPrimary && row.s3Key && !row.s3Key.endsWith(SHRUNK_SUFFIX) &&
+    wanted.has(row.feedId) && Number(row.bytes ?? 0) > COVER_SHRINK_ABOVE_BYTES
+  );
+  // Storage round trips dominate (about 0.5 s a cover); decoding stays capped in coverImage.
+  await pool(oversized, options.concurrency ?? 8, async row => {
     if (options.signal?.aborted) return;
     const oldKey = row.s3Key!;
-    const key = `${oldKey.replace(/\.[A-Za-z0-9]+$/, "")}-c${COVER_MAX_EDGE}.jpg`;
+    const key = `${oldKey.replace(/\.[A-Za-z0-9]+$/, "")}${SHRUNK_SUFFIX}`;
     // s3Key is varchar(512); a key that cannot be saved is left as it is.
     if (key === oldKey || key.length > 512) return;
     let copied = false;
