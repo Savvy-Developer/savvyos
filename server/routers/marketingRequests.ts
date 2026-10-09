@@ -35,7 +35,7 @@ const AUTOMATIC_MARKETING_TYPES = {
     agentImageLayer: "image_container_rectangle_12",
   },
   just_closed: {
-    template: "RGlOVA5R2W4P5nPgXw",
+    template: "E9YaWrZM8jvrbnRd74",
     label: "Just Closed",
     fileSlug: "just-closed",
     requiresPrice: true,
@@ -46,7 +46,7 @@ const AUTOMATIC_MARKETING_TYPES = {
     agentImageLayer: "image_container_rectangle_12",
   },
   just_listed: {
-    template: "BAQGWyDLNlEaZgmENL",
+    template: "Kp21rAZjokEN56eLnd",
     label: "Just Listed",
     fileSlug: "just-listed",
     requiresPrice: true,
