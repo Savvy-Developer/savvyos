@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
 import { mlsListings, mlsMedia } from "../../drizzle/mlsSchema";
 import { getMlsDb as getDb } from "./db";
 import { privateMlsStorage, privateMlsStorageError } from "./privateMedia";
@@ -7,6 +7,7 @@ import { adapterFor } from "./adapters";
 import { parseODataPage, type FeedContext } from "./adapters/types";
 import { downloadMedia, FatalHttpError, redactUrl, requestJson, type ProviderLane } from "./http";
 import { isMlsGridCdnUrl } from "./mlsGridCdn";
+import { COVER_MAX_EDGE, COVER_SHRINK_ABOVE_BYTES, shrinkCover } from "./coverImage";
 import { withMlsPhotoListingId } from "./photoUrl";
 import { processRecords } from "./store";
 /**
@@ -24,6 +25,8 @@ type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 export type MediaStorage = {
   put(key: string, data: Buffer, contentType: string): Promise<{ url: string }>;
   remove(key: string): Promise<void>;
+  /** Needed only to shrink covers stored before covers were scaled at download. */
+  get?(key: string): Promise<Buffer>;
 };
 
 let storage: MediaStorage = privateMlsStorage;
@@ -357,19 +360,23 @@ export async function runMediaBatch(
     }
     const singleUse = adapter.capabilities.mediaUrlsExpire;
     try {
-      const { data, contentType } = await downloadMedia(lane, row.sourceUrl!, await adapter.mediaHeaders(ctx), {
+      const downloaded = await downloadMedia(lane, row.sourceUrl!, await adapter.mediaHeaders(ctx), {
         signal: options.signal,
         fetchImpl: options.fetchImpl,
       });
-      const ext = extension(contentType);
-      if (!ext || data.length === 0 || data.length > MAX_BYTES) {
+      if (!extension(downloaded.contentType) || downloaded.data.length === 0 || downloaded.data.length > MAX_BYTES) {
         await db
           .update(mlsMedia)
-          .set({ status: "skipped", sourceUrl: null, claimedBy: null, lastError: `Not stored: ${contentType}, ${data.length} bytes` })
+          .set({ status: "skipped", sourceUrl: null, claimedBy: null, lastError: `Not stored: ${downloaded.contentType}, ${downloaded.data.length} bytes` })
           .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "downloading"), eq(mlsMedia.claimedBy, claimToken)));
         result.skipped += 1;
         return;
       }
+      // Covers are only shown at card, popup, and fallback sizes; galleries keep full size.
+      const { data, contentType } = row.isPrimary
+        ? await shrinkCover(downloaded.data, downloaded.contentType)
+        : { data: downloaded.data, contentType: downloaded.contentType };
+      const ext = extension(contentType)!;
       const key = `mls/${safeSegment(ctx.source.code)}/${ctx.feed.id}/${safeSegment(row.resourceKey)}/${safeSegment(row.mediaKey)}-${safeSegment(claimToken)}.${ext}`;
       const { url: storageUrl } = await storage.put(key, data, contentType.split(";")[0]);
       const url = row.listingId ? withMlsPhotoListingId(storageUrl, row.listingId)! : storageUrl;
@@ -442,4 +449,85 @@ export async function hasPendingMedia(feedIds: number[]) {
     if (row) return 1;
   }
   return 0;
+}
+
+/** Cover rows sit at queue priority 1-40 (gallery photos at 50 and 100); see mediaPriority. */
+const COVER_PRIORITY_MAX = 40;
+export type CoverShrinkProgress = { scanned: number; shrunk: number; savedBytes: number; failed: number; cursor: number; done: boolean };
+
+/**
+ * One bounded step of the pass that scales down covers stored before covers
+ * were scaled at download. Reads up to `limit` stored covers after `cursor`
+ * (id order, through the queue index), rewrites any over the size threshold to
+ * a new key, and swaps the row and listing to it only if the row is still the
+ * same stored copy. The old object is deleted after the swap. No provider calls.
+ */
+export async function shrinkStoredCovers(
+  feedIds: number[],
+  cursor: number,
+  options: { limit?: number; concurrency?: number; signal?: AbortSignal } = {}
+): Promise<CoverShrinkProgress> {
+  const progress: CoverShrinkProgress = { scanned: 0, shrunk: 0, savedBytes: 0, failed: 0, cursor, done: false };
+  const read = storage.get?.bind(storage);
+  if (!feedIds.length || !read) return { ...progress, done: true };
+  if (storage === privateMlsStorage && privateMlsStorageError()) return progress;
+  const db = await requireDb();
+  const rows = await db
+    .select({
+      id: mlsMedia.id, feedId: mlsMedia.feedId, listingId: mlsMedia.listingId, isPrimary: mlsMedia.isPrimary,
+      s3Key: mlsMedia.s3Key, url: mlsMedia.url, bytes: mlsMedia.bytes, mimeType: mlsMedia.mimeType,
+    })
+    .from(mlsMedia, { forceIndex: ["mls_media_queue_idx"] })
+    .where(and(eq(mlsMedia.status, "stored"), lte(mlsMedia.priority, COVER_PRIORITY_MAX), gt(mlsMedia.id, cursor)))
+    .orderBy(mlsMedia.id)
+    .limit(options.limit ?? 500);
+  progress.scanned = rows.length;
+  if (!rows.length) return { ...progress, done: true };
+  progress.cursor = rows[rows.length - 1].id;
+  const wanted = new Set(feedIds);
+  const oversized = rows.filter(row => row.isPrimary && row.s3Key && wanted.has(row.feedId) && Number(row.bytes ?? 0) > COVER_SHRINK_ABOVE_BYTES);
+  await pool(oversized, options.concurrency ?? 2, async row => {
+    if (options.signal?.aborted) return;
+    const oldKey = row.s3Key!;
+    const key = `${oldKey.replace(/\.[A-Za-z0-9]+$/, "")}-c${COVER_MAX_EDGE}.jpg`;
+    // s3Key is varchar(512); a key that cannot be saved is left as it is.
+    if (key === oldKey || key.length > 512) return;
+    let copied = false;
+    let swapped = false;
+    try {
+      const cover = await shrinkCover(await read(oldKey), row.mimeType ?? "image/jpeg");
+      if (!cover.resized) return;
+      const { url: storageUrl } = await storage.put(key, cover.data, cover.contentType);
+      copied = true;
+      const url = row.listingId ? withMlsPhotoListingId(storageUrl, row.listingId)! : storageUrl;
+      const result = await withLockRetry(() => db
+        .update(mlsMedia)
+        .set({ s3Key: key, url, bytes: cover.data.length, mimeType: cover.contentType })
+        .where(and(eq(mlsMedia.id, row.id), eq(mlsMedia.status, "stored"), eq(mlsMedia.s3Key, oldKey))));
+      swapped = Number((result as any)[0]?.affectedRows) > 0;
+      if (!swapped) return; // A re-download or removal changed the row first; the copy is removed below.
+      if (row.listingId) {
+        // Matches the cover URL in any form that names the old object.
+        await withLockRetry(() => db
+          .update(mlsListings)
+          .set({ primaryPhotoUrl: url })
+          .where(and(
+            eq(mlsListings.id, row.listingId!),
+            or(
+              row.url ? eq(mlsListings.primaryPhotoUrl, row.url) : undefined,
+              sql`INSTR(${mlsListings.primaryPhotoUrl}, ${encodeURIComponent(oldKey)}) > 0`,
+            ),
+          )));
+      }
+      await storage.remove(oldKey);
+      progress.shrunk += 1;
+      progress.savedBytes += Number(row.bytes ?? 0) - cover.data.length;
+    } catch (error) {
+      progress.failed += 1;
+      console.error(`[mls] cover shrink failed for media ${row.id}`, redactUrl(String(error instanceof Error ? error.message : error)).slice(0, 300));
+    } finally {
+      if (copied && !swapped) await storage.remove(key).catch(() => undefined);
+    }
+  });
+  return progress;
 }

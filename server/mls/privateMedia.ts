@@ -59,6 +59,11 @@ export const privateMlsStorage = {
   async remove(key: string) {
     await client().send(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));
   },
+  async get(key: string) {
+    const response = await client().send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
+    if (!response.Body) throw new Error("Empty media object");
+    return Buffer.from(await response.Body.transformToByteArray());
+  },
 };
 
 export function registerMlsMediaRoute(app: Express) {
