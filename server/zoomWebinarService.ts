@@ -224,6 +224,34 @@ export async function createZoomMeeting(input: {
   });
 }
 
+/** Keeps an existing 1:1 link while its configured date or duration changes. */
+export async function updateZoomMeeting(zoomMeetingId: string, input: {
+  title: string;
+  description?: string | null;
+  startTime: Date;
+  durationMinutes: number;
+  timezone: string;
+  autoRecord?: boolean;
+}): Promise<void> {
+  if (!zoomMeetingId.trim()) throw new Error("Zoom meeting ID is required to update a meeting.");
+  requireZoomApiConfiguration();
+  await zoomRequest(`/meetings/${encodeURIComponent(zoomMeetingId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      topic: input.title,
+      agenda: input.description ?? "",
+      start_time: input.startTime.toISOString(),
+      duration: input.durationMinutes,
+      timezone: input.timezone,
+      settings: {
+        waiting_room: true,
+        join_before_host: false,
+        ...(input.autoRecord ? { auto_recording: "cloud" } : {}),
+      },
+    }),
+  });
+}
+
 export function findZoomTranscriptFile(payload: ZoomRecordingWebhookPayload): ZoomRecordingFile | null {
   const files = payload.object?.recording_files ?? [];
   return files.find(file =>

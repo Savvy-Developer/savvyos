@@ -20,6 +20,7 @@ import {
   downloadZoomTranscript,
   findZoomTranscriptFile,
   isZoomMeetingConfigured,
+  updateZoomMeeting,
 } from "../zoomWebinarService";
 import { getDb, logActivity } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -101,6 +102,27 @@ function validDate(value: string, label = "date") {
 
 function addDays(date: Date, days: number) {
   return new Date(date.getTime() + days * DAY_MS);
+}
+
+const EASTERN_TIME_ZONE = "America/New_York";
+
+function easternDateKey(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: EASTERN_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function isScheduledForTodayOrEarlier(scheduledAt: Date, now = new Date()) {
+  return easternDateKey(scheduledAt) <= easternDateKey(now);
+}
+
+function isScheduledForTodayOrLater(scheduledAt: Date, now = new Date()) {
+  return easternDateKey(scheduledAt) >= easternDateKey(now);
 }
 
 function cleanOptionalText(value: string | null | undefined) {
@@ -279,16 +301,40 @@ async function provisionZoomMeeting(input: {
   leaderName: string | null;
   leaderEmail: string | null;
   employeeName: string | null;
+  forceScheduleUpdate?: boolean;
 }) : Promise<ZoomProvision> {
   if (input.meeting.zoomMeetingId) {
-    if (input.meeting.zoomJoinUrl) return existingZoomProvision(input.meeting);
-    return {
-      ...existingZoomProvision(input.meeting),
-      zoomSyncStatus: "Needs Attention",
-      zoomSyncError: "Zoom created this 1:1 without a participant link. Contact SavvyOS support before retrying to avoid a duplicate meeting.",
-      zoomTranscriptStatus: "Needs Attention",
-      zoomTranscriptError: "A Zoom transcript cannot be imported until the participant link is available.",
-    };
+    if (!input.meeting.zoomJoinUrl) {
+      return {
+        ...existingZoomProvision(input.meeting),
+        zoomSyncStatus: "Needs Attention",
+        zoomSyncError: "Zoom created this 1:1 without a participant link. Contact SavvyOS support before retrying to avoid a duplicate meeting.",
+        zoomTranscriptStatus: "Needs Attention",
+        zoomTranscriptError: "A Zoom transcript cannot be imported until the participant link is available.",
+      };
+    }
+    if (!input.forceScheduleUpdate) return existingZoomProvision(input.meeting);
+    try {
+      await updateZoomMeeting(input.meeting.zoomMeetingId, {
+        title: oneOnOneTitle(input.employeeName),
+        description: `SavvyOS HR 1:1 between ${input.leaderName ?? "the leader"} and ${input.employeeName ?? "the employee"}.`,
+        startTime: input.scheduledAt,
+        durationMinutes: input.durationMinutes,
+        timezone: EASTERN_TIME_ZONE,
+        autoRecord: true,
+      });
+      return {
+        ...existingZoomProvision(input.meeting),
+        zoomSyncStatus: "Synced",
+        zoomSyncError: null,
+      };
+    } catch (error) {
+      return {
+        ...existingZoomProvision(input.meeting),
+        zoomSyncStatus: "Needs Attention",
+        zoomSyncError: integrationError(error, "Zoom could not update this 1:1 meeting."),
+      };
+    }
   }
   if (!isZoomMeetingConfigured()) {
     return {
@@ -442,6 +488,7 @@ async function provisionMeetingIntegrations(input: {
   durationMinutes: number;
   leader: { id: number; name: string | null; email: string | null };
   employee: { name: string | null; email: string | null };
+  forceScheduleUpdate?: boolean;
 }) {
   const zoom = await provisionZoomMeeting({
     meeting: input.meeting,
@@ -450,10 +497,12 @@ async function provisionMeetingIntegrations(input: {
     leaderName: input.leader.name,
     leaderEmail: input.leader.email,
     employeeName: input.employee.name,
+    forceScheduleUpdate: input.forceScheduleUpdate,
   });
   const needsCalendarSync = !input.meeting.calendarEventId
     || input.meeting.calendarSyncStatus !== "Synced"
-    || zoom.created;
+    || zoom.created
+    || input.forceScheduleUpdate;
   const calendar = needsCalendarSync
     ? await provisionCalendarEvent({
       meetingId: input.meeting.id,
@@ -529,6 +578,39 @@ async function createScheduledMeeting(input: {
     .set({ nextScheduledAt: input.scheduledAt, updatedAt: sql`NOW()` })
     .where(eq(oneOnOneRelationships.id, input.relationship.id));
   return { meetingId, ...integrations };
+}
+
+async function rescheduleScheduledMeeting(input: {
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>;
+  relationship: typeof oneOnOneRelationships.$inferSelect;
+  meeting: typeof oneOnOneMeetings.$inferSelect;
+  scheduledAt: Date;
+  durationMinutes: number;
+}) {
+  const [employee, leader] = await Promise.all([
+    activeUserOrThrow(input.db, input.relationship.employeeId, "employee"),
+    activeUserOrThrow(input.db, input.relationship.leaderId, "leader"),
+  ]);
+  const integrations = await provisionMeetingIntegrations({
+    meeting: input.meeting,
+    scheduledAt: input.scheduledAt,
+    durationMinutes: input.durationMinutes,
+    leader,
+    employee,
+    forceScheduleUpdate: true,
+  });
+  await input.db.update(oneOnOneMeetings).set({
+    scheduledAt: input.scheduledAt,
+    durationMinutes: input.durationMinutes,
+    ...integrations.calendar,
+    ...integrations.zoom,
+    updatedAt: sql`NOW()`,
+  }).where(eq(oneOnOneMeetings.id, input.meeting.id));
+  await input.db.update(oneOnOneRelationships).set({
+    nextScheduledAt: input.scheduledAt,
+    updatedAt: sql`NOW()`,
+  }).where(eq(oneOnOneRelationships.id, input.relationship.id));
+  return { meetingId: input.meeting.id, ...integrations };
 }
 
 function fallbackDraft(transcript: string) {
@@ -723,7 +805,11 @@ export const oneOnOnesRouter = router({
   dashboard: protectedProcedure.query(async ({ ctx }) => {
     await requireOneOnOneAccess(ctx.user);
     const db = await getDb();
-    if (!db) return { rows: [], counts: { upcoming: 0, dueSoon: 0, overdue: 0, noSchedule: 0 } };
+    if (!db) return {
+      rows: [],
+      runQueue: [],
+      counts: { upcoming: 0, dueSoon: 0, overdue: 0, noSchedule: 0 },
+    };
 
     const employee = aliasedTable(users, "oneOnOneDashboardEmployee");
     const leader = aliasedTable(users, "oneOnOneDashboardLeader");
@@ -740,31 +826,72 @@ export const oneOnOnesRouter = router({
       .orderBy(asc(employee.name), asc(leader.name));
 
     const relationshipIds = relationships.map(row => row.relationship.id);
-    const completedMeetings = relationshipIds.length
-      ? await db
-        .select({ id: oneOnOneMeetings.id, relationshipId: oneOnOneMeetings.relationshipId, heldAt: oneOnOneMeetings.heldAt, meetingSummary: oneOnOneMeetings.meetingSummary, finalizedAt: oneOnOneMeetings.finalizedAt })
-        .from(oneOnOneMeetings)
-        .where(and(inArray(oneOnOneMeetings.relationshipId, relationshipIds), eq(oneOnOneMeetings.status, "Completed")))
-        .orderBy(desc(oneOnOneMeetings.heldAt), desc(oneOnOneMeetings.finalizedAt))
-      : [];
+    const [completedMeetings, activeMeetings] = relationshipIds.length
+      ? await Promise.all([
+        db.select({ id: oneOnOneMeetings.id, relationshipId: oneOnOneMeetings.relationshipId, heldAt: oneOnOneMeetings.heldAt, meetingSummary: oneOnOneMeetings.meetingSummary, finalizedAt: oneOnOneMeetings.finalizedAt })
+          .from(oneOnOneMeetings)
+          .where(and(inArray(oneOnOneMeetings.relationshipId, relationshipIds), eq(oneOnOneMeetings.status, "Completed")))
+          .orderBy(desc(oneOnOneMeetings.heldAt), desc(oneOnOneMeetings.finalizedAt)),
+        db.select({
+          meeting: oneOnOneMeetings,
+          employee: { id: employee.id, name: employee.name, title: employee.title },
+          leader: { id: leader.id, name: leader.name, title: leader.title },
+        })
+          .from(oneOnOneMeetings)
+          .leftJoin(employee, eq(oneOnOneMeetings.employeeId, employee.id))
+          .leftJoin(leader, eq(oneOnOneMeetings.leaderId, leader.id))
+          .where(and(
+            inArray(oneOnOneMeetings.relationshipId, relationshipIds),
+            inArray(oneOnOneMeetings.status, ["Scheduled", "In Progress", "Review"]),
+          ))
+          .orderBy(asc(oneOnOneMeetings.scheduledAt), asc(oneOnOneMeetings.id)),
+      ])
+      : [[], []] as const;
+
     const lastMeetingByRelationship = new Map<number, (typeof completedMeetings)[number]>();
     for (const meeting of completedMeetings) {
       if (!lastMeetingByRelationship.has(meeting.relationshipId)) lastMeetingByRelationship.set(meeting.relationshipId, meeting);
     }
+    const nextMeetingByRelationship = new Map<number, (typeof activeMeetings)[number]["meeting"]>();
+    for (const row of activeMeetings) {
+      if (
+        row.meeting.status === "Scheduled"
+        && row.meeting.scheduledAt
+        && isScheduledForTodayOrLater(row.meeting.scheduledAt)
+        && !nextMeetingByRelationship.has(row.meeting.relationshipId)
+      ) {
+        nextMeetingByRelationship.set(row.meeting.relationshipId, row.meeting);
+      }
+    }
+
+    const now = new Date();
+    const runQueue = activeMeetings
+      .filter(row => {
+        const occurredAt = row.meeting.scheduledAt ?? row.meeting.startedAt ?? row.meeting.createdAt;
+        return isScheduledForTodayOrEarlier(occurredAt, now);
+      })
+      .map(row => {
+        const occurredAt = row.meeting.scheduledAt ?? row.meeting.startedAt ?? row.meeting.createdAt;
+        return {
+          ...row,
+          isOverdue: easternDateKey(occurredAt) < easternDateKey(now),
+        };
+      });
 
     const rows = relationships.map(row => {
       const state = meetingState(row.relationship);
-      const latest = lastMeetingByRelationship.get(row.relationship.id) ?? null;
       return {
         relationship: row.relationship,
         employee: row.employee,
         leader: row.leader,
-        lastMeeting: latest,
+        lastMeeting: lastMeetingByRelationship.get(row.relationship.id) ?? null,
+        nextMeeting: nextMeetingByRelationship.get(row.relationship.id) ?? null,
         ...state,
       };
     });
     return {
       rows,
+      runQueue,
       counts: {
         upcoming: rows.filter(row => row.isUpcoming).length,
         dueSoon: rows.filter(row => row.isDueSoon).length,
@@ -795,6 +922,9 @@ export const oneOnOnesRouter = router({
         activeUserOrThrow(db, input.leaderId, "leader"),
       ]);
       const scheduledAt = input.nextScheduledAt ? validDate(input.nextScheduledAt, "scheduled time") : null;
+      if (scheduledAt && !isScheduledForTodayOrLater(scheduledAt)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Configure the next 1:1 for today or a future date." });
+      }
       let relationshipId = input.relationshipId ?? null;
       if (relationshipId) {
         const relationship = await relationshipOrThrow(db, relationshipId);
@@ -838,17 +968,25 @@ export const oneOnOnesRouter = router({
       } | null = null;
       if (scheduledAt && relationshipId) {
         const relationship = await relationshipOrThrow(db, relationshipId);
-        const [existingMeeting] = await db
-          .select({ id: oneOnOneMeetings.id })
+        const scheduledMeetings = await db
+          .select()
           .from(oneOnOneMeetings)
           .where(and(
             eq(oneOnOneMeetings.relationshipId, relationship.id),
-            eq(oneOnOneMeetings.scheduledAt, scheduledAt),
             eq(oneOnOneMeetings.status, "Scheduled"),
           ))
-          .limit(1);
+          .orderBy(asc(oneOnOneMeetings.scheduledAt));
+        const existingMeeting = scheduledMeetings.find(candidate =>
+          candidate.scheduledAt && isScheduledForTodayOrLater(candidate.scheduledAt)
+        );
         meeting = existingMeeting
-          ? { meetingId: existingMeeting.id, calendar: null, zoom: null }
+          ? await rescheduleScheduledMeeting({
+            db,
+            relationship,
+            meeting: existingMeeting,
+            scheduledAt,
+            durationMinutes: input.durationMinutes,
+          })
           : await createScheduledMeeting({ db, relationship, scheduledAt, durationMinutes: input.durationMinutes });
       }
       await logActivity({
@@ -868,91 +1006,45 @@ export const oneOnOnesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
       const relationship = await relationshipOrThrow(db, input.relationshipId);
-      const now = new Date();
-      const [scheduled] = await db
+      const scheduledMeetings = await db
         .select()
         .from(oneOnOneMeetings)
         .where(and(
           eq(oneOnOneMeetings.relationshipId, relationship.id),
           eq(oneOnOneMeetings.status, "Scheduled"),
         ))
-        .orderBy(asc(oneOnOneMeetings.scheduledAt))
-        .limit(1);
-      let meetingId: number;
-      let schedulingState: MeetingSchedulingState;
-      let scheduledAt: Date;
-      let durationMinutes: number;
-      if (scheduled) {
-        meetingId = scheduled.id;
-        schedulingState = scheduled;
-        scheduledAt = scheduled.scheduledAt ?? now;
-        durationMinutes = scheduled.durationMinutes;
-        await db.update(oneOnOneMeetings).set({
-          status: "In Progress",
-          startedAt: sql`COALESCE(${oneOnOneMeetings.startedAt}, NOW())`,
-          updatedAt: sql`NOW()`,
-        }).where(eq(oneOnOneMeetings.id, meetingId));
-      } else {
-        const [created] = await db.insert(oneOnOneMeetings).values({
-          relationshipId: relationship.id,
-          employeeId: relationship.employeeId,
-          leaderId: relationship.leaderId,
-          scheduledAt: now,
-          startedAt: now,
-          durationMinutes: 45,
-          status: "In Progress",
+        .orderBy(asc(oneOnOneMeetings.scheduledAt));
+      const meeting = scheduledMeetings.find(candidate =>
+        candidate.scheduledAt && isScheduledForTodayOrEarlier(candidate.scheduledAt)
+      );
+      if (!meeting) {
+        const nextFutureMeeting = scheduledMeetings.find(candidate => candidate.scheduledAt);
+        if (nextFutureMeeting?.scheduledAt) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `This 1:1 is scheduled for ${nextFutureMeeting.scheduledAt.toLocaleString("en-US", { timeZone: EASTERN_TIME_ZONE, dateStyle: "medium", timeStyle: "short" })}. It can be started on its scheduled date.`,
+          });
+        }
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Configure a scheduled 1:1 before starting it.",
         });
-        meetingId = Number((created as any).insertId);
-        scheduledAt = now;
-        durationMinutes = 45;
-        schedulingState = {
-          id: meetingId,
-          calendarEventId: null,
-          calendarEventUrl: null,
-          calendarSyncStatus: "Not Requested",
-          calendarSyncError: null,
-          zoomMeetingId: null,
-          zoomMeetingUuid: null,
-          zoomJoinUrl: null,
-          zoomStartUrl: null,
-          zoomSyncStatus: "Not Requested",
-          zoomSyncError: null,
-          zoomTranscriptStatus: "Not Requested",
-          zoomTranscriptError: null,
-          zoomTranscriptFileId: null,
-          zoomTranscriptImportedAt: null,
-        };
       }
-      if (schedulingState.zoomSyncStatus !== "Synced" || schedulingState.calendarSyncStatus !== "Synced") {
-        const [employee, leader] = await Promise.all([
-          activeUserOrThrow(db, relationship.employeeId, "employee"),
-          activeUserOrThrow(db, relationship.leaderId, "leader"),
-        ]);
-        const integrations = await provisionMeetingIntegrations({
-          meeting: schedulingState,
-          scheduledAt,
-          durationMinutes,
-          leader,
-          employee,
-        });
-        await db.update(oneOnOneMeetings).set({
-          ...integrations.calendar,
-          ...integrations.zoom,
-          status: "In Progress",
-          startedAt: sql`COALESCE(${oneOnOneMeetings.startedAt}, NOW())`,
-          updatedAt: sql`NOW()`,
-        }).where(eq(oneOnOneMeetings.id, meetingId));
-      }
+      await db.update(oneOnOneMeetings).set({
+        status: "In Progress",
+        startedAt: sql`COALESCE(${oneOnOneMeetings.startedAt}, NOW())`,
+        updatedAt: sql`NOW()`,
+      }).where(eq(oneOnOneMeetings.id, meeting.id));
       await db.update(oneOnOneRelationships).set({ nextScheduledAt: null, updatedAt: sql`NOW()` })
         .where(eq(oneOnOneRelationships.id, relationship.id));
       await logActivity({
         userId: ctx.user.id,
         action: "one_on_one_started",
         entityType: "one_on_one_meeting",
-        entityId: meetingId,
+        entityId: meeting.id,
         details: { relationshipId: relationship.id, employeeId: relationship.employeeId, leaderId: relationship.leaderId },
       });
-      return { meetingId };
+      return { meetingId: meeting.id };
     }),
 
   retryCalendarSync: protectedProcedure
@@ -1235,8 +1327,6 @@ export const oneOnOnesRouter = router({
       draft: finalDraftSchema,
       commitments: z.array(commitmentInput).max(50).default([]),
       issues: z.array(issueInput).max(50).default([]),
-      nextScheduledAt: dateTimeInput.nullable().optional(),
-      durationMinutes: z.number().int().min(15).max(240).default(45),
     }))
     .mutation(async ({ input, ctx }) => {
       await requireOneOnOneAccess(ctx.user);
@@ -1247,6 +1337,13 @@ export const oneOnOnesRouter = router({
       if (meeting.status === "Completed" || meeting.status === "Canceled") {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This 1:1 has already been finalized." });
       }
+      const occurredAt = meeting.scheduledAt ?? meeting.startedAt ?? meeting.createdAt;
+      if (!isScheduledForTodayOrEarlier(occurredAt)) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This 1:1 can be completed on its scheduled date or after it has occurred.",
+        });
+      }
       const relationship = await relationshipOrThrow(db, meeting.relationshipId);
       const ownerIds = Array.from(new Set(input.commitments.map(item => item.ownerId).filter((id): id is number => Boolean(id))));
       if (ownerIds.length) {
@@ -1256,7 +1353,6 @@ export const oneOnOnesRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Every commitment owner must be an active SavvyOS user." });
         }
       }
-      const nextScheduledAt = input.nextScheduledAt ? validDate(input.nextScheduledAt, "next scheduled time") : null;
       const heldAt = meeting.heldAt ?? new Date();
       await db.update(oneOnOneMeetings).set({
         status: "Completed",
@@ -1295,28 +1391,37 @@ export const oneOnOnesRouter = router({
           createdById: ctx.user.id,
         })));
       }
+      const scheduledMeetings = await db.select().from(oneOnOneMeetings)
+        .where(and(
+          eq(oneOnOneMeetings.relationshipId, relationship.id),
+          eq(oneOnOneMeetings.status, "Scheduled"),
+          ne(oneOnOneMeetings.id, meeting.id),
+        ))
+        .orderBy(asc(oneOnOneMeetings.scheduledAt));
+      const existingNextMeeting = scheduledMeetings.find(candidate =>
+        candidate.scheduledAt && candidate.scheduledAt.getTime() > occurredAt.getTime()
+      );
+      const nextScheduledAt = existingNextMeeting?.scheduledAt ?? addDays(
+        meeting.scheduledAt ?? heldAt,
+        relationship.frequencyDays,
+      );
       await db.update(oneOnOneRelationships).set({
         lastCompletedAt: heldAt,
         nextScheduledAt,
         updatedAt: sql`NOW()`,
       }).where(eq(oneOnOneRelationships.id, relationship.id));
-
       let nextMeeting: {
         meetingId: number;
         calendar: Awaited<ReturnType<typeof createScheduledMeeting>>["calendar"] | null;
         zoom: Awaited<ReturnType<typeof createScheduledMeeting>>["zoom"] | null;
-      } | null = null;
-      if (nextScheduledAt) {
-        const [alreadyScheduled] = await db.select({ id: oneOnOneMeetings.id }).from(oneOnOneMeetings)
-          .where(and(
-            eq(oneOnOneMeetings.relationshipId, relationship.id),
-            eq(oneOnOneMeetings.scheduledAt, nextScheduledAt),
-            eq(oneOnOneMeetings.status, "Scheduled"),
-          )).limit(1);
-        nextMeeting = alreadyScheduled
-          ? { meetingId: alreadyScheduled.id, calendar: null, zoom: null }
-          : await createScheduledMeeting({ db, relationship, scheduledAt: nextScheduledAt, durationMinutes: input.durationMinutes });
-      }
+      } = existingNextMeeting
+        ? { meetingId: existingNextMeeting.id, calendar: null, zoom: null }
+        : await createScheduledMeeting({
+          db,
+          relationship,
+          scheduledAt: nextScheduledAt,
+          durationMinutes: meeting.durationMinutes,
+        });
       await logActivity({
         userId: ctx.user.id,
         action: "one_on_one_finalized",
@@ -1366,3 +1471,10 @@ export const oneOnOnesRouter = router({
       return { success: true };
     }),
 });
+
+export const __testables__ = {
+  addDays,
+  easternDateKey,
+  isScheduledForTodayOrEarlier,
+  isScheduledForTodayOrLater,
+};
