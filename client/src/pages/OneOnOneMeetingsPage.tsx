@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,12 +53,20 @@ export default function OneOnOneMeetingsPage() {
   const { data: people = [] } = trpc.oneOnOnes.people.useQuery();
   const [setupOpen, setSetupOpen] = useState(false);
   const [setup, setSetup] = useState<SetupState>(blankSetup);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [selectedRunMeetingIdState, setSelectedRunMeetingIds] = useState<number[]>([]);
 
   const selectedRelationship = useMemo(
     () => dashboard?.rows.find((row: any) => row.relationship.id === setup.relationshipId) ?? null,
     [dashboard?.rows, setup.relationshipId],
   );
   const scheduledMeeting = selectedRelationship?.nextMeeting ?? null;
+  const runQueue = dashboard?.runQueue ?? [];
+  const selectedRunMeetingIds = runQueue
+    .filter((row: any) => selectedRunMeetingIdState.includes(row.meeting.id))
+    .map((row: any) => row.meeting.id);
+  const selectedRunMeetingCount = selectedRunMeetingIds.length;
+  const allRunMeetingsSelected = runQueue.length > 0 && selectedRunMeetingCount === runQueue.length;
 
   const upsertRelationship = trpc.oneOnOnes.upsertRelationship.useMutation({
     onSuccess: async result => {
@@ -88,6 +97,26 @@ export default function OneOnOneMeetingsPage() {
     },
     onError: error => toast.error(error.message),
   });
+
+  const discardMeetings = trpc.oneOnOnes.discardMeetings.useMutation({
+    onSuccess: async result => {
+      setDiscardOpen(false);
+      setSelectedRunMeetingIds([]);
+      await utils.oneOnOnes.dashboard.invalidate();
+      toast.success(`Discarded ${result.deletedCount} unfinished 1:1 ${result.deletedCount === 1 ? "record" : "records"}. Calendar and Zoom entries were left untouched.`);
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  const toggleRunMeeting = (meetingId: number, selected: boolean) => {
+    setSelectedRunMeetingIds(current => selected
+      ? Array.from(new Set([...current, meetingId]))
+      : current.filter(id => id !== meetingId));
+  };
+
+  const toggleAllRunMeetings = (selected: boolean) => {
+    setSelectedRunMeetingIds(selected ? runQueue.map((row: any) => row.meeting.id) : []);
+  };
 
   const openSetup = (row?: any) => {
     if (row) {
@@ -166,11 +195,22 @@ export default function OneOnOneMeetingsPage() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Run 1:1s</CardTitle><CardDescription>Only meetings scheduled for today or earlier appear here. Unfinished past meetings remain available until their notes and follow-through are completed.</CardDescription></CardHeader>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div><CardTitle>Run 1:1s</CardTitle><CardDescription>Only meetings scheduled for today or earlier appear here. Unfinished past meetings remain available until their notes and follow-through are completed.</CardDescription></div>
+          {runQueue.length > 0 && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => toggleAllRunMeetings(!allRunMeetingsSelected)}>{allRunMeetingsSelected ? "Clear selection" : "Select all"}</Button><Button size="sm" variant="destructive" onClick={() => setDiscardOpen(true)} disabled={selectedRunMeetingCount === 0}>Discard selected ({selectedRunMeetingCount})</Button></div>}
+        </CardHeader>
         <CardContent>
-          {isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">Checking today’s 1:1s…</p> : (dashboard?.runQueue.length ?? 0) === 0 ? <div className="rounded-lg border border-dashed py-10 text-center"><CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-emerald-600" /><p className="font-medium">Nothing to run right now</p><p className="mt-1 text-sm text-muted-foreground">Configure the next occurrence above. It will appear here on its scheduled date.</p></div> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Leader</TableHead><TableHead>Scheduled</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader><TableBody>{dashboard?.runQueue.map((row: any) => <TableRow key={row.meeting.id}><TableCell><div className="font-medium">{row.employee?.name ?? "Unknown employee"}</div><div className="text-xs text-muted-foreground">{row.employee?.title ?? "No role recorded"}</div></TableCell><TableCell>{row.leader?.name ?? "Unknown leader"}</TableCell><TableCell>{row.meeting.scheduledAt ? safeFormatET(row.meeting.scheduledAt) : "Legacy meeting"}{row.isOverdue && <span className="ml-2 text-xs text-amber-700">Past due</span>}</TableCell><TableCell><Badge variant={row.meeting.status === "Scheduled" ? "secondary" : "outline"}>{row.meeting.status}</Badge></TableCell><TableCell className="text-right">{row.meeting.status === "Scheduled" ? <Button size="sm" onClick={() => startMeeting.mutate({ relationshipId: row.meeting.relationshipId })} disabled={startMeeting.isPending}><PlayCircle className="mr-1.5 h-4 w-4" />Start 1:1</Button> : <Button size="sm" onClick={() => navigate(`/hr/one-on-ones/${row.meeting.id}`)}>Continue 1:1</Button>}</TableCell></TableRow>)}</TableBody></Table></div>}
+          {isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">Checking today’s 1:1s…</p> : runQueue.length === 0 ? <div className="rounded-lg border border-dashed py-10 text-center"><CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-emerald-600" /><p className="font-medium">Nothing to run right now</p><p className="mt-1 text-sm text-muted-foreground">Configure the next occurrence above. It will appear here on its scheduled date.</p></div> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="w-10"><Checkbox aria-label="Select all runnable 1:1s" checked={allRunMeetingsSelected} onCheckedChange={checked => toggleAllRunMeetings(checked === true)} /></TableHead><TableHead>Employee</TableHead><TableHead>Leader</TableHead><TableHead>Scheduled</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader><TableBody>{runQueue.map((row: any) => <TableRow key={row.meeting.id}><TableCell><Checkbox aria-label={`Select 1:1 for ${row.employee?.name ?? "employee"}`} checked={selectedRunMeetingIdState.includes(row.meeting.id)} onCheckedChange={checked => toggleRunMeeting(row.meeting.id, checked === true)} /></TableCell><TableCell><div className="font-medium">{row.employee?.name ?? "Unknown employee"}</div><div className="text-xs text-muted-foreground">{row.employee?.title ?? "No role recorded"}</div></TableCell><TableCell>{row.leader?.name ?? "Unknown leader"}</TableCell><TableCell>{row.meeting.scheduledAt ? safeFormatET(row.meeting.scheduledAt) : "Legacy meeting"}{row.isOverdue && <span className="ml-2 text-xs text-amber-700">Past due</span>}</TableCell><TableCell><Badge variant={row.meeting.status === "Scheduled" ? "secondary" : "outline"}>{row.meeting.status}</Badge></TableCell><TableCell className="text-right">{row.meeting.status === "Scheduled" ? <Button size="sm" onClick={() => startMeeting.mutate({ relationshipId: row.meeting.relationshipId })} disabled={startMeeting.isPending}><PlayCircle className="mr-1.5 h-4 w-4" />Start 1:1</Button> : <Button size="sm" onClick={() => navigate(`/hr/one-on-ones/${row.meeting.id}`)}>Continue 1:1</Button>}</TableCell></TableRow>)}</TableBody></Table></div>}
         </CardContent>
       </Card>
+
+      <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>Discard {selectedRunMeetingCount} unfinished 1:1 {selectedRunMeetingCount === 1 ? "record" : "records"}?</DialogTitle></DialogHeader>
+          <div className="space-y-2 text-sm text-muted-foreground"><p>This permanently removes the selected SavvyOS 1:1 records and any commitments or issues attached to them.</p><p>Google Calendar events and Zoom meetings are not canceled or deleted.</p></div>
+          <DialogFooter><Button variant="outline" onClick={() => setDiscardOpen(false)}>Keep records</Button><Button variant="destructive" onClick={() => discardMeetings.mutate({ meetingIds: selectedRunMeetingIds })} disabled={discardMeetings.isPending}>{discardMeetings.isPending ? "Discarding…" : `Discard ${selectedRunMeetingCount} records`}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={setupOpen} onOpenChange={setSetupOpen}>
         <DialogContent className="sm:max-w-2xl">

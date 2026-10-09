@@ -1047,6 +1047,62 @@ export const oneOnOnesRouter = router({
       return { meetingId: meeting.id };
     }),
 
+  discardMeetings: protectedProcedure
+    .input(z.object({ meetingIds: z.array(z.number().int().positive()).min(1).max(50) }))
+    .mutation(async ({ input, ctx }) => {
+      await requireOneOnOneAccess(ctx.user);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const meetingIds = Array.from(new Set(input.meetingIds));
+      const meetings = await db.select({
+        id: oneOnOneMeetings.id,
+        relationshipId: oneOnOneMeetings.relationshipId,
+        status: oneOnOneMeetings.status,
+        calendarEventId: oneOnOneMeetings.calendarEventId,
+        zoomMeetingId: oneOnOneMeetings.zoomMeetingId,
+      }).from(oneOnOneMeetings).where(inArray(oneOnOneMeetings.id, meetingIds));
+      if (meetings.length !== meetingIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "One or more selected 1:1 records no longer exist." });
+      }
+      if (meetings.some(meeting => !["Scheduled", "In Progress", "Review"].includes(meeting.status))) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only unfinished 1:1 records can be discarded." });
+      }
+
+      await db.delete(oneOnOneMeetings).where(inArray(oneOnOneMeetings.id, meetingIds));
+      const relationshipIds = Array.from(new Set(meetings.map(meeting => meeting.relationshipId)));
+      for (const relationshipId of relationshipIds) {
+        const [nextMeeting] = await db.select({ scheduledAt: oneOnOneMeetings.scheduledAt })
+          .from(oneOnOneMeetings)
+          .where(and(
+            eq(oneOnOneMeetings.relationshipId, relationshipId),
+            eq(oneOnOneMeetings.status, "Scheduled"),
+          ))
+          .orderBy(asc(oneOnOneMeetings.scheduledAt))
+          .limit(1);
+        await db.update(oneOnOneRelationships).set({
+          nextScheduledAt: nextMeeting?.scheduledAt ?? null,
+          updatedAt: sql`NOW()`,
+        }).where(eq(oneOnOneRelationships.id, relationshipId));
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: "one_on_one_meetings_discarded",
+        entityType: "one_on_one_meeting",
+        entityId: meetingIds[0],
+        details: {
+          meetingIds,
+          calendarEventsPreserved: meetings.filter(meeting => Boolean(meeting.calendarEventId)).length,
+          zoomMeetingsPreserved: meetings.filter(meeting => Boolean(meeting.zoomMeetingId)).length,
+        },
+      });
+      return {
+        deletedCount: meetings.length,
+        meetingIds,
+        calendarEventsPreserved: meetings.filter(meeting => Boolean(meeting.calendarEventId)).length,
+        zoomMeetingsPreserved: meetings.filter(meeting => Boolean(meeting.zoomMeetingId)).length,
+      };
+    }),
+
   retryCalendarSync: protectedProcedure
     .input(z.object({ meetingId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
