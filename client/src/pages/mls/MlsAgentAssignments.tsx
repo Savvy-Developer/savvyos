@@ -71,7 +71,7 @@ function AgentAssignmentsDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Dialog open onOpenChange={value => { if (!value) onClose(); }}>
-      <DialogContent overlayClassName="z-[2300]" className="z-[2310] flex max-h-[85dvh] flex-col gap-3 sm:max-w-3xl">
+      <DialogContent overlayClassName="z-[2300]" className="z-[2310] gap-3 sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Agent Assignments</DialogTitle>
           <DialogDescription>
@@ -89,7 +89,8 @@ function AgentAssignmentsDialog({ onClose }: { onClose: () => void }) {
           </label>
           <span className="text-sm text-muted-foreground">{assignedCount} of {agents.length} agents assigned</span>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
+        {/* The table scrolls inside a height that leaves room for the header and toolbar on short screens. */}
+        <div className="max-h-[max(12rem,calc(85dvh-14rem))] overflow-auto rounded-lg border">
           {data.isLoading ? (
             <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading agents</div>
           ) : data.isError ? (

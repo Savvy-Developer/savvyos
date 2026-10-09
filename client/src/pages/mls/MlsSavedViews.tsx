@@ -60,6 +60,8 @@ export function MlsSavedViewsButton({ current, onApply }: {
   const [editor, setEditor] = useState<Editor>(null);
   const [name, setName] = useState("");
   const [makeDefault, setMakeDefault] = useState(false);
+  // In-app confirm instead of window.confirm: a native prompt blocks the whole tab.
+  const [pendingDelete, setPendingDelete] = useState<MlsSavedView | null>(null);
 
   const list = views.data ?? [];
   const currentSignature = savedViewSignature(current);
@@ -68,6 +70,17 @@ export function MlsSavedViewsButton({ current, onApply }: {
 
   const startCreate = () => { setName(""); setMakeDefault(list.length === 0); setEditor({ mode: "create" }); setOpen(false); };
   const startRename = (view: MlsSavedView) => { setName(view.name); setEditor({ mode: "rename", view }); setOpen(false); };
+  const startDelete = (view: MlsSavedView) => { setPendingDelete(view); setOpen(false); };
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    try {
+      await remove.mutateAsync({ id: pendingDelete.id });
+      toast.success(`Deleted ${pendingDelete.name}`);
+      setPendingDelete(null);
+    } catch {
+      // onError already showed the reason; keep the dialog open to retry or cancel.
+    }
+  };
   const apply = (view: MlsSavedView) => {
     if (!view.state) { toast.error(`"${view.name}" was saved in an older format. Open your search, then use Update to re-save it.`); return; }
     onApply(view.state);
@@ -134,7 +147,7 @@ export function MlsSavedViewsButton({ current, onApply }: {
                   <Pencil className="h-4 w-4 text-slate-500" />
                 </Button>
                 <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busy} title="Delete" aria-label={`Delete ${view.name}`}
-                  onClick={() => { if (window.confirm(`Delete the saved view "${view.name}"?`)) remove.mutate({ id: view.id }, { onSuccess: () => toast.success(`Deleted ${view.name}`) }); }}>
+                  onClick={() => startDelete(view)}>
                   <Trash2 className="h-4 w-4 text-slate-500" />
                 </Button>
               </div>
@@ -164,6 +177,22 @@ export function MlsSavedViewsButton({ current, onApply }: {
               <Button type="submit" disabled={busy || !name.trim()}>{busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}{editor?.mode === "rename" ? "Rename" : "Save view"}</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!pendingDelete} onOpenChange={value => { if (!value && !remove.isPending) setPendingDelete(null); }}>
+        <DialogContent overlayClassName="z-[2300]" className="z-[2310] sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete saved view?</DialogTitle>
+            <DialogDescription>
+              {pendingDelete ? `"${pendingDelete.name}" will be removed.${pendingDelete.isDefault ? " It is your default view, so MLS Properties will open without one." : ""}` : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPendingDelete(null)} disabled={remove.isPending}>Cancel</Button>
+            <Button type="button" variant="destructive" onClick={() => void confirmDelete()} disabled={remove.isPending}>
+              {remove.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}Delete
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
