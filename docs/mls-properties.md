@@ -13,7 +13,7 @@ MLS Properties is a standalone admin module for ingesting, normalizing, searchin
 | Feeds and mappings | `/mls-properties/feeds` | Sources (29 MLSs seeded), feeds, sync runs, field mappings, worker health and provider usage |
 | Permissions | `canViewMlsProperties`, `canManageMlsFeeds` | Both default off. Grant in Super Permissions. Manage depends on view: revoking view also revokes manage. Agents get access only through Agent Assignments (below). |
 | Agent Assignments | **Agent Assignments** button on `/mls-properties` (MLS managers) | Pick which licensed MLSs each active agent can search. An agent with at least one MLS gets an **MLS Properties** tab in their sidebar. |
-| Saved Views | **Saved Views** button on `/mls-properties` (everyone with access) | Save the current filters, sort, view, map camera, map area and drawn shape under a name; pick one later; mark one as the default view. |
+| Saved Views | **Saved Views** button on `/mls-properties` (agents only; hidden for admins) | Save the current filters, sort, view, map camera, map area and drawn shape under a name; pick one later; mark one as the default view. |
 | Ingestion worker | `server/mlsIngestionWorker.ts` | Separate Railway process (`SAVVYOS_PROCESS=mlsIngestionWorker`) |
 
 ### Agent Assignments and Saved Views (Oct 9, 2026)
@@ -30,7 +30,7 @@ The server narrows every agent query itself (`scopeSearchFilters`): search, exac
 
 **Licensing.** Assign an MLS only to agents who are members of that MLS and covered by its agreement. Agents see that MLS's listings inside SavvyOS, including back office (BBO) fields. Nothing here makes MLS data public.
 
-**Saved Views.** Each user's views are private. Names are unique per user (up to 80 characters, 50 views per user). Exactly one default view per user is enforced by a unique generated column, not just app code. The default applies once when a browser tab first opens MLS Properties; after that the tab keeps whatever the user is looking at. Applying a view drops any MLS the user can no longer see. A view saved in a format that no longer validates comes back without a state and asks to be re-saved instead of breaking the list.
+**Saved Views.** Saved Views are an agent feature. Only agents with at least one assigned MLS see the button, and every saved view route refuses admins on the server (`agentViewProcedure`), so admins get no saved views and no default view. An admin using Simulate As acts as that agent and sees that agent's views. Each agent's views are private. Names are unique per agent (up to 80 characters, 50 views per agent). Exactly one default view per agent is enforced by a unique generated column, not just app code. The default applies once when a browser tab first opens MLS Properties; after that the tab keeps whatever the user is looking at. Applying a view drops any MLS the user can no longer see. A view saved in a format that no longer validates comes back without a state and asks to be re-saved instead of breaking the list.
 
 **Storage.** `agent_mls_assignments` and `user_mls_saved_views` are user records, so they live in the **app** database (nightly backups), not the re-importable MLS database. Both cascade-delete with the user. The web process creates them at startup (`ensureMlsAccessSchema`); a failure there is logged and does not stop the site. Same DDL: `drizzle/20261009_mls_agent_access.sql`.
 

@@ -90,6 +90,11 @@ const adminViewProcedure = viewProcedure.use(async ({ ctx, next }) => {
   return next();
 });
 
+/** Saved Views are an agent feature: only agents searching their assigned MLSs. Admins are refused. */
+const agentViewProcedure = viewProcedure.use(async ({ ctx, next }) => {
+  if (ctx.mlsAccess.kind !== "assigned") throw new TRPCError({ code: "FORBIDDEN", message: "Saved Views are for agents." });
+  return next();
+});
 const manageProcedure = adminProcedure.use(async ({ ctx, next }) => {
   if (!(await canAdminUsePermission(ctx.user as any, "canManageMlsFeeds"))) {
     throw new TRPCError({ code: "FORBIDDEN", message: "MLS Feeds and Mappings permission is required." });
@@ -950,23 +955,23 @@ export const mlsPropertiesRouter = router({
       return { userId: input.userId, sourceIds };
     }),
 
-  // ─── Saved Views (each user's own) ────────────────────────────────────────
-  savedViews: viewProcedure.query(async ({ ctx }) => listSavedViews(ctx.user.id)),
+  // ─── Saved Views (agents only, each agent's own) ──────────────────────────
+  savedViews: agentViewProcedure.query(async ({ ctx }) => listSavedViews(ctx.user.id)),
 
-  createSavedView: viewProcedure
+  createSavedView: agentViewProcedure
     .input(z.object({ name: savedViewNameSchema, state: savedViewStateSchema, makeDefault: z.boolean().default(false) }))
     .mutation(async ({ input, ctx }) => createSavedView(ctx.user.id, input)),
 
-  updateSavedView: viewProcedure
+  updateSavedView: agentViewProcedure
     .input(z.object({ id: savedViewIdSchema, name: savedViewNameSchema.optional(), state: savedViewStateSchema.optional() }))
     .mutation(async ({ input, ctx }) => updateSavedView(ctx.user.id, input.id, { name: input.name, state: input.state })),
 
   /** Pass id null to clear the default. */
-  setDefaultSavedView: viewProcedure
+  setDefaultSavedView: agentViewProcedure
     .input(z.object({ id: savedViewIdSchema.nullable() }))
     .mutation(async ({ input, ctx }) => setDefaultSavedView(ctx.user.id, input.id)),
 
-  deleteSavedView: viewProcedure
+  deleteSavedView: agentViewProcedure
     .input(z.object({ id: savedViewIdSchema }))
     .mutation(async ({ input, ctx }) => deleteSavedView(ctx.user.id, input.id)),
 });

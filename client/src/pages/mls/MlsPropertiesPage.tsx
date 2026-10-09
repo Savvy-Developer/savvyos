@@ -236,7 +236,8 @@ export default function MlsPropertiesPage() {
   const access = trpc.mlsProperties.myAccess.useQuery(undefined, { staleTime: 60_000 });
   const canManage = !!access.data?.canManage;
   const scopedToAssignments = access.data?.scope === "assigned";
-  const savedViews = trpc.mlsProperties.savedViews.useQuery(undefined, { staleTime: 60_000, refetchOnWindowFocus: false });
+  // Saved Views are agent-only; admins never load them, so no default view is applied for admins.
+  const savedViews = trpc.mlsProperties.savedViews.useQuery(undefined, { enabled: scopedToAssignments, staleTime: 60_000, refetchOnWindowFocus: false });
   const results = trpc.mlsProperties.search.useQuery(
     { filters: listFilters as any, sort: sort as any, page, pageSize: PAGE_SIZE },
     {
@@ -344,7 +345,7 @@ export default function MlsPropertiesPage() {
           <p className="mt-0.5 hidden text-sm text-muted-foreground sm:block">{scopedToAssignments ? "Listings from the MLSs assigned to you" : "Search listings from licensed MLS feeds as they arrive"}</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <MlsSavedViewsButton current={currentViewState} onApply={applySavedView} />
+          {scopedToAssignments ? <MlsSavedViewsButton current={currentViewState} onApply={applySavedView} /> : null}
           {canManage ? <MlsAgentAssignmentsButton /> : null}
           {canManage ? <Button variant="outline" size="sm" asChild><Link href="/mls-properties/feeds"><Settings2 className="mr-1.5 h-4 w-4" />Feeds</Link></Button> : null}
         </div>
