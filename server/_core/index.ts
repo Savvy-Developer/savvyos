@@ -126,6 +126,7 @@ import { ensureMlsSchema } from "../mls/schema";
 import { registerMlsStatusRoute } from "../mls/status";
 import { startInProcessMlsIngestion } from "../mls/worker";
 import { ensurePulseRunnerIssueSourceSchema } from "../pulse/runnerIssueSourceSchema";
+import { ensureDatabaseBackupSchema } from "../databaseBackup";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -177,6 +178,9 @@ async function startServer() {
   // before any request can incorrectly present the active cohort as empty.
   await ensureOnboardingLifecycleSchema();
   await ensurePulseRunnerIssueSourceSchema();
+  // Nightly database backup (runs in its own service, databaseBackupWorker):
+  // the table that records each run.
+  await ensureDatabaseBackupSchema();
   // Organic Social lead sources exist before the first organic lead arrives
   // (a lead source locks at creation), and the legacy Facebook/Instagram
   // import buckets are renamed and retired once.
