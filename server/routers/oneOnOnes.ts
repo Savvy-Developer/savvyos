@@ -262,7 +262,11 @@ type CalendarProvision = {
 
 function integrationError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : fallback;
-  return message.replace(/\s+/g, " ").trim().slice(0, 2_000);
+  const cleaned = message.replace(/\s+/g, " ").trim().slice(0, 2_000);
+  if (/does not contain scopes:\s*\[[^\]]*meeting:write/i.test(cleaned)) {
+    return `Zoom permission is incomplete. In Zoom Marketplace, open SavvyOS's Server-to-Server OAuth app, add the account-level Meetings write permission (meeting:write:admin), then activate or re-authorize the app before syncing again. Leaders do not need to connect Zoom individually. Zoom returned: ${cleaned}`;
+  }
+  return cleaned;
 }
 
 function oneOnOneTitle(employeeName: string | null) {

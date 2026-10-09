@@ -11,9 +11,13 @@ Create or update the internal **Server-to-Server OAuth** app used by SavvyOS. Th
 - `ZOOM_CLIENT_SECRET`
 - `ZOOM_WEBHOOK_SECRET_TOKEN`
 
-`ZOOM_WEBINAR_HOST_ID` remains required for the webinar feature. HR 1:1 meetings do not use it. SavvyOS creates a 1:1 under the selected leader's Zoom email, so each leader who hosts 1:1s must be a licensed user in the same Zoom account and have the same email address in Zoom and SavvyOS.
+`ZOOM_WEBINAR_HOST_ID` remains required for the webinar feature. HR 1:1 meetings do not use it. SavvyOS uses this one company-owned Server-to-Server OAuth app to create a 1:1 under the selected leader's Zoom email. Leaders do **not** connect Zoom individually. Each leader who hosts 1:1s must instead be a licensed user in the same Zoom account and have the same email address in Zoom and SavvyOS.
 
-Grant the app the account-level permissions necessary to create meetings and read cloud recordings. In Zoom's current scope picker, this is normally `meeting:write:admin` and `recording:read:admin`. Keep the app limited to the required scopes.
+Grant the app the account-level permissions necessary to create meetings and read cloud recordings. In Zoom's scope picker, add **Meetings → Write (admin)**, shown as `meeting:write:admin`, and **Recordings → Read (admin)**, shown as `recording:read:admin`. Keep the app limited to the required scopes.
+
+### If Sync Zoom and Calendar says the access token is missing `meeting:write`
+
+The Server-to-Server OAuth credentials in Railway are valid, but the Zoom app has not been granted the meeting-creation permission. An account owner or admin should open the SavvyOS app in Zoom Marketplace, add **Meetings → Write (admin)**, then **activate or re-authorize the app**. SavvyOS requests a fresh one-hour token automatically, so no Railway variable should change unless Zoom rotates the app credentials. Return to **Configure recurring 1:1s** and select **Sync Zoom and Calendar** again.
 
 ## Cloud recording and transcript policy
 
@@ -39,7 +43,7 @@ When Zoom says a transcript is ready, SavvyOS verifies the signed event, uses th
 
 ## Repairing an existing 1:1
 
-For a 1:1 created before this release, open its HR 1:1 workspace and select **Sync Zoom and Calendar**. SavvyOS creates the missing Zoom meeting, then updates the existing Google Calendar event with the join link. If the leader does not have a connected Google Calendar, connect it in **My Profile** first and run the sync again.
+For a 1:1 created before this release, open **Configure recurring 1:1s**, select the relationship, and choose **Sync Zoom and Calendar**. SavvyOS creates the missing Zoom meeting, then updates the existing Google Calendar event with the join link. If the leader does not have a connected Google Calendar, connect it in **My Profile** first and run the sync again.
 
 ## Operational checks
 
