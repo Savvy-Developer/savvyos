@@ -38,6 +38,7 @@ describe("HR 1:1 Meetings access", () => {
 
     await expect(caller.dashboard()).resolves.toEqual({
       rows: [],
+      runQueue: [],
       counts: { upcoming: 0, dueSoon: 0, overdue: 0, noSchedule: 0 },
     });
   });

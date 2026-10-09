@@ -9,11 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CalendarClock, CheckCircle2, Clock3, Plus, TriangleAlert, UserRound } from "lucide-react";
+import { CalendarClock, CheckCircle2, Clock3, ExternalLink, PlayCircle, Plus, RefreshCw, TriangleAlert, UserRound, Video } from "lucide-react";
 import { toast } from "sonner";
 import { safeFormatET } from "@/lib/safeFormat";
 
-type Filter = "all" | "upcoming" | "due_soon" | "overdue" | "not_scheduled";
 type SetupState = {
   relationshipId?: number;
   employeeId: string;
@@ -31,11 +30,19 @@ const blankSetup = (): SetupState => ({
   durationMinutes: "45",
 });
 
-function statusPresentation(row: any) {
-  if (row.isOverdue) return { label: "Overdue", className: "bg-red-100 text-red-800 border-red-200" };
-  if (row.isDueSoon) return { label: "Due soon", className: "bg-amber-100 text-amber-800 border-amber-200" };
-  if (row.isNoSchedule) return { label: "No 1:1 scheduled", className: "bg-slate-100 text-slate-700 border-slate-200" };
-  return { label: "Current", className: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+function toDateTimeInput(value: Date | string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function relationshipStatus(row: any) {
+  if (row.isNoSchedule) return { label: "No next 1:1", className: "bg-slate-100 text-slate-700 border-slate-200" };
+  if (row.isOverdue) return { label: row.nextMeeting ? "Ready to run" : "Needs a next date", className: "bg-red-100 text-red-800 border-red-200" };
+  if (row.isDueSoon) return { label: "Next 1:1 due soon", className: "bg-amber-100 text-amber-800 border-amber-200" };
+  return { label: "Configured", className: "bg-emerald-100 text-emerald-800 border-emerald-200" };
 }
 
 export default function OneOnOneMeetingsPage() {
@@ -43,24 +50,37 @@ export default function OneOnOneMeetingsPage() {
   const utils = trpc.useUtils();
   const { data: dashboard, isLoading } = trpc.oneOnOnes.dashboard.useQuery();
   const { data: people = [] } = trpc.oneOnOnes.people.useQuery();
-  const [filter, setFilter] = useState<Filter>("all");
   const [setupOpen, setSetupOpen] = useState(false);
   const [setup, setSetup] = useState<SetupState>(blankSetup);
 
+  const selectedRelationship = useMemo(
+    () => dashboard?.rows.find((row: any) => row.relationship.id === setup.relationshipId) ?? null,
+    [dashboard?.rows, setup.relationshipId],
+  );
+  const scheduledMeeting = selectedRelationship?.nextMeeting ?? null;
+
   const upsertRelationship = trpc.oneOnOnes.upsertRelationship.useMutation({
     onSuccess: async result => {
+      setSetup(current => ({ ...current, relationshipId: result.relationshipId }));
       await utils.oneOnOnes.dashboard.invalidate();
-      setSetupOpen(false);
-      setSetup(blankSetup());
       if (result.meeting?.calendar?.calendarSyncStatus !== "Synced" || result.meeting?.zoom?.zoomSyncStatus !== "Synced") {
-        toast.warning("1:1 saved, but Zoom or Google Calendar needs attention. Connect the leader’s calendar, then sync from the meeting.");
+        toast.warning("The 1:1 was saved, but Zoom or Google Calendar needs attention below.");
       } else {
-        toast.success(result.meeting ? "1:1 set up and scheduled" : "1:1 relationship saved");
+        toast.success(result.meeting ? "Next 1:1 configured with Zoom and Google Calendar" : "Recurring 1:1 configuration saved");
       }
-      if (result.meeting?.meetingId) navigate(`/hr/one-on-ones/${result.meeting.meetingId}`);
     },
     onError: error => toast.error(error.message),
   });
+
+  const syncMeetingIntegrations = trpc.oneOnOnes.retryCalendarSync.useMutation({
+    onSuccess: async result => {
+      await utils.oneOnOnes.dashboard.invalidate();
+      if (result.calendarSyncStatus === "Synced" && result.zoom?.zoomSyncStatus === "Synced") toast.success("Zoom link and Google Calendar event are ready.");
+      else toast.warning(result.zoom?.zoomSyncError || result.calendarSyncError || "Zoom or Google Calendar still needs attention.");
+    },
+    onError: error => toast.error(error.message),
+  });
+
   const startMeeting = trpc.oneOnOnes.startMeeting.useMutation({
     onSuccess: result => {
       void utils.oneOnOnes.dashboard.invalidate();
@@ -69,14 +89,6 @@ export default function OneOnOneMeetingsPage() {
     onError: error => toast.error(error.message),
   });
 
-  const rows = useMemo(() => (dashboard?.rows ?? []).filter((row: any) => {
-    if (filter === "all") return true;
-    if (filter === "upcoming") return row.isUpcoming;
-    if (filter === "due_soon") return row.isDueSoon;
-    if (filter === "overdue") return row.isOverdue;
-    return row.isNoSchedule;
-  }), [dashboard?.rows, filter]);
-
   const openSetup = (row?: any) => {
     if (row) {
       setSetup({
@@ -84,8 +96,8 @@ export default function OneOnOneMeetingsPage() {
         employeeId: String(row.relationship.employeeId),
         leaderId: String(row.relationship.leaderId),
         frequencyDays: String(row.relationship.frequencyDays),
-        nextScheduledAt: "",
-        durationMinutes: "45",
+        nextScheduledAt: toDateTimeInput(row.nextMeeting?.scheduledAt),
+        durationMinutes: String(row.nextMeeting?.durationMinutes ?? 45),
       });
     } else {
       setSetup(blankSetup());
@@ -109,10 +121,10 @@ export default function OneOnOneMeetingsPage() {
   };
 
   const counters = [
-    { key: "upcoming" as const, label: "Upcoming", value: dashboard?.counts.upcoming ?? 0, icon: CalendarClock, tone: "text-sky-700 bg-sky-50 border-sky-200" },
-    { key: "due_soon" as const, label: "Due soon", value: dashboard?.counts.dueSoon ?? 0, icon: Clock3, tone: "text-amber-700 bg-amber-50 border-amber-200" },
-    { key: "overdue" as const, label: "Overdue", value: dashboard?.counts.overdue ?? 0, icon: TriangleAlert, tone: "text-red-700 bg-red-50 border-red-200" },
-    { key: "not_scheduled" as const, label: "No 1:1 scheduled", value: dashboard?.counts.noSchedule ?? 0, icon: UserRound, tone: "text-slate-700 bg-slate-50 border-slate-200" },
+    { label: "Configured", value: dashboard?.counts.upcoming ?? 0, icon: CalendarClock, tone: "text-sky-700 bg-sky-50 border-sky-200" },
+    { label: "Due soon", value: dashboard?.counts.dueSoon ?? 0, icon: Clock3, tone: "text-amber-700 bg-amber-50 border-amber-200" },
+    { label: "Past due", value: dashboard?.counts.overdue ?? 0, icon: TriangleAlert, tone: "text-red-700 bg-red-50 border-red-200" },
+    { label: "No schedule", value: dashboard?.counts.noSchedule ?? 0, icon: UserRound, tone: "text-slate-700 bg-slate-50 border-slate-200" },
   ];
 
   return (
@@ -121,54 +133,57 @@ export default function OneOnOneMeetingsPage() {
         <div>
           <div className="flex items-center gap-2 text-primary"><UserRound className="h-5 w-5" /><span className="text-sm font-semibold">HR</span></div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight">1:1 Meetings</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">A single place for recurring 1:1s, real commitments, and the follow-through leadership needs to see.</p>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">Configure the recurring relationship and its next calendar-backed occurrence here. Run the actual conversation only when it is due.</p>
         </div>
-        <Button onClick={() => openSetup()}><Plus className="mr-2 h-4 w-4" />Set up 1:1</Button>
+        <Button onClick={() => openSetup()}><Plus className="mr-2 h-4 w-4" />Create 1:1</Button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {counters.map(counter => {
           const Icon = counter.icon;
-          const active = filter === counter.key;
-          return <button key={counter.key} type="button" onClick={() => setFilter(active ? "all" : counter.key)} className={`rounded-lg border p-4 text-left transition hover:shadow-sm ${counter.tone} ${active ? "ring-2 ring-primary ring-offset-2" : ""}`}>
-            <div className="flex items-start justify-between"><p className="text-xs font-semibold uppercase tracking-wide">{counter.label}</p><Icon className="h-4 w-4" /></div>
-            <p className="mt-2 text-3xl font-bold">{counter.value}</p>
-            <p className="mt-1 text-xs opacity-80">{active ? "Showing this group" : "View this group"}</p>
-          </button>;
+          return <div key={counter.label} className={`rounded-lg border p-4 ${counter.tone}`}><div className="flex items-start justify-between"><p className="text-xs font-semibold uppercase tracking-wide">{counter.label}</p><Icon className="h-4 w-4" /></div><p className="mt-2 text-3xl font-bold">{counter.value}</p></div>;
         })}
       </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
-          <div><CardTitle>Team 1:1s</CardTitle><CardDescription>{filter === "all" ? "All recurring employee and leader relationships" : "Filtered by the selected reminder state"}</CardDescription></div>
-          {filter !== "all" && <Button variant="ghost" size="sm" onClick={() => setFilter("all")}>Clear filter</Button>}
+          <div><CardTitle>Configure recurring 1:1s</CardTitle><CardDescription>Set the cadence, next date, Zoom link, and Google Calendar event. Saving a new date updates the existing next occurrence instead of creating a duplicate.</CardDescription></div>
         </CardHeader>
         <CardContent>
-          {isLoading ? <p className="py-12 text-center text-sm text-muted-foreground">Loading 1:1 relationships…</p> : rows.length === 0 ? <div className="rounded-lg border border-dashed py-12 text-center"><CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" /><p className="font-medium">No 1:1s in this view</p><p className="mt-1 text-sm text-muted-foreground">Set up a recurring employee and leader relationship to get started.</p></div> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Leader</TableHead><TableHead>Cadence</TableHead><TableHead>Last 1:1</TableHead><TableHead>Next 1:1</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{rows.map((row: any) => {
-            const status = statusPresentation(row);
+          {isLoading ? <p className="py-12 text-center text-sm text-muted-foreground">Loading 1:1 relationships…</p> : (dashboard?.rows.length ?? 0) === 0 ? <div className="rounded-lg border border-dashed py-12 text-center"><CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" /><p className="font-medium">No 1:1s configured yet</p><p className="mt-1 text-sm text-muted-foreground">Create a recurring employee and leader relationship to get started.</p></div> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Leader</TableHead><TableHead>Cadence</TableHead><TableHead>Next 1:1</TableHead><TableHead>Setup</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader><TableBody>{dashboard?.rows.map((row: any) => {
+            const status = relationshipStatus(row);
+            const meeting = row.nextMeeting;
             return <TableRow key={row.relationship.id}>
               <TableCell><div className="font-medium">{row.employee?.name ?? "Unknown employee"}</div><div className="text-xs text-muted-foreground">{row.employee?.title ?? "No role recorded"}</div></TableCell>
               <TableCell>{row.leader?.name ?? "Unknown leader"}</TableCell>
               <TableCell>Every {row.relationship.frequencyDays} days</TableCell>
-              <TableCell>{row.lastMeeting?.heldAt ? safeFormatET(row.lastMeeting.heldAt, { month: "short", day: "numeric", year: "numeric" }) : "No completed 1:1 yet"}</TableCell>
-              <TableCell>{row.relationship.nextScheduledAt ? safeFormatET(row.relationship.nextScheduledAt) : "Not scheduled"}</TableCell>
-              <TableCell><Badge variant="outline" className={status.className}>{status.label}</Badge></TableCell>
-              <TableCell><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => openSetup(row)}>Configure</Button><Button size="sm" onClick={() => startMeeting.mutate({ relationshipId: row.relationship.id })} disabled={startMeeting.isPending}>Start 1:1</Button></div></TableCell>
+              <TableCell>{meeting?.scheduledAt ? safeFormatET(meeting.scheduledAt) : "Not scheduled"}</TableCell>
+              <TableCell><Badge variant="outline" className={status.className}>{meeting ? `${meeting.zoomSyncStatus === "Synced" && meeting.calendarSyncStatus === "Synced" ? "Ready" : "Needs attention"}` : status.label}</Badge></TableCell>
+              <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => openSetup(row)}>Configure</Button></TableCell>
             </TableRow>;
           })}</TableBody></Table></div>}
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader><CardTitle>Run 1:1s</CardTitle><CardDescription>Only meetings scheduled for today or earlier appear here. Unfinished past meetings remain available until their notes and follow-through are completed.</CardDescription></CardHeader>
+        <CardContent>
+          {isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">Checking today’s 1:1s…</p> : (dashboard?.runQueue.length ?? 0) === 0 ? <div className="rounded-lg border border-dashed py-10 text-center"><CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-emerald-600" /><p className="font-medium">Nothing to run right now</p><p className="mt-1 text-sm text-muted-foreground">Configure the next occurrence above. It will appear here on its scheduled date.</p></div> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Leader</TableHead><TableHead>Scheduled</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader><TableBody>{dashboard?.runQueue.map((row: any) => <TableRow key={row.meeting.id}><TableCell><div className="font-medium">{row.employee?.name ?? "Unknown employee"}</div><div className="text-xs text-muted-foreground">{row.employee?.title ?? "No role recorded"}</div></TableCell><TableCell>{row.leader?.name ?? "Unknown leader"}</TableCell><TableCell>{row.meeting.scheduledAt ? safeFormatET(row.meeting.scheduledAt) : "Legacy meeting"}{row.isOverdue && <span className="ml-2 text-xs text-amber-700">Past due</span>}</TableCell><TableCell><Badge variant={row.meeting.status === "Scheduled" ? "secondary" : "outline"}>{row.meeting.status}</Badge></TableCell><TableCell className="text-right">{row.meeting.status === "Scheduled" ? <Button size="sm" onClick={() => startMeeting.mutate({ relationshipId: row.meeting.relationshipId })} disabled={startMeeting.isPending}><PlayCircle className="mr-1.5 h-4 w-4" />Start 1:1</Button> : <Button size="sm" onClick={() => navigate(`/hr/one-on-ones/${row.meeting.id}`)}>Continue 1:1</Button>}</TableCell></TableRow>)}</TableBody></Table></div>}
+        </CardContent>
+      </Card>
+
       <Dialog open={setupOpen} onOpenChange={setSetupOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader><DialogTitle>{setup.relationshipId ? "Configure recurring 1:1" : "Set up recurring 1:1"}</DialogTitle></DialogHeader>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader><DialogTitle>{setup.relationshipId ? "Configure recurring 1:1" : "Create recurring 1:1"}</DialogTitle></DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2"><Label>Employee</Label><Select value={setup.employeeId} disabled={Boolean(setup.relationshipId)} onValueChange={employeeId => setSetup(current => ({ ...current, employeeId }))}><SelectTrigger><SelectValue placeholder="Choose employee" /></SelectTrigger><SelectContent>{people.map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{person.name ?? person.email ?? `User ${person.id}`}{person.title ? ` · ${person.title}` : ""}</SelectItem>)}</SelectContent></Select></div>
             <div className="grid gap-2"><Label>Leader</Label><Select value={setup.leaderId} disabled={Boolean(setup.relationshipId)} onValueChange={leaderId => setSetup(current => ({ ...current, leaderId }))}><SelectTrigger><SelectValue placeholder="Choose leader" /></SelectTrigger><SelectContent>{people.map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{person.name ?? person.email ?? `User ${person.id}`}{person.title ? ` · ${person.title}` : ""}</SelectItem>)}</SelectContent></Select></div>
             <div className="grid gap-4 sm:grid-cols-2"><div className="grid gap-2"><Label>Cadence (days)</Label><Input type="number" min="7" max="365" value={setup.frequencyDays} onChange={event => setSetup(current => ({ ...current, frequencyDays: event.target.value }))} /></div><div className="grid gap-2"><Label>Meeting duration</Label><Select value={setup.durationMinutes} onValueChange={durationMinutes => setSetup(current => ({ ...current, durationMinutes }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="30">30 minutes</SelectItem><SelectItem value="45">45 minutes</SelectItem><SelectItem value="60">60 minutes</SelectItem></SelectContent></Select></div></div>
-            <div className="grid gap-2"><Label>Schedule the next 1:1 <span className="font-normal text-muted-foreground">(optional)</span></Label><Input type="datetime-local" value={setup.nextScheduledAt} onChange={event => setSetup(current => ({ ...current, nextScheduledAt: event.target.value }))} /><p className="text-xs text-muted-foreground">When a time is set, SavvyOS creates a Zoom meeting and adds the participant link to the leader’s connected Google Calendar. The leader can <a href="/profile" className="font-medium text-primary underline underline-offset-2">connect Google Calendar in Profile</a> before you schedule.</p></div>
+            <div className="grid gap-2"><Label>Next 1:1 <span className="font-normal text-muted-foreground">(optional)</span></Label><Input type="datetime-local" value={setup.nextScheduledAt} onChange={event => setSetup(current => ({ ...current, nextScheduledAt: event.target.value }))} /><p className="text-xs text-muted-foreground">This configures the next real 1:1, creates or updates its Zoom meeting and Google Calendar event, and prevents duplicate future events. When it is completed, SavvyOS automatically schedules the following occurrence every {setup.frequencyDays || "30"} days.</p></div>
+
+            {scheduledMeeting && <div className="rounded-lg border bg-muted/20 p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="font-medium">Current next occurrence</p><p className="mt-1 text-sm text-muted-foreground">{scheduledMeeting.scheduledAt ? safeFormatET(scheduledMeeting.scheduledAt) : "Date needs to be set"}</p></div><div className="flex flex-wrap gap-2">{scheduledMeeting.zoomJoinUrl && <Button asChild size="sm"><a href={scheduledMeeting.zoomJoinUrl} target="_blank" rel="noreferrer"><Video className="mr-1.5 h-3.5 w-3.5" />Join Zoom <ExternalLink className="ml-1 h-3.5 w-3.5" /></a></Button>}{scheduledMeeting.calendarEventUrl && <Button asChild size="sm" variant="outline"><a href={scheduledMeeting.calendarEventUrl} target="_blank" rel="noreferrer">Calendar <ExternalLink className="ml-1 h-3.5 w-3.5" /></a></Button>}</div></div><div className="mt-3 grid gap-2 text-xs sm:grid-cols-2"><p><span className="font-medium">Zoom:</span> {scheduledMeeting.zoomSyncStatus}{scheduledMeeting.zoomSyncError ? ` · ${scheduledMeeting.zoomSyncError}` : ""}</p><p><span className="font-medium">Google Calendar:</span> {scheduledMeeting.calendarSyncStatus}{scheduledMeeting.calendarSyncError ? ` · ${scheduledMeeting.calendarSyncError}` : ""}</p></div>{(scheduledMeeting.zoomSyncStatus !== "Synced" || scheduledMeeting.calendarSyncStatus !== "Synced") && <Button className="mt-3" size="sm" variant="outline" onClick={() => syncMeetingIntegrations.mutate({ meetingId: scheduledMeeting.id })} disabled={syncMeetingIntegrations.isPending}>{syncMeetingIntegrations.isPending ? <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}Sync Zoom and Calendar</Button>}</div>}
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setSetupOpen(false)}>Cancel</Button><Button onClick={submitSetup} disabled={upsertRelationship.isPending}>{upsertRelationship.isPending ? "Saving…" : setup.nextScheduledAt ? "Save and schedule" : "Save 1:1"}</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setSetupOpen(false)}>Close</Button><Button onClick={submitSetup} disabled={upsertRelationship.isPending}>{upsertRelationship.isPending ? "Saving…" : setup.nextScheduledAt ? (scheduledMeeting ? "Save schedule changes" : "Schedule 1:1") : "Save configuration"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
