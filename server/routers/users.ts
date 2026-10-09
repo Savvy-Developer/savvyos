@@ -40,6 +40,7 @@ import {
 } from "../../drizzle/schema";
 import { eq, desc, sql, and, gte, lt, inArray } from "drizzle-orm";
 import { isValidOptionalUsPhone, normalizePhoneFields } from "@shared/phone";
+import { isAdminCreatorEmail } from "../permissionManagers";
 
 // ── Zod schemas for profile upserts ──────────────────────────────────────────
 const coreProfileSchema = z.object({
@@ -517,19 +518,14 @@ export const usersRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      // Only Tyler/Elana/Dyl can create admin users
-      const PERMISSION_MANAGERS = [
-        "tyler@savvy.realty",
-        "elana@savvy.realty",
-        "dyl@savvy.realty",
-      ];
+      // Only the admin creators (ADMIN_CREATOR_EMAILS) can create admin users
       if (
         input.role === "admin" &&
-        !PERMISSION_MANAGERS.includes((ctx.user as any).email)
+        !isAdminCreatorEmail((ctx.user as any).email)
       ) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Only Tyler, Elana, and Dyl can create admin users",
+          message: "Only designated admin creators can create admin users",
         });
       }
       const id = await createUser(input);
@@ -597,19 +593,14 @@ export const usersRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      // Only Tyler/Elana/Dyl can promote users to admin
-      const PERMISSION_MANAGERS_UPDATE = [
-        "tyler@savvy.realty",
-        "elana@savvy.realty",
-        "dyl@savvy.realty",
-      ];
+      // Only the admin creators (ADMIN_CREATOR_EMAILS) can promote users to admin
       if (
         input.role === "admin" &&
-        !PERMISSION_MANAGERS_UPDATE.includes((ctx.user as any).email)
+        !isAdminCreatorEmail((ctx.user as any).email)
       ) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Only Tyler, Elana, and Dyl can promote users to admin",
+          message: "Only designated admin creators can promote users to admin",
         });
       }
       const { id, ...data } = input;

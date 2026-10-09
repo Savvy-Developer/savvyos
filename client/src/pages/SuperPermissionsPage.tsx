@@ -4,6 +4,11 @@ import {
   enforcePagePermissionDependencies,
   parentPagePermissionKey,
 } from "@shared/permissionDependencies";
+import {
+  ADMIN_ROLE_TEMPLATES,
+  applyRoleTemplate,
+  closestRoleTemplate,
+} from "@shared/adminRoleTemplates";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -588,6 +593,26 @@ export default function SuperPermissionsPage() {
     setDirty(true);
   }
 
+  // Security audit 05: start an admin from a job's template, then adjust.
+  // Nothing is saved until Save Changes, which lists every change.
+  function applyTemplateToAdmin(templateKey: string) {
+    if (!selectedAdmin || selectedAdmin.isProtected) return;
+    const template = ADMIN_ROLE_TEMPLATES.find(item => item.key === templateKey);
+    if (!template) return;
+    const next = enforcePagePermissionDependencies(
+      applyRoleTemplate(
+        template,
+        definitions.map(definition => definition.key)
+      ),
+      definitions
+    );
+    setLocalPerms(current => ({ ...current, [selectedAdmin.userId]: next }));
+    setDirty(true);
+    toast.info(
+      `${template.label} template applied to ${selectedAdmin.name}. Review, then Save Changes.`
+    );
+  }
+
   function updateAdminGroup(value: boolean) {
     if (!selectedAdmin || selectedAdmin.isProtected) return;
     const next = { ...permissionsFor(selectedAdmin) };
@@ -706,6 +731,13 @@ export default function SuperPermissionsPage() {
   const selectedGroupGranted = selectedGroupDefinitions.filter(
     definition => selectedPermissions[definition.key]
   ).length;
+  const selectedRoleFit =
+    selectedAdmin && !selectedAdmin.isProtected
+      ? closestRoleTemplate(
+          selectedPermissions,
+          definitions.map(definition => definition.key)
+        )
+      : null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 pb-12">
@@ -747,9 +779,9 @@ export default function SuperPermissionsPage() {
         <div className="flex gap-3">
           <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
           <p>
-            <strong>Permission managers are fixed.</strong> This screen manages
-            administrator access to SavvyOS pages and capabilities, not who can
-            manage Super Permissions itself.
+            <strong>Who can manage this screen is set on the server.</strong>{" "}
+            This screen manages administrator access to SavvyOS pages and
+            capabilities, not who can manage Super Permissions itself.
           </p>
         </div>
       </div>
@@ -825,26 +857,65 @@ export default function SuperPermissionsPage() {
                     </p>
                   </div>
                 ) : selectedAdmin ? (
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-                    <p className="text-sm text-muted-foreground">
-                      Set an entire administrator to full access only when that
-                      is genuinely the job.
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => updateAdminAll(false)}
+                  <div className="mt-5 space-y-4 border-t pt-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                      <div className="w-full max-w-xs">
+                        <label
+                          className="mb-2 block text-sm font-medium"
+                          htmlFor="permission-role-template"
+                        >
+                          Start from a role
+                        </label>
+                        <Select value="" onValueChange={applyTemplateToAdmin}>
+                          <SelectTrigger
+                            id="permission-role-template"
+                            className="w-full"
+                          >
+                            <SelectValue placeholder="Choose a role template" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ADMIN_ROLE_TEMPLATES.map(template => (
+                              <SelectItem key={template.key} value={template.key}>
+                                {template.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <p
+                        className="text-sm text-muted-foreground sm:text-right"
+                        data-testid="permission-role-fit"
                       >
-                        <Square className="mr-1.5 h-3.5 w-3.5" /> Revoke All
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => updateAdminAll(true)}
-                      >
-                        <CheckSquare className="mr-1.5 h-3.5 w-3.5" /> Grant All
-                      </Button>
+                        {selectedRoleFit
+                          ? selectedRoleFit.extra.length === 0 &&
+                            selectedRoleFit.missing.length === 0
+                            ? `Matches the ${selectedRoleFit.template.label} role.`
+                            : `Closest role: ${selectedRoleFit.template.label} (${selectedRoleFit.extra.length} extra, ${selectedRoleFit.missing.length} missing).`
+                          : "Custom access: no role template is close."}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm text-muted-foreground">
+                        A role turns on that job's pages and turns everything
+                        else off. Set an entire administrator to full access only
+                        when that is genuinely the job.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateAdminAll(false)}
+                        >
+                          <Square className="mr-1.5 h-3.5 w-3.5" /> Revoke All
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateAdminAll(true)}
+                        >
+                          <CheckSquare className="mr-1.5 h-3.5 w-3.5" /> Grant All
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ) : null}
