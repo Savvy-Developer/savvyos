@@ -17,7 +17,7 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_SAVVYOS_PROMPT_QUEUE_WEBHOOK_URL }}
     steps:
       - name: Check out release commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 2
 
