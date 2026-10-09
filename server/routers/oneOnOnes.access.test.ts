@@ -50,4 +50,12 @@ describe("HR 1:1 Meetings access", () => {
     await expect(caller.retryCalendarSync({ meetingId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(getDb).not.toHaveBeenCalled();
   });
+
+  it("requires the HR 1:1 permission before discarding unfinished records", async () => {
+    vi.mocked(canAdminUsePermission).mockResolvedValue(false);
+    const caller = oneOnOnesRouter.createCaller({ user: admin } as any);
+
+    await expect(caller.discardMeetings({ meetingIds: [1] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(getDb).not.toHaveBeenCalled();
+  });
 });
