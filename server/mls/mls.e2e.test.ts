@@ -1080,23 +1080,33 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     stored.set(raceKey, big);
     const race = await insert("SHRINK-race", { status: "stored", s3Key: raceKey, url: `https://cdn.test/${raceKey}`, bytes: big.length, mimeType: "image/jpeg" });
     const memory = { put: async (key: string, data: Buffer) => { stored.set(key, data); return { url: `https://cdn.test/${key}` }; }, remove: async (key: string) => { stored.delete(key); } };
+    const reads: string[] = [];
     modules.media.setMediaStorage({
       ...memory,
       async get(key: string) {
+        reads.push(key);
         if (key === raceKey) await q("UPDATE mls_media SET status = 'downloading', claimedBy = 'other' WHERE id = ?", [race]);
         return stored.get(key)!;
       },
     });
-    try {
-      let cursor = old - 1;
+    const fullPass = async () => {
+      let cursor: number | null = null;
       let shrunk = 0;
-      for (let step = 0; step < 10; step += 1) {
+      for (let step = 0; step < 100; step += 1) {
         const progress = await modules.media.shrinkStoredCovers([feedId], cursor, { limit: 2 });
         shrunk += progress.shrunk;
         cursor = progress.cursor;
-        if (progress.done) break;
+        if (progress.done) return shrunk;
       }
-      expect(shrunk).toBe(1);
+      throw new Error("pass did not finish");
+    };
+    try {
+      expect(await fullPass()).toBe(1);
+      // Newest first; small and freshly scaled covers are never read.
+      expect(reads).toEqual([raceKey, oldKey]);
+      // A second pass from the top finds nothing left to scale.
+      expect(await fullPass()).toBe(0);
+      expect(reads).toHaveLength(2);
     } finally {
       modules.media.setMediaStorage({ ...memory, async get(key: string) { const data = stored.get(key); if (!data) throw new Error(`missing ${key}`); return data; } });
     }
@@ -1114,9 +1124,11 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     expect([raceRow.status, raceRow.s3Key]).toEqual(["downloading", raceKey]);
     expect(stored.has(raceKey)).toBe(true);
     expect(stored.has("mls/canopy/e2e/CARSHRINK/SHRINK-race-x-c1024.jpg")).toBe(false);
-    // The pass ends once it has read past the last cover.
-    const last = await q<any>("SELECT MAX(id) AS id FROM mls_media");
-    expect((await modules.media.shrinkStoredCovers([feedId], Number(last[0].id))).done).toBe(true);
+    // The pass ends once it has read below the oldest cover.
+    expect((await modules.media.shrinkStoredCovers([feedId], 1)).done).toBe(true);
+    const [idPlan] = await q<any>("EXPLAIN SELECT id FROM mls_media FORCE INDEX (mls_media_queue_idx) WHERE status = 'stored' AND priority <= 40 AND id < ? ORDER BY id DESC LIMIT 500", [Number.MAX_SAFE_INTEGER]);
+    expect(idPlan.key).toBe("mls_media_queue_idx");
+    expect(String(idPlan.Extra)).toContain("Using index");
     await q("DELETE FROM mls_media WHERE resourceKey = 'CARSHRINK'");
   }, 60_000);
 });
