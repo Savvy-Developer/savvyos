@@ -313,6 +313,10 @@ function ChartEmpty({ label }: { label: string }) {
   return <div className="flex h-[260px] items-center justify-center text-sm text-muted-foreground">No {label.toLowerCase()} is available for this scope.</div>;
 }
 
+function reportAgentLabel(agent: any) {
+  return agent.isActive === false ? `${agent.name} (Inactive / Offboarded)` : agent.name;
+}
+
 function ReportingFilters({
   activeReport,
   params,
@@ -343,7 +347,7 @@ function ReportingFilters({
   const leadSources = filters?.leadSources ?? [];
   const parents = new Map(leadSources.filter((source: any) => !source.parentId).map((source: any) => [source.id, source.name]));
   const sourceLabel = (source: any) => source.parentId ? String(parents.get(source.parentId) ?? "Unassigned category") + " → " + source.name + " (sub-source)" : source.name + " (category)";
-  if (activeReport === "pipelines") return <Card className="border-primary/15 shadow-sm"><CardContent className="flex flex-wrap items-end gap-3 p-3"><div className="space-y-1"><Label className="text-xs">Agents</Label><MultiSelect className="min-w-[220px] text-xs" options={(filters?.agents ?? []).map((agent: any) => ({ value: String(agent.id), label: agent.name }))} value={selectedAgents} onValueChange={(values) => update({ agentIds: values.length ? values.join(",") : null, agentId: null })} placeholder="All agents" searchPlaceholder="Search agents…" maxDisplay={2} /></div><p className="pb-0.5 text-xs leading-5 text-muted-foreground">Pipeline metrics are a live snapshot; date filters do not apply.</p><Button variant="ghost" size="sm" className="h-8 shrink-0 text-xs" onClick={() => update({ agentId: null, agentIds: null })}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Reset</Button></CardContent></Card>;
+  if (activeReport === "pipelines") return <Card className="border-primary/15 shadow-sm"><CardContent className="flex flex-wrap items-end gap-3 p-3"><div className="space-y-1"><Label className="text-xs">Agents</Label><MultiSelect className="min-w-[220px] text-xs" options={(filters?.agents ?? []).map((agent: any) => ({ value: String(agent.id), label: reportAgentLabel(agent) }))} value={selectedAgents} onValueChange={(values) => update({ agentIds: values.length ? values.join(",") : null, agentId: null })} placeholder="All agents" searchPlaceholder="Search agents…" maxDisplay={2} /></div><p className="pb-0.5 text-xs leading-5 text-muted-foreground">Pipeline metrics are a live snapshot; date filters do not apply.</p><Button variant="ghost" size="sm" className="h-8 shrink-0 text-xs" onClick={() => update({ agentId: null, agentIds: null })}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Reset</Button></CardContent></Card>;
   const setPreset = (value: string) => {
     const preset = value as DatePreset;
     const range = dateRangeForPreset(preset);
@@ -386,7 +390,7 @@ function ReportingFilters({
               <Label className="text-xs">Agents</Label>
               <MultiSelect
                 className="min-w-[180px] text-xs"
-                options={(filters?.agents ?? []).map((a: any) => ({ value: String(a.id), label: a.name }))}
+                options={(filters?.agents ?? []).map((agent: any) => ({ value: String(agent.id), label: reportAgentLabel(agent) }))}
                 value={selectedAgents}
                 onValueChange={(values) => update({ agentIds: values.length ? values.join(",") : null, agentId: null, page: null })}
                 placeholder="All agents"
@@ -520,7 +524,7 @@ function AgentReport({ data }: { data: any }) {
     };
   }, { closings: 0, volume: 0, grossCommission: 0, savvyNet: 0, newBusinessWrittenUnits: 0, newBusinessWrittenVolume: 0, underContract: 0, overdueTasks: 0, flags: 0 });
   const comparisonRows = agents.map((agent: any) => ({ agent, flagCount: Number(agent.commissionFlags ?? 0) + Number(agent.pastExpectedCloseDate ?? 0) + Number(agent.noExpectedCloseDate ?? 0) }));
-  const zeroOnlyComparisonRows = comparisonRows.filter(({ agent, flagCount }: { agent: any; flagCount: number }) => [agent.closings, agent.volume, agent.grossCommission, agent.savvyNet, agent.newBusinessWrittenUnits, agent.newBusinessWrittenVolume, agent.underContract, agent.overdueTasks, flagCount].every((value) => Number(value ?? 0) === 0));
+  const zeroOnlyComparisonRows = comparisonRows.filter(({ agent, flagCount }: { agent: any; flagCount: number }) => agent.isActive !== false && [agent.closings, agent.volume, agent.grossCommission, agent.savvyNet, agent.newBusinessWrittenUnits, agent.newBusinessWrittenVolume, agent.underContract, agent.overdueTasks, flagCount].every((value) => Number(value ?? 0) === 0));
   const comparisonMetricValue = (row: { agent: any; flagCount: number }, column: string) => column === "flags" ? row.flagCount : Number(row.agent[column] ?? 0);
   const visibleComparisonRows = [...(showZeroOnlyAgents ? comparisonRows : comparisonRows.filter((row: { agent: any; flagCount: number }) => !zeroOnlyComparisonRows.includes(row)))].sort((left, right) => {
     const difference = comparisonMetricValue(left, comparisonSort.column) - comparisonMetricValue(right, comparisonSort.column);
@@ -564,14 +568,15 @@ function AgentReport({ data }: { data: any }) {
     </section>
 
     <section className="space-y-3">
-      <SectionHeader title="Agent comparison" description="Ranked production and current follow-through signals for the selected scope. Select a metric header to sort; parenthetical percentages show each agent’s share of its metric column." />
+      <SectionHeader title="Agent comparison" description="Ranked production and current follow-through signals for the selected scope. Inactive / Offboarded marks a deactivated SavvyOS account while preserving that agent's historical performance. Select a metric header to sort; parenthetical percentages show each agent’s share of its metric column." />
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1260px] text-sm">
-              <thead><tr className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground"><th className="px-4 py-3 text-left font-semibold">Agent</th><SortableMetricHeader label="Closings" column="closings" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="Volume" column="volume" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="New business" column="newBusinessWrittenVolume" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="Gross commission" column="grossCommission" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="Savvy net" column="savvyNet" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="UC" column="underContract" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="Overdue" column="overdueTasks" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="Flags" column="flags" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><th className="px-4 py-3" /></tr></thead>
+            <table className="w-full min-w-[1390px] text-sm">
+              <thead><tr className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground"><th className="px-4 py-3 text-left font-semibold">Agent</th><th className="px-3 py-3 text-left font-semibold">Status</th><SortableMetricHeader label="Closings" column="closings" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="Volume" column="volume" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="New business" column="newBusinessWrittenVolume" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="Gross commission" column="grossCommission" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="Savvy net" column="savvyNet" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="UC" column="underContract" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="Overdue" column="overdueTasks" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><SortableMetricHeader label="Flags" column="flags" sortColumn={comparisonSort.column} sortDirection={comparisonSort.direction} onSort={toggleComparisonSort} /><th className="px-4 py-3" /></tr></thead>
               <tbody>{visibleComparisonRows.map(({ agent, flagCount }: { agent: any; flagCount: number }) => <tr key={agent.agentId} className="border-b last:border-0 hover:bg-muted/25">
                 <td className="px-4 py-3"><p className="font-medium">{agent.agentName}</p><p className="mt-0.5 text-xs text-muted-foreground">Avg. GCI {money(agent.averageGci, true)}</p></td>
+                <td className="px-3 py-3"><Badge variant="outline" className={agent.isActive ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-700"}>{agent.isActive ? "Active" : "Inactive / Offboarded"}</Badge></td>
                 <td className="px-3 py-3 text-right font-medium tabular-nums"><AgentMetric value={agent.closings} total={totals.closings}>{number(agent.closings)}</AgentMetric></td>
                 <td className="px-3 py-3 text-right tabular-nums"><AgentMetric value={agent.volume} total={totals.volume}>{money(agent.volume, true)}</AgentMetric></td>
                 <td className="px-3 py-3 text-right tabular-nums"><AgentMetric value={agent.newBusinessWrittenVolume} total={totals.newBusinessWrittenVolume}>{money(agent.newBusinessWrittenVolume, true)}</AgentMetric><p className="mt-0.5 text-[10px] text-muted-foreground">{number(agent.newBusinessWrittenUnits)} signed</p></td>
@@ -584,7 +589,7 @@ function AgentReport({ data }: { data: any }) {
               </tr>)}</tbody>
             </table>
           </div>
-          {zeroOnlyComparisonRows.length > 0 && <div className="border-t px-4 py-3"><button type="button" onClick={() => setShowZeroOnlyAgents((visible) => !visible)} className="text-xs font-semibold text-primary hover:underline">{showZeroOnlyAgents ? "Hide agents with all 0's" : "Show agents with all 0's"}</button>{!showZeroOnlyAgents && <span className="ml-2 text-xs text-muted-foreground">{number(zeroOnlyComparisonRows.length)} hidden</span>}</div>}
+          {zeroOnlyComparisonRows.length > 0 && <div className="border-t px-4 py-3"><button type="button" onClick={() => setShowZeroOnlyAgents((visible) => !visible)} className="text-xs font-semibold text-primary hover:underline">{showZeroOnlyAgents ? "Hide active agents with all 0's" : "Show active agents with all 0's"}</button>{!showZeroOnlyAgents && <span className="ml-2 text-xs text-muted-foreground">{number(zeroOnlyComparisonRows.length)} hidden</span>}</div>}
         </CardContent>
       </Card>
     </section>

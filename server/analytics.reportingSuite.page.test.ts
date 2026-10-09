@@ -38,6 +38,21 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).not.toContain("<AgentMetric value={flagCount} total={totals.flags}>");
   });
 
+  it("keeps offboarded agents visible and clearly labeled in the administrator reporting workflow", () => {
+    const content = reportPage();
+    const service = reportService();
+    const agentScope = service.match(/function agentScope[\s\S]*?function taskScope/)?.[0] ?? "";
+
+    expect(content).toContain("Inactive / Offboarded");
+    expect(content).toContain('agent.isActive ? "Active" : "Inactive / Offboarded"');
+    expect(content).toContain("agent.isActive === false");
+    expect(content).toContain("Show active agents with all 0's");
+    expect(service).toContain("u.\\`isActive\\` AS isActive");
+    expect(service).toContain("isActive: Boolean(asNumber(row.isActive))");
+    expect(service).toContain("ORDER BY u.\\`isActive\\` DESC");
+    expect(agentScope).not.toContain("isActive");
+  });
+
   it("keeps the Pipeline Report agent-level, live, and operationally actionable", () => {
     const page = reportPage();
     const view = pipelineReportView();

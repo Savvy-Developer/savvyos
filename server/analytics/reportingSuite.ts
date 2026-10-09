@@ -142,7 +142,6 @@ function transactionScope(
 function agentScope(filters: ReportingFilters): SQL {
   return where([
     sql`u.\`role\` = 'agent'`,
-    sql`u.\`isActive\` = 1`,
     (filters.agentIds?.length ? sql`u.\`id\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`u.\`id\` = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? (filters.includeLeaderStats ? sql`(
       u.\`id\` = ${filters.groupLeaderId}
@@ -290,10 +289,10 @@ function taskWhereWithOpenOverdue(filters: ReportingFilters): SQL {
 export async function getReportingFilters() {
   const [agentRows, leaderRows, marketRows, isaRows, leadSourceRows] = await Promise.all([
     runRows<Row>(sql`
-      SELECT u.\`id\` AS id, u.\`name\` AS name
+      SELECT u.\`id\` AS id, u.\`name\` AS name, u.\`isActive\` AS isActive
       FROM \`users\` u
-      WHERE u.\`role\` = 'agent' AND u.\`isActive\` = 1
-      ORDER BY COALESCE(u.\`name\`, '') ASC
+      WHERE u.\`role\` = 'agent'
+      ORDER BY u.\`isActive\` DESC, COALESCE(u.\`name\`, '') ASC
     `),
     runRows<Row>(sql`
       SELECT
@@ -327,7 +326,11 @@ export async function getReportingFilters() {
   ]);
 
   return {
-    agents: agentRows.map((row) => ({ id: asNumber(row.id), name: String(row.name ?? "Unknown") })),
+    agents: agentRows.map((row) => ({
+      id: asNumber(row.id),
+      name: String(row.name ?? "Unknown"),
+      isActive: Boolean(asNumber(row.isActive)),
+    })),
     groupLeaders: leaderRows.map((row) => ({
       id: asNumber(row.id),
       name: String(row.name ?? "Unknown"),
@@ -547,6 +550,7 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
       SELECT
         u.\`id\` AS agentId,
         u.\`name\` AS agentName,
+        u.\`isActive\` AS isActive,
         COALESCE(p.closings, 0) AS closings,
         COALESCE(p.volume, 0) AS volume,
         COALESCE(p.grossCommission, 0) AS grossCommission,
@@ -715,6 +719,7 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
     agents: agentRows.map((row) => ({
       agentId: asNumber(row.agentId),
       agentName: String(row.agentName ?? "Unknown"),
+      isActive: Boolean(asNumber(row.isActive)),
       closings: asNumber(row.closings),
       volume: asNumber(row.volume),
       grossCommission: asNumber(row.grossCommission),
