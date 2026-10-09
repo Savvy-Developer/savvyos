@@ -1,0 +1,22 @@
+# Security audit finding 08: keep dependencies patched.
+# Version updates: one grouped pull request a month for npm packages and one for
+# GitHub Actions, so the queue stays small. Nothing merges on its own; each PR
+# still goes through pnpm check, the tests and a build before merging.
+# Security updates (urgent fixes for known vulnerabilities) are switched on
+# separately in GitHub: Settings > Code security > Dependabot security updates.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels: ["dependencies"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels: ["dependencies"]

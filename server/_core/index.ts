@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerMagicLinkRoutes } from "./magicLink";
 import { isCrossSiteWrite, isTrustedOrigin } from "./corsPolicy";
+import { registerCspReportRoute, securityHeadersMiddleware } from "./securityHeaders";
 import { registerStaffWebsiteHandoffRoute } from "../staffWebsiteHandoff";
 import { registerUploadRoutes } from "../uploadRoutes";
 import { registerMlsMediaRoute } from "../mls/privateMedia";
@@ -201,6 +202,13 @@ async function startServer() {
 
   const app = express();
   const server = createServer(app);
+
+  // Browser security headers on every response (security audit 08), and the
+  // address browsers report would-be-blocked content to. Both before the
+  // public host's /api guard below, so the public site is covered too.
+  app.disable("x-powered-by");
+  app.use(securityHeadersMiddleware());
+  registerCspReportRoute(app);
 
   // CORS. Only our own hosts get credentialed access; any other origin can
   // read anonymous responses but never a signed-in one, and cannot make a
