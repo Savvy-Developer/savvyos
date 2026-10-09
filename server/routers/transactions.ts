@@ -535,9 +535,32 @@ export const transactionsRouter = router({
         });
       }
 
+      const isNewTermination = input.data.status === "terminated" && before.status !== "terminated";
+      const normalizedTerminationReason = typeof input.data.terminationReason === "string"
+        ? input.data.terminationReason.trim()
+        : input.data.terminationReason;
+      if (isNewTermination && !normalizedTerminationReason) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A termination reason is required when terminating a transaction.",
+        });
+      }
+      // Legacy terminated deals missing a reason have one isolated, permissioned
+      // correction path. The normal transaction editor must not bypass it.
+      if (
+        input.data.terminationReason !== undefined
+        && before.status === "terminated"
+        && !before.terminationReason?.trim()
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Use the authorized missing termination reason workflow for this transaction.",
+        });
+      }
+
       const { contractDate, closingDate, terminationReason, referralPayoutPct, ...rest } = input.data;
       const updateData: Record<string, any> = { ...rest };
-      if (terminationReason !== undefined) updateData.terminationReason = terminationReason;
+      if (terminationReason !== undefined) updateData.terminationReason = normalizedTerminationReason;
       if (referralPayoutPct !== undefined) updateData.referralPayoutPct = normalizeReferralPayoutPercentage(referralPayoutPct);
       if (contractDate !== undefined) updateData.contractDate = contractDate ? new Date(contractDate) : null;
       if (closingDate !== undefined) updateData.closingDate = closingDate ? new Date(closingDate) : null;
@@ -708,6 +731,69 @@ export const transactionsRouter = router({
           });
         } catch (_) {}
       }
+
+      return { success: true };
+    }),
+
+  // Legacy correction only: authorized admins can fill a missing reason on an
+  // already-terminated deal. This update deliberately does not touch status or dates.
+  addMissingTerminationReason: protectedProcedure
+    .input(z.object({
+      id: z.number().int().positive(),
+      terminationReason: z.string().trim().min(1, "A termination reason is required."),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const permitted = ctx.user.role === "admin"
+        && await canAdminUsePermission(ctx.user, "canAddMissingTerminationReason");
+      if (!permitted) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have permission to add a missing termination reason.",
+        });
+      }
+
+      const existing = await getTransactionById(input.id);
+      if (!existing) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Transaction not found." });
+      }
+      if (existing.transaction.status !== "terminated") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Only terminated transactions can receive a termination reason.",
+        });
+      }
+      if (existing.transaction.terminationReason?.trim()) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "This transaction already has a termination reason.",
+        });
+      }
+
+      const db = await getDb();
+      if (!db) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      }
+      await db
+        .update(transactions)
+        .set({ terminationReason: input.terminationReason })
+        .where(eq(transactions.id, input.id));
+
+      const contactName = existing.contact
+        ? `${existing.contact.firstName ?? ""} ${existing.contact.lastName ?? ""}`.trim() || "Unknown Contact"
+        : "Unknown Contact";
+      await logActivity({
+        userId: ctx.user.id,
+        action: "transaction_updated",
+        entityType: "transaction",
+        entityId: input.id,
+        details: {
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          txNumber: existing.transaction.transactionNumber,
+          contactName,
+          changes: [{ field: "Termination Reason", from: null, to: input.terminationReason }],
+        },
+      });
 
       return { success: true };
     }),

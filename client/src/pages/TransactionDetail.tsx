@@ -256,6 +256,8 @@ export default function TransactionDetail() {
   const [newStatus, setNewStatus] = useState<string>("");
   const [terminationReasonOpen, setTerminationReasonOpen] = useState(false);
   const [terminationReason, setTerminationReason] = useState("");
+  const [missingTerminationReasonOpen, setMissingTerminationReasonOpen] = useState(false);
+  const [missingTerminationReason, setMissingTerminationReason] = useState("");
   const [payoutForm, setPayoutForm] = useState({
     payeeType: "agent" as const,
     payeeUserId: "",
@@ -396,6 +398,15 @@ export default function TransactionDetail() {
     onSuccess: (data, variables) => {
       toast.success(data.unchanged ? "Lead source is already up to date" : "Transaction lead source updated");
       setEditForm((form) => ({ ...form, transactionLeadSourceId: variables.leadSourceId }));
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const addMissingTerminationReason = trpc.transactions.addMissingTerminationReason.useMutation({
+    onSuccess: () => {
+      toast.success("Termination reason added");
+      setMissingTerminationReasonOpen(false);
+      setMissingTerminationReason("");
       refetch();
     },
     onError: (e) => toast.error(e.message),
@@ -610,21 +621,33 @@ export default function TransactionDetail() {
   }
 
   async function handleTerminationConfirm() {
+    const reason = terminationReason.trim();
+    if (!reason) {
+      toast.error("A termination reason is required.");
+      return;
+    }
     await updateStatus.mutateAsync({
       id: txId,
       data: {
         status: "terminated" as any,
-        terminationReason: terminationReason.trim() || null,
+        terminationReason: reason,
       },
     });
-    if (terminationReason.trim()) {
-      addTerminationNote.mutate({
-        transactionId: txId,
-        content: `Termination reason: ${terminationReason.trim()}`,
-      });
-    }
+    addTerminationNote.mutate({
+      transactionId: txId,
+      content: `Termination reason: ${reason}`,
+    });
     setTerminationReasonOpen(false);
     setTerminationReason("");
+  }
+
+  function handleMissingTerminationReasonConfirm() {
+    const reason = missingTerminationReason.trim();
+    if (!reason) {
+      toast.error("A termination reason is required.");
+      return;
+    }
+    addMissingTerminationReason.mutate({ id: txId, terminationReason: reason });
   }
 
   const autoAmount = calculatePercentageAmount(payoutForm.percentage, gci);
@@ -642,6 +665,8 @@ export default function TransactionDetail() {
     : null;
   const canEditTransactionLeadSource = isAdmin
     && !!(adminPermissions as Record<string, boolean> | undefined)?.canEditTransactionLeadSource;
+  const canAddMissingTerminationReason = isAdmin
+    && !!(adminPermissions as Record<string, boolean> | undefined)?.canAddMissingTerminationReason;
 
   const totalPct = (payouts?.items ?? []).reduce((s, { payout: p }) => s + Number(p.percentage), 0);
 
@@ -935,7 +960,19 @@ export default function TransactionDetail() {
                   <span className="font-medium">Reason:</span> {tx.terminationReason}
                 </p>
               ) : (
-                <p className="text-sm text-red-600/70 mt-1 italic">No termination reason was provided.</p>
+                <>
+                  <p className="text-sm text-red-600/70 mt-1 italic">No termination reason was provided.</p>
+                  {canAddMissingTerminationReason && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-3 border-red-300 text-red-700 hover:bg-red-100"
+                      onClick={() => setMissingTerminationReasonOpen(true)}
+                    >
+                      Add missing reason
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1918,9 +1955,41 @@ export default function TransactionDetail() {
             <Button
               variant="destructive"
               onClick={handleTerminationConfirm}
-              disabled={updateStatus.isPending}
+              disabled={updateStatus.isPending || !terminationReason.trim()}
             >
               {updateStatus.isPending ? "Terminating..." : "Confirm Termination"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Missing Termination Reason Dialog */}
+      <Dialog open={missingTerminationReasonOpen} onOpenChange={(open) => {
+        setMissingTerminationReasonOpen(open);
+        if (!open) setMissingTerminationReason("");
+      }}>
+        <DialogContent className="max-w-md w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto p-5">
+          <DialogHeader>
+            <DialogTitle>Add Missing Termination Reason</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This fills the missing reason for this existing terminated transaction without changing its original termination date.
+          </p>
+          <Textarea
+            value={missingTerminationReason}
+            onChange={(event) => setMissingTerminationReason(event.target.value)}
+            placeholder="e.g. Buyer financing fell through, seller withdrew from agreement..."
+            rows={4}
+            className="mt-2"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMissingTerminationReasonOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={handleMissingTerminationReasonConfirm}
+              disabled={addMissingTerminationReason.isPending || !missingTerminationReason.trim()}
+            >
+              {addMissingTerminationReason.isPending ? "Saving..." : "Save reason"}
             </Button>
           </DialogFooter>
         </DialogContent>

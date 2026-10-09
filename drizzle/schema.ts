@@ -7093,6 +7093,10 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canEditTransactionLeadSource: boolean("canEditTransactionLeadSource")
     .default(false)
     .notNull(),
+  // Legacy terminated deals may receive a reason only through an explicitly assigned correction capability.
+  canAddMissingTerminationReason: boolean("canAddMissingTerminationReason")
+    .default(false)
+    .notNull(),
   canViewTransactionExports: boolean("canViewTransactionExports")
     .default(true)
     .notNull(),

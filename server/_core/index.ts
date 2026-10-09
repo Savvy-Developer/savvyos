@@ -116,6 +116,7 @@ import { ensureWebsiteCaseStudySeoSchema } from "../websiteCaseStudySeo";
 import { ensureWebsiteSignupAudienceSchema } from "../websiteSignupAudience";
 import { ensureVendorListsMultiSchema } from "../vendorListsMultiSchema";
 import { ensureTransactionTerminationTextSchema } from "../transactionTerminationTextSchema";
+import { ensureTransactionTerminationBackfillSchema } from "../transactionTerminationBackfillSchema";
 import { ensureTransactionCustomFieldsSchema } from "../transactionCustomFieldsSchema";
 import { ensureOnboardingLifecycleSchema } from "../onboardingLifecycleSchema";
 import { ensureUserEmploymentTypeSchema } from "../userEmploymentTypeSchema";
@@ -172,6 +173,7 @@ async function startServer() {
   await ensureWebsiteSignupAudienceSchema();
   await ensureVendorListsMultiSchema();
   await ensureTransactionTerminationTextSchema();
+  await ensureTransactionTerminationBackfillSchema();
   await ensureTransactionCustomFieldsSchema();
   await ensureUserEmploymentTypeSchema();
   // Onboarding queries select lifecycle columns, so repair the legacy schema

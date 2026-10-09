@@ -88,6 +88,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canEditHistoricalReferrals",    label: "Edit Historical Referrals",  group: "Transactions" },
   { key: "canAdministerTransactions",      label: "Transactions Admin",         group: "Transactions" },
   { key: "canEditTransactionLeadSource",  label: "Edit Transaction Lead Source", group: "Transactions" },
+  { key: "canAddMissingTerminationReason", label: "Add Missing Termination Reason", group: "Transactions" },
   // Agent Success Team
   { key: "canViewAgentMarkets",           label: "Agent Markets",              group: "Agent Success Team" },
   { key: "canViewAgentCelebrations",      label: "Agent Celebration",          group: "Agent Success Team" },
@@ -183,6 +184,7 @@ const DEFAULT_OFF_PERMISSIONS = new Set<PermissionKey>([
   "canAdministerTransactions",
   "canEditContactLeadSource",
   "canEditTransactionLeadSource",
+  "canAddMissingTerminationReason",
   "canViewWebsite",
   "canManageWebsiteProperties",
   "canManageWebsiteAgents",

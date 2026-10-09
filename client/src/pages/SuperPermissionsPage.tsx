@@ -94,6 +94,7 @@ const ADVANCED_PERMISSION_KEYS = new Set([
   "canEditHistoricalReferrals",
   "canAdministerTransactions",
   "canEditTransactionLeadSource",
+  "canAddMissingTerminationReason",
   "canViewPulseSettings",
   "canCreateLandingPages",
   "canEditLandingPages",

@@ -12,6 +12,7 @@ export const PAGE_PERMISSION_DEPENDENCIES: Record<string, readonly string[]> = {
     "canViewTransactionExports",
     "canAdministerTransactions",
     "canEditTransactionLeadSource",
+    "canAddMissingTerminationReason",
   ],
   canViewReferrals: [
     "canCreateReferrals",
