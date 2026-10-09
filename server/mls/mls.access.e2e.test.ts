@@ -192,12 +192,29 @@ describe.skipIf(!BASE)("MLS agent assignments and saved views", () => {
     await expect(caller(users.ben).search(searchInput())).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("keeps saved views private, uniquely named, and allows exactly one default per user", async () => {
+  it("keeps Saved Views agent-only: admins are refused on every saved view route", async () => {
+    const tyler = caller(users.tyler);
+    expect(await tyler.myAccess()).toMatchObject({ canView: true, scope: "all" });
+    for (const attempt of [
+      () => tyler.savedViews(),
+      () => tyler.createSavedView({ name: "Admin view", state: viewState() }),
+      () => tyler.updateSavedView({ id: 1, name: "Admin view" }),
+      () => tyler.setDefaultSavedView({ id: null }),
+      () => tyler.deleteSavedView({ id: 1 }),
+    ]) await expect(attempt()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const [rows]: any = await app.query("SELECT COUNT(*) AS n FROM user_mls_saved_views WHERE userId = ?", [users.tyler.id]);
+    expect(Number(rows[0].n)).toBe(0);
+  });
+
+  it("keeps saved views private, uniquely named, and allows exactly one default per agent", async () => {
     const amy = caller(users.amy);
     const tyler = caller(users.tyler);
+    // A second agent to prove views stay private between agents.
+    await tyler.setAgentAssignments({ userId: users.ben.id, sourceIds: [sources.maris] });
+    const ben = caller(users.ben);
     const first = await amy.createSavedView({ name: "  St. Louis split  ", state: viewState(), makeDefault: true });
     const second = await amy.createSavedView({ name: "Polygon", state: viewState({ view: "map", bounds: null, area: { kind: "polygon", points: [{ lat: 38.6, lng: -90.3 }, { lat: 38.7, lng: -90.2 }, { lat: 38.6, lng: -90.1 }] } }) });
-    await tyler.createSavedView({ name: "Polygon", state: viewState() }); // same name, different user: allowed
+    await ben.createSavedView({ name: "Polygon", state: viewState() }); // same name, different agent: allowed
     await expect(amy.createSavedView({ name: "Polygon", state: viewState() })).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(amy.createSavedView({ name: "   ", state: viewState() })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(amy.createSavedView({ name: "Bad sort", state: viewState({ sort: "random" }) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -208,7 +225,7 @@ describe.skipIf(!BASE)("MLS agent assignments and saved views", () => {
     expect(saved.state).toMatchObject({ sort: "newest", view: "split", searchInMap: true, filters: { statuses: ["active"], minPrice: 300000 } });
     expect(saved.state?.camera).toEqual({ center: { lat: 38.63, lng: -90.2 }, zoom: 11 });
     expect(views.find(view => view.id === second.id)?.state?.area).toMatchObject({ kind: "polygon" });
-    expect((await tyler.savedViews()).map(view => view.name)).toEqual(["Polygon"]);
+    expect((await ben.savedViews()).map(view => view.name)).toEqual(["Polygon"]);
 
     // Switching the default moves it; clearing it leaves none.
     await amy.setDefaultSavedView({ id: second.id });
@@ -226,13 +243,13 @@ describe.skipIf(!BASE)("MLS agent assignments and saved views", () => {
     const renamed = (await amy.savedViews()).find(view => view.id === first.id)!;
     expect([renamed.name, renamed.isDefault, renamed.state?.sort, renamed.state?.view]).toEqual(["STL", true, "price_asc", "list"]);
 
-    // Another user can neither change nor delete it, and gets the same answer as for a missing view.
-    const tylerView = (await tyler.savedViews())[0];
+    // Another agent can neither change nor delete it, and gets the same answer as for a missing view.
+    const benView = (await ben.savedViews())[0];
     for (const attempt of [
-      () => tyler.updateSavedView({ id: first.id, name: "Mine now" }),
-      () => tyler.setDefaultSavedView({ id: first.id }),
-      () => tyler.deleteSavedView({ id: first.id }),
-      () => amy.deleteSavedView({ id: tylerView.id }),
+      () => ben.updateSavedView({ id: first.id, name: "Mine now" }),
+      () => ben.setDefaultSavedView({ id: first.id }),
+      () => ben.deleteSavedView({ id: first.id }),
+      () => amy.deleteSavedView({ id: benView.id }),
       () => amy.deleteSavedView({ id: 999999 }),
     ]) await expect(attempt()).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect((await amy.savedViews()).find(view => view.id === first.id)?.name).toBe("STL");
