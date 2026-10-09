@@ -6,6 +6,7 @@ import {
   verifyZoomWebhookSignature,
 } from "./zoomWebinarService";
 import { processZoomWebhookEvent } from "./routers/webinars";
+import { processOneOnOneZoomWebhookEvent } from "./routers/oneOnOnes";
 
 /**
  * Zoom validates this endpoint with a challenge-response body and signs normal
@@ -41,6 +42,12 @@ export function registerZoomWebhook(app: Express): void {
 
       const eventKey = createZoomEventKey(rawBody, req.headers["x-zm-request-id"] as string | undefined);
       await processZoomWebhookEvent({
+        eventKey,
+        eventType,
+        eventTimestamp: event.event_ts,
+        payload: event.payload,
+      });
+      await processOneOnOneZoomWebhookEvent({
         eventKey,
         eventType,
         eventTimestamp: event.event_ts,

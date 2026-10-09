@@ -3527,7 +3527,20 @@ export const oneOnOneMeetings = mysqlTable(
     calendarEventUrl: text("calendarEventUrl"),
     calendarSyncStatus: mysqlEnum("calendarSyncStatus", ["Not Requested", "Synced", "Needs Attention"]).notNull().default("Not Requested"),
     calendarSyncError: text("calendarSyncError"),
-    transcript: text("transcript"),
+    // Keep Zoom recording media and transient download credentials out of SavvyOS.
+    // The protected HR record stores only the transcript text and its import state.
+    zoomMeetingId: varchar("zoomMeetingId", { length: 64 }),
+    zoomMeetingUuid: varchar("zoomMeetingUuid", { length: 255 }),
+    zoomJoinUrl: text("zoomJoinUrl"),
+    zoomStartUrl: text("zoomStartUrl"),
+    zoomSyncStatus: mysqlEnum("zoomSyncStatus", ["Not Requested", "Synced", "Needs Attention"]).notNull().default("Not Requested"),
+    zoomSyncError: text("zoomSyncError"),
+    zoomTranscriptStatus: mysqlEnum("zoomTranscriptStatus", ["Not Requested", "Pending", "Imported", "Needs Attention"]).notNull().default("Not Requested"),
+    zoomTranscriptError: text("zoomTranscriptError"),
+    zoomTranscriptFileId: varchar("zoomTranscriptFileId", { length: 128 }),
+    zoomTranscriptImportedAt: timestamp("zoomTranscriptImportedAt"),
+    transcript: mediumtext("transcript"),
+    transcriptSource: mysqlEnum("transcriptSource", ["Manual", "Zoom"]),
     transcriptSavedAt: timestamp("transcriptSavedAt"),
     aiProcessingStatus: mysqlEnum("aiProcessingStatus", ["None", "Processing", "Ready", "Failed"]).notNull().default("None"),
     aiDraftJson: text("aiDraftJson"),
@@ -3547,6 +3560,7 @@ export const oneOnOneMeetings = mysqlTable(
   table => [
     index("one_on_one_meeting_relationship_status_idx").on(table.relationshipId, table.status, table.scheduledAt),
     index("one_on_one_meeting_employee_status_idx").on(table.employeeId, table.status, table.heldAt),
+    index("one_on_one_meeting_zoom_id_idx").on(table.zoomMeetingId),
   ]
 );
 export type OneOnOneMeeting = typeof oneOnOneMeetings.$inferSelect;

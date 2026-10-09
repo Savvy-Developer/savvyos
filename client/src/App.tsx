@@ -544,9 +544,38 @@ function PulseMeetingsIndexRedirect() {
   return <div className="min-h-[40vh]" />;
 }
 
+/**
+ * Calendar-linked scheduling is mandatory for administrators. Keep this gate
+ * outside AppLayout so a direct URL never exposes another SavvyOS page first.
+ */
+function AdminCalendarConnectionGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [location, navigate] = useLocation();
+  const isAdmin = user?.role === "admin";
+  const calendarConnection = trpc.calendarConnections.me.useQuery(undefined, { enabled: isAdmin });
+  const hasConnectedCalendar = calendarConnection.data?.connection?.status === "connected";
+  const isProfilePage = location.split("?")[0] === "/profile";
+
+  useEffect(() => {
+    if (isAdmin && !calendarConnection.isLoading && !hasConnectedCalendar && !isProfilePage) {
+      navigate("/profile", { replace: true });
+    }
+  }, [calendarConnection.isLoading, hasConnectedCalendar, isAdmin, isProfilePage, navigate]);
+
+  if (!isAdmin) return <>{children}</>;
+  if (calendarConnection.isLoading) {
+    return <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Checking required Google Calendar connection…</div>;
+  }
+  if (!hasConnectedCalendar && !isProfilePage) {
+    return <div className="flex min-h-screen items-center justify-center p-6 text-center text-sm text-muted-foreground">Google Calendar must be connected before SavvyOS can be opened.</div>;
+  }
+  return <>{children}</>;
+}
+
 function Router() {
   return (
     <AuthGuard>
+      <AdminCalendarConnectionGate>
       <Switch>
         <Route path="/leaderboard/present" component={AgentLeaderboardPresentationPage} />
         <Route>
@@ -706,6 +735,7 @@ function Router() {
           )}
         </Route>
       </Switch>
+      </AdminCalendarConnectionGate>
     </AuthGuard>
   );
 }

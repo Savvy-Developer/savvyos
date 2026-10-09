@@ -275,6 +275,7 @@ export default function ProfilePage() {
 
   const initials = getInitials(user.name);
   const roleLabel = ROLE_LABELS[user.role] ?? user.role;
+  const calendarRequired = user.role === "admin";
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
@@ -283,7 +284,9 @@ export default function ProfilePage() {
         <p className="text-sm text-muted-foreground mt-1">
           {user.role === "agent"
             ? "Manage your photo, account details, and extended agent profile."
-            : "Manage your profile photo and account information."}
+            : calendarRequired
+              ? "Connect Google Calendar to unlock the rest of SavvyOS, then manage your profile here."
+              : "Manage your profile photo and account information."}
         </p>
       </div>
 
@@ -299,11 +302,11 @@ export default function ProfilePage() {
       )}
 
       {/* Google Calendar Card */}
-      <Card>
+      <Card className={calendarRequired && calendarConnectionQuery.data?.connection?.status !== "connected" ? "border-amber-300 bg-amber-50/30" : undefined}>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <CalendarDays className="h-4 w-4" />
-            Google Calendar
+            Google Calendar{calendarRequired ? " · Required" : ""}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -313,26 +316,26 @@ export default function ProfilePage() {
             <>
               <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-                <div><p className="font-medium">Google Calendar connected</p><p className="mt-0.5 text-xs text-emerald-900">SavvyOS can check your live availability and create appointment events on your primary calendar{calendarConnectionQuery.data.connection.connectedEmail ? ` (${calendarConnectionQuery.data.connection.connectedEmail})` : ""}.</p></div>
+                <div><p className="font-medium">Google Calendar connected</p><p className="mt-0.5 text-xs text-emerald-900">SavvyOS can check your live availability and create appointment events on your primary calendar{calendarConnectionQuery.data.connection.connectedEmail ? ` (${calendarConnectionQuery.data.connection.connectedEmail})` : ""}. Your SavvyOS access is unlocked.</p></div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => window.location.assign("/api/calendar/google/connect")}><Link2 className="mr-1.5 h-3.5 w-3.5" />Reconnect</Button>
-                <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" disabled={disconnectCalendarMutation.isPending} onClick={() => disconnectCalendarMutation.mutate()}>{disconnectCalendarMutation.isPending ? "Disconnecting…" : "Disconnect"}</Button>
+                {!calendarRequired && <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" disabled={disconnectCalendarMutation.isPending} onClick={() => disconnectCalendarMutation.mutate()}>{disconnectCalendarMutation.isPending ? "Disconnecting…" : "Disconnect"}</Button>}
               </div>
             </>
           ) : calendarConnectionQuery.data?.configured ? (
             <>
-              <p className="text-sm text-muted-foreground">Connect your Google Calendar to let SavvyOS check availability and add appointments to your calendar. Client invitations are sent automatically.</p>
+              <p className="text-sm text-muted-foreground">{calendarRequired ? "Google Calendar is required for administrators. Connect it now to unlock the rest of SavvyOS and ensure meetings are created on your calendar." : "Connect your Google Calendar to let SavvyOS check availability and add appointments to your calendar. Client invitations are sent automatically."}</p>
               <Button type="button" onClick={() => window.location.assign("/api/calendar/google/connect")}><Link2 className="mr-1.5 h-4 w-4" />Connect Google Calendar</Button>
             </>
           ) : (
             <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
-              <p className="font-medium">Calendar connection is being prepared</p>
-              <p className="mt-1 text-xs text-sky-900">Appointments can still be scheduled in SavvyOS. Until Google Calendar connection is activated, the agent and client receive calendar invitations by email.</p>
+              <p className="font-medium">Google Calendar setup is incomplete</p>
+              <p className="mt-1 text-xs text-sky-900">{calendarRequired ? "Administrators remain on My Profile until the SavvyOS Google Calendar service is configured and their calendar is connected." : "Appointments can still be scheduled in SavvyOS. Until Google Calendar connection is activated, the agent and client receive calendar invitations by email."}</p>
             </div>
           )}
           {typeof window !== "undefined" && new URLSearchParams(window.location.search).get("calendar") === "connected" && <p className="text-sm text-emerald-700">Google Calendar connected successfully.</p>}
-          {typeof window !== "undefined" && ["failed", "declined"].includes(new URLSearchParams(window.location.search).get("calendar") || "") && <p className="text-sm text-destructive">Google Calendar was not connected. You can try again whenever you are ready.</p>}
+          {typeof window !== "undefined" && ["failed", "declined"].includes(new URLSearchParams(window.location.search).get("calendar") || "") && <p className="text-sm text-destructive">Google Calendar was not connected. Try again to unlock SavvyOS.</p>}
         </CardContent>
       </Card>
 
