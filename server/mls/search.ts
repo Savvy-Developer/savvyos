@@ -118,29 +118,32 @@ export async function refreshSearchIndexAvailability(db: Db, now = Date.now()): 
   return searchIndexAvailability();
 }
 
-/** Keep IDX rows available until the matching BBO listing actually arrives.
- * Both feed rows, media, raw records and license flags remain independent.
- * This read-only preference is shared by cards, map pins and exact totals. */
-export function preferMarisBboCondition(indexes: SearchIndexAvailability = searchIndexAvailability()): SQL {
+/** When one MLS arrives through both an IDX and a BBO MLS Grid feed (MARIS,
+ * MIBOR), each listing would appear twice. Show the BBO row and hide the IDX
+ * twin, but keep the IDX row available until the matching, licensed BBO
+ * listing actually arrives. Both feed rows, media, raw records and license
+ * flags remain independent. This read-only preference is shared by cards, map
+ * pins and exact totals, and applies to every source, not a named one. */
+export function preferBboOverIdxCondition(indexes: SearchIndexAvailability = searchIndexAvailability()): SQL {
   // The covering (sourceId, listingNumber, feedId, removedFromFeedAt) index
   // answers this per-listing check without reading the candidate row.
   const candidateIndex = indexes.sourceNumberFeed ? SOURCE_NUMBER_FEED_INDEX : "mls_listings_source_number_idx";
-  return sql.raw(`(CASE WHEN mls_listings.feedId = COALESCE((
+  // Both feed sets are uncorrelated, so MySQL resolves each once per query.
+  // The candidate shares the listing's sourceId, which ties the BBO twin to
+  // the same MLS.
+  return sql.raw(`(CASE WHEN mls_listings.feedId IN (
       SELECT idx.id FROM mls_feeds AS idx
-      JOIN mls_sources AS source ON source.id = idx.sourceId AND source.code = 'maris'
-      WHERE idx.provider = 'mls_grid' AND idx.feedType = 'idx' LIMIT 1
-    ), -1)
+      WHERE idx.provider = 'mls_grid' AND idx.feedType = 'idx'
+    )
     THEN NOT EXISTS (
       SELECT 1 FROM mls_listings AS candidate FORCE INDEX (${candidateIndex})
       WHERE candidate.sourceId = mls_listings.sourceId
         AND candidate.listingNumber = mls_listings.listingNumber
-        AND candidate.feedId = COALESCE((
+        AND candidate.feedId IN (
           SELECT bbo.id FROM mls_feeds AS bbo
-          JOIN mls_sources AS source ON source.id = bbo.sourceId AND source.code = 'maris'
           WHERE bbo.provider = 'mls_grid' AND bbo.feedType = 'bbo'
             AND ${approvedFeedSql("candidateLicense", "bbo.id")}
-          LIMIT 1
-        ), -1)
+        )
         AND candidate.removedFromFeedAt IS NULL
     )
     ELSE TRUE END)`);
@@ -148,7 +151,7 @@ export function preferMarisBboCondition(indexes: SearchIndexAvailability = searc
 
 export function searchConditions(filters: SearchFilters, now = new Date()): SQL | undefined {
   // Unlicensed, expired, or unapproved-retention feeds never appear in any admin read.
-  const conditions: SQL[] = [sql.raw(approvedFeedSetSql()), preferMarisBboCondition()];
+  const conditions: SQL[] = [sql.raw(approvedFeedSetSql()), preferBboOverIdxCondition()];
   if (!filters.includeRemoved) conditions.push(isNull(mlsListings.removedFromFeedAt));
   if (filters.sourceIds?.length) conditions.push(inArray(mlsListings.sourceId, filters.sourceIds));
   if (filters.statuses?.length) conditions.push(inArray(mlsListings.standardStatus, filters.statuses));

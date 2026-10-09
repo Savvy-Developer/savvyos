@@ -21,7 +21,11 @@ export type MlsSourceSeed = {
   keyPrefix?: string;
   websiteUrl?: string;
   compliance?: Partial<ComplianceProfile>;
+  /** Where the search map opens when only this MLS is selected. */
+  mapCenter?: MlsMapCenter;
 };
+
+export type MlsMapCenter = { lat: number; lng: number; zoom: number };
 
 export const MLS_SOURCE_SEEDS: MlsSourceSeed[] = [
   // ── 1. MLS Grid ──────────────────────────────────────────────────────────
@@ -36,6 +40,7 @@ export const MLS_SOURCE_SEEDS: MlsSourceSeed[] = [
     originatingSystemName: "carolina",
     keyPrefix: "CAR",
     websiteUrl: "https://www.canopyrealtors.com",
+    mapCenter: { lat: 35.5951, lng: -82.5515, zoom: 10 },
   },
   {
     code: "mibor",
@@ -47,6 +52,7 @@ export const MLS_SOURCE_SEEDS: MlsSourceSeed[] = [
     routeNote: "Add through MLS Grid.",
     originatingSystemName: "mibor",
     keyPrefix: "MBR",
+    mapCenter: { lat: 39.7684, lng: -86.1581, zoom: 9 },
   },
   {
     code: "stellar",
@@ -70,6 +76,7 @@ export const MLS_SOURCE_SEEDS: MlsSourceSeed[] = [
     originatingSystemName: "maris2",
     keyPrefix: "MIS",
     compliance: { sourceFilterRequired: false },
+    mapCenter: { lat: 38.627, lng: -90.199, zoom: 9 },
   },
   {
     code: "unlock",
@@ -322,6 +329,11 @@ export const MLS_SOURCE_SEEDS: MlsSourceSeed[] = [
     routeNote: "Contact its data-licensing team and confirm Spark/FBS delivery (Columbus uses Flexmls).",
   },
 ];
+
+/** The seeded map center for a source code, or null when none is declared. */
+export function sourceMapCenter(code: string): MlsMapCenter | null {
+  return MLS_SOURCE_SEEDS.find(seed => seed.code === code)?.mapCenter ?? null;
+}
 
 export function seedCompliance(seed: MlsSourceSeed): ComplianceProfile {
   return buildComplianceProfile(seed.providerRoute, seed.compliance);

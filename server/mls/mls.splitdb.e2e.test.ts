@@ -60,7 +60,7 @@ describe.skipIf(!BASE)("MLS on a separate database", () => {
     );
     expect(appColumns.map((row: any) => row.name)).toEqual(["canManageMlsFeeds", "canViewMlsProperties", "id"]);
     const [feeds]: any = await mls.query("SELECT COUNT(*) AS n FROM mls_feeds");
-    expect(Number(feeds[0].n)).toBe(3);
+    expect(Number(feeds[0].n)).toBe(5);
     const [sources]: any = await mls.query("SELECT COUNT(*) AS n FROM mls_sources");
     expect(Number(sources[0].n)).toBeGreaterThan(0);
   });

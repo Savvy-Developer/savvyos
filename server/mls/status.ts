@@ -21,7 +21,7 @@ export type MlsSchemaStatus = {
   /** Optional search indexes built online after deploy. Never affects status. */
   searchIndexes?: { found: number; expected: number };
   /** "separate" when MLS tables live in their own database (MLS_DATABASE_URL). */
-  mlsDatabase?: "separate" | "app";
+  mlsDatabase?: "separate" | "app" | "missing";
   checkedAt: string;
 };
 

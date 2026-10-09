@@ -253,8 +253,8 @@ export default function MlsPropertiesPage() {
     setViewport(null);
     if (sourceIds.length === 1) {
       const selected = options.data?.sources.find(source => source.id === sourceIds[0]);
-      const maris = /maris/i.test(selected?.name ?? "");
-      setMapCamera({ center: maris ? { lat: 38.627, lng: -90.199 } : DEFAULT_CENTER, zoom: maris ? 9 : 10 });
+      const center = selected?.mapCenter;
+      setMapCamera(center ? { center: { lat: center.lat, lng: center.lng }, zoom: center.zoom } : { center: DEFAULT_CENTER, zoom: 10 });
     }
   };
   const clearAll = () => { setFilters(DEFAULT_FILTERS); setQueryText(""); setMapBounds(null); setArea(null); setPage(1); };
