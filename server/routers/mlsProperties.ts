@@ -51,7 +51,7 @@ import { CANONICAL_PROPERTY_TYPES, CANONICAL_STATUSES, PROPERTY_TYPE_LABELS, STA
 import { INSIGHT_FIELDS, LISTING_FIELD_RULES, listingRuleColumns } from "../mls/normalize/fieldMap";
 import { ensureMlsSchema } from "../mls/schema";
 import { countListings, mapPoints, SEARCH_SORTS, searchFiltersSchema, searchListings, boundsSchema } from "../mls/search";
-import { UNRESOLVED_MARKETS } from "../mls/sources";
+import { UNRESOLVED_MARKETS, sourceMapCenter } from "../mls/sources";
 import { withMlsPhotoListingId } from "../mls/photoUrl";
 import { licensedIdxPhotoFallbacks } from "../mls/photoFallback";
 import { canAdminUsePermission } from "./permissions";
@@ -202,6 +202,7 @@ export const mlsPropertiesRouter = router({
         shortName: source.shortName,
         providerRoute: source.providerRoute,
         onboardingStatus: source.onboardingStatus,
+        mapCenter: sourceMapCenter(source.code),
       })),
       statuses: CANONICAL_STATUSES.map(value => ({ value, label: STATUS_LABELS[value] })),
       propertyTypes: CANONICAL_PROPERTY_TYPES.map(value => ({ value, label: PROPERTY_TYPE_LABELS[value] })),

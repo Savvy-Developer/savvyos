@@ -36,11 +36,11 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
     await admin?.end().catch(() => undefined);
   });
 
-  it("creates Canopy BBO, MARIS IDX and MARIS BBO exactly once, even when web and worker start together", async () => {
+  it("creates Canopy BBO, MARIS IDX/BBO and MIBOR IDX/BBO exactly once, even when web and worker start together", async () => {
     const second = await mysql.createConnection(DATABASE_URL!);
     try {
       const results = await Promise.all([bootstrap.ensureDeclaredMlsFeeds(admin as any), bootstrap.ensureDeclaredMlsFeeds(second as any)]);
-      expect(results.flat().sort()).toEqual(["Canopy BBO (MLS Grid)", "MARIS BBO (MLS Grid)", "MARIS IDX (MLS Grid)"]);
+      expect(results.flat().sort()).toEqual(["Canopy BBO (MLS Grid)", "MARIS BBO (MLS Grid)", "MARIS IDX (MLS Grid)", "MIBOR BBO (MLS Grid)", "MIBOR IDX (MLS Grid)"]);
     } finally {
       await second.end();
     }
@@ -53,6 +53,8 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
       ["canopy", "mls_grid", "bbo", "MLSGRID_BBO", "carolina", "CAR", true],
       ["maris", "mls_grid", "idx", "MLSGRID", "maris2", "MIS", true],
       ["maris", "mls_grid", "bbo", "MLSGRID_BBO", "maris2", "MIS", true],
+      ["mibor", "mls_grid", "idx", "MLSGRID", "mibor", "MBR", true],
+      ["mibor", "mls_grid", "bbo", "MLSGRID_BBO", "mibor", "MBR", true],
     ]);
     for (const feed of feeds) {
       const options = typeof feed.options === "string" ? JSON.parse(feed.options) : feed.options;
@@ -64,12 +66,12 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
       expect(license.licenseError({ options, retentionPolicy: feed.retentionPolicy })).toBeNull();
     }
 
-    const [sources]: any = await admin.query("SELECT code, onboardingStatus FROM mls_sources WHERE code IN ('canopy', 'maris') ORDER BY code");
-    expect(sources.map((source: any) => source.onboardingStatus)).toEqual(["approved", "approved"]);
+    const [sources]: any = await admin.query("SELECT code, onboardingStatus FROM mls_sources WHERE code IN ('canopy', 'maris', 'mibor') ORDER BY code");
+    expect(sources.map((source: any) => source.onboardingStatus)).toEqual(["approved", "approved", "approved"]);
 
     // The SQL read gate agrees with licenseError, so these feeds' listings are visible.
     const [visible]: any = await admin.query(`SELECT COUNT(*) AS n FROM mls_feeds f WHERE ${license.approvedFeedSql("lf", "f.id")}`);
-    expect(Number(visible[0].n)).toBe(3);
+    expect(Number(visible[0].n)).toBe(5);
   }, 60_000);
 
   it("prefers only a present, licensed MARIS BBO row across list, map and exact count", async () => {
@@ -141,7 +143,7 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
       const [[physical]]: any = await admin.query("SELECT COUNT(*) AS n FROM mls_listings WHERE sourceId = ? AND listingNumber = 'MARIS-TEST-A'", [marisIdx.sourceId]);
       expect(Number(physical.n)).toBe(2); // Separate IDX/BBO rows and rights are never merged or destroyed.
 
-      const dedup = new MySqlDialect().sqlToQuery(search.preferMarisBboCondition()).sql;
+      const dedup = new MySqlDialect().sqlToQuery(search.preferBboOverIdxCondition()).sql;
       const [plan]: any = await admin.query(`EXPLAIN SELECT id FROM mls_listings WHERE sourceId = ? AND ${dedup} LIMIT 12`, [marisIdx.sourceId]);
       // mapPoints above confirmed the covering index exists, so the per-listing
       // BBO check reads it alone, never the candidate row.
@@ -162,6 +164,53 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
       await admin.query("UPDATE mls_feeds SET options = JSON_SET(options, '$.license.approved', true) WHERE id = ?", [marisBbo.id]);
       await admin.query("DELETE FROM mls_media WHERE mediaKey LIKE 'maris-test-%'");
       await admin.query("DELETE FROM mls_listings WHERE listingNumber LIKE 'MARIS-TEST-%'");
+    }
+  }, 60_000);
+
+  it("hides a MIBOR IDX twin behind its BBO row, with no MLS named in the rule", async () => {
+    const search = await import("./search");
+    const db = drizzle(admin);
+    const [feeds]: any = await admin.query("SELECT f.id, f.sourceId, f.feedType, s.code FROM mls_feeds f JOIN mls_sources s ON s.id = f.sourceId");
+    const miborIdx = feeds.find((feed: any) => feed.code === "mibor" && feed.feedType === "idx");
+    const miborBbo = feeds.find((feed: any) => feed.code === "mibor" && feed.feedType === "bbo");
+    const marisIdx = feeds.find((feed: any) => feed.code === "maris" && feed.feedType === "idx");
+    expect([miborIdx, miborBbo, marisIdx].every(Boolean)).toBe(true);
+    const ids = new Map<string, number>();
+    try {
+      for (const [name, feed, number] of [
+        ["A-IDX", miborIdx, "MBR-TEST-A"], ["A-BBO", miborBbo, "MBR-TEST-A"],
+        ["B-IDX", miborIdx, "MBR-TEST-B"], ["C-BBO", miborBbo, "MBR-TEST-C"],
+        // Same listing number in another MLS: never hidden by a MIBOR BBO row.
+        ["M-IDX", marisIdx, "MBR-TEST-A"],
+      ] as const) {
+        const [result]: any = await admin.query(
+          `INSERT INTO mls_listings
+           (propertyId, sourceId, feedId, listingNumber, listingKey, providerListingKey,
+            standardStatus, propertyType, listPrice, originalEntryAt, latitude, longitude, firstSeenAt, lastSyncedAt)
+           VALUES (?, ?, ?, ?, ?, ?, 'active', 'residential', 300000, '2026-10-09 12:00:00', 39.77, -86.16, UTC_TIMESTAMP(), UTC_TIMESTAMP())`,
+          [9100 + ids.size, feed.sourceId, feed.id, number, `test-mbr-${name}`, `test-mbr-${name}`]
+        );
+        ids.set(name, Number(result.insertId));
+      }
+      const miborFilters = { sourceIds: [miborIdx.sourceId], statuses: ["active"] as ["active"] };
+      const page = await search.searchListings(db as any, { filters: miborFilters, sort: "newest", page: 1, pageSize: 12, countMode: "none" });
+      expect(page.items.map(item => item.listingNumber).sort()).toEqual(["MBR-TEST-A", "MBR-TEST-B", "MBR-TEST-C"]);
+      expect(page.items.find(item => item.listingNumber === "MBR-TEST-A")?.id).toBe(ids.get("A-BBO"));
+      expect(await search.countListings(db as any, miborFilters)).toBe(3);
+      const map = await search.mapPoints(db as any, {
+        filters: miborFilters, bounds: { north: 40, south: 39.5, west: -86.5, east: -85.9 }, zoom: 12,
+      });
+      expect(map.total).toBe(3);
+      const marisFilters = { sourceIds: [marisIdx.sourceId], statuses: ["active"] as ["active"] };
+      const marisPage = await search.searchListings(db as any, { filters: marisFilters, sort: "newest", page: 1, pageSize: 12, countMode: "none" });
+      expect(marisPage.items.map(item => item.id)).toEqual([ids.get("M-IDX")]);
+      // Until the BBO license is approved, the IDX row stays visible.
+      await admin.query("UPDATE mls_feeds SET options = JSON_SET(options, '$.license.approved', false) WHERE id = ?", [miborBbo.id]);
+      const revoked = await search.searchListings(db as any, { filters: miborFilters, sort: "newest", page: 1, pageSize: 12, countMode: "none" });
+      expect(revoked.items.map(item => item.id).sort((a, b) => a - b)).toEqual([ids.get("A-IDX"), ids.get("B-IDX")].sort((a, b) => a! - b!));
+    } finally {
+      await admin.query("UPDATE mls_feeds SET options = JSON_SET(options, '$.license.approved', true) WHERE id = ?", [miborBbo.id]);
+      await admin.query("DELETE FROM mls_listings WHERE listingNumber LIKE 'MBR-TEST-%'");
     }
   }, 60_000);
 
@@ -206,6 +255,6 @@ describe.skipIf(!DATABASE_URL)("declared MLS feeds", () => {
     const [[maris]]: any = await admin.query("SELECT onboardingStatus FROM mls_sources WHERE code = 'maris'");
     expect(maris.onboardingStatus).toBe("live");
     const [[count]]: any = await admin.query("SELECT COUNT(*) AS n FROM mls_feeds");
-    expect(Number(count.n)).toBe(3);
+    expect(Number(count.n)).toBe(5);
   }, 60_000);
 });

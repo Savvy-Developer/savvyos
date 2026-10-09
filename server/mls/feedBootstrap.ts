@@ -12,8 +12,8 @@ type Connection = Awaited<ReturnType<typeof mysql.createConnection>>;
  * (disable, photo policy, license expiry) are never overwritten.
  *
  * Tokens are not here. Each credentialRef resolves to a Railway variable:
- *   MLSGRID_BBO -> MLS_CRED_MLSGRID_BBO_TOKEN (Canopy and MARIS BBO subscription)
- *   MLSGRID     -> MLS_CRED_MLSGRID_TOKEN     (MARIS IDX subscription)
+ *   MLSGRID_BBO -> MLS_CRED_MLSGRID_BBO_TOKEN (Canopy, MARIS and MIBOR BBO subscription)
+ *   MLSGRID     -> MLS_CRED_MLSGRID_TOKEN     (MARIS and MIBOR IDX subscription)
  * Until a variable is set, the worker marks that feed "Credentials not
  * configured" and skips it.
  *
@@ -22,6 +22,10 @@ type Connection = Awaited<ReturnType<typeof mysql.createConnection>>;
  * MlgCanUse flags in mls_listings.permittedUses, so the public site can later
  * show only IDX-permitted listings. A second Canopy IDX feed would duplicate
  * every listing.
+ *
+ * MARIS and MIBOR run both licenses. Search shows the BBO row and hides its
+ * IDX twin (search.ts preferBboOverIdxCondition), while each feed keeps its
+ * own rows, media and license flags.
  */
 export type DeclaredMlsFeed = {
   sourceCode: string;
@@ -67,6 +71,30 @@ export const DECLARED_MLS_FEEDS: DeclaredMlsFeed[] = [
       approved: true,
       internalUse: true,
       reference: "MARIS (NEW) back office via MLS Grid. Two active Savvy OS licenses confirmed on the BBO subscription 2026-10-02; enabled on Tyler Coon's instruction.",
+    },
+  },
+  {
+    sourceCode: "mibor",
+    name: "MIBOR IDX (MLS Grid)",
+    provider: "mls_grid",
+    feedType: "idx",
+    credentialRef: "MLSGRID",
+    license: {
+      approved: true,
+      internalUse: true,
+      reference: "MIBOR IDX via MLS Grid for Jason Royer, for use with Savvy OS. Approved by MIBOR Broker Listing Cooperative 2026-10-08; finalized and paid 2026-10-09; access confirmed 2026-10-09; added on Tyler Coon's instruction.",
+    },
+  },
+  {
+    sourceCode: "mibor",
+    name: "MIBOR BBO (MLS Grid)",
+    provider: "mls_grid",
+    feedType: "bbo",
+    credentialRef: "MLSGRID_BBO",
+    license: {
+      approved: true,
+      internalUse: true,
+      reference: "MIBOR Broker Back Office (BBO) via MLS Grid for Jason Royer, for use with Savvy OS. Approved by MIBOR Broker Listing Cooperative 2026-10-08; finalized and paid 2026-10-09; access confirmed 2026-10-09; added on Tyler Coon's instruction.",
     },
   },
 ];

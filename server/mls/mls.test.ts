@@ -15,7 +15,7 @@ import { mapAreaSchema, validPolygon } from "./mapGeometry";
 import { CANONICAL_STATUSES, normalizePropertyType, normalizeStatus } from "./normalize/enums";
 import { normalizeListing } from "./normalize/normalizeListing";
 import { propertyIdentity } from "./normalize/propertyIdentity";
-import { pinLimitForZoom, preferMarisBboCondition, scanIndexFor, searchConditions, useBoundedNewestCandidateIndex, useExactMlsNumberIndex, useNewestFeedIndex, useRecentFeedIndex, withIndexableStatuses } from "./search";
+import { pinLimitForZoom, preferBboOverIdxCondition, scanIndexFor, searchConditions, useBoundedNewestCandidateIndex, useExactMlsNumberIndex, useNewestFeedIndex, useRecentFeedIndex, withIndexableStatuses } from "./search";
 import { licenseError } from "./license";
 import { summarize } from "./status";
 import { mediaClientConfig, privateMlsStorageError } from "./privateMedia";
@@ -111,8 +111,8 @@ describe("Active-gallery queue and default search", () => {
     expect(scanIndexFor({ statuses: ["active"] }, true, missing)).toEqual({ forceIndex: ["mls_listings_status_geo_idx"] });
     expect(scanIndexFor({ statuses: ["active"], sourceIds: [4], q: "4428731" }, true, ready)).toEqual({ forceIndex: ["mls_listings_source_number_idx"] });
     const dialect = new MySqlDialect();
-    expect(dialect.sqlToQuery(preferMarisBboCondition(ready)).sql).toContain("FORCE INDEX (mls_listings_source_number_feed_idx)");
-    expect(dialect.sqlToQuery(preferMarisBboCondition(missing)).sql).toContain("FORCE INDEX (mls_listings_source_number_idx)");
+    expect(dialect.sqlToQuery(preferBboOverIdxCondition(ready)).sql).toContain("FORCE INDEX (mls_listings_source_number_feed_idx)");
+    expect(dialect.sqlToQuery(preferBboOverIdxCondition(missing)).sql).toContain("FORCE INDEX (mls_listings_source_number_idx)");
   });
   it("seeks a single MLS number before evaluating saved viewport or polygon predicates", () => {
     const sourceIds = [4], bounds = { north: 39, south: 38, west: -91, east: -90 };
@@ -857,5 +857,105 @@ describe("feed retry cadence after a failed cycle", () => {
 
   it("does not let an old untagged error message skip the backoff", () => {
     expect(syncDue(failed("Page contains 1 unpersisted records; checkpoint retained for retry."), at(5))).toBe(false);
+  });
+});
+
+describe("MLS database location", () => {
+  const load = async () => {
+    vi.resetModules();
+    return import("./db");
+  };
+  const restore = () => vi.unstubAllEnvs();
+
+  it("never falls back to the app database in production", async () => {
+    try {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("DATABASE_URL", "mysql://app.example/app");
+      vi.stubEnv("MLS_DATABASE_URL", "");
+      vi.stubEnv("MLS_ALLOW_APP_DATABASE", "");
+      const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const db = await load();
+      expect(db.mlsAppDatabaseFallbackBlocked()).toBe(true);
+      expect(db.mlsDatabaseMode()).toBe("missing");
+      expect(db.mlsDatabaseUrl()).toBeUndefined();
+      expect(await db.getMlsDb()).toBeNull();
+      expect(errors).toHaveBeenCalledTimes(1); // Logged once, not on every query.
+      errors.mockRestore();
+    } finally {
+      restore();
+    }
+  });
+
+  it("treats an MLS_DATABASE_URL equal to the app database as missing in production", async () => {
+    try {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("DATABASE_URL", "mysql://app.example/app");
+      vi.stubEnv("MLS_DATABASE_URL", "mysql://app.example/app");
+      vi.stubEnv("MLS_ALLOW_APP_DATABASE", "");
+      const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const db = await load();
+      expect(db.mlsDatabaseMode()).toBe("missing");
+      expect(db.mlsDatabaseUrl()).toBeUndefined();
+      errors.mockRestore();
+    } finally {
+      restore();
+    }
+  });
+
+  it("allows a deliberate single-database production setup and shared local development", async () => {
+    try {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("DATABASE_URL", "mysql://app.example/app");
+      vi.stubEnv("MLS_DATABASE_URL", "");
+      vi.stubEnv("MLS_ALLOW_APP_DATABASE", "on");
+      let db = await load();
+      expect(db.mlsDatabaseMode()).toBe("app");
+      expect(db.mlsDatabaseUrl()).toBe("mysql://app.example/app");
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("MLS_ALLOW_APP_DATABASE", "");
+      db = await load();
+      expect(db.mlsDatabaseMode()).toBe("app");
+      expect(db.mlsDatabaseUrl()).toBe("mysql://app.example/app");
+    } finally {
+      restore();
+    }
+  });
+
+  it("uses the separate MLS database whenever it is set", async () => {
+    try {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("DATABASE_URL", "mysql://app.example/app");
+      vi.stubEnv("MLS_DATABASE_URL", "mysql://mls.example/mls");
+      const db = await load();
+      expect(db.mlsAppDatabaseFallbackBlocked()).toBe(false);
+      expect(db.mlsDatabaseMode()).toBe("separate");
+      expect(db.mlsDatabaseUrl()).toBe("mysql://mls.example/mls");
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("per-MLS map centers", () => {
+  it("opens the map on each licensed MLS's own market", async () => {
+    const { sourceMapCenter } = await import("./sources");
+    expect(sourceMapCenter("canopy")).toEqual({ lat: 35.5951, lng: -82.5515, zoom: 10 });
+    expect(sourceMapCenter("maris")).toEqual({ lat: 38.627, lng: -90.199, zoom: 9 });
+    expect(sourceMapCenter("mibor")).toEqual({ lat: 39.7684, lng: -86.1581, zoom: 9 });
+    expect(sourceMapCenter("no-such-mls")).toBeNull();
+  });
+
+  it("requires a map center and MLS Grid identity for every source with a declared feed", async () => {
+    const { DECLARED_MLS_FEEDS } = await import("./feedBootstrap");
+    for (const feed of DECLARED_MLS_FEEDS) {
+      const seed = MLS_SOURCE_SEEDS.find(source => source.code === feed.sourceCode);
+      expect(seed, feed.name).toBeDefined();
+      expect(seed?.mapCenter, `${feed.name} needs a mapCenter in sources.ts`).toBeDefined();
+      if (feed.provider === "mls_grid") {
+        expect(seed?.originatingSystemName, feed.name).toBeTruthy();
+        expect(seed?.keyPrefix, feed.name).toBeTruthy();
+      }
+      expect(feed.license.approved && feed.license.internalUse && feed.license.reference.trim().length > 20, feed.name).toBe(true);
+    }
   });
 });
