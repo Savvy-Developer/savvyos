@@ -9,7 +9,7 @@ import { credentialStatus } from "./credentials";
 import { runFeedCycle, syncDue } from "./engine";
 import { allLanes, getLane, laneKey } from "./http";
 import { licenseError } from "./license";
-import { hasPendingMedia, resetStaleMediaClaims, runMediaBatch } from "./media";
+import { hasPendingMedia, resetStaleMediaClaims, runMediaBatch, shrinkStoredCovers } from "./media";
 import { privateMlsStorageError } from "./privateMedia";
 import { ensureMlsSchema, startSearchCoverIndexBuild } from "./schema";
 
@@ -63,6 +63,8 @@ export class MlsIngestionScheduler {
   private lastBurstAt = new Map<number, number>();
   private running = new Set<Promise<unknown>>();
   private lastActivity: Record<string, unknown> = {};
+  /** One-time scale-down of covers stored before download-time scaling. In memory: a restart rescans quickly. */
+  private coverShrink = { running: false, done: false, cursor: 0, scanned: 0, shrunk: 0, savedBytes: 0, failed: 0 };
   private startedAt = new Date();
   private handedOff = false;
   private handoffLogged = false;
@@ -218,6 +220,33 @@ export class MlsIngestionScheduler {
         });
       }
     }
+    if (!this.coverShrink.running && !this.coverShrink.done) {
+      this.coverShrink.running = true;
+      const licensed = feeds.filter(ctx => !licenseError(ctx.feed)).map(ctx => ctx.feed.id);
+      void this.track(this.shrinkCovers(licensed)).finally(() => { this.coverShrink.running = false; });
+    }
+  }
+
+  /** Up to 30 s of stored-cover scaling per tick; no provider calls, two images at a time. */
+  private async shrinkCovers(feedIds: number[]) {
+    const state = this.coverShrink;
+    const until = Date.now() + 30_000;
+    try {
+      while (Date.now() < until && !this.controller.signal.aborted) {
+        const step = await shrinkStoredCovers(feedIds, state.cursor, { signal: this.controller.signal });
+        state.cursor = step.cursor;
+        state.scanned += step.scanned;
+        state.shrunk += step.shrunk;
+        state.savedBytes += step.savedBytes;
+        state.failed += step.failed;
+        if (step.done) state.done = true;
+        if (step.done || !step.scanned) break;
+      }
+    } catch (error) {
+      console.error("[mls] cover shrink pass failed", error);
+    }
+    const { running: _running, savedBytes, ...rest } = state;
+    this.lastActivity.coverShrink = { at: new Date().toISOString(), ...rest, savedMB: Math.round(savedBytes / 1e6) };
   }
 
   /**

@@ -193,6 +193,11 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
       async remove(key) {
         stored.delete(key);
       },
+      async get(key) {
+        const data = stored.get(key);
+        if (!data) throw new Error(`missing ${key}`);
+        return data;
+      },
     });
 
     const [canopy] = await q("SELECT id FROM mls_sources WHERE code = 'canopy'");
@@ -1031,4 +1036,87 @@ describe.skipIf(!DATABASE_URL)("MLS ingestion end to end", () => {
     await modules.engine.releaseLease(feedId, "new-worker");
     await admin.query("DELETE FROM mls_worker_heartbeats WHERE workerId IN ('live-worker', 'dead-worker')");
   });
+
+  it("scales covers at download and swaps older oversized covers for a smaller copy, never a changed row", async () => {
+    const sharp = (await import("sharp")).default;
+    const { randomBytes } = await import("crypto");
+    const { COVER_MAX_EDGE } = await import("./coverImage");
+    const big = await sharp(randomBytes(2400 * 1600 * 3), { raw: { width: 2400, height: 1600, channels: 3 } }).jpeg({ quality: 92 }).toBuffer();
+    const small = await sharp({ create: { width: 640, height: 427, channels: 3, background: "#88aacc" } }).jpeg().toBuffer();
+    const ctx = (await modules.engine.loadFeedContext(feedId))!;
+    const lane = modules.http.getLane("mls_grid", ctx.feed.credentialRef, modules.adapters.adapterFor("mls_grid").limits(ctx.feed));
+    const [home] = await q<any>("SELECT id FROM mls_listings WHERE feedId = ? AND removedFromFeedAt IS NULL ORDER BY id LIMIT 1", [feedId]);
+    expect(home).toBeDefined();
+    const insert = async (mediaKey: string, values: Record_) => {
+      const row = { feedId, listingId: null, resourceKey: "CARSHRINK", mediaKey, isPrimary: 1, priority: 1, status: "pending", ...values };
+      const columns = Object.keys(row);
+      await q(`INSERT INTO mls_media (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`, Object.values(row));
+      const [inserted] = await q<any>("SELECT id FROM mls_media WHERE feedId = ? AND mediaKey = ?", [feedId, mediaKey]);
+      return Number(inserted.id);
+    };
+
+    // 1. A new cover is scaled before it is stored.
+    const fresh = await insert("SHRINK-fresh", { sourceUrl: `https://${CDN_TEST_HOST}/media/SHRINK-fresh.jpg` });
+    const fetchImpl = (async () => new Response(big, { status: 200, headers: { "content-type": "image/jpeg" } })) as typeof fetch;
+    await modules.media.runMediaBatch(lane, [ctx], "shrink-e2e", { batchSize: 50, refreshLimit: 0, fetchImpl });
+    const [freshRow] = await q<any>("SELECT status, s3Key, bytes, mimeType FROM mls_media WHERE id = ?", [fresh]);
+    expect(freshRow.status).toBe("stored");
+    expect(Number(freshRow.bytes)).toBeLessThan(big.length / 3);
+    const freshMeta = await sharp(stored.get(freshRow.s3Key)!).metadata();
+    expect([freshMeta.width, freshMeta.height, freshRow.mimeType]).toEqual([COVER_MAX_EDGE, 683, "image/jpeg"]);
+
+    // 2. Covers stored earlier at full size are swapped for a smaller copy.
+    const oldKey = "mls/canopy/e2e/CARSHRINK/SHRINK-old-x.jpg";
+    const oldUrl = `https://cdn.test/${oldKey}`;
+    stored.set(oldKey, big);
+    const old = await insert("SHRINK-old", { listingId: home.id, status: "stored", s3Key: oldKey, url: oldUrl, bytes: big.length, mimeType: "image/jpeg" });
+    await q("UPDATE mls_listings SET primaryPhotoUrl = ? WHERE id = ?", [oldUrl, home.id]);
+    // Small covers stay untouched.
+    const smallKey = "mls/canopy/e2e/CARSHRINK/SHRINK-small-x.jpg";
+    stored.set(smallKey, small);
+    const smallId = await insert("SHRINK-small", { status: "stored", s3Key: smallKey, url: `https://cdn.test/${smallKey}`, bytes: small.length, mimeType: "image/jpeg" });
+    // A row a re-download claims while its copy is being made keeps its object.
+    const raceKey = "mls/canopy/e2e/CARSHRINK/SHRINK-race-x.jpg";
+    stored.set(raceKey, big);
+    const race = await insert("SHRINK-race", { status: "stored", s3Key: raceKey, url: `https://cdn.test/${raceKey}`, bytes: big.length, mimeType: "image/jpeg" });
+    const memory = { put: async (key: string, data: Buffer) => { stored.set(key, data); return { url: `https://cdn.test/${key}` }; }, remove: async (key: string) => { stored.delete(key); } };
+    modules.media.setMediaStorage({
+      ...memory,
+      async get(key: string) {
+        if (key === raceKey) await q("UPDATE mls_media SET status = 'downloading', claimedBy = 'other' WHERE id = ?", [race]);
+        return stored.get(key)!;
+      },
+    });
+    try {
+      let cursor = old - 1;
+      let shrunk = 0;
+      for (let step = 0; step < 10; step += 1) {
+        const progress = await modules.media.shrinkStoredCovers([feedId], cursor, { limit: 2 });
+        shrunk += progress.shrunk;
+        cursor = progress.cursor;
+        if (progress.done) break;
+      }
+      expect(shrunk).toBe(1);
+    } finally {
+      modules.media.setMediaStorage({ ...memory, async get(key: string) { const data = stored.get(key); if (!data) throw new Error(`missing ${key}`); return data; } });
+    }
+    const [oldRow] = await q<any>("SELECT status, s3Key, url, bytes, mimeType FROM mls_media WHERE id = ?", [old]);
+    expect(oldRow.s3Key).toBe("mls/canopy/e2e/CARSHRINK/SHRINK-old-x-c1024.jpg");
+    expect(oldRow.url).toBe(`https://cdn.test/${oldRow.s3Key}`);
+    expect(Number(oldRow.bytes)).toBe(stored.get(oldRow.s3Key)!.length);
+    expect(Number(oldRow.bytes)).toBeLessThan(big.length / 3);
+    expect(stored.has(oldKey)).toBe(false);
+    const [listingRow] = await q<any>("SELECT primaryPhotoUrl FROM mls_listings WHERE id = ?", [home.id]);
+    expect(listingRow.primaryPhotoUrl).toBe(oldRow.url);
+    const [smallRow] = await q<any>("SELECT s3Key, bytes FROM mls_media WHERE id = ?", [smallId]);
+    expect([smallRow.s3Key, Number(smallRow.bytes)]).toEqual([smallKey, small.length]);
+    const [raceRow] = await q<any>("SELECT status, s3Key FROM mls_media WHERE id = ?", [race]);
+    expect([raceRow.status, raceRow.s3Key]).toEqual(["downloading", raceKey]);
+    expect(stored.has(raceKey)).toBe(true);
+    expect(stored.has("mls/canopy/e2e/CARSHRINK/SHRINK-race-x-c1024.jpg")).toBe(false);
+    // The pass ends once it has read past the last cover.
+    const last = await q<any>("SELECT MAX(id) AS id FROM mls_media");
+    expect((await modules.media.shrinkStoredCovers([feedId], Number(last[0].id))).done).toBe(true);
+    await q("DELETE FROM mls_media WHERE resourceKey = 'CARSHRINK'");
+  }, 60_000);
 });
