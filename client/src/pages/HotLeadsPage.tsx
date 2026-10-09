@@ -274,8 +274,8 @@ export default function HotLeadsPage() {
         (permissionsQuery.data as Record<string, boolean> | undefined)
           ?.canViewResendInbox
       ));
-  const isas = usersList.filter((u: any) => u.role === "isa");
-  const agents = usersList.filter((u: any) => u.role === "agent");
+  const isas = usersList.filter((u: any) => u.roles?.includes("isa") ?? u.role === "isa");
+  const agents = usersList.filter((u: any) => u.roles?.includes("agent") ?? u.role === "agent");
 
   // Build query params
   const baseParams = {

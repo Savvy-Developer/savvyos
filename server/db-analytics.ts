@@ -28,6 +28,7 @@ import {
   userProfiles,
   isaOutcomeAttributions,
 } from "../drizzle/schema";
+import { hasStoredRole } from "./userRoles";
 
 let _pool: mysql.Pool | null = null;
 let _db: MySql2Database<Record<string, unknown>> | null = null;
@@ -229,7 +230,7 @@ export async function getBusinessOverviewKpis(opts?: {
   const [agentRow] = await db
     .select({ total: sql<number>`COUNT(*)` })
     .from(users)
-    .where(and(eq(users.isActive, true), eq(users.role, "agent")));
+    .where(and(eq(users.isActive, true), hasStoredRole(users.id, "agent")));
 
   const [contactRow] = await db
     .select({ total: sql<number>`COUNT(*)` })
@@ -239,7 +240,7 @@ export async function getBusinessOverviewKpis(opts?: {
   const [isaRow] = await db
     .select({ total: sql<number>`COUNT(*)` })
     .from(users)
-    .where(and(eq(users.isActive, true), eq(users.role, "isa")));
+    .where(and(eq(users.isActive, true), hasStoredRole(users.id, "isa")));
 
   return {
     totalGci: Number(gciRow.totalGci),
@@ -377,7 +378,7 @@ export async function getAgentLeaderboard(opts: {
     .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
     .leftJoin(marketProfiles, eq(users.marketProfileId, marketProfiles.id))
     .where(and(
-      eq(users.role, "agent"),
+      hasStoredRole(users.id, "agent"),
       eq(users.isActive, true),
       leaderboardAgentWhere,
     ))
@@ -396,7 +397,7 @@ export async function getAgentLeaderboard(opts: {
     })
     .from(transactions)
     .innerJoin(users, eq(users.id, transactions.agentId))
-    .where(and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true)))
+    .where(and(transactionWhere, hasStoredRole(users.id, "agent"), eq(users.isActive, true)))
     .groupBy(transactions.agentId);
 
   const productionByAgent = new Map(production.map((row) => [row.agentId, row]));
@@ -434,7 +435,7 @@ export async function getAgentLeaderboard(opts: {
     .from(transactions)
     .innerJoin(users, eq(users.id, transactions.agentId))
     .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
-    .where(and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true), leaderboardAgentWhere));
+    .where(and(transactionWhere, hasStoredRole(users.id, "agent"), eq(users.isActive, true), leaderboardAgentWhere));
 
   const normalizedMilestones = milestoneRows
     .filter((row) => !isClosed || Boolean(row.performanceDate))
@@ -489,7 +490,7 @@ export async function getAgentLeaderboard(opts: {
         eq(transactions.status, "closed"),
         gte(transactions.closingDate, utcDate(powerMonthYear, 0, 1)),
         lte(transactions.closingDate, utcDate(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), true)),
-        eq(users.role, "agent"),
+        hasStoredRole(users.id, "agent"),
         eq(users.isActive, true),
         leaderboardAgentWhere,
       ))
@@ -1266,9 +1267,9 @@ export async function getDatabaseHealthReport() {
   const [agentStats] = await db
     .select({
       total: sql<number>`COUNT(*)`,
-      agents: sql<number>`SUM(CASE WHEN ${users.role} = 'agent' THEN 1 ELSE 0 END)`,
-      isas: sql<number>`SUM(CASE WHEN ${users.role} = 'isa' THEN 1 ELSE 0 END)`,
-      admins: sql<number>`SUM(CASE WHEN ${users.role} = 'admin' THEN 1 ELSE 0 END)`,
+      agents: sql<number>`SUM(CASE WHEN ${hasStoredRole(users.id, "agent")} THEN 1 ELSE 0 END)`,
+      isas: sql<number>`SUM(CASE WHEN ${hasStoredRole(users.id, "isa")} THEN 1 ELSE 0 END)`,
+      admins: sql<number>`SUM(CASE WHEN ${hasStoredRole(users.id, "admin")} THEN 1 ELSE 0 END)`,
     })
     .from(users);
 
@@ -1844,7 +1845,7 @@ export async function getIsaTeamBenchmark(opts: {
     .from(users)
     .leftJoin(isaProfiles, eq(isaProfiles.userId, users.id))
     .where(and(
-      eq(users.role, "isa"),
+      hasStoredRole(users.id, "isa"),
       eq(users.isActive, true),
       or(isNull(isaProfiles.isaStatus), eq(isaProfiles.isaStatus, "active")),
     ));

@@ -29,6 +29,7 @@ import {
   markets,
   marketProfiles,
   marketAgentAssignments,
+  userRoles,
   feedback,
   taskNotes,
   proformas,
@@ -39,6 +40,11 @@ import { normalizePhoneFields } from "@shared/phone";
 import { buildNormalizedKey, findLooseDuplicate, parseLooseAddress, possibleDuplicateMessage } from "./addressNormalization";
 import { buildPayoutSearchCondition } from "./payoutSearch";
 import { CONTACT_LEAD_SOURCE_UPDATE_SESSION_VARIABLE } from "./contactLeadSourceTrigger";
+import {
+  hasStoredRole,
+  type UserRole,
+  validateRoleSelection,
+} from "./userRoles";
 
 let _pool: mysql.Pool | null = null;
 let _db: MySql2Database<Record<string, unknown>> | null = null;
@@ -83,6 +89,17 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   const db = await getDb();
   if (!db) return;
 
+  const [existing] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.openId, user.openId))
+    .limit(1);
+  const roleToPersist =
+    user.role ?? (user.openId === ENV.ownerOpenId ? "admin" : undefined);
+  if (!existing && !roleToPersist) {
+    throw new Error("New users must be provisioned with an explicit role selection");
+  }
+
   const values: InsertUser = { openId: user.openId };
   const updateSet: Record<string, unknown> = {};
 
@@ -99,18 +116,29 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     values.lastSignedIn = user.lastSignedIn;
     updateSet.lastSignedIn = user.lastSignedIn;
   }
-  if (user.role !== undefined) {
-    values.role = user.role;
-    updateSet.role = user.role;
-  } else if (user.openId === ENV.ownerOpenId) {
-    values.role = "admin";
-    updateSet.role = "admin";
+  if (roleToPersist !== undefined) {
+    values.role = roleToPersist;
+    updateSet.role = roleToPersist;
   }
 
   if (!values.lastSignedIn) values.lastSignedIn = new Date();
   if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
 
   await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
+
+  if (!existing && roleToPersist) {
+    const [created] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.openId, user.openId))
+      .limit(1);
+    if (created) {
+      await db
+        .insert(userRoles)
+        .values({ userId: created.id, role: roleToPersist })
+        .onDuplicateKeyUpdate({ set: { userId: created.id } });
+    }
+  }
 }
 
 export async function getUserByOpenId(openId: string) {
@@ -154,12 +182,118 @@ export async function getAllUsers() {
   return db.select().from(users).orderBy(users.name);
 }
 
+type UserWithDefaultRole = Pick<typeof users.$inferSelect, "id" | "role">;
+
+/**
+ * Returns the explicitly assigned roles, with the legacy primary role retained
+ * as a safe fallback while a database is being migrated.
+ */
+export async function getUserRoles(
+  userId: number,
+  fallbackRole: UserRole
+): Promise<UserRole[]> {
+  const db = await getDb();
+  if (!db) return [fallbackRole];
+  try {
+    const rows = await db
+      .select({ role: userRoles.role })
+      .from(userRoles)
+      .where(eq(userRoles.userId, userId));
+    return Array.from(
+      new Set([fallbackRole, ...rows.map(row => row.role as UserRole)])
+    );
+  } catch (error) {
+    console.warn("[Roles] Falling back to the primary role while reading memberships", error);
+    return [fallbackRole];
+  }
+}
+
+/** Resolves role memberships for user-facing lists without an N+1 query. */
+export async function getUserRolesForUsers(
+  people: readonly UserWithDefaultRole[]
+): Promise<Map<number, UserRole[]>> {
+  const result = new Map<number, UserRole[]>();
+  if (people.length === 0) return result;
+  const db = await getDb();
+  const ids = people.map(person => person.id);
+
+  try {
+    if (db) {
+      const rows = await db
+        .select({ userId: userRoles.userId, role: userRoles.role })
+        .from(userRoles)
+        .where(inArray(userRoles.userId, ids));
+      for (const row of rows) {
+        const assigned = result.get(row.userId) ?? [];
+        assigned.push(row.role as UserRole);
+        result.set(row.userId, assigned);
+      }
+    }
+  } catch (error) {
+    console.warn("[Roles] Falling back to primary roles while listing memberships", error);
+  }
+
+  for (const person of people) {
+    result.set(
+      person.id,
+      Array.from(
+        new Set([person.role as UserRole, ...(result.get(person.id) ?? [])])
+      )
+    );
+  }
+  return result;
+}
+
+export async function userHasRole(
+  userId: number,
+  fallbackRole: UserRole,
+  role: UserRole
+): Promise<boolean> {
+  return (await getUserRoles(userId, fallbackRole)).includes(role);
+}
+
+/** Replaces memberships only after the caller has explicitly selected each role. */
+export async function replaceUserRoles(
+  userId: number,
+  primaryRole: UserRole,
+  roles: readonly UserRole[],
+  assignedById?: number | null
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const selectedRoles = validateRoleSelection(primaryRole, roles);
+  await db.transaction(async tx => {
+    await tx.update(users).set({ role: primaryRole }).where(eq(users.id, userId));
+    await tx.delete(userRoles).where(eq(userRoles.userId, userId));
+    await tx.insert(userRoles).values(
+      selectedRoles.map(role => ({
+        userId,
+        role,
+        assignedById: assignedById ?? null,
+      }))
+    );
+  });
+}
+
 export async function getUsersByRole(role: "admin" | "agent" | "isa" | "agent_support") {
   const db = await getDb();
   if (!db) return [];
   // Role pickers serve active operating users only. Retired Pulse fixtures and
   // offboarded people must never leak into agent-facing selectors.
-  return db.select().from(users).where(and(eq(users.role, role), eq(users.isActive, true))).orderBy(users.name);
+  try {
+    return await db
+      .select()
+      .from(users)
+      .where(and(hasStoredRole(users.id, role), eq(users.isActive, true)))
+      .orderBy(users.name);
+  } catch (error) {
+    console.warn("[Roles] Falling back to the primary role while listing by role", error);
+    return db
+      .select()
+      .from(users)
+      .where(and(eq(users.role, role), eq(users.isActive, true)))
+      .orderBy(users.name);
+  }
 }
 
 export async function getUserById(id: number) {
@@ -170,9 +304,7 @@ export async function getUserById(id: number) {
 }
 
 export async function updateUserRole(userId: number, role: "admin" | "agent" | "isa" | "agent_support") {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(users).set({ role }).where(eq(users.id, userId));
+  await replaceUserRoles(userId, role, [role]);
 }
 
 export async function setUserPassword(userId: number, passwordHash: string) {
@@ -2192,26 +2324,48 @@ export async function getLeadSourceBreakdown() {
 }
 
 // ─── User Management ──────────────────────────────────────────────────────────
-export async function createUser(data: { name: string; email: string; role: "admin" | "agent" | "isa" | "agent_support"; employmentType: "w2" | "1099" | "contract_labor"; phone?: string | null; title?: string | null; reportsToId?: number | null; marketProfileId?: number | null }) {
+export async function createUser(data: {
+  name: string;
+  email: string;
+  role: UserRole;
+  roles?: readonly UserRole[];
+  assignedById?: number | null;
+  employmentType: "w2" | "1099" | "contract_labor";
+  phone?: string | null;
+  title?: string | null;
+  reportsToId?: number | null;
+  marketProfileId?: number | null;
+}) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   // Generate a placeholder openId so the user can be created before they log in
   const openId = `manual_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const normalizedData = normalizePhoneFields(data, ["phone"]);
-  const [result] = await db.insert(users).values({
-    openId,
-    name: data.name,
-    email: data.email,
-    role: data.role,
-    employmentType: data.employmentType,
-    phone: normalizedData.phone ?? null,
-    title: normalizedData.title ?? null,
-    reportsToId: normalizedData.reportsToId ?? null,
-    marketProfileId: normalizedData.marketProfileId ?? null,
-    loginMethod: "manual",
-    lastSignedIn: new Date(),
+  const selectedRoles = validateRoleSelection(data.role, data.roles ?? [data.role]);
+  return db.transaction(async tx => {
+    const [result] = await tx.insert(users).values({
+      openId,
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      employmentType: data.employmentType,
+      phone: normalizedData.phone ?? null,
+      title: normalizedData.title ?? null,
+      reportsToId: normalizedData.reportsToId ?? null,
+      marketProfileId: normalizedData.marketProfileId ?? null,
+      loginMethod: "manual",
+      lastSignedIn: new Date(),
+    });
+    const id = (result as any).insertId as number;
+    await tx.insert(userRoles).values(
+      selectedRoles.map(role => ({
+        userId: id,
+        role,
+        assignedById: data.assignedById ?? null,
+      }))
+    );
+    return id;
   });
-  return (result as any).insertId as number;
 }
 
 export async function updateUser(id: number, data: { name?: string; email?: string; role?: "admin" | "agent" | "isa" | "agent_support"; employmentType?: "w2" | "1099" | "contract_labor" | null; phone?: string | null; title?: string | null; reportsToId?: number | null; marketProfileId?: number | null; isActive?: boolean; allowHiddenNav?: boolean; commissionSplit?: number | null; callBookingLink?: string | null }) {
@@ -3716,7 +3870,7 @@ export async function getIsmActivityLog(opts: {
   const isaIds = Array.from(
     new Set((opts.isaIds ?? []).filter(id => Number.isInteger(id) && id > 0))
   );
-  const conditions: any[] = [eq(users.role, "isa")];
+  const conditions: any[] = [hasStoredRole(users.id, "isa")];
   if (isaIds.length) conditions.push(inArray(activityLog.userId, isaIds));
   if (opts.entityTypes?.length) {
     conditions.push(inArray(activityLog.entityType as any, opts.entityTypes));
@@ -3761,7 +3915,7 @@ export async function getIsmActivityLog(opts: {
         isActive: users.isActive,
       })
       .from(users)
-      .where(eq(users.role, "isa"))
+      .where(hasStoredRole(users.id, "isa"))
       .orderBy(asc(users.name)),
   ]);
 

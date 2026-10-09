@@ -222,7 +222,7 @@ export default function ProformaDefaultsPage() {
                   <option value="self">My Defaults (Admin)</option>
                   <optgroup label="Agents">
                     {(allUsers as any[])
-                      .filter((u: any) => u.role === "agent" && u.isActive !== false)
+                      .filter((u: any) => (u.roles?.includes("agent") ?? u.role === "agent") && u.isActive !== false)
                       .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
                       .map((u: any) => (
                         <option key={u.id} value={u.id}>{u.name || u.email} ({u.market || "No market"})</option>
@@ -231,7 +231,7 @@ export default function ProformaDefaultsPage() {
                   </optgroup>
                   <optgroup label="ISAs">
                     {(allUsers as any[])
-                      .filter((u: any) => u.role === "isa" && u.isActive !== false)
+                      .filter((u: any) => (u.roles?.includes("isa") ?? u.role === "isa") && u.isActive !== false)
                       .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
                       .map((u: any) => (
                         <option key={u.id} value={u.id}>{u.name || u.email}</option>
@@ -240,7 +240,7 @@ export default function ProformaDefaultsPage() {
                   </optgroup>
                   <optgroup label="Other Admins">
                     {(allUsers as any[])
-                      .filter((u: any) => u.role === "admin" && u.id !== (user as any)?.id && u.isActive !== false)
+                      .filter((u: any) => (u.roles?.includes("admin") ?? u.role === "admin") && u.id !== (user as any)?.id && u.isActive !== false)
                       .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
                       .map((u: any) => (
                         <option key={u.id} value={u.id}>{u.name || u.email}</option>

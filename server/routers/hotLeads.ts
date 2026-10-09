@@ -21,6 +21,7 @@ import { invokeLLM } from "../_core/llm";
 import { ENV } from "../_core/env";
 import { renderSavvyEmail } from "../_core/savvyEmailTemplate";
 import { canAdminUsePermission } from "./permissions";
+import { hasStoredRole } from "../userRoles";
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────
 
@@ -1853,7 +1854,7 @@ export const hotLeadsRouter = router({
         .leftJoin(contacts, eq(activityLog.relatedContactId, contacts.id))
         .where(
           and(
-            eq(users.role, "isa"),
+            hasStoredRole(users.id, "isa"),
             inArray(activityLog.action, [
               "dead_connections_list_removal",
               "dead_connections_reconnected",

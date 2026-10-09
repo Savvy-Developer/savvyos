@@ -30,6 +30,12 @@ import {
 } from "@/components/ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import {
@@ -56,6 +62,7 @@ import { useLocation } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
 import RichEmailEditor from "@/components/RichEmailEditor";
 import UserActivityTab from "@/components/UserActivityTab";
+import { USER_ROLES, USER_ROLE_LABELS, type UserRole } from "@shared/userRoles";
 
 type UserRow = {
   id: number;
@@ -67,7 +74,8 @@ type UserRow = {
   title: string | null;
   reportsToId: number | null;
   marketProfileId: number | null;
-  role: "admin" | "agent" | "isa" | "agent_support" | "user";
+  role: UserRole | "user";
+  roles?: UserRole[];
   createdAt: Date;
   lastSignedIn: Date;
   loginMethod: string | null;
@@ -95,7 +103,8 @@ const ROLE_COLORS: Record<string, string> = {
 type FormState = {
   name: string;
   email: string;
-  role: "admin" | "agent" | "isa" | "agent_support";
+  role: UserRole | "";
+  roles: UserRole[];
   employmentType: "" | "w2" | "1099" | "contract_labor";
   phone: string;
   title: string;
@@ -110,7 +119,8 @@ type FormState = {
 const EMPTY_FORM: FormState = {
   name: "",
   email: "",
-  role: "agent" as "admin" | "agent" | "isa" | "agent_support",
+  role: "",
+  roles: [],
   employmentType: "",
   phone: "",
   title: "",
@@ -134,6 +144,8 @@ export default function UsersPage() {
   // Only Tyler/Elana/Dyl can create or promote admin users
   const { data: canManagePerms } =
     trpc.permissions.canManagePermissions.useQuery();
+  const { data: roleManagerData } = trpc.users.canManageRoles.useQuery();
+  const canManageRoles = roleManagerData?.canManageRoles === true;
   const isAdmin = (me as any)?.role === "admin";
 
   // Aircall caller assignments are administered here so the workflow is visible
@@ -299,12 +311,16 @@ export default function UsersPage() {
   }
 
   function openEdit(u: UserRow) {
+    const roles = (u.roles?.length ? u.roles : [u.role]).filter(
+      (role): role is UserRole => USER_ROLES.includes(role as UserRole)
+    );
     setForm({
       name: u.name ?? "",
       email: u.email ?? "",
       role: (["admin", "agent", "isa", "agent_support"].includes(u.role)
         ? u.role
-        : "agent") as "admin" | "agent" | "isa" | "agent_support",
+        : "") as UserRole | "",
+      roles,
       employmentType: u.employmentType ?? "",
       phone: u.phone ?? "",
       title: u.title ?? "",
@@ -352,11 +368,13 @@ export default function UsersPage() {
 
   const isTyler = (me as any)?.email === "tyler@savvy.realty";
 
-  function buildMutationPayload() {
-    return {
+  function buildMutationPayload(isEdit = false) {
+    const editingMultiRoleUser =
+      isEdit && (editTarget?.roles?.length ?? 1) > 1;
+    const includeRole = canManageRoles || !editingMultiRoleUser;
+    const payload = {
       name: form.name,
       email: form.email,
-      role: form.role,
       employmentType: form.employmentType || null,
       phone: form.phone || null,
       title: form.title || null,
@@ -368,6 +386,11 @@ export default function UsersPage() {
         ? Number(form.commissionSplit)
         : null,
       callBookingLink: form.callBookingLink || null,
+    };
+    return {
+      ...payload,
+      ...(includeRole && form.role ? { role: form.role } : {}),
+      ...(canManageRoles ? { roles: form.roles } : {}),
     };
   }
 
@@ -415,8 +438,15 @@ export default function UsersPage() {
   >("all");
   const [filterSearch, setFilterSearch] = useState("");
 
+  const rolesForUser = (u: UserRow): UserRole[] =>
+    u.roles?.length
+      ? u.roles
+      : USER_ROLES.includes(u.role as UserRole)
+        ? [u.role as UserRole]
+        : [];
+
   const userList = (users as (UserRow & { isActive?: boolean })[]).filter(u => {
-    if (filterRole !== "all" && u.role !== filterRole) return false;
+    if (filterRole !== "all" && !rolesForUser(u).includes(filterRole)) return false;
     if (filterActive === "active" && (u as any).isActive === false)
       return false;
     if (filterActive === "inactive" && (u as any).isActive !== false)
@@ -445,6 +475,40 @@ export default function UsersPage() {
     return userList.find(u => u.id === id)?.name ?? null;
   }
 
+  function toggleSelectedRole(role: UserRole, checked: boolean) {
+    setForm(current => {
+      const roles = checked
+        ? Array.from(new Set([...current.roles, role]))
+        : current.roles.filter(selectedRole => selectedRole !== role);
+      // Removing the default deliberately clears it; another role is never
+      // promoted automatically and must be selected explicitly.
+      return {
+        ...current,
+        roles,
+        role: !checked && current.role === role ? "" : current.role,
+      };
+    });
+  }
+
+  function validateRoleSelectionForSave(isEdit = false): boolean {
+    const editingMultiRoleUser =
+      isEdit && (editTarget?.roles?.length ?? 1) > 1;
+    if (!canManageRoles && editingMultiRoleUser) return true;
+    if (!form.role) {
+      toast.error("Select a default workspace role.");
+      return false;
+    }
+    if (canManageRoles && form.roles.length === 0) {
+      toast.error("Select at least one role.");
+      return false;
+    }
+    if (canManageRoles && !form.roles.includes(form.role)) {
+      toast.error("The default workspace must be one of the selected roles.");
+      return false;
+    }
+    return true;
+  }
+
   // ── Shared form fields ──
   function renderFormFields(isEdit = false) {
     const otherUsers = isEdit
@@ -462,7 +526,7 @@ export default function UsersPage() {
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
             />
           </div>
-          {form.role === "admin" && (
+          {(form.role === "admin" || form.roles.includes("admin")) && (
             <div className="space-y-1.5">
               <Label>Title / Position *</Label>
               <Input
@@ -519,21 +583,95 @@ export default function UsersPage() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label>Role *</Label>
-            <Select
-              value={form.role}
-              onValueChange={v => setForm(f => ({ ...f, role: v as any }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="agent">Agent</SelectItem>
-                <SelectItem value="isa">ISA (Inside Sales Agent)</SelectItem>
-                {canManagePerms && <SelectItem value="admin">Admin</SelectItem>}
-                <SelectItem value="agent_support">Agent Support</SelectItem>
-              </SelectContent>
-            </Select>
+            {canManageRoles ? (
+              <>
+                <Label>Roles *</Label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-between font-normal"
+                    >
+                      {form.roles.length
+                        ? form.roles.map(role => USER_ROLE_LABELS[role]).join(", ")
+                        : "Select roles"}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-64">
+                    {USER_ROLES.map(role => (
+                      <DropdownMenuCheckboxItem
+                        key={role}
+                        checked={form.roles.includes(role)}
+                        onCheckedChange={checked => toggleSelectedRole(role, checked === true)}
+                        className="cursor-pointer"
+                      >
+                        {USER_ROLE_LABELS[role]}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <p className="text-xs text-muted-foreground">
+                  Roles are added only when checked; nothing is selected automatically.
+                </p>
+                <Label className="pt-1 block">Default workspace *</Label>
+                <Select
+                  value={form.role || "__select_default__"}
+                  onValueChange={value =>
+                    setForm(current => ({
+                      ...current,
+                      role: value === "__select_default__" ? "" : (value as UserRole),
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select default workspace" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__select_default__">Select default workspace</SelectItem>
+                    {form.roles.map(role => (
+                      <SelectItem key={role} value={role}>
+                        {USER_ROLE_LABELS[role]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            ) : isEdit && (editTarget?.roles?.length ?? 1) > 1 ? (
+              <>
+                <Label>Roles</Label>
+                <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                  {(editTarget?.roles ?? []).map(role => USER_ROLE_LABELS[role]).join(", ")}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Only Tyler and Elana can change a multi-role assignment.
+                </p>
+              </>
+            ) : (
+              <>
+                <Label>Role *</Label>
+                <Select
+                  value={form.role || "__select_role__"}
+                  onValueChange={value =>
+                    setForm(f => ({
+                      ...f,
+                      role: value === "__select_role__" ? "" : (value as UserRole),
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__select_role__">Select role</SelectItem>
+                    <SelectItem value="agent">Agent</SelectItem>
+                    <SelectItem value="isa">ISA (Inside Sales Agent)</SelectItem>
+                    {canManagePerms && <SelectItem value="admin">Admin</SelectItem>}
+                    <SelectItem value="agent_support">Agent Support</SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Employment Type {!isEdit && "*"}</Label>
@@ -568,7 +706,7 @@ export default function UsersPage() {
             </p>
           </div>
         </div>
-        {form.role === "agent" && (
+        {(form.role === "agent" || form.roles.includes("agent")) && (
           <div className="space-y-1.5">
             <Label>Call Booking Calendar Link</Label>
             <Input
@@ -583,7 +721,7 @@ export default function UsersPage() {
             </p>
           </div>
         )}
-        {form.role === "agent" && (
+        {(form.role === "agent" || form.roles.includes("agent")) && (
           <div className="space-y-1.5">
             <Label>Commission Split (Agent %)</Label>
             <div className="flex items-center gap-2">
@@ -630,7 +768,7 @@ export default function UsersPage() {
             </p>
           </div>
         )}
-        {form.role === "agent" && (
+        {(form.role === "agent" || form.roles.includes("agent")) && (
           <div className="space-y-1.5">
             <Label>Market</Label>
             <SearchableSelect
@@ -1002,7 +1140,7 @@ export default function UsersPage() {
           </div>
         )}
 
-        {!isEdit && form.role === "agent" && (
+        {!isEdit && (form.role === "agent" || form.roles.includes("agent")) && (
           <div className="space-y-3 border-t pt-3">
             <div className="flex items-center gap-2">
               <Checkbox
@@ -1116,7 +1254,7 @@ export default function UsersPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {(users as UserRow[])
-                          .filter(member => member.role === "isa")
+                          .filter(member => rolesForUser(member).includes("isa"))
                           .map(isa => (
                             <SelectItem key={isa.id} value={String(isa.id)}>
                               {isa.name ?? isa.email ?? `ISA #${isa.id}`}
@@ -1475,11 +1613,16 @@ export default function UsersPage() {
                           {u.phone ?? "—"}
                         </TableCell>
                         <TableCell>
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[u.role] ?? ROLE_COLORS.user}`}
-                          >
-                            {ROLE_LABELS[u.role] ?? u.role}
-                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {rolesForUser(u).map(role => (
+                              <span
+                                key={role}
+                                className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[role] ?? ROLE_COLORS.user}`}
+                              >
+                                {ROLE_LABELS[role] ?? role}
+                              </span>
+                            ))}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <span
@@ -1525,7 +1668,7 @@ export default function UsersPage() {
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            {u.role === "agent_support" && (
+                            {rolesForUser(u).includes("agent_support") && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1685,6 +1828,7 @@ export default function UsersPage() {
                       );
                       return;
                     }
+                    if (!validateRoleSelectionForSave()) return;
                     createMutation.mutate({
                       ...buildMutationPayload(),
                       employmentType: form.employmentType as
@@ -1697,6 +1841,8 @@ export default function UsersPage() {
                     !form.name ||
                     !form.email ||
                     !form.employmentType ||
+                    !form.role ||
+                    (canManageRoles && form.roles.length === 0) ||
                     createMutation.isPending
                   }
                 >
@@ -1732,10 +1878,11 @@ export default function UsersPage() {
                       );
                       return;
                     }
+                    if (!validateRoleSelectionForSave(true)) return;
                     editTarget &&
                       updateMutation.mutate({
                         id: editTarget.id,
-                        ...buildMutationPayload(),
+                        ...buildMutationPayload(true),
                       });
                   }}
                   disabled={
@@ -1816,7 +1963,7 @@ export default function UsersPage() {
                     {(users as any[])
                       .filter(
                         (u: any) =>
-                          u.role === "agent" &&
+                          (u.roles?.includes("agent") ?? u.role === "agent") &&
                           !(allAssignments as any[]).some(
                             (a: any) =>
                               a.agentSupportUserId === assignTarget?.id &&
@@ -1846,7 +1993,7 @@ export default function UsersPage() {
                           </Button>
                         </div>
                       ))}
-                    {(users as any[]).filter((u: any) => u.role === "agent")
+                    {(users as any[]).filter((u: any) => u.roles?.includes("agent") ?? u.role === "agent")
                       .length === 0 && (
                       <p className="text-sm text-muted-foreground">
                         No agents available.

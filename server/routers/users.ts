@@ -10,6 +10,10 @@ import {
   getDb,
   getGlobalActivityLog,
   logActivity,
+  getUserById,
+  getUserRoles,
+  getUserRolesForUsers,
+  replaceUserRoles,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { storagePut } from "../storage";
@@ -40,6 +44,40 @@ import {
 } from "../../drizzle/schema";
 import { eq, desc, sql, and, gte, lt, inArray } from "drizzle-orm";
 import { isValidOptionalUsPhone, normalizePhoneFields } from "@shared/phone";
+import { USER_ROLES, type UserRole } from "@shared/userRoles";
+import { canManageUserRoles, validateRoleSelection } from "../userRoles";
+
+const userRoleSchema = z.enum(USER_ROLES);
+const PERMISSION_MANAGER_EMAILS = new Set([
+  "tyler@savvy.realty",
+  "elana@savvy.realty",
+  "dyl@savvy.realty",
+]);
+
+async function withUserRoleMemberships<T extends { id: number; role: UserRole }>(
+  people: readonly T[]
+) {
+  const roleMap = await getUserRolesForUsers(people);
+  return people.map(person => ({
+    ...person,
+    roles: roleMap.get(person.id) ?? [person.role],
+    primaryRole: person.role,
+  }));
+}
+
+function requireExplicitRoleSelection(
+  primaryRole: UserRole | undefined,
+  roles: readonly UserRole[] | undefined
+): UserRole[] {
+  try {
+    return validateRoleSelection(primaryRole, roles ?? (primaryRole ? [primaryRole] : []));
+  } catch (error) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: error instanceof Error ? error.message : "Select at least one role.",
+    });
+  }
+}
 
 // ── Zod schemas for profile upserts ──────────────────────────────────────────
 const coreProfileSchema = z.object({
@@ -341,20 +379,28 @@ export const usersRouter = router({
         if (requestedRole === "admin")
           throw new TRPCError({ code: "FORBIDDEN" });
         if (requestedRole) {
-          return (await getUsersByRole(requestedRole)).map(toUserListItem);
+          return (await withUserRoleMemberships(await getUsersByRole(requestedRole))).map(toUserListItem);
         }
         const [agents, isas] = await Promise.all([
           getUsersByRole("agent"),
           getUsersByRole("isa"),
         ]);
-        return [...agents, ...isas].map(toUserListItem);
+        const uniquePeople = Array.from(
+          new Map([...agents, ...isas].map(person => [person.id, person])).values()
+        );
+        return (await withUserRoleMemberships(uniquePeople)).map(toUserListItem);
       }
 
       if (input?.role) {
-        return (await getUsersByRole(input.role)).map(toUserListItem);
+        return (await withUserRoleMemberships(await getUsersByRole(input.role))).map(toUserListItem);
       }
-      return (await getAllUsers()).map(toUserListItem);
+      return (await withUserRoleMemberships(await getAllUsers())).map(toUserListItem);
     }),
+
+  /** The multi-role control is intentionally limited to Tyler and Elana. */
+  canManageRoles: protectedProcedure.query(({ ctx }) => ({
+    canManageRoles: canManageUserRoles(ctx.user),
+  })),
 
   // List users with document counts (admin only)
   listWithDocCounts: protectedProcedure.query(async ({ ctx }) => {
@@ -384,7 +430,8 @@ export const usersRouter = router({
     const profileMap = new Map(
       profiles.map(profile => [profile.userId, profile])
     );
-    return users.map((u) => ({
+    const people = await withUserRoleMemberships(users);
+    return people.map((u) => ({
       ...toAdminUser(u),
       documentCount: countMap.get(u.id) ?? 0,
       profilePhotoUrl: profileMap.get(u.id)?.profilePhotoUrl ?? null,
@@ -505,7 +552,8 @@ export const usersRouter = router({
       z.object({
         name: z.string().min(1),
         email: z.string().email(),
-        role: z.enum(["admin", "agent", "isa", "agent_support"]),
+        role: userRoleSchema.optional(),
+        roles: z.array(userRoleSchema).min(1).max(USER_ROLES.length).optional(),
         employmentType: z.enum(["w2", "1099", "contract_labor"]),
         phone: z.string().optional().nullable(),
         title: z.string().optional().nullable(),
@@ -517,24 +565,41 @@ export const usersRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      // Only Tyler/Elana/Dyl can create admin users
-      const PERMISSION_MANAGERS = [
-        "tyler@savvy.realty",
-        "elana@savvy.realty",
-        "dyl@savvy.realty",
-      ];
+
+      if (input.roles && !canManageUserRoles(ctx.user)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only Tyler and Elana can assign multiple roles.",
+        });
+      }
+      const selectedRoles = requireExplicitRoleSelection(input.role, input.roles);
+      const primaryRole = input.role!;
+
+      // Existing primary-admin approval remains unchanged for single-role work.
       if (
-        input.role === "admin" &&
-        !PERMISSION_MANAGERS.includes((ctx.user as any).email)
+        selectedRoles.includes("admin") &&
+        !PERMISSION_MANAGER_EMAILS.has((ctx.user.email ?? "").toLowerCase())
       ) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Only Tyler, Elana, and Dyl can create admin users",
         });
       }
-      const id = await createUser(input);
+      const id = await createUser({
+        ...input,
+        role: primaryRole,
+        roles: selectedRoles,
+        assignedById: ctx.user.id,
+      });
+      await logActivity({
+        userId: ctx.user.id,
+        action: "user_roles_assigned",
+        entityType: "user",
+        entityId: id,
+        details: { roles: selectedRoles, primaryRole, change: "created" },
+      });
       // Auto-create permission and lifecycle rows for new admin users.
-      if (input.role === "admin") {
+      if (selectedRoles.includes("admin")) {
         try {
           const db = await getDb();
           if (db) {
@@ -552,7 +617,7 @@ export const usersRouter = router({
         }
       }
       // Auto-create coaching profile for new agents
-      if (input.role === "agent") {
+      if (selectedRoles.includes("agent")) {
         try {
           const db = await getDb();
           if (db) {
@@ -582,7 +647,8 @@ export const usersRouter = router({
         id: z.number(),
         name: z.string().min(1).optional(),
         email: z.string().email().optional(),
-        role: z.enum(["admin", "agent", "isa", "agent_support"]).optional(),
+        role: userRoleSchema.optional(),
+        roles: z.array(userRoleSchema).min(1).max(USER_ROLES.length).optional(),
         employmentType: z
           .enum(["w2", "1099", "contract_labor"])
           .optional()
@@ -597,25 +663,63 @@ export const usersRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      // Only Tyler/Elana/Dyl can promote users to admin
-      const PERMISSION_MANAGERS_UPDATE = [
-        "tyler@savvy.realty",
-        "elana@savvy.realty",
-        "dyl@savvy.realty",
-      ];
+
+      const target = await getUserById(input.id);
+      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      const currentRoles = await getUserRoles(target.id, target.role);
+      const roleManager = canManageUserRoles(ctx.user);
+
+      if (input.roles !== undefined && !roleManager) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only Tyler and Elana can assign multiple roles.",
+        });
+      }
       if (
-        input.role === "admin" &&
-        !PERMISSION_MANAGERS_UPDATE.includes((ctx.user as any).email)
+        input.roles === undefined &&
+        input.role !== undefined &&
+        currentRoles.length > 1 &&
+        !roleManager
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only Tyler and Elana can change a user with multiple roles.",
+        });
+      }
+
+      const selectedRoles =
+        input.roles !== undefined || input.role !== undefined
+          ? requireExplicitRoleSelection(input.role, input.roles)
+          : undefined;
+      if (
+        selectedRoles?.includes("admin") &&
+        !PERMISSION_MANAGER_EMAILS.has((ctx.user.email ?? "").toLowerCase())
       ) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Only Tyler, Elana, and Dyl can promote users to admin",
         });
       }
-      const { id, ...data } = input;
+      const { id, roles: _roles, role: primaryRole, ...data } = input;
       await updateUser(id, data);
-      // If user is being promoted to admin, auto-create permissions row
-      if (data.role === "admin") {
+
+      if (selectedRoles && primaryRole) {
+        await replaceUserRoles(id, primaryRole, selectedRoles, ctx.user.id);
+        await logActivity({
+          userId: ctx.user.id,
+          action: "user_roles_updated",
+          entityType: "user",
+          entityId: id,
+          details: {
+            previousRoles: currentRoles,
+            roles: selectedRoles,
+            primaryRole,
+          },
+        });
+      }
+
+      // Administrators may be secondary roles, so provision this on membership.
+      if (selectedRoles?.includes("admin")) {
         try {
           const db = await getDb();
           if (db) {
@@ -623,6 +727,31 @@ export const usersRouter = router({
               .insert(adminPermissions)
               .values({ userId: id })
               .onDuplicateKeyUpdate({ set: { userId: id } });
+            await db
+              .insert(adminProfiles)
+              .values({ userId: id, adminStatus: "active" })
+              .onDuplicateKeyUpdate({ set: { userId: id } });
+          }
+        } catch (_e) {
+          /* non-fatal */
+        }
+      }
+      if (selectedRoles?.includes("agent") && !currentRoles.includes("agent")) {
+        try {
+          const db = await getDb();
+          if (db) {
+            await db
+              .insert(coachingProfiles)
+              .values({
+                agentId: id,
+                performanceStatus: "Launch",
+                retentionRiskStatus: "Low",
+                marketProtectionStatus: "Protected",
+                coachingSetupRequired: true,
+                launchStartDate: new Date(),
+                launchHealthStatus: "On Track",
+              })
+              .onDuplicateKeyUpdate({ set: { agentId: id } });
           }
         } catch (_e) {
           /* non-fatal */
@@ -648,12 +777,46 @@ export const usersRouter = router({
     .input(
       z.object({
         userId: z.number(),
-        role: z.enum(["admin", "agent", "isa", "agent_support"]),
+        role: userRoleSchema,
       })
     )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      await updateUserRole(input.userId, input.role);
+      const target = await getUserById(input.userId);
+      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      const currentRoles = await getUserRoles(target.id, target.role);
+
+      if (currentRoles.length > 1 && !canManageUserRoles(ctx.user)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only Tyler and Elana can change a multi-role user.",
+        });
+      }
+      if (currentRoles.length > 1 && !currentRoles.includes(input.role)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Use the multi-role editor to add or remove roles.",
+        });
+      }
+
+      if (currentRoles.length > 1) {
+        // This legacy endpoint may only move the saved default workspace. It
+        // must never discard secondary memberships.
+        await replaceUserRoles(input.userId, input.role, currentRoles, ctx.user.id);
+      } else {
+        await updateUserRole(input.userId, input.role);
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: "user_roles_updated",
+        entityType: "user",
+        entityId: input.userId,
+        details: {
+          roles: currentRoles.length > 1 ? currentRoles : [input.role],
+          primaryRole: input.role,
+          source: currentRoles.length > 1 ? "legacy_workspace_update" : "legacy_update",
+        },
+      });
       return { success: true };
     }),
 
@@ -690,7 +853,8 @@ export const usersRouter = router({
       const all = await getAllUsers();
       const user = all.find((u: any) => u.id === input.id);
       if (!user) throw new TRPCError({ code: "NOT_FOUND" });
-      return toProfileUser(user);
+      const roles = await getUserRoles(user.id, user.role);
+      return toProfileUser({ ...user, roles, primaryRole: user.role });
     }),
 
   // ── Extended Profile Procedures ─────────────────────────────────────────────
@@ -1115,9 +1279,9 @@ export const usersRouter = router({
     const db = await getDb();
     if (!db) return [];
 
-    const allUsers = ((await getAllUsers()) as any[]).filter(
-      user => user.role === "agent" && user.isActive !== false
-    );
+    const allUsers = (await withUserRoleMemberships(
+      (await getAllUsers()) as any[]
+    )).filter(user => user.roles.includes("agent") && user.isActive !== false);
     if (allUsers.length === 0) return [];
     const agentIds = allUsers.map(user => user.id as number);
 
@@ -1300,13 +1464,15 @@ export const usersRouter = router({
       responsibilityCounts.map(row => [row.ownerId, Number(row.count)])
     );
 
-    return (all as any[]).map((u: any) => ({
+    const people = await withUserRoleMemberships(all as any[]);
+    return people.map((u: any) => ({
       id: u.id as number,
       name: u.name as string | null,
       email: u.email as string | null,
       phone: u.phone as string | null,
       title: u.title as string | null,
       role: u.role as string,
+      roles: u.roles as UserRole[],
       reportsToId: u.reportsToId as number | null,
       marketProfileId: u.marketProfileId as number | null,
       marketName: u.marketProfileId

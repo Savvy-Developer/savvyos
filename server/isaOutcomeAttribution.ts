@@ -6,7 +6,7 @@ import {
   transactions,
   users,
 } from "../drizzle/schema";
-import { getDb } from "./db";
+import { getDb, userHasRole } from "./db";
 
 /**
  * Creates or refreshes the durable ISA attribution for a transaction.
@@ -88,7 +88,15 @@ export async function syncIsaOutcomeAttribution(transactionId: number) {
   let appointmentConnectionId: number | null = null;
   let attributionBasis: "appointment_setter" | "assigned_isa" = "assigned_isa";
 
-  if (appointment?.appointmentSetByUserId && appointment.appointmentSetterRole === "isa") {
+  if (
+    appointment?.appointmentSetByUserId &&
+    appointment.appointmentSetterRole &&
+    (await userHasRole(
+      appointment.appointmentSetByUserId,
+      appointment.appointmentSetterRole,
+      "isa"
+    ))
+  ) {
     isaId = appointment.appointmentSetByUserId;
     appointmentConnectionId = appointment.connectionId;
     attributionBasis = "appointment_setter";
@@ -98,7 +106,12 @@ export async function syncIsaOutcomeAttribution(transactionId: number) {
       .from(users)
       .where(eq(users.id, transactionRow.assignedIsaId))
       .limit(1);
-    if (assignedUser?.role === "isa") isaId = assignedUser.id;
+    if (
+      assignedUser &&
+      (await userHasRole(assignedUser.id, assignedUser.role, "isa"))
+    ) {
+      isaId = assignedUser.id;
+    }
   }
 
   if (!isaId) return { attributed: false as const, reason: "no_isa_attribution" as const };

@@ -5,6 +5,7 @@ import { getDb } from "../db";
 import { adminPermissions, adminProfiles, users } from "../../drizzle/schema";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { dependentPermissionKeys, enforcePagePermissionDependencies } from "@shared/permissionDependencies";
+import { hasStoredRole } from "../userRoles";
 
 // ── Who can manage admin permissions ─────────────────────────────────────────
 const PERMISSION_MANAGERS = [
@@ -28,7 +29,7 @@ export function isSuperPermissionsManager(user: { role: string; email?: string |
  */
 const activeAdminEligibility = (userId?: number) => and(
   ...(userId === undefined ? [] : [eq(users.id, userId)]),
-  eq(users.role, "admin"),
+  hasStoredRole(users.id, "admin"),
   eq(users.isActive, true),
   or(eq(adminProfiles.adminStatus, "active"), isNull(adminProfiles.userId)),
 );

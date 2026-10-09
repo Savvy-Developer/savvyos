@@ -1,4 +1,17 @@
 import type { User } from "../../drizzle/schema";
+import type { UserRole } from "@shared/userRoles";
+
+type RoleAwareUser = User & {
+  roles?: UserRole[];
+  primaryRole?: UserRole;
+};
+
+function roleMembershipFields(user: RoleAwareUser) {
+  const primaryRole = user.primaryRole ?? (user.role as UserRole);
+  const roles =
+    user.roles && user.roles.length > 0 ? user.roles : [primaryRole];
+  return { roles, primaryRole };
+}
 
 /**
  * Authentication material must never be serialized to a browser, including as
@@ -24,10 +37,13 @@ export type UserListItem = Pick<
   | "role"
   | "callBookingLink"
   | "isActive"
->;
+> & {
+  roles: UserRole[];
+  primaryRole: UserRole;
+};
 
 /** Operational identity used for selectors, ownership labels, and joins. */
-export function toUserListItem(user: User): UserListItem {
+export function toUserListItem(user: RoleAwareUser): UserListItem {
   return {
     id: user.id,
     name: user.name,
@@ -39,11 +55,12 @@ export function toUserListItem(user: User): UserListItem {
     role: user.role,
     callBookingLink: user.callBookingLink,
     isActive: user.isActive,
+    ...roleMembershipFields(user),
   };
 }
 
 /** Current-session identity. Deliberately excludes internal auth and OAuth identifiers. */
-export function toSessionUser(user: User) {
+export function toSessionUser(user: RoleAwareUser) {
   return {
     id: user.id,
     name: user.name,
@@ -54,11 +71,12 @@ export function toSessionUser(user: User) {
     employmentType: user.employmentType,
     commissionSplit: user.commissionSplit,
     isActive: user.isActive,
+    ...roleMembershipFields(user),
   };
 }
 
 /** Profile identity used by the agent profile and pro-forma views. */
-export function toProfileUser(user: User) {
+export function toProfileUser(user: RoleAwareUser) {
   return {
     id: user.id,
     name: user.name,
@@ -70,11 +88,12 @@ export function toProfileUser(user: User) {
     commissionSplit: user.commissionSplit,
     callBookingLink: user.callBookingLink,
     isActive: user.isActive,
+    ...roleMembershipFields(user),
   };
 }
 
 /** Administrator-facing user-management record. */
-export function toAdminUser(user: User) {
+export function toAdminUser(user: RoleAwareUser) {
   return {
     ...toProfileUser(user),
     reportsToId: user.reportsToId,
