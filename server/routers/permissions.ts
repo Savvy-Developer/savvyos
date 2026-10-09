@@ -5,20 +5,16 @@ import { getDb } from "../db";
 import { adminPermissions, adminProfiles, users } from "../../drizzle/schema";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { dependentPermissionKeys, enforcePagePermissionDependencies } from "@shared/permissionDependencies";
+import { isPermissionManagerEmail } from "../permissionManagers";
 
 // ── Who can manage admin permissions ─────────────────────────────────────────
-const PERMISSION_MANAGERS = [
-  "tyler@savvy.realty",
-  "elana@savvy.realty",
-  "dyl@savvy.realty",
-  "dhruv@savvy.realty",
-];
+// Set on Railway (PERMISSION_MANAGER_EMAILS); see server/permissionManagers.ts.
 
 // ── Tyler's email — her permissions can never be edited ───────────────────────
 const PROTECTED_EMAIL = "tyler@savvy.realty";
 
 export function isSuperPermissionsManager(user: { role: string; email?: string | null }): boolean {
-  return user.role === "admin" && PERMISSION_MANAGERS.includes(user.email?.trim().toLowerCase() ?? "");
+  return user.role === "admin" && isPermissionManagerEmail(user.email);
 }
 
 /**
@@ -331,7 +327,7 @@ export const permissionsRouter = router({
       const callerEmail = (ctx.user as any).email as string;
 
       // Permission managers are intentionally fixed outside the matrix.
-      if (!PERMISSION_MANAGERS.includes(callerEmail)) {
+      if (!isSuperPermissionsManager(ctx.user)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Only designated SavvyOS permission managers can manage admin permissions",
@@ -402,7 +398,7 @@ export const permissionsRouter = router({
     .query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const callerEmail = (ctx.user as any).email as string;
-      if (!PERMISSION_MANAGERS.includes(callerEmail)) {
+      if (!isSuperPermissionsManager(ctx.user)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only designated SavvyOS permission managers can view the Super Permissions matrix" });
       }
 
@@ -462,7 +458,7 @@ export const permissionsRouter = router({
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const callerEmail = (ctx.user as any).email as string;
-      if (!PERMISSION_MANAGERS.includes(callerEmail)) {
+      if (!isSuperPermissionsManager(ctx.user)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only designated SavvyOS permission managers can update permissions" });
       }
 
