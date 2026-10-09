@@ -98,7 +98,7 @@ export async function provisionCoachingSession(
   if (!result.meetingLink) {
     try {
       const meeting = await createZoomMeeting({
-        coachEmail: coach.email ?? "",
+        hostEmail: coach.email ?? "",
         title,
         description: `SavvyOS coaching session for ${agent?.name ?? "agent"}.`,
         startTime: input.sessionDate,

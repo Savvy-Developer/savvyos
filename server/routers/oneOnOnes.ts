@@ -10,7 +10,17 @@ import {
   users,
 } from "../../drizzle/schema";
 import { invokeLLM } from "../_core/llm";
-import { createGoogleCalendarEvent, isGoogleCalendarConfigured } from "../calendarService";
+import {
+  createGoogleCalendarEvent,
+  isGoogleCalendarConfigured,
+  updateGoogleCalendarEvent,
+} from "../calendarService";
+import {
+  createZoomMeeting,
+  downloadZoomTranscript,
+  findZoomTranscriptFile,
+  isZoomMeetingConfigured,
+} from "../zoomWebinarService";
 import { getDb, logActivity } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission } from "./permissions";
@@ -108,6 +118,22 @@ function normalizeTranscript(value: string) {
     .trim();
 }
 
+function normalizeZoomTranscript(value: string) {
+  const lines = normalizeTranscript(value).split("\n");
+  return lines
+    .filter((line, index) => {
+      const trimmed = line.trim();
+      if (/^WEBVTT(?:\s|$)/i.test(trimmed)) return false;
+      if (/^\d{2}:\d{2}(?::\d{2})?\.\d{3}\s+-->/.test(trimmed)) return false;
+      // VTT cue numbers are safe to remove only when they introduce a timing cue.
+      if (/^\d+$/.test(trimmed) && /^\d{2}:\d{2}(?::\d{2})?\.\d{3}\s+-->/.test(lines[index + 1]?.trim() ?? "")) return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function meetingState({
   nextScheduledAt,
   lastCompletedAt,
@@ -170,49 +196,285 @@ async function relationshipOrThrow(db: NonNullable<Awaited<ReturnType<typeof get
   return relationship;
 }
 
+type SyncStatus = "Not Requested" | "Synced" | "Needs Attention";
+type ZoomTranscriptStatus = "Not Requested" | "Pending" | "Imported" | "Needs Attention";
+type MeetingSchedulingState = Pick<
+  typeof oneOnOneMeetings.$inferSelect,
+  | "id"
+  | "calendarEventId"
+  | "calendarEventUrl"
+  | "calendarSyncStatus"
+  | "calendarSyncError"
+  | "zoomMeetingId"
+  | "zoomMeetingUuid"
+  | "zoomJoinUrl"
+  | "zoomStartUrl"
+  | "zoomSyncStatus"
+  | "zoomSyncError"
+  | "zoomTranscriptStatus"
+  | "zoomTranscriptError"
+  | "zoomTranscriptFileId"
+  | "zoomTranscriptImportedAt"
+>;
+
+type ZoomProvision = {
+  zoomMeetingId: string | null;
+  zoomMeetingUuid: string | null;
+  zoomJoinUrl: string | null;
+  zoomStartUrl: string | null;
+  zoomSyncStatus: SyncStatus;
+  zoomSyncError: string | null;
+  zoomTranscriptStatus: ZoomTranscriptStatus;
+  zoomTranscriptError: string | null;
+  zoomTranscriptFileId: string | null;
+  zoomTranscriptImportedAt: Date | null;
+  created: boolean;
+};
+
+type CalendarProvision = {
+  calendarSyncStatus: SyncStatus;
+  calendarEventId: string | null;
+  calendarEventUrl: string | null;
+  calendarSyncError: string | null;
+};
+
+function integrationError(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : fallback;
+  return message.replace(/\s+/g, " ").trim().slice(0, 2_000);
+}
+
+function oneOnOneTitle(employeeName: string | null) {
+  return `1:1 · ${employeeName ?? "Team member"}`;
+}
+
+function oneOnOneDescription(input: { employeeName: string | null; leaderName: string | null; zoomJoinUrl: string | null }) {
+  return [
+    "SavvyOS HR 1:1. Review prior commitments and unresolved items before the conversation.",
+    `Leader: ${input.leaderName ?? "Team leader"}`,
+    `Employee: ${input.employeeName ?? "Team member"}`,
+    input.zoomJoinUrl ? `Join Zoom: ${input.zoomJoinUrl}` : null,
+  ].filter(Boolean).join("\n");
+}
+
+function existingZoomProvision(meeting: MeetingSchedulingState): ZoomProvision {
+  return {
+    zoomMeetingId: meeting.zoomMeetingId,
+    zoomMeetingUuid: meeting.zoomMeetingUuid,
+    zoomJoinUrl: meeting.zoomJoinUrl,
+    zoomStartUrl: meeting.zoomStartUrl,
+    zoomSyncStatus: meeting.zoomSyncStatus,
+    zoomSyncError: meeting.zoomSyncError,
+    zoomTranscriptStatus: meeting.zoomTranscriptStatus,
+    zoomTranscriptError: meeting.zoomTranscriptError,
+    zoomTranscriptFileId: meeting.zoomTranscriptFileId,
+    zoomTranscriptImportedAt: meeting.zoomTranscriptImportedAt,
+    created: false,
+  };
+}
+
+async function provisionZoomMeeting(input: {
+  meeting: MeetingSchedulingState;
+  scheduledAt: Date;
+  durationMinutes: number;
+  leaderName: string | null;
+  leaderEmail: string | null;
+  employeeName: string | null;
+}) : Promise<ZoomProvision> {
+  if (input.meeting.zoomMeetingId) {
+    if (input.meeting.zoomJoinUrl) return existingZoomProvision(input.meeting);
+    return {
+      ...existingZoomProvision(input.meeting),
+      zoomSyncStatus: "Needs Attention",
+      zoomSyncError: "Zoom created this 1:1 without a participant link. Contact SavvyOS support before retrying to avoid a duplicate meeting.",
+      zoomTranscriptStatus: "Needs Attention",
+      zoomTranscriptError: "A Zoom transcript cannot be imported until the participant link is available.",
+    };
+  }
+  if (!isZoomMeetingConfigured()) {
+    return {
+      zoomMeetingId: null,
+      zoomMeetingUuid: null,
+      zoomJoinUrl: null,
+      zoomStartUrl: null,
+      zoomSyncStatus: "Not Requested",
+      zoomSyncError: "Zoom meeting integration is not configured for SavvyOS.",
+      zoomTranscriptStatus: "Not Requested",
+      zoomTranscriptError: "Zoom transcript import is unavailable until the Zoom meeting integration is configured.",
+      zoomTranscriptFileId: null,
+      zoomTranscriptImportedAt: null,
+      created: false,
+    };
+  }
+  if (!input.leaderEmail?.trim()) {
+    return {
+      zoomMeetingId: null,
+      zoomMeetingUuid: null,
+      zoomJoinUrl: null,
+      zoomStartUrl: null,
+      zoomSyncStatus: "Needs Attention",
+      zoomSyncError: "The 1:1 leader needs a work email that matches a licensed Zoom user.",
+      zoomTranscriptStatus: "Needs Attention",
+      zoomTranscriptError: "Zoom transcript import needs a licensed Zoom host for the 1:1 leader.",
+      zoomTranscriptFileId: null,
+      zoomTranscriptImportedAt: null,
+      created: false,
+    };
+  }
+  try {
+    const meeting = await createZoomMeeting({
+      hostEmail: input.leaderEmail,
+      title: oneOnOneTitle(input.employeeName),
+      description: `SavvyOS HR 1:1 between ${input.leaderName ?? "the leader"} and ${input.employeeName ?? "the employee"}.`,
+      startTime: input.scheduledAt,
+      durationMinutes: input.durationMinutes,
+      timezone: "America/New_York",
+      autoRecord: true,
+    });
+    const zoomJoinUrl = meeting.join_url?.trim() || null;
+    if (!meeting.id || !zoomJoinUrl) {
+      return {
+        zoomMeetingId: meeting.id ? String(meeting.id) : null,
+        zoomMeetingUuid: meeting.uuid ?? null,
+        zoomJoinUrl,
+        zoomStartUrl: meeting.start_url ?? null,
+        zoomSyncStatus: "Needs Attention",
+        zoomSyncError: "Zoom created this 1:1 without a participant link.",
+        zoomTranscriptStatus: "Needs Attention",
+        zoomTranscriptError: "Zoom transcript import needs a participant-ready meeting link.",
+        zoomTranscriptFileId: null,
+        zoomTranscriptImportedAt: null,
+        created: true,
+      };
+    }
+    return {
+      zoomMeetingId: String(meeting.id),
+      zoomMeetingUuid: meeting.uuid ?? null,
+      zoomJoinUrl,
+      zoomStartUrl: meeting.start_url ?? null,
+      zoomSyncStatus: "Synced",
+      zoomSyncError: null,
+      zoomTranscriptStatus: "Pending",
+      zoomTranscriptError: null,
+      zoomTranscriptFileId: null,
+      zoomTranscriptImportedAt: null,
+      created: true,
+    };
+  } catch (error) {
+    const message = integrationError(error, "Zoom could not create this 1:1 meeting.");
+    return {
+      zoomMeetingId: null,
+      zoomMeetingUuid: null,
+      zoomJoinUrl: null,
+      zoomStartUrl: null,
+      zoomSyncStatus: "Needs Attention",
+      zoomSyncError: message,
+      zoomTranscriptStatus: "Needs Attention",
+      zoomTranscriptError: message,
+      zoomTranscriptFileId: null,
+      zoomTranscriptImportedAt: null,
+      created: false,
+    };
+  }
+}
+
 async function provisionCalendarEvent(input: {
   meetingId: number;
   scheduledAt: Date;
   durationMinutes: number;
   leaderId: number;
+  leaderName: string | null;
   employeeName: string | null;
   employeeEmail: string | null;
-}) {
+  zoomJoinUrl: string | null;
+  existingEventId?: string | null;
+  existingEventUrl?: string | null;
+}) : Promise<CalendarProvision> {
   if (!isGoogleCalendarConfigured()) {
     return {
-      calendarSyncStatus: "Not Requested" as const,
+      calendarSyncStatus: "Not Requested",
       calendarEventId: null,
       calendarEventUrl: null,
       calendarSyncError: "Google Calendar is not configured for SavvyOS.",
     };
   }
 
+  const calendarInput = {
+    title: oneOnOneTitle(input.employeeName),
+    description: oneOnOneDescription(input),
+    startAt: input.scheduledAt,
+    endAt: new Date(input.scheduledAt.getTime() + input.durationMinutes * 60_000),
+    timezone: "America/New_York",
+    location: input.zoomJoinUrl,
+    attendeeEmail: input.employeeEmail,
+    recordType: "one_on_one_meeting",
+    recordId: input.meetingId,
+  };
   try {
-    const event = await createGoogleCalendarEvent(input.leaderId, {
-      title: `1:1 · ${input.employeeName ?? "Team member"}`,
-      description: "SavvyOS HR 1:1. Review prior commitments and unresolved items before the conversation.",
-      startAt: input.scheduledAt,
-      endAt: new Date(input.scheduledAt.getTime() + input.durationMinutes * 60_000),
-      timezone: "America/New_York",
-      attendeeEmail: input.employeeEmail,
-      recordType: "one_on_one_meeting",
-      recordId: input.meetingId,
-    });
+    if (input.existingEventId) {
+      await updateGoogleCalendarEvent(input.leaderId, input.existingEventId, calendarInput);
+      return {
+        calendarSyncStatus: "Synced",
+        calendarEventId: input.existingEventId,
+        calendarEventUrl: input.existingEventUrl ?? null,
+        calendarSyncError: null,
+      };
+    }
+    const event = await createGoogleCalendarEvent(input.leaderId, calendarInput);
     return {
-      calendarSyncStatus: "Synced" as const,
+      calendarSyncStatus: "Synced",
       calendarEventId: event.eventId,
       calendarEventUrl: event.htmlLink,
       calendarSyncError: null,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Google Calendar could not create this 1:1 event.";
     return {
-      calendarSyncStatus: "Needs Attention" as const,
+      calendarSyncStatus: "Needs Attention",
       calendarEventId: null,
       calendarEventUrl: null,
-      calendarSyncError: message.slice(0, 2_000),
+      calendarSyncError: integrationError(error, "Google Calendar could not create this 1:1 event."),
     };
   }
+}
+
+async function provisionMeetingIntegrations(input: {
+  meeting: MeetingSchedulingState;
+  scheduledAt: Date;
+  durationMinutes: number;
+  leader: { id: number; name: string | null; email: string | null };
+  employee: { name: string | null; email: string | null };
+}) {
+  const zoom = await provisionZoomMeeting({
+    meeting: input.meeting,
+    scheduledAt: input.scheduledAt,
+    durationMinutes: input.durationMinutes,
+    leaderName: input.leader.name,
+    leaderEmail: input.leader.email,
+    employeeName: input.employee.name,
+  });
+  const needsCalendarSync = !input.meeting.calendarEventId
+    || input.meeting.calendarSyncStatus !== "Synced"
+    || zoom.created;
+  const calendar = needsCalendarSync
+    ? await provisionCalendarEvent({
+      meetingId: input.meeting.id,
+      scheduledAt: input.scheduledAt,
+      durationMinutes: input.durationMinutes,
+      leaderId: input.leader.id,
+      leaderName: input.leader.name,
+      employeeName: input.employee.name,
+      employeeEmail: input.employee.email,
+      zoomJoinUrl: zoom.zoomJoinUrl,
+      existingEventId: input.meeting.calendarEventId,
+      existingEventUrl: input.meeting.calendarEventUrl,
+    })
+    : {
+      calendarSyncStatus: input.meeting.calendarSyncStatus,
+      calendarEventId: input.meeting.calendarEventId,
+      calendarEventUrl: input.meeting.calendarEventUrl,
+      calendarSyncError: input.meeting.calendarSyncError,
+    } satisfies CalendarProvision;
+  const { created: _created, ...zoomValues } = zoom;
+  return { zoom: zoomValues, calendar };
 }
 
 async function createScheduledMeeting(input: {
@@ -221,7 +483,10 @@ async function createScheduledMeeting(input: {
   scheduledAt: Date;
   durationMinutes: number;
 }) {
-  const employee = await activeUserOrThrow(input.db, input.relationship.employeeId, "employee");
+  const [employee, leader] = await Promise.all([
+    activeUserOrThrow(input.db, input.relationship.employeeId, "employee"),
+    activeUserOrThrow(input.db, input.relationship.leaderId, "leader"),
+  ]);
   const [created] = await input.db.insert(oneOnOneMeetings).values({
     relationshipId: input.relationship.id,
     employeeId: input.relationship.employeeId,
@@ -231,23 +496,39 @@ async function createScheduledMeeting(input: {
     status: "Scheduled",
   });
   const meetingId = Number((created as any).insertId);
-  const calendar = await provisionCalendarEvent({
-    meetingId,
+  const meeting: MeetingSchedulingState = {
+    id: meetingId,
+    calendarEventId: null,
+    calendarEventUrl: null,
+    calendarSyncStatus: "Not Requested",
+    calendarSyncError: null,
+    zoomMeetingId: null,
+    zoomMeetingUuid: null,
+    zoomJoinUrl: null,
+    zoomStartUrl: null,
+    zoomSyncStatus: "Not Requested",
+    zoomSyncError: null,
+    zoomTranscriptStatus: "Not Requested",
+    zoomTranscriptError: null,
+    zoomTranscriptFileId: null,
+    zoomTranscriptImportedAt: null,
+  };
+  const integrations = await provisionMeetingIntegrations({
+    meeting,
     scheduledAt: input.scheduledAt,
     durationMinutes: input.durationMinutes,
-    leaderId: input.relationship.leaderId,
-    employeeName: employee.name,
-    employeeEmail: employee.email,
+    leader,
+    employee,
   });
   await input.db
     .update(oneOnOneMeetings)
-    .set(calendar)
+    .set({ ...integrations.calendar, ...integrations.zoom })
     .where(eq(oneOnOneMeetings.id, meetingId));
   await input.db
     .update(oneOnOneRelationships)
     .set({ nextScheduledAt: input.scheduledAt, updatedAt: sql`NOW()` })
     .where(eq(oneOnOneRelationships.id, input.relationship.id));
-  return { meetingId, calendar };
+  return { meetingId, ...integrations };
 }
 
 function fallbackDraft(transcript: string) {
@@ -311,6 +592,120 @@ function normalizeDraft(candidate: any, fallback: ReturnType<typeof fallbackDraf
     followUps: safeText(candidate?.followUps, 10_000),
     leadershipAttention: safeText(candidate?.leadershipAttention, 10_000),
   };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+/**
+ * Imports only the ready-to-review transcript text after Zoom has completed its
+ * cloud transcription. The raw webhook signature has already been verified by
+ * zoomWebhook.ts before this handler can be called.
+ */
+export async function processOneOnOneZoomWebhookEvent(input: {
+  eventKey: string;
+  eventType: string;
+  eventTimestamp?: number;
+  payload: Record<string, unknown>;
+}) {
+  if (!["recording.transcript_completed", "recording.completed"].includes(input.eventType)) {
+    return { handled: false as const };
+  }
+  const object = recordValue(input.payload.object);
+  if (!object) return { handled: false as const };
+  const recordingFiles = Array.isArray(object.recording_files) ? object.recording_files : [];
+  const normalizedRecordingFiles = recordingFiles.flatMap(value => {
+    const file = recordValue(value);
+    return file ? [{
+      id: typeof file.id === "string" ? file.id : undefined,
+      file_type: typeof file.file_type === "string" ? file.file_type : undefined,
+      file_extension: typeof file.file_extension === "string" ? file.file_extension : undefined,
+      download_url: typeof file.download_url === "string" ? file.download_url : undefined,
+      status: typeof file.status === "string" ? file.status : undefined,
+    }] : [];
+  });
+  const transcriptFile = findZoomTranscriptFile({
+    object: {
+      id: typeof object.id === "string" || typeof object.id === "number" ? object.id : undefined,
+      uuid: typeof object.uuid === "string" ? object.uuid : undefined,
+      recording_files: normalizedRecordingFiles,
+    },
+    download_token: typeof input.payload.download_token === "string" ? input.payload.download_token : undefined,
+  });
+  if (!transcriptFile?.download_url) return { handled: false as const };
+
+  const zoomMeetingId = object.id == null ? null : String(object.id);
+  const zoomMeetingUuid = typeof object.uuid === "string" ? object.uuid : null;
+  if (!zoomMeetingId && !zoomMeetingUuid) return { handled: false as const };
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable while importing the Zoom transcript.");
+
+  let meeting: typeof oneOnOneMeetings.$inferSelect | undefined;
+  if (zoomMeetingId) {
+    [meeting] = await db.select().from(oneOnOneMeetings)
+      .where(eq(oneOnOneMeetings.zoomMeetingId, zoomMeetingId)).limit(1);
+  }
+  if (!meeting && zoomMeetingUuid) {
+    [meeting] = await db.select().from(oneOnOneMeetings)
+      .where(eq(oneOnOneMeetings.zoomMeetingUuid, zoomMeetingUuid)).limit(1);
+  }
+  if (!meeting) return { handled: false as const };
+  if (transcriptFile.id && meeting.zoomTranscriptStatus === "Imported" && meeting.zoomTranscriptFileId === transcriptFile.id) {
+    return { handled: true as const, imported: false as const, reason: "duplicate" as const };
+  }
+  if (meeting.status === "Completed" || meeting.status === "Canceled") {
+    await db.update(oneOnOneMeetings).set({
+      zoomTranscriptStatus: "Needs Attention",
+      zoomTranscriptError: "Zoom completed the transcript after this 1:1 was finalized. The finalized HR record was not changed.",
+      updatedAt: sql`NOW()`,
+    }).where(eq(oneOnOneMeetings.id, meeting.id));
+    return { handled: true as const, imported: false as const, reason: "finalized" as const };
+  }
+  if (meeting.transcriptSource === "Manual" && meeting.transcript?.trim()) {
+    await db.update(oneOnOneMeetings).set({
+      zoomTranscriptStatus: "Needs Attention",
+      zoomTranscriptError: "A manual transcript is already saved, so SavvyOS preserved it instead of overwriting it with Zoom.",
+      updatedAt: sql`NOW()`,
+    }).where(eq(oneOnOneMeetings.id, meeting.id));
+    return { handled: true as const, imported: false as const, reason: "manual_transcript" as const };
+  }
+
+  try {
+    const rawTranscript = await downloadZoomTranscript({
+      downloadUrl: transcriptFile.download_url,
+      downloadToken: typeof input.payload.download_token === "string" ? input.payload.download_token : null,
+    });
+    const transcript = normalizeZoomTranscript(rawTranscript);
+    if (!transcript) throw new Error("Zoom returned a transcript without readable text.");
+    await db.update(oneOnOneMeetings).set({
+      transcript,
+      transcriptSource: "Zoom",
+      transcriptSavedAt: sql`NOW()`,
+      zoomTranscriptStatus: "Imported",
+      zoomTranscriptError: null,
+      zoomTranscriptFileId: transcriptFile.id ?? null,
+      zoomTranscriptImportedAt: sql`NOW()`,
+      status: meeting.status === "Scheduled" ? "In Progress" : meeting.status,
+      startedAt: meeting.status === "Scheduled" ? sql`COALESCE(${oneOnOneMeetings.startedAt}, NOW())` : undefined,
+      updatedAt: sql`NOW()`,
+    }).where(eq(oneOnOneMeetings.id, meeting.id));
+    await logActivity({
+      userId: meeting.leaderId,
+      action: "one_on_one_zoom_transcript_imported",
+      entityType: "one_on_one_meeting",
+      entityId: meeting.id,
+      details: { zoomMeetingId: meeting.zoomMeetingId, zoomTranscriptFileId: transcriptFile.id ?? null },
+    });
+    return { handled: true as const, imported: true as const };
+  } catch (error) {
+    await db.update(oneOnOneMeetings).set({
+      zoomTranscriptStatus: "Needs Attention",
+      zoomTranscriptError: integrationError(error, "Zoom transcript import failed."),
+      updatedAt: sql`NOW()`,
+    }).where(eq(oneOnOneMeetings.id, meeting.id));
+    throw error;
+  }
 }
 
 export const oneOnOnesRouter = router({
@@ -439,6 +834,7 @@ export const oneOnOnesRouter = router({
       let meeting: {
         meetingId: number;
         calendar: Awaited<ReturnType<typeof createScheduledMeeting>>["calendar"] | null;
+        zoom: Awaited<ReturnType<typeof createScheduledMeeting>>["zoom"] | null;
       } | null = null;
       if (scheduledAt && relationshipId) {
         const relationship = await relationshipOrThrow(db, relationshipId);
@@ -452,7 +848,7 @@ export const oneOnOnesRouter = router({
           ))
           .limit(1);
         meeting = existingMeeting
-          ? { meetingId: existingMeeting.id, calendar: null }
+          ? { meetingId: existingMeeting.id, calendar: null, zoom: null }
           : await createScheduledMeeting({ db, relationship, scheduledAt, durationMinutes: input.durationMinutes });
       }
       await logActivity({
@@ -474,7 +870,7 @@ export const oneOnOnesRouter = router({
       const relationship = await relationshipOrThrow(db, input.relationshipId);
       const now = new Date();
       const [scheduled] = await db
-        .select({ id: oneOnOneMeetings.id })
+        .select()
         .from(oneOnOneMeetings)
         .where(and(
           eq(oneOnOneMeetings.relationshipId, relationship.id),
@@ -483,8 +879,14 @@ export const oneOnOnesRouter = router({
         .orderBy(asc(oneOnOneMeetings.scheduledAt))
         .limit(1);
       let meetingId: number;
+      let schedulingState: MeetingSchedulingState;
+      let scheduledAt: Date;
+      let durationMinutes: number;
       if (scheduled) {
         meetingId = scheduled.id;
+        schedulingState = scheduled;
+        scheduledAt = scheduled.scheduledAt ?? now;
+        durationMinutes = scheduled.durationMinutes;
         await db.update(oneOnOneMeetings).set({
           status: "In Progress",
           startedAt: sql`COALESCE(${oneOnOneMeetings.startedAt}, NOW())`,
@@ -501,6 +903,45 @@ export const oneOnOnesRouter = router({
           status: "In Progress",
         });
         meetingId = Number((created as any).insertId);
+        scheduledAt = now;
+        durationMinutes = 45;
+        schedulingState = {
+          id: meetingId,
+          calendarEventId: null,
+          calendarEventUrl: null,
+          calendarSyncStatus: "Not Requested",
+          calendarSyncError: null,
+          zoomMeetingId: null,
+          zoomMeetingUuid: null,
+          zoomJoinUrl: null,
+          zoomStartUrl: null,
+          zoomSyncStatus: "Not Requested",
+          zoomSyncError: null,
+          zoomTranscriptStatus: "Not Requested",
+          zoomTranscriptError: null,
+          zoomTranscriptFileId: null,
+          zoomTranscriptImportedAt: null,
+        };
+      }
+      if (schedulingState.zoomSyncStatus !== "Synced" || schedulingState.calendarSyncStatus !== "Synced") {
+        const [employee, leader] = await Promise.all([
+          activeUserOrThrow(db, relationship.employeeId, "employee"),
+          activeUserOrThrow(db, relationship.leaderId, "leader"),
+        ]);
+        const integrations = await provisionMeetingIntegrations({
+          meeting: schedulingState,
+          scheduledAt,
+          durationMinutes,
+          leader,
+          employee,
+        });
+        await db.update(oneOnOneMeetings).set({
+          ...integrations.calendar,
+          ...integrations.zoom,
+          status: "In Progress",
+          startedAt: sql`COALESCE(${oneOnOneMeetings.startedAt}, NOW())`,
+          updatedAt: sql`NOW()`,
+        }).where(eq(oneOnOneMeetings.id, meetingId));
       }
       await db.update(oneOnOneRelationships).set({ nextScheduledAt: null, updatedAt: sql`NOW()` })
         .where(eq(oneOnOneRelationships.id, relationship.id));
@@ -526,43 +967,46 @@ export const oneOnOnesRouter = router({
         .where(eq(oneOnOneMeetings.id, input.meetingId))
         .limit(1);
       if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "1:1 meeting not found." });
-      if (meeting.calendarSyncStatus === "Synced" && meeting.calendarEventId) {
+      if (meeting.calendarSyncStatus === "Synced" && meeting.calendarEventId && meeting.zoomSyncStatus === "Synced" && meeting.zoomJoinUrl) {
         return {
           calendarSyncStatus: meeting.calendarSyncStatus,
           calendarEventId: meeting.calendarEventId,
           calendarEventUrl: meeting.calendarEventUrl,
           calendarSyncError: meeting.calendarSyncError,
+          zoom: existingZoomProvision(meeting),
         };
       }
       if (!meeting.scheduledAt) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Schedule this 1:1 before syncing it to Google Calendar." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Schedule this 1:1 before syncing Zoom and Google Calendar." });
       }
-      const relationship = await relationshipOrThrow(db, meeting.relationshipId);
-      const employee = await activeUserOrThrow(db, meeting.employeeId, "employee");
-      const calendar = await provisionCalendarEvent({
-        meetingId: meeting.id,
+      const [employee, leader] = await Promise.all([
+        activeUserOrThrow(db, meeting.employeeId, "employee"),
+        activeUserOrThrow(db, meeting.leaderId, "leader"),
+      ]);
+      const integrations = await provisionMeetingIntegrations({
+        meeting,
         scheduledAt: meeting.scheduledAt,
         durationMinutes: meeting.durationMinutes,
-        leaderId: relationship.leaderId,
-        employeeName: employee.name,
-        employeeEmail: employee.email,
+        leader,
+        employee,
       });
       await db
         .update(oneOnOneMeetings)
-        .set(calendar)
+        .set({ ...integrations.calendar, ...integrations.zoom })
         .where(eq(oneOnOneMeetings.id, meeting.id));
       await logActivity({
         userId: ctx.user.id,
-        action: "one_on_one_calendar_sync_retried",
+        action: "one_on_one_scheduling_sync_retried",
         entityType: "one_on_one_meeting",
         entityId: meeting.id,
         details: {
-          relationshipId: relationship.id,
-          leaderId: relationship.leaderId,
-          calendarSyncStatus: calendar.calendarSyncStatus,
+          relationshipId: meeting.relationshipId,
+          leaderId: meeting.leaderId,
+          calendarSyncStatus: integrations.calendar.calendarSyncStatus,
+          zoomSyncStatus: integrations.zoom.zoomSyncStatus,
         },
       });
-      return calendar;
+      return { ...integrations.calendar, zoom: integrations.zoom };
     }),
 
   detail: protectedProcedure
@@ -657,6 +1101,7 @@ export const oneOnOnesRouter = router({
       }
       await db.update(oneOnOneMeetings).set({
         transcript,
+        transcriptSource: "Manual",
         transcriptSavedAt: sql`NOW()`,
         status: meeting.status === "Scheduled" ? "In Progress" : meeting.status,
         startedAt: meeting.status === "Scheduled" ? sql`COALESCE(${oneOnOneMeetings.startedAt}, NOW())` : undefined,
@@ -859,6 +1304,7 @@ export const oneOnOnesRouter = router({
       let nextMeeting: {
         meetingId: number;
         calendar: Awaited<ReturnType<typeof createScheduledMeeting>>["calendar"] | null;
+        zoom: Awaited<ReturnType<typeof createScheduledMeeting>>["zoom"] | null;
       } | null = null;
       if (nextScheduledAt) {
         const [alreadyScheduled] = await db.select({ id: oneOnOneMeetings.id }).from(oneOnOneMeetings)
@@ -868,7 +1314,7 @@ export const oneOnOnesRouter = router({
             eq(oneOnOneMeetings.status, "Scheduled"),
           )).limit(1);
         nextMeeting = alreadyScheduled
-          ? { meetingId: alreadyScheduled.id, calendar: null }
+          ? { meetingId: alreadyScheduled.id, calendar: null, zoom: null }
           : await createScheduledMeeting({ db, relationship, scheduledAt: nextScheduledAt, durationMinutes: input.durationMinutes });
       }
       await logActivity({

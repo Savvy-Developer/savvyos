@@ -23,6 +23,34 @@ async function columnExists(
   return Number(rows[0]?.count ?? 0) > 0;
 }
 
+async function columnDataType(
+  connection: mysql.Connection,
+  tableName: string,
+  columnName: string
+) {
+  const [rows] = await connection.query<mysql.RowDataPacket[]>(
+    `SELECT DATA_TYPE AS dataType
+       FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1`,
+    [tableName, columnName]
+  );
+  return typeof rows[0]?.dataType === "string" ? rows[0].dataType.toLowerCase() : null;
+}
+
+async function ensureColumn(
+  connection: mysql.Connection,
+  tableName: string,
+  columnName: string,
+  definition: string
+) {
+  if (!(await columnExists(connection, tableName, columnName))) {
+    await connection.query(`ALTER TABLE \`${tableName}\` ADD COLUMN ${definition}`);
+  }
+}
+
 async function indexExists(
   connection: mysql.Connection,
   tableName: string,
@@ -92,7 +120,18 @@ async function applyOneOnOneSchema() {
         \`calendarEventUrl\` text NULL,
         \`calendarSyncStatus\` enum('Not Requested','Synced','Needs Attention') NOT NULL DEFAULT 'Not Requested',
         \`calendarSyncError\` text NULL,
-        \`transcript\` text NULL,
+        \`zoomMeetingId\` varchar(64) NULL,
+        \`zoomMeetingUuid\` varchar(255) NULL,
+        \`zoomJoinUrl\` text NULL,
+        \`zoomStartUrl\` text NULL,
+        \`zoomSyncStatus\` enum('Not Requested','Synced','Needs Attention') NOT NULL DEFAULT 'Not Requested',
+        \`zoomSyncError\` text NULL,
+        \`zoomTranscriptStatus\` enum('Not Requested','Pending','Imported','Needs Attention') NOT NULL DEFAULT 'Not Requested',
+        \`zoomTranscriptError\` text NULL,
+        \`zoomTranscriptFileId\` varchar(128) NULL,
+        \`zoomTranscriptImportedAt\` timestamp NULL,
+        \`transcript\` mediumtext NULL,
+        \`transcriptSource\` enum('Manual','Zoom') NULL,
         \`transcriptSavedAt\` timestamp NULL,
         \`aiProcessingStatus\` enum('None','Processing','Ready','Failed') NOT NULL DEFAULT 'None',
         \`aiDraftJson\` text NULL,
@@ -119,6 +158,21 @@ async function applyOneOnOneSchema() {
           FOREIGN KEY (\`finalizedById\`) REFERENCES \`users\` (\`id\`) ON DELETE SET NULL
       )
     `);
+
+    await ensureColumn(connection, "one_on_one_meetings", "zoomMeetingId", "`zoomMeetingId` varchar(64) NULL AFTER `calendarSyncError`");
+    await ensureColumn(connection, "one_on_one_meetings", "zoomMeetingUuid", "`zoomMeetingUuid` varchar(255) NULL AFTER `zoomMeetingId`");
+    await ensureColumn(connection, "one_on_one_meetings", "zoomJoinUrl", "`zoomJoinUrl` text NULL AFTER `zoomMeetingUuid`");
+    await ensureColumn(connection, "one_on_one_meetings", "zoomStartUrl", "`zoomStartUrl` text NULL AFTER `zoomJoinUrl`");
+    await ensureColumn(connection, "one_on_one_meetings", "zoomSyncStatus", "`zoomSyncStatus` enum('Not Requested','Synced','Needs Attention') NOT NULL DEFAULT 'Not Requested' AFTER `zoomStartUrl`");
+    await ensureColumn(connection, "one_on_one_meetings", "zoomSyncError", "`zoomSyncError` text NULL AFTER `zoomSyncStatus`");
+    await ensureColumn(connection, "one_on_one_meetings", "zoomTranscriptStatus", "`zoomTranscriptStatus` enum('Not Requested','Pending','Imported','Needs Attention') NOT NULL DEFAULT 'Not Requested' AFTER `zoomSyncError`");
+    await ensureColumn(connection, "one_on_one_meetings", "zoomTranscriptError", "`zoomTranscriptError` text NULL AFTER `zoomTranscriptStatus`");
+    await ensureColumn(connection, "one_on_one_meetings", "zoomTranscriptFileId", "`zoomTranscriptFileId` varchar(128) NULL AFTER `zoomTranscriptError`");
+    await ensureColumn(connection, "one_on_one_meetings", "zoomTranscriptImportedAt", "`zoomTranscriptImportedAt` timestamp NULL AFTER `zoomTranscriptFileId`");
+    await ensureColumn(connection, "one_on_one_meetings", "transcriptSource", "`transcriptSource` enum('Manual','Zoom') NULL AFTER `transcript`");
+    if ((await columnDataType(connection, "one_on_one_meetings", "transcript")) !== "mediumtext") {
+      await connection.query("ALTER TABLE `one_on_one_meetings` MODIFY COLUMN `transcript` mediumtext NULL");
+    }
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS \`one_on_one_commitments\` (
@@ -192,6 +246,12 @@ async function applyOneOnOneSchema() {
       "one_on_one_meetings",
       "one_on_one_meeting_employee_status_idx",
       "CREATE INDEX `one_on_one_meeting_employee_status_idx` ON `one_on_one_meetings` (`employeeId`, `status`, `heldAt`)"
+    );
+    await ensureIndex(
+      connection,
+      "one_on_one_meetings",
+      "one_on_one_meeting_zoom_id_idx",
+      "CREATE INDEX `one_on_one_meeting_zoom_id_idx` ON `one_on_one_meetings` (`zoomMeetingId`)"
     );
     await ensureIndex(
       connection,

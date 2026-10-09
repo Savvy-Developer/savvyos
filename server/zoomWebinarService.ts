@@ -20,6 +20,23 @@ export type ZoomMeetingRecord = {
   created_at?: string;
 };
 
+export type ZoomRecordingFile = {
+  id?: string;
+  file_type?: string;
+  file_extension?: string;
+  download_url?: string;
+  status?: string;
+};
+
+export type ZoomRecordingWebhookPayload = {
+  object?: {
+    id?: string | number;
+    uuid?: string;
+    recording_files?: ZoomRecordingFile[];
+  };
+  download_token?: string;
+};
+
 export type ZoomRegistrant = {
   id?: string;
   registrant_id?: string;
@@ -60,6 +77,12 @@ export function getZoomConfigurationStatus() {
       !config.hostUserId ? "ZOOM_WEBINAR_HOST_ID" : null,
     ].filter(Boolean),
   };
+}
+
+/** Standard meeting creation needs the account-level OAuth credentials only. */
+export function isZoomMeetingConfigured(): boolean {
+  const config = getZoomConfig();
+  return Boolean(config.accountId && config.clientId && config.clientSecret);
 }
 
 function requireZoomConfiguration() {
@@ -162,25 +185,27 @@ export async function createZoomWebinar(input: {
 }
 
 /**
- * Creates a standard Zoom meeting for a coach. The app uses the coach's email
- * as the host selector, so a meeting is created from that coach's Zoom user
- * rather than from the webinar host account.
+ * Creates a standard Zoom meeting for a named SavvyOS host. The account OAuth
+ * credentials are organization-wide, while the host email selects that
+ * licensed Zoom user rather than the webinar host account.
  */
 export async function createZoomMeeting(input: {
-  coachEmail: string;
+  hostEmail: string;
   title: string;
   description?: string | null;
   startTime: Date;
   durationMinutes: number;
   timezone: string;
+  /** HR 1:1 meetings require a cloud transcript after the conversation. */
+  autoRecord?: boolean;
 }): Promise<ZoomMeetingRecord> {
-  if (!input.coachEmail.trim()) {
-    throw new Error("The selected coach does not have an email address for Zoom hosting.");
+  if (!input.hostEmail.trim()) {
+    throw new Error("The selected meeting host does not have an email address for Zoom hosting.");
   }
   // OAuth credentials are organization-wide, but Zoom resolves this user path
-  // to the selected coach's licensed Zoom account.
+  // to the selected host's licensed Zoom account.
   requireZoomApiConfiguration();
-  return zoomRequest<ZoomMeetingRecord>(`/users/${encodeURIComponent(input.coachEmail.trim())}/meetings`, {
+  return zoomRequest<ZoomMeetingRecord>(`/users/${encodeURIComponent(input.hostEmail.trim())}/meetings`, {
     method: "POST",
     body: JSON.stringify({
       topic: input.title,
@@ -193,9 +218,47 @@ export async function createZoomMeeting(input: {
         waiting_room: true,
         join_before_host: false,
         approval_type: 2,
+        ...(input.autoRecord ? { auto_recording: "cloud" } : {}),
       },
     }),
   });
+}
+
+export function findZoomTranscriptFile(payload: ZoomRecordingWebhookPayload): ZoomRecordingFile | null {
+  const files = payload.object?.recording_files ?? [];
+  return files.find(file =>
+    file.file_type?.toUpperCase() === "TRANSCRIPT" || file.file_extension?.toUpperCase() === "VTT"
+  ) ?? null;
+}
+
+function isTrustedZoomDownloadUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && (url.hostname === "zoom.us" || url.hostname.endsWith(".zoom.us"));
+  } catch {
+    return false;
+  }
+}
+
+/** Downloads a transcript immediately after Zoom reports it complete. */
+export async function downloadZoomTranscript(input: { downloadUrl: string; downloadToken?: string | null }): Promise<string> {
+  if (!isTrustedZoomDownloadUrl(input.downloadUrl)) {
+    throw new Error("Zoom returned an invalid transcript download URL.");
+  }
+  const token = input.downloadToken?.trim() || await getAccessToken();
+  const response = await fetch(input.downloadUrl, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "text/vtt,text/plain,*/*" },
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Zoom transcript download failed: HTTP ${response.status}.`);
+  }
+  const transcript = await response.text();
+  if (!transcript.trim()) throw new Error("Zoom returned an empty transcript.");
+  if (Buffer.byteLength(transcript, "utf8") > 12 * 1024 * 1024) {
+    throw new Error("Zoom transcript is too large to store securely.");
+  }
+  return transcript;
 }
 
 export async function updateZoomWebinar(zoomWebinarId: string, input: {
@@ -281,3 +344,5 @@ export function createZoomEventKey(rawBody: string, requestId?: string): string 
 export function isZoomWebhookConfigured(): boolean {
   return Boolean(getZoomConfig().webhookSecretToken);
 }
+
+export const __testables__ = { findZoomTranscriptFile };
