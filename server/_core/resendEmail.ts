@@ -1942,6 +1942,12 @@ async function isNotificationDisabled(type: EmailType): Promise<boolean> {
   return Boolean(setting && !setting.isEnabled);
 }
 
+// A deactivated teammate can remain in a previously saved operational list.
+// Keep that stale configuration from bypassing the deactivated-account policy.
+const SUPPRESSED_OPERATIONAL_RECIPIENT_EMAILS = new Set([
+  "amyrollins@savvy.realty",
+]);
+
 /**
  * Resolves the operational distribution list for an administrative or
  * leadership notification. A saved list intentionally replaces the coded
@@ -1954,7 +1960,9 @@ export async function resolveNotificationRecipients(
   const defaultByEmail = new Map<string, NotificationRecipient>();
   for (const recipient of defaultRecipients) {
     const email = recipient.email?.trim().toLowerCase();
-    if (email) defaultByEmail.set(email, { ...recipient, email });
+    if (email && !SUPPRESSED_OPERATIONAL_RECIPIENT_EMAILS.has(email)) {
+      defaultByEmail.set(email, { ...recipient, email });
+    }
   }
 
   try {
@@ -1970,6 +1978,7 @@ export async function resolveNotificationRecipients(
           .filter((email): email is string => typeof email === "string")
           .map(email => email.trim().toLowerCase())
           .filter(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+          .filter(email => !SUPPRESSED_OPERATIONAL_RECIPIENT_EMAILS.has(email))
       : [];
     if (!configured.length) return Array.from(defaultByEmail.values());
     return Array.from(new Set(configured)).map(email =>

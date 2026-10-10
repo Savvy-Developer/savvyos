@@ -8,7 +8,6 @@ export const MCP_AUTHORIZED_USER_EMAILS = new Set([
   "camilo@savvy.realty",
   "philleone@savvy.realty",
   "scott.asbell@savvy.realty",
-  "amyrollins@savvy.realty",
   "marcusclay@savvy.realty",
   "birdiehardin@savvy.realty",
   "morganloftus@savvy.realty",

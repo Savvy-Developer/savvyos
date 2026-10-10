@@ -28,11 +28,9 @@ const REPORT_HOUR = 12;
 const STALE_RUN_MS = 60 * 60 * 1000;
 const WEBINAR_REPORT_KEY = "weekly_webinar_report";
 const REFERRAL_REPORT_KEY = "weekly_referral_report";
-
-const REFERRAL_RECIPIENTS = [
+export const WEEKLY_REFERRAL_REPORT_RECIPIENTS = [
   { name: "Marcus", email: "marcusclay@savvy.realty" },
   { name: "Elana", email: "elana@savvy.realty" },
-  { name: "Amy Rollins", email: "amyrollins@savvy.realty" },
   { name: "Dyl", email: "dyl@savvy.realty" },
   { name: "Tyler", email: "tyler@savvy.realty" },
 ] as const;
@@ -463,7 +461,7 @@ export async function sendWeeklyReferralReport(asOf = new Date()): Promise<void>
 
   try {
     const reportHtml = renderWeeklyReferralReport(report);
-    const recipients = await resolveNotificationRecipients("weekly_referral_report", [...REFERRAL_RECIPIENTS]);
+    const recipients = await resolveNotificationRecipients("weekly_referral_report", [...WEEKLY_REFERRAL_REPORT_RECIPIENTS]);
     let successfulRecipientCount = 0;
     const failures: string[] = [];
     for (const recipient of recipients) {

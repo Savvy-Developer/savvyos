@@ -18,7 +18,7 @@ vi.mock("resend", () => ({
   },
 }));
 
-import { getEmailPreview, sendTransactionalEmail } from "./resendEmail";
+import { getEmailPreview, resolveNotificationRecipients, sendTransactionalEmail } from "./resendEmail";
 
 describe("lead assigned email", () => {
   it("renders the source and escaped client context when they are available", () => {
@@ -192,6 +192,24 @@ describe("configured notification recipients", () => {
     expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({
       to: "default-agent@example.com",
     }), undefined);
+  });
+
+  it("removes a deactivated teammate from saved operational distribution lists", async () => {
+    const settingsQuery = {
+      from: () => ({
+        where: () => ({ limit: async () => [{ recipientEmails: ["amyrollins@savvy.realty"] }] }),
+      }),
+    };
+    mockGetDb.mockResolvedValue({
+      select: vi.fn().mockReturnValueOnce(settingsQuery),
+    });
+
+    const recipients = await resolveNotificationRecipients("weekly_lead_report", [
+      { name: "Amy Rollins", email: "amyrollins@savvy.realty" },
+      { name: "Tyler", email: "tyler@savvy.realty" },
+    ]);
+
+    expect(recipients).toEqual([{ name: "Tyler", email: "tyler@savvy.realty" }]);
   });
 });
 

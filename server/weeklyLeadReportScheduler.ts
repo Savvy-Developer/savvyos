@@ -21,9 +21,11 @@ const excludeReferralTransactions = () => sql`${transactions.referralId} IS NULL
   SELECT 1 FROM \`referral_transaction_links\` rtl
   WHERE rtl.\`transactionId\` = ${transactions.id}
 )`;
-const LIVE_RECIPIENTS = [
+export const WEEKLY_LEAD_REPORT_RECIPIENTS = [
   { name: "Marcus", email: "marcusclay@savvy.realty" },
-  { name: "Amy Rollins", email: "amyrollins@savvy.realty" },
+  { name: "Natalia Callejas", email: "nataliacallejas@savvy.realty" },
+  { name: "Camilo Aguilar", email: "camilo@savvy.realty" },
+  { name: "Dhruv Chougle", email: "dhruv@savvy.realty" },
   { name: "Elana", email: "elana@savvy.realty" },
   { name: "Dyl", email: "dyl@savvy.realty" },
   { name: "Tyler", email: "tyler@savvy.realty" },
@@ -630,7 +632,7 @@ export async function sendWeeklyLeadReport(asOf = new Date()): Promise<void> {
     let successfulRecipientCount = 0;
     const failures: string[] = [];
     const reportHtml = renderWeeklyLeadReport(report);
-    const recipients = await resolveNotificationRecipients("weekly_lead_report", [...LIVE_RECIPIENTS]);
+    const recipients = await resolveNotificationRecipients("weekly_lead_report", [...WEEKLY_LEAD_REPORT_RECIPIENTS]);
 
     for (const recipient of recipients) {
       const delivery = await sendTransactionalEmail(

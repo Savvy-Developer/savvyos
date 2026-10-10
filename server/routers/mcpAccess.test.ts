@@ -10,7 +10,6 @@ describe("SavvyOS MCP access", () => {
       "camilo@savvy.realty",
       "philleone@savvy.realty",
       "scott.asbell@savvy.realty",
-      "amyrollins@savvy.realty",
       "marcusclay@savvy.realty",
       "birdiehardin@savvy.realty",
       "morganloftus@savvy.realty",
@@ -20,6 +19,7 @@ describe("SavvyOS MCP access", () => {
   });
 
   it("rejects unapproved users", () => {
+    expect(isMcpAuthorizedUser("amyrollins@savvy.realty")).toBe(false);
     expect(isMcpAuthorizedUser("outside@example.com")).toBe(false);
     expect(isMcpAuthorizedUser(null)).toBe(false);
   });
