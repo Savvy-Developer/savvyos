@@ -133,6 +133,7 @@ import { startInProcessMlsIngestion } from "../mls/worker";
 import { ensurePulseRunnerIssueSourceSchema } from "../pulse/runnerIssueSourceSchema";
 import { ensureDatabaseBackupSchema } from "../databaseBackup";
 import { ensureAccountabilityChartSchema } from "../accountabilityChartSchema";
+import { ensureAccountabilityChartIntake } from "../accountabilityChartIntake";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -165,6 +166,7 @@ async function startServer() {
   // The Accountability Chart adds new HR tables and one nullable R&R link.
   // Finish this guard before any router can query those fields.
   await ensureAccountabilityChartSchema();
+  await ensureAccountabilityChartIntake();
   await ensureCoachingWorkflowSchema();
   await ensureOneOnOneSchema();
   await ensurePipelineChecklistSchema();
