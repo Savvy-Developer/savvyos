@@ -68,6 +68,30 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+// A user may hold several explicitly assigned roles. `users.role` remains the
+// user's default workspace role for backwards-compatible routing and sessions.
+export const userRoles = mysqlTable(
+  "user_roles",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: mysqlEnum("role", ["admin", "agent", "isa", "agent_support"])
+      .notNull(),
+    assignedById: int("assignedById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("user_roles_user_role_unique").on(table.userId, table.role),
+    index("user_roles_role_active_lookup_idx").on(table.role, table.userId),
+  ]
+);
+export type UserRoleMembership = typeof userRoles.$inferSelect;
+
 // ─── PTO ───────────────────────────────────────────────────────────────────────
 // PTO requests are restricted in the service layer: employees see only their own
 // records; managers see only current direct reports resolved from users.reportsToId.

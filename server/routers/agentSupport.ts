@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { getDb, getUserById } from "../db";
+import { getDb, getUserById, userHasRole } from "../db";
 import { agentSupportAssignments, users } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { getSessionCookieOptions } from "../_core/cookies";
@@ -72,7 +72,7 @@ export const agentSupportRouter = router({
 
       // Validate: agentSupportUserId must have role agent_support
       const supportUser = await getUserById(input.agentSupportUserId);
-      if (!supportUser || supportUser.role !== "agent_support") {
+      if (!supportUser || !(await userHasRole(supportUser.id, supportUser.role, "agent_support"))) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Target user is not an Agent Support user",
@@ -81,7 +81,7 @@ export const agentSupportRouter = router({
 
       // Validate: agentId must have role agent
       const agentUser = await getUserById(input.agentId);
-      if (!agentUser || agentUser.role !== "agent") {
+      if (!agentUser || !(await userHasRole(agentUser.id, agentUser.role, "agent"))) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Target agent must have the 'agent' role",

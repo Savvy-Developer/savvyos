@@ -28,6 +28,7 @@ type OrgUser = {
   phone: string | null;
   title: string | null;
   role: string;
+  roles?: string[];
   reportsToId: number | null;
   marketProfileId: number | null;
   marketName: string | null;
@@ -387,9 +388,10 @@ export default function OrgChartPage() {
   }, [matchedIds]);
 
   const totalCount = users.length;
-  const adminCount = users.filter((u) => u.role === "admin").length;
-  const agentCount = users.filter((u) => u.role === "agent").length;
-  const isaCount = users.filter((u) => u.role === "isa").length;
+  const hasRole = (u: OrgUser, role: string) => u.roles?.includes(role) ?? u.role === role;
+  const adminCount = users.filter((u) => hasRole(u, "admin")).length;
+  const agentCount = users.filter((u) => hasRole(u, "agent")).length;
+  const isaCount = users.filter((u) => hasRole(u, "isa")).length;
 
   if (isLoading) {
     return (

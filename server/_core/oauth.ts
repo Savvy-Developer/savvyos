@@ -3,6 +3,7 @@ import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
+import { ENV } from "./env";
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
@@ -25,6 +26,28 @@ export function registerOAuthRoutes(app: Express) {
 
       if (!userInfo.openId) {
         res.status(400).json({ error: "openId missing from user info" });
+        return;
+      }
+
+      let existingUser = await db.getUserByOpenId(userInfo.openId);
+      if (!existingUser && userInfo.email) {
+        const manualUser = await db.getUserByEmail(userInfo.email);
+        if (manualUser?.openId.startsWith("manual_")) {
+          await db.mergeManualUserWithOAuth(manualUser.id, {
+            openId: userInfo.openId,
+            name: userInfo.name || null,
+            loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+            lastSignedIn: new Date(),
+          });
+          existingUser = await db.getUserByOpenId(userInfo.openId);
+        }
+      }
+
+      // Team members are provisioned by an administrator through Users before
+      // their first sign-in. Do not let OAuth's database default make a newly
+      // discovered identity an Agent without an explicit role selection.
+      if (!existingUser && userInfo.openId !== ENV.ownerOpenId) {
+        res.redirect(302, "/login?error=account_not_provisioned");
         return;
       }
 

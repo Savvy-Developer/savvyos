@@ -8,6 +8,7 @@ import {
   users,
 } from "../drizzle/schema";
 import { getDb } from "./db";
+import { hasStoredRole } from "./userRoles";
 import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
 import {
   addEasternDays,
@@ -206,7 +207,7 @@ export async function buildDailyIsaActivitiesReport(reportDate: string): Promise
   const { start, end } = reportWindow(reportDate);
   const activeIsas = await db.select({ id: users.id, name: users.name })
     .from(users)
-    .where(and(eq(users.role, "isa"), eq(users.isActive, true)))
+    .where(and(hasStoredRole(users.id, "isa"), eq(users.isActive, true)))
     .orderBy(asc(users.name));
 
   const rowsByIsa = new Map<number, DailyIsaActivityRow>();
@@ -228,7 +229,7 @@ export async function buildDailyIsaActivitiesReport(reportDate: string): Promise
     .from(communications)
     .innerJoin(users, eq(communications.authorId, users.id))
     .where(and(
-      eq(users.role, "isa"),
+      hasStoredRole(users.id, "isa"),
       eq(users.isActive, true),
       gte(communications.communicatedAt, start),
       lt(communications.communicatedAt, end),

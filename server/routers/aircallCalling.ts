@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { and, eq } from "drizzle-orm";
 import { router, protectedProcedure } from "../_core/trpc";
 import { aircallApiRequest, isAircallApiConfigured } from "../_core/aircall";
-import { getDb, logActivity } from "../db";
+import { getDb, logActivity, userHasRole } from "../db";
 import { aircallIsaAssignments, contacts, users } from "../../drizzle/schema";
 import { normalizeOptionalUsPhone } from "@shared/phone";
 
@@ -240,7 +240,7 @@ export const aircallCallingRouter = router({
         .from(users)
         .where(eq(users.id, input.savvyUserId))
         .limit(1);
-      if (!savvyUser || savvyUser.role !== "isa") {
+      if (!savvyUser || !(await userHasRole(savvyUser.id, savvyUser.role, "isa"))) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Aircall caller assignments can only be made for ISA users.",

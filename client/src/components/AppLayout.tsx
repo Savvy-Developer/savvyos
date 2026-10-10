@@ -13,6 +13,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -89,6 +92,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { getPulseNavDestinations, type PulseNavShell } from "@shared/pulseNav";
+import { USER_ROLE_LABELS, type UserRole } from "@shared/userRoles";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -698,6 +702,10 @@ function SidebarNav({
   roleLabel,
   roleBadgeClass,
   logout,
+  availableRoles = [],
+  activeRole,
+  onWorkspaceChange,
+  isChangingWorkspace = false,
   canManageFavorites = false,
   favoritePaths = new Set<string>(),
   onFavoriteChange,
@@ -710,6 +718,10 @@ function SidebarNav({
   roleLabel: string;
   roleBadgeClass: string;
   logout: () => void;
+  availableRoles?: UserRole[];
+  activeRole?: UserRole;
+  onWorkspaceChange?: (role: UserRole) => void;
+  isChangingWorkspace?: boolean;
   canManageFavorites?: boolean;
   favoritePaths?: Set<string>;
   onFavoriteChange?: (item: NavItem, isFavorite: boolean) => void;
@@ -937,6 +949,29 @@ function SidebarNav({
               <Settings className="h-4 w-4 mr-2" />
               My Profile
             </DropdownMenuItem>
+            {availableRoles.length > 1 && activeRole && onWorkspaceChange && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  Switch workspace
+                </DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={activeRole}
+                  onValueChange={value => onWorkspaceChange(value as UserRole)}
+                >
+                  {availableRoles.map(workspaceRole => (
+                    <DropdownMenuRadioItem
+                      key={workspaceRole}
+                      value={workspaceRole}
+                      disabled={isChangingWorkspace}
+                      className="cursor-pointer"
+                    >
+                      {USER_ROLE_LABELS[workspaceRole]}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={logout}
@@ -968,6 +1003,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     | undefined;
   const isAdmin = role === "admin";
   const utils = trpc.useUtils();
+  const availableRoles = Array.from(
+    new Set(((user as any)?.roles ?? (role ? [role] : [])).filter(Boolean))
+  ) as UserRole[];
+  const setActiveRole = trpc.auth.setActiveRole.useMutation({
+    onSuccess: () => {
+      void utils.auth.me.invalidate();
+      window.location.assign("/");
+    },
+  });
   const adminNavigationPreferences = trpc.adminNavigation.preferences.useQuery(
     undefined,
     {
@@ -1415,6 +1459,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     roleLabel,
     roleBadgeClass,
     logout,
+    availableRoles,
+    activeRole: role as UserRole | undefined,
+    onWorkspaceChange: (workspaceRole: UserRole) =>
+      setActiveRole.mutate({ role: workspaceRole }),
+    isChangingWorkspace: setActiveRole.isPending,
     canManageFavorites: isAdmin,
     favoritePaths: adminFavoritePaths,
     onFavoriteChange: (item: NavItem, favorite: boolean) =>

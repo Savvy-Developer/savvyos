@@ -19,6 +19,7 @@ import {
   users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
+import { hasStoredRole } from "../userRoles";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const OPEN_TASK_STATUSES = ["pending", "in_progress"] as const;
@@ -120,7 +121,7 @@ export async function getIsmTaskBoard(filters: IsmTaskBoardFilters = {}) {
   const dueDateFrom = validDay(filters.dueDateFrom);
   const dueDateTo = validDay(filters.dueDateTo);
 
-  const baseConditions: SQL[] = [eq(users.role, "isa")];
+  const baseConditions: SQL[] = [hasStoredRole(users.id, "isa")];
   if (isaIds.length) baseConditions.push(inArray(tasks.assignedToId, isaIds));
   if (dueDateFrom)
     baseConditions.push(gte(tasks.dueDate, startOfDay(dueDateFrom)));
@@ -217,7 +218,7 @@ export async function getIsmTaskBoard(filters: IsmTaskBoardFilters = {}) {
         isActive: users.isActive,
       })
       .from(users)
-      .where(eq(users.role, "isa"))
+      .where(hasStoredRole(users.id, "isa"))
       .orderBy(asc(users.name)),
     db
       .select({

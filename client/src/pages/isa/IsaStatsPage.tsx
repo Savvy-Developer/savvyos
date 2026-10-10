@@ -143,7 +143,7 @@ export default function IsaStatsPage() {
   const [benchmarkPeriod, setBenchmarkPeriod] = useState<"week" | "month">("month");
 
   const { data: teamMembers } = trpc.users.list.useQuery({}, { enabled: isAdmin });
-  const isas = (teamMembers ?? []).filter((member: any) => member.role === "isa");
+  const isas = (teamMembers ?? []).filter((member: any) => member.roles?.includes("isa") ?? member.role === "isa");
   const effectiveIsaId = isAdmin ? (selectedIsaId ? Number(selectedIsaId) : isas[0]?.id) : undefined;
 
   const statsQuery = trpc.analytics.isaDashboard.useQuery(

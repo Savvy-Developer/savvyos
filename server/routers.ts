@@ -4,7 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { sdk } from "./_core/sdk";
 import { z } from "zod";
-import { SIMULATE_COOKIE, SIMULATE_OWNER_EMAIL, WORK_AS_COOKIE } from "./_core/context";
+import { ACTIVE_ROLE_COOKIE, SIMULATE_COOKIE, SIMULATE_OWNER_EMAIL, WORK_AS_COOKIE } from "./_core/context";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
 import { EMAIL_NOTIFICATION_TYPES, sendTransactionalEmail, getEmailPreview } from "./_core/resendEmail";
@@ -93,6 +93,7 @@ import { checklistsRouter } from "./routers/checklists";
 import { recruitingRouter } from "./routers/recruiting";
 import { chatRouter } from "./routers/chat";
 import { mobileRouter } from "./routers/mobile";
+import { USER_ROLES } from "@shared/userRoles";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -145,6 +146,7 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       ctx.res.clearCookie(SIMULATE_COOKIE, { ...cookieOptions, maxAge: -1 });
       ctx.res.clearCookie(WORK_AS_COOKIE, { ...cookieOptions, maxAge: -1 });
+      ctx.res.clearCookie(ACTIVE_ROLE_COOKIE, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
     simulateAs: protectedProcedure
@@ -157,7 +159,8 @@ export const appRouter = router({
         if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(SIMULATE_COOKIE, String(input.userId), { ...cookieOptions, maxAge: ONE_YEAR_MS });
-        return { success: true, simulatedUser: toSessionUser(target) };
+        const roles = await db.getUserRoles(target.id, target.role);
+        return { success: true, simulatedUser: toSessionUser({ ...target, roles, primaryRole: target.role }) };
       }),
     stopSimulation: protectedProcedure
       .mutation(({ ctx }) => {
@@ -167,6 +170,27 @@ export const appRouter = router({
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.clearCookie(SIMULATE_COOKIE, { ...cookieOptions, maxAge: -1 });
         return { success: true };
+      }),
+    /** Switches only the current user's workspace; it never grants a role. */
+    setActiveRole: protectedProcedure
+      .input(z.object({ role: z.enum(USER_ROLES) }))
+      .mutation(({ input, ctx }) => {
+        if (!ctx.user || ctx.realUser?.id !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Stop working as or simulating another user before switching workspaces.",
+          });
+        }
+        if (!ctx.user.roles.includes(input.role)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "That workspace is not assigned to this user." });
+        }
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        if (input.role === ctx.user.primaryRole) {
+          ctx.res.clearCookie(ACTIVE_ROLE_COOKIE, { ...cookieOptions, maxAge: -1 });
+        } else {
+          ctx.res.cookie(ACTIVE_ROLE_COOKIE, input.role, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        }
+        return { success: true, role: input.role };
       }),
     /** DEV ONLY: log in as a mock user by role without OAuth */
     devLogin: publicProcedure
