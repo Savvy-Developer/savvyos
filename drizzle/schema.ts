@@ -7240,6 +7240,10 @@ export const adminPermissions = mysqlTable("admin_permissions", {
     .notNull(),
   canViewRecruiting: boolean("canViewRecruiting").default(true).notNull(),
   canViewOrgChart: boolean("canViewOrgChart").default(true).notNull(),
+  // This seat-based chart is distinct from the people/reporting Org Chart.
+  canViewAccountabilityChart: boolean("canViewAccountabilityChart")
+    .default(true)
+    .notNull(),
   canViewRolesResponsibilities: boolean("canViewRolesResponsibilities")
     .default(true)
     .notNull(),

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const source = readFileSync("server/accountabilityChartSchema.ts", "utf8");
 const migration = readFileSync("drizzle/20261010_accountability_chart.sql", "utf8");
+const permissionMigration = readFileSync("drizzle/20261010_accountability_chart_super_permission.sql", "utf8");
 const entrypoint = readFileSync("server/_core/index.ts", "utf8");
 
 describe("accountability chart schema compatibility", () => {
@@ -19,5 +20,12 @@ describe("accountability chart schema compatibility", () => {
 
   it("prepares the additive schema before the server accepts traffic", () => {
     expect(entrypoint).toContain("await ensureAccountabilityChartSchema();");
+  });
+
+  it("creates a dedicated Super Permission without changing existing R&R access", () => {
+    expect(source).toContain('"canViewAccountabilityChart"');
+    expect(source).toContain("`canViewAccountabilityChart` = `canViewRolesResponsibilities`");
+    expect(permissionMigration).toContain("canViewAccountabilityChart");
+    expect(permissionMigration).toContain("canViewRolesResponsibilities");
   });
 });

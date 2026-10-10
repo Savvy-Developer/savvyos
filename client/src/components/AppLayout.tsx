@@ -390,6 +390,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewMarketMatchQuiz: "/admin/market-match-quiz",
   canViewMarketMatchSettings: "/admin/market-match-settings",
   canViewOrgChart: "/org-chart",
+  canViewAccountabilityChart: "/hr/accountability-chart",
   canViewRolesResponsibilities: "/roles-responsibilities",
   canViewFeedback: "/feedback",
   canViewMarketingAdmin: "/marketing-admin",

@@ -74,6 +74,7 @@ describe("admin navigation consolidation", () => {
     expect(hrSection).toContain('path: "/agent-renewals"');
     expect(hrSection).toContain('path: "/onboarding"');
     expect(hrSection).toContain('path: "/org-chart"');
+    expect(hrSection).toContain('path: "/hr/accountability-chart"');
     expect(hrSection).toContain('path: "/agent-directory"');
     expect(hrSection).toContain('path: "/job-board"');
     expect(hrSection).toContain('path: "/talent-profile-admin"');
@@ -122,6 +123,7 @@ describe("admin navigation consolidation", () => {
     expect(permissionsRouter).toContain('{ key: "canViewOperationsEscalations",  label: "Operations Escalations",     group: "Work" }');
     expect(permissionsRouter).toContain('{ key: "canViewJobBoard",               label: "Job Board",                  group: "HR" }');
     expect(permissionsRouter).toContain('{ key: "canViewTalentProfile",          label: "Talent Profiles",            group: "HR" }');
+    expect(permissionsRouter).toContain('{ key: "canViewAccountabilityChart",    label: "Accountability Chart",       group: "HR" }');
   });
 
   it("shows overdue agent renewals in the permitted admin navigation", () => {

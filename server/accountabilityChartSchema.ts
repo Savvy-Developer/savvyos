@@ -95,6 +95,17 @@ async function applyAccountabilityChartSchema() {
         "ALTER TABLE `roles_responsibilities` ADD CONSTRAINT `rr_seat_fk` FOREIGN KEY (`seatId`) REFERENCES `accountability_seats` (`id`) ON DELETE SET NULL"
       );
     }
+    // Accountability Chart needs its own Super Permission. New and existing
+    // administrators inherit the prior R&R access state only at introduction;
+    // administrators can then manage this chart independently in the matrix.
+    if (!(await columnExists(connection, "admin_permissions", "canViewAccountabilityChart"))) {
+      await connection.query(
+        "ALTER TABLE `admin_permissions` ADD COLUMN `canViewAccountabilityChart` boolean NOT NULL DEFAULT true AFTER `canViewOrgChart`"
+      );
+      await connection.query(
+        "UPDATE `admin_permissions` SET `canViewAccountabilityChart` = `canViewRolesResponsibilities`"
+      );
+    }
   } finally {
     await connection.end();
   }

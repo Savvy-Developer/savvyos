@@ -141,6 +141,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewOneOnOneMeetings",       label: "1:1 Meetings",               group: "HR" },
   { key: "canViewOnboarding",             label: "On/Offboarding",             group: "HR" },
   { key: "canViewOrgChart",               label: "Org Chart",                  group: "HR" },
+  { key: "canViewAccountabilityChart",    label: "Accountability Chart",       group: "HR" },
   { key: "canViewAgentDirectory",         label: "Agent Directory",            group: "HR" },
   { key: "canViewJobBoard",               label: "Job Board",                  group: "HR" },
   { key: "canViewTalentProfile",          label: "Talent Profiles",            group: "HR" },

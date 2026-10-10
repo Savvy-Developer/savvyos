@@ -3,11 +3,11 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
+import { canAdminUsePermission } from "./permissions";
 import {
   accountabilitySeatHolders,
   accountabilitySeats,
   activityLog,
-  adminPermissions,
   rolesResponsibilities,
   users,
 } from "../../drizzle/schema";
@@ -30,15 +30,7 @@ async function requireAccountabilityAccess(db: Db, viewer: Viewer): Promise<void
     });
   }
 
-  // Keep the same administrative access boundary used by Roles & Responsibilities.
-  // Tyler retains the existing owner-level exception; no permissions are changed here.
-  if ((viewer.email ?? "").toLowerCase() === "tyler@savvy.realty") return;
-  const [permission] = await db
-    .select({ canViewRolesResponsibilities: adminPermissions.canViewRolesResponsibilities })
-    .from(adminPermissions)
-    .where(eq(adminPermissions.userId, viewer.id))
-    .limit(1);
-  if (permission && !permission.canViewRolesResponsibilities) {
+  if (!(await canAdminUsePermission(viewer, "canViewAccountabilityChart"))) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "You do not have access to the Accountability Chart.",
