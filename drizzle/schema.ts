@@ -7630,6 +7630,9 @@ export const eventSponsorDeliverables = mysqlTable(
       .default("courtesy"),
     changeType: mysqlEnum("changeType", ["dropped", "substituted"]),
     dueDate: date("dueDate"),
+    // A signed calendar offset keeps the deadline connected to the Event date:
+    // -30 means 30 days before the event; 0 is the event day; 7 is seven days after.
+    dueOffsetDays: int("dueOffsetDays"),
     deliveredAt: timestamp("deliveredAt"),
     ownerName: varchar("ownerName", { length: 255 }),
     changeNotice: text("changeNotice"),
@@ -7641,6 +7644,10 @@ export const eventSponsorDeliverables = mysqlTable(
   table => [
     index("event_sponsor_deliverables_ask_idx").on(table.sponsorAskId),
     index("event_sponsor_deliverables_status_idx").on(table.status),
+    index("event_sponsor_deliverables_due_status_idx").on(
+      table.dueDate,
+      table.status
+    ),
   ]
 );
 export type EventSponsorDeliverable = typeof eventSponsorDeliverables.$inferSelect;

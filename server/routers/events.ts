@@ -27,6 +27,7 @@ import {
   ensureEventExpenseOpeningBalances,
   recalculateEventCommittedExpense,
 } from "../eventsFinancials";
+import { dueDateFromEventStart } from "../eventsDeliverableSchedule";
 import { canAdminUsePermission } from "./permissions";
 import { assertProjectAccess } from "./pm";
 
@@ -106,6 +107,73 @@ function stringOrNull(value: string | null | undefined) {
 
 function sqlDate(value: string | null | undefined) {
   return value ? new Date(`${value}T12:00:00.000Z`) : null;
+}
+
+async function eventForDeliverable(db: any, sponsorAskId: number) {
+  const [ask] = await db
+    .select({ eventId: eventSponsorAsks.eventId })
+    .from(eventSponsorAsks)
+    .where(eq(eventSponsorAsks.id, sponsorAskId))
+    .limit(1);
+  if (!ask) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Sponsor commitment not found.",
+    });
+  }
+  const [event] = await db
+    .select({ id: eventPortfolio.id, startDate: eventPortfolio.startDate })
+    .from(eventPortfolio)
+    .where(eq(eventPortfolio.id, ask.eventId))
+    .limit(1);
+  if (!event) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Event not found." });
+  }
+  return event;
+}
+
+async function calculatedDeliverableDueDate(
+  db: any,
+  sponsorAskId: number,
+  dueOffsetDays: number | null
+) {
+  const event = await eventForDeliverable(db, sponsorAskId);
+  return dueDateFromEventStart(event.startDate, dueOffsetDays);
+}
+
+async function recalculateEventDeliverableDueDates(db: any, eventId: number) {
+  const [event] = await db
+    .select({ startDate: eventPortfolio.startDate })
+    .from(eventPortfolio)
+    .where(eq(eventPortfolio.id, eventId))
+    .limit(1);
+  const deliverables = await db
+    .select({
+      id: eventSponsorDeliverables.id,
+      dueOffsetDays: eventSponsorDeliverables.dueOffsetDays,
+    })
+    .from(eventSponsorDeliverables)
+    .innerJoin(
+      eventSponsorAsks,
+      eq(eventSponsorDeliverables.sponsorAskId, eventSponsorAsks.id)
+    )
+    .where(eq(eventSponsorAsks.eventId, eventId));
+  await Promise.all(
+    deliverables
+      .filter(deliverable => Number.isInteger(deliverable.dueOffsetDays))
+      .map(deliverable =>
+        db
+          .update(eventSponsorDeliverables)
+          .set({
+            dueDate: dueDateFromEventStart(
+              event?.startDate,
+              deliverable.dueOffsetDays
+            ),
+            version: sql`${eventSponsorDeliverables.version} + 1`,
+          })
+          .where(eq(eventSponsorDeliverables.id, deliverable.id))
+      )
+  );
 }
 
 function versionedUpdate(result: unknown) {
@@ -1030,6 +1098,18 @@ const eventPatchSchema = z.object({
   notes: nullableText(20_000).optional(),
 });
 
+const deliverableFieldsSchema = z.object({
+  title: z.string().trim().min(1).max(500),
+  description: nullableText(20_000).default(null),
+  status: z.enum(deliverableStatuses).default("not_started"),
+  deliverableType: z.enum(deliverableTypes).default("courtesy"),
+  dueDate: isoDate.nullable().default(null),
+  // Signed offset from the Event start date: -30 is 30 days before, 0 is the
+  // event day, and 7 is seven days after. Null retains a manual due date.
+  dueOffsetDays: z.number().int().min(-3650).max(3650).nullable().default(null),
+  ownerName: nullableText(255).default(null),
+});
+
 function patchEventForDatabase(patch: z.infer<typeof eventPatchSchema>) {
   const next: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(patch)) {
@@ -1584,6 +1664,8 @@ export const eventsRouter = router({
           )
         );
       versionedUpdate(result);
+      if (input.patch.startDate !== undefined)
+        await recalculateEventDeliverableDueDates(db, input.id);
       return { version: input.version + 1 };
     }),
 
@@ -2130,25 +2212,53 @@ export const eventsRouter = router({
 
   createDeliverable: protectedProcedure
     .input(
-      z.object({
+      deliverableFieldsSchema.extend({
         sponsorAskId: z.number().int().positive(),
-        title: z.string().trim().min(1).max(500),
-        description: nullableText(20_000).default(null),
-        status: z.enum(deliverableStatuses).default("not_started"),
-        deliverableType: z.enum(deliverableTypes).default("courtesy"),
-        dueDate: isoDate.nullable().default(null),
-        ownerName: nullableText(255).default(null),
       })
     )
     .mutation(async ({ input, ctx }) => {
       await requireEventsAccess(ctx.user);
       const db = await database();
+      const dueDate = await calculatedDeliverableDueDate(
+        db,
+        input.sponsorAskId,
+        input.dueOffsetDays
+      );
       const [result] = await db.insert(eventSponsorDeliverables).values({
         ...input,
-        dueDate: sqlDate(input.dueDate),
+        dueDate:
+          input.dueOffsetDays === null ? sqlDate(input.dueDate) : dueDate,
         deliveredAt: input.status === "delivered" ? new Date() : null,
       });
       return { id: Number(result.insertId), version: 1 };
+    }),
+
+  createDeliverables: protectedProcedure
+    .input(
+      z.object({
+        sponsorAskId: z.number().int().positive(),
+        deliverables: z.array(deliverableFieldsSchema).min(1).max(25),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const event = await eventForDeliverable(db, input.sponsorAskId);
+      const rows = input.deliverables.map(deliverable => ({
+        ...deliverable,
+        sponsorAskId: input.sponsorAskId,
+        dueDate:
+          deliverable.dueOffsetDays === null
+            ? sqlDate(deliverable.dueDate)
+            : dueDateFromEventStart(
+                event.startDate,
+                deliverable.dueOffsetDays
+              ),
+        deliveredAt:
+          deliverable.status === "delivered" ? new Date() : null,
+      }));
+      const [result] = await db.insert(eventSponsorDeliverables).values(rows);
+      return { id: Number(result.insertId), count: rows.length, version: 1 };
     }),
 
   updateDeliverable: protectedProcedure
@@ -2162,6 +2272,13 @@ export const eventsRouter = router({
           status: z.enum(deliverableStatuses).optional(),
           deliverableType: z.enum(deliverableTypes).optional(),
           dueDate: isoDate.nullable().optional(),
+          dueOffsetDays: z
+            .number()
+            .int()
+            .min(-3650)
+            .max(3650)
+            .nullable()
+            .optional(),
           ownerName: nullableText(255).optional(),
         }),
       })
@@ -2171,10 +2288,12 @@ export const eventsRouter = router({
       const db = await database();
       const [current] = await db
         .select({
+          sponsorAskId: eventSponsorDeliverables.sponsorAskId,
           deliverableType: eventSponsorDeliverables.deliverableType,
           changeType: eventSponsorDeliverables.changeType,
           changeNotice: eventSponsorDeliverables.changeNotice,
           changeNoticeSentAt: eventSponsorDeliverables.changeNoticeSentAt,
+          dueDate: eventSponsorDeliverables.dueDate,
         })
         .from(eventSponsorDeliverables)
         .where(eq(eventSponsorDeliverables.id, input.id))
@@ -2197,8 +2316,23 @@ export const eventsRouter = router({
         });
       }
       const patch: Record<string, any> = { ...input.patch };
-      if (input.patch.dueDate !== undefined)
+      if (input.patch.dueOffsetDays !== undefined) {
+        patch.dueDate =
+          input.patch.dueOffsetDays === null
+            ? input.patch.dueDate === undefined
+              ? current.dueDate
+              : sqlDate(input.patch.dueDate)
+            : await calculatedDeliverableDueDate(
+                db,
+                current.sponsorAskId,
+                input.patch.dueOffsetDays
+              );
+      } else if (input.patch.dueDate !== undefined) {
         patch.dueDate = sqlDate(input.patch.dueDate);
+        // Direct date edits become a deliberate manual deadline rather than an
+        // offset that would later move when the Event date changes.
+        patch.dueOffsetDays = null;
+      }
       if (input.patch.status === "delivered") patch.deliveredAt = new Date();
       const result = await db
         .update(eventSponsorDeliverables)

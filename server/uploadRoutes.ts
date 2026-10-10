@@ -295,37 +295,43 @@ export function registerUploadRoutes(app: express.Application) {
     }
   });
 
-  // POST /api/events/upload-invoice — stores an invoice and creates its event expense.
-  app.post("/api/events/upload-invoice", eventInvoiceUpload.single("file"), async (req: any, res: any) => {
+  // POST /api/events/upload-invoice — stores each invoice as its own event expense.
+  app.post("/api/events/upload-invoice", eventInvoiceUpload.array("files", 20), async (req: any, res: any) => {
     try {
       let user: any = null;
       try { user = await sdk.authenticateRequest(req); } catch { user = null; }
       if (!user || !(await canAdminUsePermission(user, "canViewEvents"))) return res.status(403).json({ error: "Events permission is required" });
-      if (!req.file) return res.status(400).json({ error: "No invoice file provided" });
+      const files: Express.Multer.File[] = Array.isArray(req.files) ? req.files : [];
+      if (!files.length) return res.status(400).json({ error: "At least one invoice file is required" });
       const eventId = Number(req.body?.eventId);
       if (!Number.isInteger(eventId) || eventId <= 0) return res.status(400).json({ error: "A valid event is required" });
       const db = await getDb();
       if (!db) return res.status(500).json({ error: "Database unavailable" });
       const [event] = await db.select({ id: eventPortfolio.id }).from(eventPortfolio).where(eq(eventPortfolio.id, eventId)).limit(1);
       if (!event) return res.status(404).json({ error: "Event not found" });
-      let extractedText = "";
-      if (req.file.mimetype === "application/pdf") {
-        try { extractedText = (await pdfParse(req.file.buffer)).text.slice(0, 20_000); }
-        catch (error) { console.warn("[EventInvoiceUpload] PDF text extraction failed:", error); }
-      } else if (req.file.mimetype === "text/plain") extractedText = req.file.buffer.toString("utf8").slice(0, 20_000);
-      const safeName = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const fileKey = `event-invoices/${eventId}/${nanoid(12)}-${safeName}`;
-      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
-      const suggestion = categorizeExpenseInvoice(req.file.originalname, extractedText);
-      const [result] = await db.insert(eventExpenses).values({
-        eventId, expenseDate: suggestion.expenseDate ? new Date(`${suggestion.expenseDate}T12:00:00.000Z`) : null,
-        vendorName: suggestion.vendorName, description: suggestion.description, category: suggestion.category,
-        amount: suggestion.amount === null ? null : String(suggestion.amount), status: "invoiced",
-        invoiceFileName: req.file.originalname, invoiceFileUrl: url, invoiceFileKey: fileKey,
-        invoiceMimeType: req.file.mimetype, categorizationNote: suggestion.categorizationNote,
-      });
+      const prepared = await Promise.all(files.map(async file => {
+        let extractedText = "";
+        if (file.mimetype === "application/pdf") {
+          try { extractedText = (await pdfParse(file.buffer)).text.slice(0, 20_000); }
+          catch (error) { console.warn("[EventInvoiceUpload] PDF text extraction failed:", error); }
+        } else if (file.mimetype === "text/plain") extractedText = file.buffer.toString("utf8").slice(0, 20_000);
+        const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const fileKey = `event-invoices/${eventId}/${nanoid(12)}-${safeName}`;
+        const { url } = await storagePut(fileKey, file.buffer, file.mimetype);
+        return { file, fileKey, url, suggestion: categorizeExpenseInvoice(file.originalname, extractedText) };
+      }));
+      const expenses = await db.transaction(async transaction => Promise.all(prepared.map(async ({ file, fileKey, url, suggestion }) => {
+        const [result] = await transaction.insert(eventExpenses).values({
+          eventId, expenseDate: suggestion.expenseDate ? new Date(`${suggestion.expenseDate}T12:00:00.000Z`) : null,
+          vendorName: suggestion.vendorName, description: suggestion.description, category: suggestion.category,
+          amount: suggestion.amount === null ? null : String(suggestion.amount), status: "invoiced",
+          invoiceFileName: file.originalname, invoiceFileUrl: url, invoiceFileKey: fileKey,
+          invoiceMimeType: file.mimetype, categorizationNote: suggestion.categorizationNote,
+        });
+        return { id: Number(result.insertId), eventId, ...suggestion, status: "invoiced", invoiceFileName: file.originalname, invoiceFileUrl: url, invoiceFileKey: fileKey, invoiceMimeType: file.mimetype, version: 1 };
+      })));
       await recalculateEventCommittedExpense(db, eventId);
-      return res.json({ expense: { id: Number(result.insertId), eventId, ...suggestion, status: "invoiced", invoiceFileName: req.file.originalname, invoiceFileUrl: url, invoiceFileKey: fileKey, invoiceMimeType: req.file.mimetype, version: 1 } });
+      return res.json({ expenses });
     } catch (err: any) {
       console.error("[EventInvoiceUpload] Error:", err);
       return res.status(500).json({ error: err.message ?? "Invoice upload failed" });

@@ -108,6 +108,7 @@ import { ensureOneOnOneSchema } from "../oneOnOneSchema";
 import { ensurePipelineChecklistSchema } from "../pipelineChecklistSchema";
 import { ensureEventProjectLinkSchema } from "../eventProjectLinkSchema";
 import { ensureSponsorContactLogSchema } from "../sponsorContactLogSchema";
+import { ensureEventDeliverableTimelineSchema } from "../eventDeliverableTimelineSchema";
 import { ensureChatUserAccessSchema } from "../chatUserAccessSchema";
 import { ensureWebsiteTeamSchema } from "../websiteTeamSchema";
 import { ensureWebsitePriceDropSchema } from "../websitePriceDropSchema";
@@ -169,6 +170,7 @@ async function startServer() {
   await ensurePipelineChecklistSchema();
   await ensureEventProjectLinkSchema();
   await ensureSponsorContactLogSchema();
+  await ensureEventDeliverableTimelineSchema();
   await ensureChatUserAccessSchema();
   await ensureWebsiteTeamSchema();
   await ensureWebsitePriceDropSchema();

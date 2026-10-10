@@ -291,6 +291,15 @@ function daysUntil(value: unknown) {
   return parsed ? differenceInCalendarDays(parsed, new Date()) : null;
 }
 
+function relativeDueLabel(value: unknown) {
+  const offset = asNumber(value);
+  if (offset === null || !Number.isInteger(offset)) return "Manual date";
+  if (offset === 0) return "Event day";
+  return offset < 0
+    ? `${Math.abs(offset)} days before event`
+    : `${offset} days after event`;
+}
+
 function tierLabel(tier: number) {
   return (
     TIER_OPTIONS.find(([value]) => Number(value) === Number(tier))?.[1] ??
@@ -815,7 +824,7 @@ function EventEditorDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   event: EventRecord | null;
-  onSave: (event: EventRecord | null, patch: any) => void;
+  onSave: (event: EventRecord | null, patch: any) => Promise<void>;
   isSaving: boolean;
 }) {
   const [draft, setDraft] = useState<EventDraft>(() => eventToDraft(event));
@@ -829,7 +838,7 @@ function EventEditorDialog({
     value: EventDraft[Key]
   ) => setDraft(current => ({ ...current, [key]: value }));
 
-  const submit = (submission: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (submission: React.FormEvent<HTMLFormElement>) => {
     submission.preventDefault();
     if (!draft.name.trim()) {
       toast.error("Give this event a name before saving it.");
@@ -849,7 +858,7 @@ function EventEditorDialog({
       toast.error("Headcount must be a whole, non-negative number.");
       return;
     }
-    onSave(event, {
+    await onSave(event, {
       name: draft.name.trim(),
       tier: Number(draft.tier),
       status: draft.status,
@@ -1726,12 +1735,14 @@ function EventProfileDialog({
 
 function Timeline({
   events,
+  sponsors,
   onCreate,
   onEdit,
   onDelete,
   onOpen,
 }: {
   events: EventRecord[];
+  sponsors: SponsorRecord[];
   onCreate: () => void;
   onEdit: (event: EventRecord) => void;
   onDelete: (event: EventRecord) => void;
@@ -1762,6 +1773,37 @@ function Timeline({
     return start && end && end >= windowStart && start < windowEnd;
   });
   const undated = events.filter(event => !dateValue(event.startDate));
+  const activeDeliverables = sponsors.flatMap(sponsor =>
+    (sponsor.asks ?? []).flatMap((ask: any) => {
+      const event = events.find(item => Number(item.id) === Number(ask.eventId));
+      return (ask.deliverables ?? []).map((deliverable: any) => ({
+        sponsor,
+        ask,
+        event,
+        deliverable,
+      }));
+    })
+  );
+  const scheduledDeliverables = activeDeliverables
+    .filter(({ event, deliverable }) => {
+      const dueDate = dateValue(deliverable.dueDate);
+      return Boolean(
+        event &&
+          dueDate &&
+          deliverable.status !== "delivered" &&
+          dueDate >= windowStart &&
+          dueDate < windowEnd
+      );
+    })
+    .sort(
+      (left, right) =>
+        (dateValue(left.deliverable.dueDate)?.getTime() ?? 0) -
+        (dateValue(right.deliverable.dueDate)?.getTime() ?? 0)
+    );
+  const undatedDeliverableCount = activeDeliverables.filter(
+    ({ deliverable }) =>
+      deliverable.status !== "delivered" && !dateValue(deliverable.dueDate)
+  ).length;
   const rangeLabel = `${format(windowStart, "MMMM yyyy")} to ${format(addMonths(windowEnd, -1), "MMMM yyyy")}`;
 
   return (
@@ -1972,6 +2014,66 @@ function Timeline({
               );
             })}
           </div>
+        </CardContent>
+      </Card>
+      <Card className="overflow-hidden">
+        <CardHeader className="flex-row flex-wrap items-end justify-between gap-3 border-b pb-4">
+          <div>
+            <CardTitle className="text-base">Active sponsor delivery timeline</CardTitle>
+            <CardDescription>
+              Open sponsor promises due during {rangeLabel}. Relative dates recalculate whenever the Event start date changes.
+            </CardDescription>
+          </div>
+          <Badge variant="outline" className="border-cyan-200 bg-cyan-50 text-cyan-800">
+            {scheduledDeliverables.length} in view
+          </Badge>
+        </CardHeader>
+        <CardContent className="p-0">
+          {scheduledDeliverables.length ? (
+            <div className="divide-y">
+              {scheduledDeliverables.map(({ sponsor, ask, event, deliverable }) => {
+                const dueDate = dateValue(deliverable.dueDate);
+                const remaining = daysUntil(deliverable.dueDate);
+                return (
+                  <article
+                    key={deliverable.id}
+                    className={`grid gap-3 border-l-4 p-4 md:grid-cols-[130px_minmax(0,1fr)_auto] md:items-center ${deadlineTone(deliverable.dueDate)}`}
+                  >
+                    <div>
+                      <p className="text-sm font-semibold">{dateLabel(dueDate)}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {remaining === null
+                          ? "Undated"
+                          : remaining < 0
+                            ? `${Math.abs(remaining)} days overdue`
+                            : `${remaining} days remaining`}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="break-words font-medium">{deliverable.title}</p>
+                      <p className="mt-1 break-words text-xs text-muted-foreground">
+                        {sponsor.companyName} · {event?.name ?? "Event"}
+                        {ask.sponsorshipTier ? ` · ${ask.sponsorshipTier}` : ""}
+                        {asNumber(deliverable.dueOffsetDays) !== null
+                          ? ` · ${relativeDueLabel(deliverable.dueOffsetDays)}`
+                          : " · Manual deadline"}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className={deliverableStatusClass(deliverable.status)}>
+                      {DELIVERABLE_STATUS_OPTIONS.find(([value]) => value === deliverable.status)?.[1] ?? deliverable.status}
+                    </Badge>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="p-5 text-sm text-muted-foreground">
+              No active sponsor deliverables are due in this date range.
+              {undatedDeliverableCount
+                ? ` ${undatedDeliverableCount} open deliverable${undatedDeliverableCount === 1 ? " has" : "s have"} no calculated date yet.`
+                : ""}
+            </p>
+          )}
         </CardContent>
       </Card>
       <Card>
@@ -2542,15 +2644,257 @@ function DeliverableChangeRecord({
   );
 }
 
+function DeliverableTimingControl({
+  deliverable,
+  updateDeliverable,
+}: {
+  deliverable: any;
+  updateDeliverable: (deliverable: any, patch: any) => void;
+}) {
+  const offset = asNumber(deliverable.dueOffsetDays);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(offset === null ? "" : String(offset));
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDraft(offset === null ? "" : String(offset));
+  }, [deliverable.id, deliverable.version, offset]);
+
+  const start = () => {
+    setDraft(offset === null ? "" : String(offset));
+    setEditing(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const commit = () => {
+    const next = draft.trim() === "" ? null : Number(draft);
+    if (next !== null && (!Number.isInteger(next) || next < -3650 || next > 3650)) {
+      toast.error("Use a whole number between -3650 and 3650 days.");
+      inputRef.current?.focus();
+      return;
+    }
+    setEditing(false);
+    if (next !== offset) updateDeliverable(deliverable, { dueOffsetDays: next });
+  };
+
+  if (editing) {
+    return (
+      <Input
+        ref={inputRef}
+        type="number"
+        min="-3650"
+        max="3650"
+        step="1"
+        value={draft}
+        onChange={event => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={event => {
+          if (event.key === "Escape") {
+            setDraft(offset === null ? "" : String(offset));
+            setEditing(false);
+          }
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+        aria-label={`${deliverable.title} days relative to event`}
+        className="h-8 w-32 text-sm"
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={start}
+      className={`rounded px-1 -mx-1 text-left text-sm hover:bg-cyan-50 hover:ring-1 hover:ring-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${offset === null ? "italic text-muted-foreground" : ""}`}
+      aria-label={`Edit ${deliverable.title} timing relative to event`}
+    >
+      {offset === null ? "Manual date" : relativeDueLabel(offset)}
+    </button>
+  );
+}
+
+type DeliverableSetDraft = {
+  id: string;
+  title: string;
+  dueOffsetDays: string;
+  deliverableType: string;
+  ownerName: string;
+};
+
+function newDeliverableSetDraft(): DeliverableSetDraft {
+  return {
+    id: `${Date.now()}-${Math.random()}`,
+    title: "",
+    dueOffsetDays: "-30",
+    deliverableType: "contractual",
+    ownerName: "",
+  };
+}
+
+function DeliverableSetDialog({
+  ask,
+  event,
+  sponsorName,
+  createDeliverables,
+}: {
+  ask: any;
+  event: EventRecord | undefined;
+  sponsorName: string;
+  createDeliverables: (input: any) => Promise<unknown>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [drafts, setDrafts] = useState<DeliverableSetDraft[]>([
+    newDeliverableSetDraft(),
+  ]);
+  const [isSaving, setIsSaving] = useState(false);
+  const reset = () => setDrafts([newDeliverableSetDraft()]);
+  const updateDraft = (id: string, patch: Partial<DeliverableSetDraft>) =>
+    setDrafts(rows =>
+      rows.map(row => (row.id === id ? { ...row, ...patch } : row))
+    );
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const invalidTitle = drafts.some(row => !row.title.trim());
+    const invalidOffset = drafts.some(row => {
+      const value = Number(row.dueOffsetDays);
+      return !Number.isInteger(value) || value < -3650 || value > 3650;
+    });
+    if (invalidTitle) {
+      toast.error("Give every deliverable a title before saving the set.");
+      return;
+    }
+    if (invalidOffset) {
+      toast.error("Each relative due date must be a whole number between -3650 and 3650.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await createDeliverables({
+        sponsorAskId: ask.id,
+        deliverables: drafts.map(row => ({
+          title: row.title.trim(),
+          dueOffsetDays: Number(row.dueOffsetDays),
+          deliverableType: row.deliverableType,
+          ownerName: row.ownerName.trim() || null,
+          status: "not_started",
+        })),
+      });
+      toast.success(
+        `${drafts.length} sponsor deliverable${drafts.length === 1 ? "" : "s"} added.`
+      );
+      setOpen(false);
+      reset();
+    } catch {
+      // The shared mutation handler presents the server error.
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          reset();
+          setOpen(true);
+        }}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Add deliverables
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add sponsor deliverables</DialogTitle>
+            <DialogDescription>
+              This set is linked to {sponsorName} and {event?.name ?? "this Event"}. Relative dates move automatically when the Event start date changes.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={submit}>
+            <div className="rounded-lg border border-cyan-100 bg-cyan-50/50 p-3 text-xs leading-relaxed text-cyan-950">
+              {event?.startDate
+                ? `Event start: ${dateLabel(event.startDate)}. Use -30 for 30 days before, 0 for the event day, or 7 for seven days after.`
+                : "This Event has no start date yet. Relative due dates will populate as soon as the Event date is saved."}
+            </div>
+            <div className="space-y-3">
+              {drafts.map((draft, index) => (
+                <div key={draft.id} className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(0,1.25fr)_180px_175px_minmax(0,0.8fr)_40px] md:items-end">
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium">Deliverable</span>
+                    <Input
+                      value={draft.title}
+                      onChange={event => updateDraft(draft.id, { title: event.target.value })}
+                      placeholder="e.g. Welcome-stage mention"
+                      aria-label={`Deliverable ${index + 1} title`}
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium">Days from event</span>
+                    <Input
+                      type="number"
+                      min="-3650"
+                      max="3650"
+                      step="1"
+                      value={draft.dueOffsetDays}
+                      onChange={event => updateDraft(draft.id, { dueOffsetDays: event.target.value })}
+                      aria-label={`Deliverable ${index + 1} days from event`}
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium">Type</span>
+                    <Select value={draft.deliverableType} onValueChange={deliverableType => updateDraft(draft.id, { deliverableType })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {DELIVERABLE_TYPE_OPTIONS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium">Owner</span>
+                    <Input value={draft.ownerName} onChange={event => updateDraft(draft.id, { ownerName: event.target.value })} placeholder="Optional" aria-label={`Deliverable ${index + 1} owner`} />
+                  </label>
+                  <Button type="button" variant="ghost" size="icon" className="text-rose-600 hover:bg-rose-50 hover:text-rose-700" disabled={drafts.length === 1} onClick={() => setDrafts(rows => rows.filter(row => row.id !== draft.id))} aria-label={`Remove deliverable ${index + 1}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+              <Button type="button" variant="outline" onClick={() => setDrafts(rows => [...rows, newDeliverableSetDraft()])} disabled={isSaving}>
+                <Plus className="mr-1.5 h-4 w-4" /> Add another
+              </Button>
+              <DialogFooter className="gap-2 sm:justify-end">
+                <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSaving}>Cancel</Button>
+                <Button type="submit" disabled={isSaving}>
+                  {isSaving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                  Save {drafts.length} deliverable{drafts.length === 1 ? "" : "s"}
+                </Button>
+              </DialogFooter>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function DeliverableTracker({
   ask,
-  createDeliverable,
+  event,
+  sponsorName,
+  createDeliverables,
   updateDeliverable,
   deleteDeliverable,
   recordDeliverableChange,
 }: {
   ask: any;
-  createDeliverable: (input: any) => void;
+  event: EventRecord | undefined;
+  sponsorName: string;
+  createDeliverables: (input: any) => Promise<unknown>;
   updateDeliverable: (deliverable: any, patch: any) => void;
   deleteDeliverable: (deliverable: any) => void;
   recordDeliverableChange: (deliverable: any, input: any) => void;
@@ -2574,28 +2918,18 @@ function DeliverableTracker({
               : "Track every sponsor promise by status, type, and change record."}
           </p>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() =>
-            createDeliverable({
-              sponsorAskId: ask.id,
-              title: "New deliverable",
-              status: "not_started",
-              deliverableType: "contractual",
-            })
-          }
-        >
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          Add deliverable
-        </Button>
+        <DeliverableSetDialog
+          ask={ask}
+          event={event}
+          sponsorName={sponsorName}
+          createDeliverables={createDeliverables}
+        />
       </div>
       {deliverables.length ? (
         <div className="divide-y">
           {deliverables.map((deliverable: any) => (
             <div key={deliverable.id} className="min-w-0 p-3">
-              <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(150px,0.68fr)_minmax(155px,0.68fr)_minmax(125px,0.55fr)_minmax(0,0.65fr)_auto] xl:items-center">
+              <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(150px,0.68fr)_minmax(155px,0.68fr)_minmax(150px,0.7fr)_minmax(125px,0.55fr)_minmax(0,0.65fr)_auto] xl:items-center">
                 <div className="min-w-0">
                   <InlineText
                     value={deliverable.title}
@@ -2636,7 +2970,16 @@ function DeliverableTracker({
                 </div>
                 <div className="min-w-0">
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Due
+                    Timing
+                  </p>
+                  <DeliverableTimingControl
+                    deliverable={deliverable}
+                    updateDeliverable={updateDeliverable}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Due date
                   </p>
                   <InlineDate
                     value={deliverable.dueDate}
@@ -2698,13 +3041,13 @@ function ExpenseTracker({
   createExpense,
   updateExpense,
   deleteExpense,
-  uploadInvoice,
+  uploadInvoices,
 }: {
   events: EventRecord[];
   createExpense: (input: any) => void;
   updateExpense: (expense: any, patch: any) => void;
   deleteExpense: (expense: any) => void;
-  uploadInvoice: (eventId: number, file: File) => Promise<void>;
+  uploadInvoices: (eventId: number, files: File[]) => Promise<void>;
 }) {
   const [scope, setScope] = useState("all");
   const [entryEventId, setEntryEventId] = useState("");
@@ -2744,14 +3087,14 @@ function ExpenseTracker({
       ? "Portfolio-level expense ledger"
       : (eventById.get(Number(scope))?.name ?? "Event expense ledger");
 
-  const handleInvoice = async (file: File) => {
+  const handleInvoices = async (files: File[]) => {
     if (!targetEvent) {
       toast.error("Select the event that owns this invoice first.");
       return;
     }
     setIsUploading(true);
     try {
-      await uploadInvoice(targetEvent.id, file);
+      await uploadInvoices(targetEvent.id, files);
     } finally {
       setIsUploading(false);
     }
@@ -2839,12 +3182,13 @@ function ExpenseTracker({
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           className="hidden"
           accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png,image/webp"
           onChange={event => {
-            const file = event.target.files?.[0];
+            const files = Array.from(event.target.files ?? []);
             event.target.value = "";
-            if (file) void handleInvoice(file);
+            if (files.length) void handleInvoices(files);
           }}
         />
         <Button
@@ -2853,7 +3197,7 @@ function ExpenseTracker({
           onClick={() => fileInputRef.current?.click()}
         >
           <Upload className="mr-1.5 h-4 w-4" />
-          {isUploading ? "Uploading invoice…" : "Upload invoice"}
+          {isUploading ? "Uploading invoices…" : "Upload invoices"}
         </Button>
         <Button
           disabled={!targetEvent}
@@ -3338,7 +3682,7 @@ function SponsorProfileWorkspace({
   deleteSponsor,
   upsertAsk,
   deleteAsk,
-  createDeliverable,
+  createDeliverables,
   updateDeliverable,
   deleteDeliverable,
   recordDeliverableChange,
@@ -3360,7 +3704,7 @@ function SponsorProfileWorkspace({
     patch: any
   ) => void;
   deleteAsk: (ask: any) => void;
-  createDeliverable: (input: any) => void;
+  createDeliverables: (input: any) => Promise<unknown>;
   updateDeliverable: (deliverable: any, patch: any) => void;
   deleteDeliverable: (deliverable: any) => void;
   recordDeliverableChange: (deliverable: any, input: any) => void;
@@ -3676,7 +4020,9 @@ function SponsorProfileWorkspace({
                         <div id={`sponsor-deliverables-${ask.id}`} className="border-t p-4">
                           <DeliverableTracker
                             ask={ask}
-                            createDeliverable={createDeliverable}
+                            event={event}
+                            sponsorName={sponsor.companyName}
+                            createDeliverables={createDeliverables}
                             updateDeliverable={updateDeliverable}
                             deleteDeliverable={deleteDeliverable}
                             recordDeliverableChange={recordDeliverableChange}
@@ -4239,10 +4585,12 @@ function EventsOverview({
   events,
   sponsors,
   openProfile,
+  createEvent,
 }: {
   events: EventRecord[];
   sponsors: SponsorRecord[];
   openProfile: (event: EventRecord) => void;
+  createEvent: () => void;
 }) {
   const rollup = events.reduce(
     (totals, event) => {
@@ -4260,6 +4608,12 @@ function EventsOverview({
   const externalCommitments = events
     .filter(event => Number(event.tier) === 3)
     .reduce((sum, event) => sum + (asNumber(event.committedCost) ?? 0), 0);
+  const [eventSearch, setEventSearch] = useState("");
+  const visibleEvents = events.filter(event =>
+    `${event.name} ${event.city ?? ""} ${event.venue ?? ""} ${event.ownerName ?? ""}`
+      .toLowerCase()
+      .includes(eventSearch.trim().toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
@@ -4295,78 +4649,67 @@ function EventsOverview({
       </section>
 
       <section>
-        <div className="mb-3">
-          <h2 className="text-xl font-semibold">Event financials</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Revenue, expense, and P/L are visible event by event. Open a record
-            to manage the underlying sponsors, obligations, and components.
-          </p>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Events</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Each card opens the event’s financial, sponsor, obligation, and operating record.
+            </p>
+          </div>
+          <Button size="sm" onClick={createEvent}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add event
+          </Button>
         </div>
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-sm">
-              <thead className="bg-slate-950 text-left text-xs uppercase tracking-wide text-slate-100">
-                <tr>
-                  <th className="px-4 py-3">Event</th>
-                  <th className="px-4 py-3 text-right">Sponsor income</th>
-                  <th className="px-4 py-3 text-right">Active selling</th>
-                  <th className="px-4 py-3 text-right">Booked revenue</th>
-                  <th className="px-4 py-3 text-right">Committed expense</th>
-                  <th className="px-4 py-3 text-right">P/L</th>
-                  <th className="px-4 py-3">Headcount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map(event => {
+        <Card>
+          <CardHeader className="border-b p-4">
+            <CardTitle className="text-base">Event directory</CardTitle>
+            <CardDescription>Find an Event, then open its dedicated operating workspace.</CardDescription>
+            <Input value={eventSearch} onChange={event => setEventSearch(event.target.value)} placeholder="Find an event, city, venue, or owner" aria-label="Find event" className="mt-2 h-9 max-w-md" />
+          </CardHeader>
+          <CardContent className="p-4">
+            {visibleEvents.length ? (
+              <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+                {visibleEvents.map(event => {
                   const financials = eventFinancials(event, sponsors);
-                  const headcount = eventHeadcount(event);
+                  const eventAsks = sponsors.flatMap(sponsor =>
+                    (sponsor.asks ?? [])
+                      .filter((ask: any) => Number(ask.eventId) === Number(event.id))
+                      .map((ask: any) => ({ sponsor, ask }))
+                  );
+                  const openDelivery = eventAsks
+                    .flatMap(({ ask }) => ask.deliverables ?? [])
+                    .filter((deliverable: any) => deliverable.status !== "delivered").length;
+                  const tier = TIER_DETAILS[Number(event.tier)] ?? TIER_DETAILS[4];
                   return (
-                    <tr
-                      key={event.id}
-                      className="border-b last:border-b-0 hover:bg-slate-50"
-                    >
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => openProfile(event)}
-                          className="flex min-w-0 items-center gap-2 text-left font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
-                        >
-                          <span
-                            className={`h-2.5 w-2.5 shrink-0 rounded-sm ${tierClass(Number(event.tier))}`}
-                          />
-                          <span className="max-w-64 truncate">
-                            {event.name}
-                          </span>
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                        {money(financials.sponsorIncome)}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {money(financials.active)}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {money(financials.revenue)}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {money(financials.expenses)}
-                      </td>
-                      <td
-                        className={`px-4 py-3 text-right font-semibold tabular-nums ${financials.profitLoss < 0 ? "text-rose-700" : "text-emerald-700"}`}
-                      >
-                        {money(financials.profitLoss)}
-                      </td>
-                      <td className="px-4 py-3">
-                        {headcount.count === null
-                          ? headcount.source
-                          : `${headcount.count} · ${headcount.source}`}
-                      </td>
-                    </tr>
+                    <button key={event.id} type="button" onClick={() => openProfile(event)} className="group min-w-0 rounded-xl border bg-white p-4 text-left transition-all hover:border-cyan-300 hover:bg-cyan-50/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${tierClass(Number(event.tier))}`} />
+                            <Badge variant="outline" className={tier.badgeClass}>{tier.label}</Badge>
+                            <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">{event.status}</Badge>
+                          </div>
+                          <p className="mt-3 break-words font-semibold text-slate-950 group-hover:text-cyan-950">{event.name}</p>
+                          <p className="mt-1 break-words text-sm text-muted-foreground">
+                            {dateValue(event.startDate) ? dateLabel(event.startDate) : "Timeline unconfirmed"}{event.city ? ` · ${event.city}` : ""}
+                          </p>
+                        </div>
+                        <ChevronRight className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground group-hover:text-cyan-700" />
+                      </div>
+                      <div className="mt-4 grid grid-cols-1 gap-3 border-t pt-3 text-xs sm:grid-cols-3">
+                        <div className="min-w-0"><p className="break-words leading-tight text-muted-foreground">Booked</p><p className="mt-1 break-words font-semibold text-slate-950">{money(financials.sponsorIncome)}</p></div>
+                        <div className="min-w-0"><p className="break-words leading-tight text-muted-foreground">Sponsors</p><p className="mt-1 break-words font-semibold text-slate-950">{eventAsks.length}</p></div>
+                        <div className="min-w-0"><p className="break-words leading-tight text-muted-foreground">Open delivery</p><p className="mt-1 break-words font-semibold text-slate-950">{openDelivery}</p></div>
+                      </div>
+                    </button>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            ) : (
+              <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No event matches that search.</p>
+            )}
+          </CardContent>
         </Card>
       </section>
     </div>
@@ -4869,8 +5212,8 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
     trpc.events.updateExpense.useMutation(mutationOptions);
   const deleteExpenseMutation =
     trpc.events.deleteExpense.useMutation(mutationOptions);
-  const createDeliverableMutation =
-    trpc.events.createDeliverable.useMutation(mutationOptions);
+  const createDeliverablesMutation =
+    trpc.events.createDeliverables.useMutation(mutationOptions);
   const updateDeliverableMutation =
     trpc.events.updateDeliverable.useMutation(mutationOptions);
   const deleteDeliverableMutation =
@@ -4934,27 +5277,24 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
     setEditingEventId(event.id);
     setEditorOpen(true);
   };
-  const saveEventFromTimeline = (event: EventRecord | null, patch: any) => {
-    if (event) {
-      updateEventMutation.mutate(
-        { id: event.id, version: event.version, patch },
-        {
-          onSuccess: () => {
-            toast.success("Event updated.");
-            setEditorOpen(false);
-            refresh();
-          },
-        }
-      );
-      return;
-    }
-    createEvent.mutate(patch, {
-      onSuccess: () => {
+  const saveEventFromTimeline = async (event: EventRecord | null, patch: any) => {
+    try {
+      if (event) {
+        await updateEventMutation.mutateAsync({
+          id: event.id,
+          version: event.version,
+          patch,
+        });
+        toast.success("Event updated.");
+      } else {
+        await createEvent.mutateAsync(patch);
         toast.success("Event added to the timeline.");
-        setEditorOpen(false);
-        refresh();
-      },
-    });
+      }
+      setEditorOpen(false);
+      refresh();
+    } catch {
+      // The shared mutation handler presents the server error and leaves the editor open.
+    }
   };
   const deleteEvent = (event: any) => {
     if (
@@ -5042,10 +5382,10 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
       version: deliverable.version,
       ...input,
     });
-  const uploadEventInvoice = async (eventId: number, file: File) => {
+  const uploadEventInvoices = async (eventId: number, files: File[]) => {
     const form = new FormData();
     form.append("eventId", String(eventId));
-    form.append("file", file);
+    files.forEach(file => form.append("files", file));
     const response = await fetch("/api/events/upload-invoice", {
       method: "POST",
       body: form,
@@ -5053,7 +5393,10 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error ?? "Invoice upload failed.");
-    toast.success("Invoice uploaded and added to the event expense ledger.");
+    const count = Array.isArray(result.expenses) ? result.expenses.length : files.length;
+    toast.success(
+      `${count} invoice${count === 1 ? "" : "s"} uploaded and added to the event expense ledger.`
+    );
     refresh();
   };
   const updateClaim = (claim: any, patch: any) =>
@@ -5096,7 +5439,7 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
           deleteSponsor={deleteSponsor}
           upsertAsk={upsertAsk}
           deleteAsk={deleteAsk}
-          createDeliverable={input => createDeliverableMutation.mutate(input)}
+          createDeliverables={input => createDeliverablesMutation.mutateAsync(input)}
           updateDeliverable={updateDeliverable}
           deleteDeliverable={deleteDeliverable}
           recordDeliverableChange={recordDeliverableChange}
@@ -5227,6 +5570,7 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
             events={events}
             sponsors={overview?.sponsors ?? []}
             openProfile={event => setProfileEventId(event.id)}
+            createEvent={openCreateEvent}
           />
         </TabsContent>
         <TabsContent value="records">
@@ -5260,6 +5604,7 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
         <TabsContent value="timeline">
           <Timeline
             events={events}
+            sponsors={overview?.sponsors ?? []}
             onCreate={openCreateEvent}
             onEdit={openEditEvent}
             onDelete={deleteEvent}
@@ -5272,9 +5617,9 @@ export default function EventsPage({ sponsorId }: { sponsorId?: string | number 
             createExpense={input => createExpenseMutation.mutate(input)}
             updateExpense={updateExpense}
             deleteExpense={deleteExpense}
-            uploadInvoice={async (eventId, file) => {
+            uploadInvoices={async (eventId, files) => {
               try {
-                await uploadEventInvoice(eventId, file);
+                await uploadEventInvoices(eventId, files);
               } catch (error: any) {
                 toast.error(error.message ?? "Invoice upload failed.");
                 throw error;
