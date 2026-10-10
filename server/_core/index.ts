@@ -26,6 +26,7 @@ import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
 import { scheduleAgentProductionReport } from "../agentProductionReportScheduler";
 import { scheduleWeeklyLeadReport } from "../weeklyLeadReportScheduler";
 import { scheduleWeeklyOperationsReports } from "../weeklyOperationsReportsScheduler";
+import { ensureWeeklyLeadReportRecipientPolicy } from "../weeklyReportRecipientPolicy";
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
 import { scheduleWebsiteDailyEmail } from "../websiteDailyEmail";
 import { schedulePriceDropAlerts } from "../websitePriceDropAlerts";
@@ -189,6 +190,7 @@ async function startServer() {
   // Nightly database backup (runs in its own service, databaseBackupWorker):
   // the table that records each run.
   await ensureDatabaseBackupSchema();
+  await ensureWeeklyLeadReportRecipientPolicy();
   // Organic Social lead sources exist before the first organic lead arrives
   // (a lead source locks at creation), and the legacy Facebook/Instagram
   // import buckets are renamed and retired once.
