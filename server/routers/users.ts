@@ -40,6 +40,7 @@ import {
   agentGoals,
   adminPermissions,
   coachingProfiles,
+  accountabilitySeatHolders,
   rolesResponsibilities,
 } from "../../drizzle/schema";
 import { eq, desc, sql, and, gte, lt, inArray } from "drizzle-orm";
@@ -1454,12 +1455,16 @@ export const usersRouter = router({
     );
     const responsibilityCounts = await db
       .select({
-        ownerId: rolesResponsibilities.ownerId,
+        ownerId: accountabilitySeatHolders.userId,
         count: sql<number>`count(*)`,
       })
-      .from(rolesResponsibilities)
+      .from(accountabilitySeatHolders)
+      .innerJoin(
+        rolesResponsibilities,
+        eq(accountabilitySeatHolders.seatId, rolesResponsibilities.seatId)
+      )
       .where(eq(rolesResponsibilities.status, "active"))
-      .groupBy(rolesResponsibilities.ownerId);
+      .groupBy(accountabilitySeatHolders.userId);
     const responsibilityCountMap = new Map(
       responsibilityCounts.map(row => [row.ownerId, Number(row.count)])
     );

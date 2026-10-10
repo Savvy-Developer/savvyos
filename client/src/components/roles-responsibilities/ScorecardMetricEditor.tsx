@@ -175,7 +175,7 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
 
   function save() {
     if (!form.name.trim()) return toast.error("Enter a measurable name.");
-    if (!form.ownerId) return toast.error("Choose the person accountable for this measurable.");
+    if (!form.ownerId) return toast.error("Choose the person whose data or update is used for this measurable.");
     const linkedResponsibilityId = Number(form.responsibilityId || responsibilityId);
     if (!linkedResponsibilityId) return toast.error("Choose the R&R this measurable belongs to.");
     if (!form.measurementPeriod) return toast.error("Choose a measurement period.");
@@ -241,17 +241,17 @@ export default function ScorecardMetricEditor({ open, onOpenChange, responsibili
 
   const selectItems = (items: Array<[string, string]>) => items.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>);
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="flex max-h-[90vh] w-[min(calc(100vw-2rem),40rem)] flex-col gap-3 overflow-hidden p-5 sm:max-w-[40rem]">
-      <DialogHeader>
-        <DialogTitle>{metric?.id ? "Edit measurable" : "Create measurable"}</DialogTitle>
-        <DialogDescription>Name the result, how it is calculated, and who owns it. Extra settings stay behind Advanced.</DialogDescription>
+      <DialogContent className="flex max-h-[90vh] w-[min(calc(100vw-2rem),40rem)] flex-col gap-3 overflow-hidden p-5 sm:max-w-[40rem]">
+        <DialogHeader>
+          <DialogTitle>{metric?.id ? "Edit measurable" : "Create measurable"}</DialogTitle>
+          <DialogDescription>Name the result, how it is calculated, and whose data or update is used. The R&R itself remains owned by its Accountability seat.</DialogDescription>
       </DialogHeader>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
         <section className="grid gap-3 sm:grid-cols-6">
           <div className="space-y-1 sm:col-span-6"><Label>Name *</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} placeholder="Eligible booking conversion rate" /></div>
           <div className="space-y-1 sm:col-span-6"><Label>Definition</Label><Textarea className="min-h-[72px]" value={form.definition} onChange={(event) => update({ definition: event.target.value })} placeholder="Optional: what counts, what does not, and which people or records are included." /></div>
           <div className="space-y-1 sm:col-span-6"><Label>How it&apos;s calculated *</Label>{automatic ? <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm leading-6 text-muted-foreground">{autoDescription}</div> : <Textarea className="min-h-[72px]" value={form.calculationDescription} onChange={(event) => update({ calculationDescription: event.target.value })} placeholder="Describe exactly how this number is calculated." />}</div>
-          <div className="space-y-1 sm:col-span-3"><Label>Owner *</Label><Select value={form.ownerId} onValueChange={(value) => update({ ownerId: value })}><SelectTrigger><SelectValue placeholder="Choose a person" /></SelectTrigger><SelectContent>{metricOwners.map((owner) => <SelectItem key={owner.id} value={String(owner.id)}>{owner.name ?? owner.email}{owner.title ? ` · ${owner.title}` : ""}</SelectItem>)}</SelectContent></Select></div>
+          <div className="space-y-1 sm:col-span-3"><Label>Measurement data owner *</Label><Select value={form.ownerId} onValueChange={(value) => update({ ownerId: value })}><SelectTrigger><SelectValue placeholder="Choose a person" /></SelectTrigger><SelectContent>{metricOwners.map((owner) => <SelectItem key={owner.id} value={String(owner.id)}>{owner.name ?? owner.email}{owner.title ? ` · ${owner.title}` : ""}</SelectItem>)}</SelectContent></Select></div>
           <div className="space-y-1 sm:col-span-3"><Label>R&amp;R *</Label>{responsibilities?.length ? <Select value={form.responsibilityId} onValueChange={(value) => update({ responsibilityId: value })}><SelectTrigger><SelectValue placeholder="Choose an R&R" /></SelectTrigger><SelectContent>{responsibilities.map((responsibility) => <SelectItem key={responsibility.id} value={String(responsibility.id)}>{responsibility.title}</SelectItem>)}</SelectContent></Select> : <Input value={metric?.responsibility?.title ?? "This R&R"} disabled />}</div>
           {!targetIsInformational && !targetIsRange && <div className="space-y-1 sm:col-span-3"><Label>Target</Label><Input type="number" step="any" value={form.targetValue} onChange={(event) => update({ targetValue: event.target.value })} placeholder="Leave empty if not set" /></div>}
           <div className={`space-y-1 ${targetIsInformational || targetIsRange ? "sm:col-span-6" : "sm:col-span-3"}`}><Label>Warning at</Label><Input type="number" step="any" value={form.warningThreshold} onChange={(event) => update({ warningThreshold: event.target.value })} placeholder="Optional" /></div>

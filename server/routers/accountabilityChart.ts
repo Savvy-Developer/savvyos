@@ -178,9 +178,8 @@ export const accountabilityChartRouter = router({
           .where(eq(accountabilitySeatHolders.seatId, input.id))
           .orderBy(asc(accountabilitySeatHolders.sortOrder), asc(users.name)),
         db
-          .select({ responsibility: rolesResponsibilities, owner: users })
+          .select({ responsibility: rolesResponsibilities })
           .from(rolesResponsibilities)
-          .innerJoin(users, eq(rolesResponsibilities.ownerId, users.id))
           .where(and(eq(rolesResponsibilities.seatId, input.id), eq(rolesResponsibilities.status, "active")))
           .orderBy(asc(rolesResponsibilities.title)),
       ]);
@@ -193,11 +192,10 @@ export const accountabilityChartRouter = router({
           email: user.email,
           title: user.title,
         })),
-        responsibilities: responsibilityRows.map(({ responsibility, owner }) => ({
+        responsibilities: responsibilityRows.map(({ responsibility }) => ({
           id: responsibility.id,
           title: responsibility.title,
           cadence: responsibility.cadence,
-          owner: { id: owner.id, name: owner.name, email: owner.email, title: owner.title },
         })),
       };
     }),

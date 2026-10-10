@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -8,6 +8,7 @@ import { invokeLLM } from "../_core/llm";
 import { storagePut } from "../storage";
 import {
   accountabilitySeats,
+  accountabilitySeatHolders,
   activityLog,
   adminPermissions,
   adminProfiles,
@@ -61,7 +62,6 @@ const RESOURCE_TYPES = ["link", "document", "file", "savvy_page", "template", "f
 
 const responsibilityInput = z.object({
   title: z.string().trim().min(2).max(255),
-  ownerId: z.number().int().positive(),
   seatId: z.number().int().positive().nullable().optional(),
   description: z.string().max(50_000).nullable().optional(),
   cadence: z.enum(CADENCES),
@@ -203,6 +203,24 @@ async function requireAccountabilitySeat(db: Db, seatId: number): Promise<void> 
     .where(eq(accountabilitySeats.id, seatId))
     .limit(1);
   if (!seat) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an existing accountability seat." });
+}
+
+async function holdersBySeat(db: Db, seatIds: number[]) {
+  const uniqueSeatIds = Array.from(new Set(seatIds));
+  if (!uniqueSeatIds.length) return new Map<number, Array<{ id: number; name: string | null; email: string | null; title: string | null }>>();
+  const rows = await db
+    .select({ seatId: accountabilitySeatHolders.seatId, user: users })
+    .from(accountabilitySeatHolders)
+    .innerJoin(users, eq(accountabilitySeatHolders.userId, users.id))
+    .where(inArray(accountabilitySeatHolders.seatId, uniqueSeatIds))
+    .orderBy(asc(accountabilitySeatHolders.sortOrder), asc(users.name));
+  const holders = new Map<number, Array<{ id: number; name: string | null; email: string | null; title: string | null }>>();
+  for (const row of rows) {
+    const current = holders.get(row.seatId) ?? [];
+    current.push({ id: row.user.id, name: row.user.name, email: row.user.email, title: row.user.title });
+    holders.set(row.seatId, current);
+  }
+  return holders;
 }
 
 function dateOnly(date: Date): string {
@@ -461,6 +479,9 @@ async function detailedResponsibility(db: Db, responsibilityId: number) {
     .leftJoin(accountabilitySeats, eq(rolesResponsibilities.seatId, accountabilitySeats.id))
     .where(eq(rolesResponsibilities.id, responsibilityId)).limit(1);
   if (!base) throw new TRPCError({ code: "NOT_FOUND", message: "Responsibility not found." });
+  const holders = base.responsibility.seatId == null
+    ? []
+    : (await holdersBySeat(db, [base.responsibility.seatId])).get(base.responsibility.seatId) ?? [];
   const [sops, responsibilityResources, metricRows, taskLinks] = await Promise.all([
     db.select().from(rrSops).where(eq(rrSops.responsibilityId, responsibilityId)).orderBy(asc(rrSops.sortOrder), asc(rrSops.id)),
     db.select({ resource: rrResources, document: userDocuments }).from(rrResources).leftJoin(userDocuments, eq(rrResources.userDocumentId, userDocuments.id)).where(eq(rrResources.responsibilityId, responsibilityId)).orderBy(asc(rrResources.sortOrder)),
@@ -490,6 +511,7 @@ async function detailedResponsibility(db: Db, responsibilityId: number) {
     ...base.responsibility,
     owner: { id: base.owner.id, name: base.owner.name, email: base.owner.email, title: base.owner.title, department: base.ownerProfile?.adminType ?? null, reportsToId: base.owner.reportsToId },
     seat: base.seat ? { id: base.seat.id, title: base.seat.title } : null,
+    holders,
     resources: responsibilityResources.map((row) => ({ ...row.resource, document: row.document })),
     sops: sops.map((sop) => ({ ...sop, steps: steps.filter((step) => step.sopId === sop.id), resources: sopResources.filter((row) => row.resource.sopId === sop.id).map((row) => ({ ...row.resource, document: row.document })) })),
     metrics,
@@ -532,31 +554,41 @@ export const rolesResponsibilitiesRouter = router({
       .from(users).where(eq(users.isActive, true)).orderBy(asc(users.name));
   }),
 
-  list: protectedProcedure.input(z.object({ ownerId: z.number().int().positive().optional(), seatId: z.number().int().positive().optional(), status: z.enum(["active", "archived", "all"]).default("active"), search: z.string().trim().max(200).optional(), department: z.string().max(64).optional(), cadence: z.enum(CADENCES).optional(), sort: z.enum(["owner", "title", "cadence"]).default("owner") }).optional())
+  seatOptions: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return [];
+    await requireRrAccess(db, ctx.user as Viewer);
+    return db.select({ id: accountabilitySeats.id, title: accountabilitySeats.title, parentSeatId: accountabilitySeats.parentSeatId })
+      .from(accountabilitySeats).orderBy(asc(accountabilitySeats.sortOrder), asc(accountabilitySeats.title));
+  }),
+
+  list: protectedProcedure.input(z.object({ seatId: z.number().int().positive().optional(), seatAssignment: z.enum(["assigned", "unassigned", "all"]).default("all"), status: z.enum(["active", "archived", "all"]).default("active"), search: z.string().trim().max(200).optional(), cadence: z.enum(CADENCES).optional(), sort: z.enum(["seat", "title", "cadence"]).default("seat") }).optional())
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) return [];
       await requireRrAccess(db, ctx.user as Viewer);
       const conditions: any[] = [];
-      if (input?.ownerId) conditions.push(eq(rolesResponsibilities.ownerId, input.ownerId));
       if (input?.seatId) conditions.push(eq(rolesResponsibilities.seatId, input.seatId));
+      if (input?.seatAssignment === "assigned") conditions.push(isNotNull(rolesResponsibilities.seatId));
+      if (input?.seatAssignment === "unassigned") conditions.push(isNull(rolesResponsibilities.seatId));
       if (input?.status && input.status !== "all") conditions.push(eq(rolesResponsibilities.status, input.status));
       if (input?.cadence) conditions.push(eq(rolesResponsibilities.cadence, input.cadence));
-      if (input?.department) conditions.push(eq(adminProfiles.adminType, input.department as any));
       if (input?.search) conditions.push(or(sql`lower(${rolesResponsibilities.title}) like ${`%${input.search.toLowerCase()}%`}`, sql`lower(coalesce(${rolesResponsibilities.description}, '')) like ${`%${input.search.toLowerCase()}%`}`));
-      const order = input?.sort === "title" ? [asc(rolesResponsibilities.title)] : input?.sort === "cadence" ? [asc(rolesResponsibilities.cadence), asc(rolesResponsibilities.title)] : [asc(users.name), asc(rolesResponsibilities.sortOrder), asc(rolesResponsibilities.title)];
-      const rows = await db.select({ responsibility: rolesResponsibilities, owner: users, ownerProfile: adminProfiles, seat: accountabilitySeats })
-        .from(rolesResponsibilities).innerJoin(users, eq(rolesResponsibilities.ownerId, users.id)).leftJoin(adminProfiles, eq(adminProfiles.userId, users.id)).leftJoin(accountabilitySeats, eq(rolesResponsibilities.seatId, accountabilitySeats.id))
+      const order = input?.sort === "title" ? [asc(rolesResponsibilities.title)] : input?.sort === "cadence" ? [asc(rolesResponsibilities.cadence), asc(rolesResponsibilities.title)] : [asc(accountabilitySeats.title), asc(rolesResponsibilities.sortOrder), asc(rolesResponsibilities.title)];
+      const rows = await db.select({ responsibility: rolesResponsibilities, seat: accountabilitySeats })
+        .from(rolesResponsibilities).leftJoin(accountabilitySeats, eq(rolesResponsibilities.seatId, accountabilitySeats.id))
         .where(conditions.length ? and(...conditions) : undefined).orderBy(...order);
       const ids = rows.map((row) => row.responsibility.id);
       if (!ids.length) return [];
-      const [sopCounts, metricCounts] = await Promise.all([
+      const seatIds = rows.map((row) => row.responsibility.seatId).filter((id): id is number => id != null);
+      const [sopCounts, metricCounts, holders] = await Promise.all([
         db.select({ responsibilityId: rrSops.responsibilityId, count: sql<number>`count(*)` }).from(rrSops).where(inArray(rrSops.responsibilityId, ids)).groupBy(rrSops.responsibilityId),
         db.select({ responsibilityId: rrScorecardMetrics.responsibilityId, count: sql<number>`count(*)` }).from(rrScorecardMetrics).where(inArray(rrScorecardMetrics.responsibilityId, ids)).groupBy(rrScorecardMetrics.responsibilityId),
+        holdersBySeat(db, seatIds),
       ]);
       const sopMap = new Map(sopCounts.map((row) => [row.responsibilityId, Number(row.count)]));
       const metricMap = new Map(metricCounts.map((row) => [row.responsibilityId, Number(row.count)]));
-      return rows.map(({ responsibility, owner, ownerProfile, seat }) => ({ ...responsibility, owner: { id: owner.id, name: owner.name, email: owner.email, title: owner.title, reportsToId: owner.reportsToId, department: ownerProfile?.adminType ?? null }, seat: seat ? { id: seat.id, title: seat.title } : null, sopCount: sopMap.get(responsibility.id) ?? 0, metricCount: metricMap.get(responsibility.id) ?? 0 }));
+      return rows.map(({ responsibility, seat }) => ({ ...responsibility, seat: seat ? { id: seat.id, title: seat.title } : null, holders: responsibility.seatId == null ? [] : holders.get(responsibility.seatId) ?? [], sopCount: sopMap.get(responsibility.id) ?? 0, metricCount: metricMap.get(responsibility.id) ?? 0 }));
     }),
 
   get: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ ctx, input }) => {
@@ -566,16 +598,17 @@ export const rolesResponsibilitiesRouter = router({
     return detailedResponsibility(db, input.id);
   }),
 
-  create: protectedProcedure.input(responsibilityInput).mutation(async ({ ctx, input }) => {
+  create: protectedProcedure.input(responsibilityInput.extend({ seatId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
     await requireRrAccess(db, ctx.user as Viewer);
-    await requireAdminOwner(db, input.ownerId);
-    if (input.seatId != null) await requireAccountabilitySeat(db, input.seatId);
-    const [last] = await db.select({ sortOrder: rolesResponsibilities.sortOrder }).from(rolesResponsibilities).where(eq(rolesResponsibilities.ownerId, input.ownerId)).orderBy(desc(rolesResponsibilities.sortOrder)).limit(1);
-    const result = await db.insert(rolesResponsibilities).values({ ...input, description: input.description ?? null, cadenceDetails: input.cadenceDetails ?? null, sortOrder: (last?.sortOrder ?? -1) + 1, createdById: ctx.user.id });
+    await requireAdminOwner(db, ctx.user.id);
+    await requireAccountabilitySeat(db, input.seatId);
+    const [last] = await db.select({ sortOrder: rolesResponsibilities.sortOrder }).from(rolesResponsibilities).where(eq(rolesResponsibilities.seatId, input.seatId)).orderBy(desc(rolesResponsibilities.sortOrder)).limit(1);
+    // ownerId remains a non-operational legacy reference for existing files and historic records. SeatId is the sole accountability owner for new R&Rs.
+    const result = await db.insert(rolesResponsibilities).values({ ...input, ownerId: ctx.user.id, description: input.description ?? null, cadenceDetails: input.cadenceDetails ?? null, sortOrder: (last?.sortOrder ?? -1) + 1, createdById: ctx.user.id });
     const id = Number(result[0].insertId);
-    await db.insert(activityLog).values({ userId: ctx.user.id, action: "rr_created", entityType: "responsibility", entityId: id, details: { title: input.title, ownerId: input.ownerId } });
+    await db.insert(activityLog).values({ userId: ctx.user.id, action: "rr_created", entityType: "responsibility", entityId: id, details: { title: input.title, seatId: input.seatId } });
     return { id };
   }),
 
@@ -583,11 +616,15 @@ export const rolesResponsibilitiesRouter = router({
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
     await requireRrAccess(db, ctx.user as Viewer);
-    await getResponsibilityOrThrow(db, input.id);
-    if (input.ownerId) await requireAdminOwner(db, input.ownerId);
-    if (input.seatId != null) await requireAccountabilitySeat(db, input.seatId);
-    const { id, ...data } = input;
-    await db.update(rolesResponsibilities).set(data as any).where(eq(rolesResponsibilities.id, id));
+    const existing = await getResponsibilityOrThrow(db, input.id);
+    if ("seatId" in input && input.seatId == null) throw new TRPCError({ code: "BAD_REQUEST", message: "An R&R cannot be removed from its accountability seat. Move it to another seat instead." });
+    const seatId = input.seatId ?? existing.seatId;
+    if (seatId == null) throw new TRPCError({ code: "BAD_REQUEST", message: "Assign this legacy R&R to an accountability seat before saving it." });
+    await requireAccountabilitySeat(db, seatId);
+    const { id, seatId: _ignoredSeatId, ...data } = input;
+    const seatChanged = existing.seatId !== seatId;
+    const [last] = seatChanged ? await db.select({ sortOrder: rolesResponsibilities.sortOrder }).from(rolesResponsibilities).where(eq(rolesResponsibilities.seatId, seatId)).orderBy(desc(rolesResponsibilities.sortOrder)).limit(1) : [null];
+    await db.update(rolesResponsibilities).set({ ...data, seatId, ...(seatChanged ? { sortOrder: (last?.sortOrder ?? -1) + 1 } : {}) } as any).where(eq(rolesResponsibilities.id, id));
     await db.insert(activityLog).values({ userId: ctx.user.id, action: "rr_updated", entityType: "responsibility", entityId: id, details: { fields: Object.keys(data) } });
     return { success: true };
   }),
@@ -602,46 +639,27 @@ export const rolesResponsibilitiesRouter = router({
     return { success: true };
   }),
 
-  reorder: protectedProcedure.input(z.object({ ownerId: z.number().int().positive(), ids: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
+  reorder: protectedProcedure.input(z.object({ seatId: z.number().int().positive(), ids: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
     await requireRrAccess(db, ctx.user as Viewer);
-    const rows = await db.select({ id: rolesResponsibilities.id }).from(rolesResponsibilities).where(and(eq(rolesResponsibilities.ownerId, input.ownerId), inArray(rolesResponsibilities.id, input.ids)));
-    if (rows.length !== input.ids.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Every responsibility must belong to the selected owner." });
+    const rows = await db.select({ id: rolesResponsibilities.id }).from(rolesResponsibilities).where(and(eq(rolesResponsibilities.seatId, input.seatId), inArray(rolesResponsibilities.id, input.ids)));
+    if (rows.length !== input.ids.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Every responsibility must belong to the selected accountability seat." });
     await db.transaction(async (tx: any) => { for (let sortOrder = 0; sortOrder < input.ids.length; sortOrder += 1) await tx.update(rolesResponsibilities).set({ sortOrder }).where(eq(rolesResponsibilities.id, input.ids[sortOrder])); });
     return { success: true };
   }),
 
-  transferPreview: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ ctx, input }) => {
+  moveToSeat: protectedProcedure.input(z.object({ id: z.number().int().positive(), seatId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
     await requireRrAccess(db, ctx.user as Viewer);
-    const detail = await detailedResponsibility(db, input.id);
-    return { currentOwner: detail.owner, title: detail.title, counts: { sops: detail.sops.length, steps: detail.sops.reduce((total: number, sop: any) => total + sop.steps.length, 0), resources: detail.resources.length + detail.sops.reduce((total: number, sop: any) => total + sop.resources.length, 0), metrics: detail.metrics.length, linkedTasks: detail.tasks.filter((task: any) => !["completed", "cancelled"].includes(task.status)).length } };
-  }),
-
-  transfer: protectedProcedure.input(z.object({ id: z.number().int().positive(), newOwnerId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
-    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
-    await requireRrAccess(db, ctx.user as Viewer);
-    const newOwner = await requireAdminOwner(db, input.newOwnerId);
-    const transfer = await db.transaction(async (tx: any) => {
-      const [responsibility] = await tx.select().from(rolesResponsibilities).where(eq(rolesResponsibilities.id, input.id)).limit(1);
-      if (!responsibility) throw new TRPCError({ code: "NOT_FOUND", message: "Responsibility not found." });
-      if (responsibility.ownerId === input.newOwnerId) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a different owner." });
-      const [last] = await tx.select({ sortOrder: rolesResponsibilities.sortOrder }).from(rolesResponsibilities).where(eq(rolesResponsibilities.ownerId, input.newOwnerId)).orderBy(desc(rolesResponsibilities.sortOrder)).limit(1);
-      const resources = await tx.select({ userDocumentId: rrResources.userDocumentId }).from(rrResources).where(or(eq(rrResources.responsibilityId, input.id), sql`${rrResources.sopId} in (select ${rrSops.id} from ${rrSops} where ${rrSops.responsibilityId} = ${input.id})`));
-      const documentIds = resources.map((resource: any) => resource.userDocumentId).filter((id: number | null): id is number => !!id);
-      if (documentIds.length) await tx.update(userDocuments).set({ userId: input.newOwnerId }).where(inArray(userDocuments.id, documentIds));
-      const linked = await tx.select({ taskId: rrTaskLinks.taskId }).from(rrTaskLinks).where(eq(rrTaskLinks.responsibilityId, input.id));
-      const linkedTaskIds = linked.map((row: any) => row.taskId);
-      const openTaskIds = linkedTaskIds.length ? (await tx.select({ id: tasks.id }).from(tasks).where(and(inArray(tasks.id, linkedTaskIds), ne(tasks.status, "completed"), ne(tasks.status, "cancelled")))).map((task: any) => task.id) : [];
-      if (openTaskIds.length) await tx.update(tasks).set({ assignedToId: input.newOwnerId }).where(inArray(tasks.id, openTaskIds));
-      await tx.update(rolesResponsibilities).set({ ownerId: input.newOwnerId, sortOrder: (last?.sortOrder ?? -1) + 1 }).where(eq(rolesResponsibilities.id, input.id));
-      await tx.insert(activityLog).values({ userId: ctx.user.id, action: "rr_transferred", entityType: "responsibility", entityId: input.id, details: { fromOwnerId: responsibility.ownerId, toOwnerId: input.newOwnerId, movedDocumentCount: documentIds.length, reassignedOpenTaskCount: openTaskIds.length } });
-      return { fromOwnerId: responsibility.ownerId, movedDocumentCount: documentIds.length, reassignedOpenTaskCount: openTaskIds.length };
-    });
-    return { success: true, newOwner, ...transfer };
+    await requireAccountabilitySeat(db, input.seatId);
+    const responsibility = await getResponsibilityOrThrow(db, input.id);
+    if (responsibility.seatId === input.seatId) throw new TRPCError({ code: "BAD_REQUEST", message: "This R&R already belongs to that accountability seat." });
+    const [last] = await db.select({ sortOrder: rolesResponsibilities.sortOrder }).from(rolesResponsibilities).where(eq(rolesResponsibilities.seatId, input.seatId)).orderBy(desc(rolesResponsibilities.sortOrder)).limit(1);
+    await db.update(rolesResponsibilities).set({ seatId: input.seatId, sortOrder: (last?.sortOrder ?? -1) + 1 }).where(eq(rolesResponsibilities.id, input.id));
+    await db.insert(activityLog).values({ userId: ctx.user.id, action: "rr_moved_to_seat", entityType: "responsibility", entityId: input.id, details: { fromSeatId: responsibility.seatId, toSeatId: input.seatId } });
+    return { success: true };
   }),
 
   createSop: protectedProcedure.input(z.object({ responsibilityId: z.number().int().positive(), title: z.string().trim().min(2).max(255), overview: z.string().max(50_000).nullable().optional() })).mutation(async ({ ctx, input }) => {
@@ -869,11 +887,16 @@ export const rolesResponsibilitiesRouter = router({
 
   profileSummary: protectedProcedure.input(z.object({ ownerId: z.number().int().positive(), includeArchived: z.boolean().default(false) })).query(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) return { responsibilities: [], scorecard: [] }; await requireRrAccess(db, ctx.user as Viewer); await requireAdminOwner(db, input.ownerId);
-    const responsibilities = await db.select().from(rolesResponsibilities).where(and(eq(rolesResponsibilities.ownerId, input.ownerId), input.includeArchived ? undefined : eq(rolesResponsibilities.status, "active"))).orderBy(asc(rolesResponsibilities.sortOrder));
+    const heldSeats = await db.select({ seatId: accountabilitySeatHolders.seatId }).from(accountabilitySeatHolders).where(eq(accountabilitySeatHolders.userId, input.ownerId));
+    const seatIds = heldSeats.map((row) => row.seatId);
+    if (!seatIds.length) return { responsibilities: [], scorecard: [] };
+    const responsibilityRows = await db.select({ responsibility: rolesResponsibilities, seat: accountabilitySeats }).from(rolesResponsibilities).innerJoin(accountabilitySeats, eq(rolesResponsibilities.seatId, accountabilitySeats.id)).where(and(inArray(rolesResponsibilities.seatId, seatIds), input.includeArchived ? undefined : eq(rolesResponsibilities.status, "active"))).orderBy(asc(accountabilitySeats.title), asc(rolesResponsibilities.sortOrder), asc(rolesResponsibilities.title));
+    const holderMap = await holdersBySeat(db, seatIds);
+    const responsibilities = responsibilityRows.map(({ responsibility, seat }) => ({ ...responsibility, seat: { id: seat.id, title: seat.title }, holders: holderMap.get(seat.id) ?? [] }));
     const scorecardRows = await db.select({ metric: rrScorecardMetrics, responsibility: rolesResponsibilities })
       .from(rrScorecardMetrics)
       .innerJoin(rolesResponsibilities, eq(rrScorecardMetrics.responsibilityId, rolesResponsibilities.id))
-      .where(and(eq(rolesResponsibilities.ownerId, input.ownerId), eq(rolesResponsibilities.status, "active"), eq(rrScorecardMetrics.status, "active")));
+      .where(and(inArray(rolesResponsibilities.seatId, seatIds), eq(rolesResponsibilities.status, "active"), eq(rrScorecardMetrics.status, "active")));
     const scorecard = await Promise.all(scorecardRows.map(async ({ metric, responsibility }) => ({ ...(await performanceForMetric(db, metric)), responsibilityId: responsibility.id, responsibilityTitle: responsibility.title })));
     return { responsibilities, scorecard };
   }),
@@ -887,7 +910,7 @@ export const rolesResponsibilitiesRouter = router({
 
   aiImproveResponsibility: protectedProcedure.input(z.object({ responsibilityId: z.number().int().positive(), prompt: z.string().max(4_000).optional() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" }); await requireRrAccess(db, ctx.user as Viewer); const detail = await detailedResponsibility(db, input.responsibilityId);
-    const result = await invokeLLM({ model: "gpt-5-mini", responseFormat: { type: "json_object" }, maxTokens: 1200, messages: [{ role: "system", content: "Improve a responsibility without changing ownership or creating records. Return JSON only with title, description, cadence, cadenceDetails, and rationale. Be practical, specific, and concise." }, { role: "user", content: JSON.stringify({ request: input.prompt ?? "Clarify and make this responsibility more measurable.", responsibility: { title: detail.title, description: detail.description, cadence: detail.cadence, cadenceDetails: detail.cadenceDetails, owner: detail.owner, sops: detail.sops.map((sop: any) => sop.title) } }) }] });
+    const result = await invokeLLM({ model: "gpt-5-mini", responseFormat: { type: "json_object" }, maxTokens: 1200, messages: [{ role: "system", content: "Improve a responsibility without changing ownership or creating records. Return JSON only with title, description, cadence, cadenceDetails, and rationale. Be practical, specific, and concise." }, { role: "user", content: JSON.stringify({ request: input.prompt ?? "Clarify and make this responsibility more measurable.", responsibility: { title: detail.title, description: detail.description, cadence: detail.cadence, cadenceDetails: detail.cadenceDetails, accountabilitySeat: detail.seat, currentHolders: detail.holders, sops: detail.sops.map((sop: any) => sop.title) } }) }] });
     return parseJson(llmText(result));
   }),
 
@@ -911,16 +934,20 @@ export const rolesResponsibilitiesRouter = router({
 
   aiOwnershipSearch: protectedProcedure.input(z.object({ question: z.string().trim().min(2).max(2_000) })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" }); await requireRrAccess(db, ctx.user as Viewer);
-    const records = await db.select({ id: rolesResponsibilities.id, title: rolesResponsibilities.title, description: rolesResponsibilities.description, cadence: rolesResponsibilities.cadence, ownerId: users.id, ownerName: users.name, ownerTitle: users.title }).from(rolesResponsibilities).innerJoin(users, eq(rolesResponsibilities.ownerId, users.id)).where(eq(rolesResponsibilities.status, "active"));
-    const result = await invokeLLM({ model: "gpt-5-mini", responseFormat: { type: "json_object" }, maxTokens: 1000, messages: [{ role: "system", content: "Answer ownership questions only from the supplied current responsibility records. Return JSON with summary and matches, where matches is an array of responsibilityId plus a short reason. Never invent an owner or responsibility." }, { role: "user", content: JSON.stringify({ question: input.question, records }) }] });
+    const responsibilityRows = await db.select({ id: rolesResponsibilities.id, title: rolesResponsibilities.title, description: rolesResponsibilities.description, cadence: rolesResponsibilities.cadence, seatId: rolesResponsibilities.seatId, seatTitle: accountabilitySeats.title }).from(rolesResponsibilities).leftJoin(accountabilitySeats, eq(rolesResponsibilities.seatId, accountabilitySeats.id)).where(eq(rolesResponsibilities.status, "active"));
+    const holderMap = await holdersBySeat(db, responsibilityRows.map((row) => row.seatId).filter((seatId): seatId is number => seatId != null));
+    const records = responsibilityRows.map((record) => ({ ...record, holderNames: record.seatId == null ? [] : (holderMap.get(record.seatId) ?? []).map((holder) => holder.name ?? holder.email ?? "Unnamed user") }));
+    const result = await invokeLLM({ model: "gpt-5-mini", responseFormat: { type: "json_object" }, maxTokens: 1000, messages: [{ role: "system", content: "Answer accountability questions only from the supplied current responsibility records. An R&R belongs to its accountability seat, and each named current holder is jointly accountable. Return JSON with summary and matches, where matches is an array of responsibilityId plus a short reason. Never invent a seat, holder, or responsibility." }, { role: "user", content: JSON.stringify({ question: input.question, records }) }] });
     const parsed = parseJson<{ summary?: string; matches?: Array<{ responsibilityId: number; reason: string }> }>(llmText(result));
     const valid = new Map(records.map((record) => [record.id, record]));
-    return { summary: parsed.summary ?? "", matches: (parsed.matches ?? []).filter((match) => valid.has(match.responsibilityId)).map((match) => ({ ...match, responsibility: valid.get(match.responsibilityId), responsibilityUrl: `/roles-responsibilities/${match.responsibilityId}`, ownerProfileUrl: `/agents/${valid.get(match.responsibilityId)!.ownerId}` })) };
+    return { summary: parsed.summary ?? "", matches: (parsed.matches ?? []).filter((match) => valid.has(match.responsibilityId)).map((match) => ({ ...match, responsibility: valid.get(match.responsibilityId), responsibilityUrl: `/roles-responsibilities/${match.responsibilityId}` })) };
   }),
 
   aiQualityReview: protectedProcedure.mutation(async ({ ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" }); await requireRrAccess(db, ctx.user as Viewer);
-    const records = await db.select({ id: rolesResponsibilities.id, title: rolesResponsibilities.title, description: rolesResponsibilities.description, cadence: rolesResponsibilities.cadence, ownerId: users.id, ownerName: users.name, status: rolesResponsibilities.status, sopCount: sql<number>`(select count(*) from ${rrSops} where ${rrSops.responsibilityId} = ${rolesResponsibilities.id})`, metricCount: sql<number>`(select count(*) from ${rrScorecardMetrics} where ${rrScorecardMetrics.responsibilityId} = ${rolesResponsibilities.id} and ${rrScorecardMetrics.status} = 'active')` }).from(rolesResponsibilities).innerJoin(users, eq(rolesResponsibilities.ownerId, users.id)).where(eq(rolesResponsibilities.status, "active"));
+    const responsibilityRows = await db.select({ id: rolesResponsibilities.id, title: rolesResponsibilities.title, description: rolesResponsibilities.description, cadence: rolesResponsibilities.cadence, seatId: rolesResponsibilities.seatId, seatTitle: accountabilitySeats.title, status: rolesResponsibilities.status, sopCount: sql<number>`(select count(*) from ${rrSops} where ${rrSops.responsibilityId} = ${rolesResponsibilities.id})`, metricCount: sql<number>`(select count(*) from ${rrScorecardMetrics} where ${rrScorecardMetrics.responsibilityId} = ${rolesResponsibilities.id} and ${rrScorecardMetrics.status} = 'active')` }).from(rolesResponsibilities).leftJoin(accountabilitySeats, eq(rolesResponsibilities.seatId, accountabilitySeats.id)).where(eq(rolesResponsibilities.status, "active"));
+    const holderMap = await holdersBySeat(db, responsibilityRows.map((row) => row.seatId).filter((seatId): seatId is number => seatId != null));
+    const records = responsibilityRows.map((record) => ({ ...record, holderNames: record.seatId == null ? [] : (holderMap.get(record.seatId) ?? []).map((holder) => holder.name ?? holder.email ?? "Unnamed user") }));
     const result = await invokeLLM({ model: "gpt-5-mini", responseFormat: { type: "json_object" }, maxTokens: 2000, messages: [{ role: "system", content: "Review the supplied responsibilities for quality. Return JSON only with findings array. Each finding must have type (overlap, duplicate, unclear_description, missing_sop, missing_cadence, missing_metric, confusing_workload), responsibilityIds array, severity (low/medium/high), recommendation. Do not change or delete anything." }, { role: "user", content: JSON.stringify({ records }) }] });
     return parseJson(llmText(result));
   }),

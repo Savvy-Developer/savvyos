@@ -3763,8 +3763,9 @@ export const rolesResponsibilities = mysqlTable(
     ownerId: int("ownerId")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
-    // The person-level R&R owner remains authoritative. This optional field
-    // makes the accountable seat visible without changing that ownership.
+    // seatId is the authoritative R&R owner. ownerId is retained only for
+    // backward-compatible historic files, metric fallbacks, and pre-existing
+    // R&Rs awaiting assignment; new R&Rs must select a seat in the API.
     seatId: int("seatId").references(() => accountabilitySeats.id, {
       onDelete: "set null",
     }),
