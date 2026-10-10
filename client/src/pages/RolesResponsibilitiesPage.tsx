@@ -30,6 +30,7 @@ export default function RolesResponsibilitiesPage() {
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const [owner, setOwner] = useState("all");
+  const [seat] = useState(() => new URLSearchParams(window.location.search).get("seat") ?? "all");
   const [department, setDepartment] = useState("all");
   const [cadence, setCadence] = useState("all");
   const [status, setStatus] = useState<"active" | "archived" | "all">("active");
@@ -53,7 +54,7 @@ export default function RolesResponsibilitiesPage() {
   const [manualNote, setManualNote] = useState("");
 
   const { data: owners = [], isLoading: ownersLoading } = trpc.rolesResponsibilities.listAdmins.useQuery();
-  const { data: list = [], isLoading } = trpc.rolesResponsibilities.list.useQuery({ ownerId: owner === "all" ? undefined : Number(owner), department: department === "all" ? undefined : department, cadence: cadence === "all" ? undefined : cadence as any, status, search: search || undefined, sort });
+  const { data: list = [], isLoading } = trpc.rolesResponsibilities.list.useQuery({ ownerId: owner === "all" ? undefined : Number(owner), seatId: seat === "all" ? undefined : Number(seat), department: department === "all" ? undefined : department, cadence: cadence === "all" ? undefined : cadence as any, status, search: search || undefined, sort });
   const { data: scorecard = [], isLoading: scorecardLoading } = trpc.rolesResponsibilities.scorecard.useQuery({ ownerId: metricOwner === "all" ? undefined : Number(metricOwner), metricType, onTarget: metricTarget, status: "active" });
   const transferMutation = trpc.rolesResponsibilities.transfer.useMutation({ onSuccess: (result) => { void utils.rolesResponsibilities.list.invalidate(); void utils.rolesResponsibilities.scorecard.invalidate(); void utils.rolesResponsibilities.profileSummary.invalidate(); void utils.users.orgChart.invalidate(); toast.success(`Transferred to ${result.newOwner.name ?? "new owner"}`); setTransferTarget(null); }, onError: (error) => toast.error(error.message) });
   const ownershipMutation = trpc.rolesResponsibilities.aiOwnershipSearch.useMutation({ onSuccess: setOwnershipResult, onError: (error) => toast.error(error.message) });

@@ -64,6 +64,7 @@ import { operationsEscalationsRouter } from "./routers/operationsEscalations";
 import { hotLeadsRouter } from "./routers/hotLeads";
 import { passwordsRouter } from "./routers/passwords";
 import { rolesResponsibilitiesRouter } from "./routers/rolesResponsibilities";
+import { accountabilityChartRouter } from "./routers/accountabilityChart";
 import { dailyReportRouter } from "./routers/dailyReport";
 import { referralsRouter } from "./routers/referrals";
 import { customReportsRouter } from "./routers/customReports";
@@ -320,7 +321,8 @@ export const appRouter = router({
   operationsEscalations: operationsEscalationsRouter,
   hotLeads: hotLeadsRouter,
   passwords: passwordsRouter,
-    rolesResponsibilities: rolesResponsibilitiesRouter,
+  rolesResponsibilities: rolesResponsibilitiesRouter,
+  accountabilityChart: accountabilityChartRouter,
   dailyReport: dailyReportRouter,
   referrals: referralsRouter,
   pulse: pulseRouter,

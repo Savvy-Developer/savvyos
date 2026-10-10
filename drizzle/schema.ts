@@ -3679,6 +3679,58 @@ export type InsertUserDocument = typeof userDocuments.$inferInsert;
 // Responsibilities belong directly to an existing administrator. Child records use
 // foreign keys so that an individual responsibility can be transferred atomically
 // without duplicating its SOPs, resources, scorecard configuration, or values.
+export const accountabilitySeats = mysqlTable(
+  "accountability_seats",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    // The SQL migration adds the self-referencing foreign key. Keeping this as a
+    // plain id in Drizzle avoids a declaration cycle while preserving the schema.
+    parentSeatId: int("parentSeatId"),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    createdById: int("createdById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("accountability_seats_parent_sort_idx").on(
+      table.parentSeatId,
+      table.sortOrder
+    ),
+    index("accountability_seats_title_idx").on(table.title),
+  ]
+);
+export type AccountabilitySeat = typeof accountabilitySeats.$inferSelect;
+export type InsertAccountabilitySeat = typeof accountabilitySeats.$inferInsert;
+
+export const accountabilitySeatHolders = mysqlTable(
+  "accountability_seat_holders",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    seatId: int("seatId")
+      .notNull()
+      .references(() => accountabilitySeats.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("accountability_seat_holders_seat_user_unique").on(
+      table.seatId,
+      table.userId
+    ),
+    index("accountability_seat_holders_user_idx").on(table.userId),
+  ]
+);
+export type AccountabilitySeatHolder = typeof accountabilitySeatHolders.$inferSelect;
+export type InsertAccountabilitySeatHolder =
+  typeof accountabilitySeatHolders.$inferInsert;
+
 export const rolesResponsibilities = mysqlTable(
   "roles_responsibilities",
   {
@@ -3687,6 +3739,11 @@ export const rolesResponsibilities = mysqlTable(
     ownerId: int("ownerId")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
+    // The person-level R&R owner remains authoritative. This optional field
+    // makes the accountable seat visible without changing that ownership.
+    seatId: int("seatId").references(() => accountabilitySeats.id, {
+      onDelete: "set null",
+    }),
     description: text("description"),
     cadence: mysqlEnum("cadence", [
       "ongoing",
@@ -3718,6 +3775,7 @@ export const rolesResponsibilities = mysqlTable(
       table.status,
       table.sortOrder
     ),
+    index("rr_seat_status_idx").on(table.seatId, table.status),
     index("rr_title_idx").on(table.title),
   ]
 );

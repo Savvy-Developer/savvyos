@@ -7,6 +7,7 @@ import { getDb } from "../db";
 import { invokeLLM } from "../_core/llm";
 import { storagePut } from "../storage";
 import {
+  accountabilitySeats,
   activityLog,
   adminPermissions,
   adminProfiles,
@@ -61,6 +62,7 @@ const RESOURCE_TYPES = ["link", "document", "file", "savvy_page", "template", "f
 const responsibilityInput = z.object({
   title: z.string().trim().min(2).max(255),
   ownerId: z.number().int().positive(),
+  seatId: z.number().int().positive().nullable().optional(),
   description: z.string().max(50_000).nullable().optional(),
   cadence: z.enum(CADENCES),
   cadenceDetails: z.string().max(2_000).nullable().optional(),
@@ -194,6 +196,13 @@ async function getResponsibilityOrThrow(db: Db, id: number) {
   const [responsibility] = await db.select().from(rolesResponsibilities).where(eq(rolesResponsibilities.id, id)).limit(1);
   if (!responsibility) throw new TRPCError({ code: "NOT_FOUND", message: "Responsibility not found." });
   return responsibility;
+}
+async function requireAccountabilitySeat(db: Db, seatId: number): Promise<void> {
+  const [seat] = await db.select({ id: accountabilitySeats.id })
+    .from(accountabilitySeats)
+    .where(eq(accountabilitySeats.id, seatId))
+    .limit(1);
+  if (!seat) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an existing accountability seat." });
 }
 
 function dateOnly(date: Date): string {
@@ -445,10 +454,11 @@ async function performanceForMetric(db: Db, metric: typeof rrScorecardMetrics.$i
 }
 
 async function detailedResponsibility(db: Db, responsibilityId: number) {
-  const [base] = await db.select({ responsibility: rolesResponsibilities, owner: users, ownerProfile: adminProfiles })
+  const [base] = await db.select({ responsibility: rolesResponsibilities, owner: users, ownerProfile: adminProfiles, seat: accountabilitySeats })
     .from(rolesResponsibilities)
     .innerJoin(users, eq(rolesResponsibilities.ownerId, users.id))
     .leftJoin(adminProfiles, eq(adminProfiles.userId, users.id))
+    .leftJoin(accountabilitySeats, eq(rolesResponsibilities.seatId, accountabilitySeats.id))
     .where(eq(rolesResponsibilities.id, responsibilityId)).limit(1);
   if (!base) throw new TRPCError({ code: "NOT_FOUND", message: "Responsibility not found." });
   const [sops, responsibilityResources, metricRows, taskLinks] = await Promise.all([
@@ -479,6 +489,7 @@ async function detailedResponsibility(db: Db, responsibilityId: number) {
   return {
     ...base.responsibility,
     owner: { id: base.owner.id, name: base.owner.name, email: base.owner.email, title: base.owner.title, department: base.ownerProfile?.adminType ?? null, reportsToId: base.owner.reportsToId },
+    seat: base.seat ? { id: base.seat.id, title: base.seat.title } : null,
     resources: responsibilityResources.map((row) => ({ ...row.resource, document: row.document })),
     sops: sops.map((sop) => ({ ...sop, steps: steps.filter((step) => step.sopId === sop.id), resources: sopResources.filter((row) => row.resource.sopId === sop.id).map((row) => ({ ...row.resource, document: row.document })) })),
     metrics,
@@ -521,20 +532,21 @@ export const rolesResponsibilitiesRouter = router({
       .from(users).where(eq(users.isActive, true)).orderBy(asc(users.name));
   }),
 
-  list: protectedProcedure.input(z.object({ ownerId: z.number().int().positive().optional(), status: z.enum(["active", "archived", "all"]).default("active"), search: z.string().trim().max(200).optional(), department: z.string().max(64).optional(), cadence: z.enum(CADENCES).optional(), sort: z.enum(["owner", "title", "cadence"]).default("owner") }).optional())
+  list: protectedProcedure.input(z.object({ ownerId: z.number().int().positive().optional(), seatId: z.number().int().positive().optional(), status: z.enum(["active", "archived", "all"]).default("active"), search: z.string().trim().max(200).optional(), department: z.string().max(64).optional(), cadence: z.enum(CADENCES).optional(), sort: z.enum(["owner", "title", "cadence"]).default("owner") }).optional())
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) return [];
       await requireRrAccess(db, ctx.user as Viewer);
       const conditions: any[] = [];
       if (input?.ownerId) conditions.push(eq(rolesResponsibilities.ownerId, input.ownerId));
+      if (input?.seatId) conditions.push(eq(rolesResponsibilities.seatId, input.seatId));
       if (input?.status && input.status !== "all") conditions.push(eq(rolesResponsibilities.status, input.status));
       if (input?.cadence) conditions.push(eq(rolesResponsibilities.cadence, input.cadence));
       if (input?.department) conditions.push(eq(adminProfiles.adminType, input.department as any));
       if (input?.search) conditions.push(or(sql`lower(${rolesResponsibilities.title}) like ${`%${input.search.toLowerCase()}%`}`, sql`lower(coalesce(${rolesResponsibilities.description}, '')) like ${`%${input.search.toLowerCase()}%`}`));
       const order = input?.sort === "title" ? [asc(rolesResponsibilities.title)] : input?.sort === "cadence" ? [asc(rolesResponsibilities.cadence), asc(rolesResponsibilities.title)] : [asc(users.name), asc(rolesResponsibilities.sortOrder), asc(rolesResponsibilities.title)];
-      const rows = await db.select({ responsibility: rolesResponsibilities, owner: users, ownerProfile: adminProfiles })
-        .from(rolesResponsibilities).innerJoin(users, eq(rolesResponsibilities.ownerId, users.id)).leftJoin(adminProfiles, eq(adminProfiles.userId, users.id))
+      const rows = await db.select({ responsibility: rolesResponsibilities, owner: users, ownerProfile: adminProfiles, seat: accountabilitySeats })
+        .from(rolesResponsibilities).innerJoin(users, eq(rolesResponsibilities.ownerId, users.id)).leftJoin(adminProfiles, eq(adminProfiles.userId, users.id)).leftJoin(accountabilitySeats, eq(rolesResponsibilities.seatId, accountabilitySeats.id))
         .where(conditions.length ? and(...conditions) : undefined).orderBy(...order);
       const ids = rows.map((row) => row.responsibility.id);
       if (!ids.length) return [];
@@ -544,7 +556,7 @@ export const rolesResponsibilitiesRouter = router({
       ]);
       const sopMap = new Map(sopCounts.map((row) => [row.responsibilityId, Number(row.count)]));
       const metricMap = new Map(metricCounts.map((row) => [row.responsibilityId, Number(row.count)]));
-      return rows.map(({ responsibility, owner, ownerProfile }) => ({ ...responsibility, owner: { id: owner.id, name: owner.name, email: owner.email, title: owner.title, reportsToId: owner.reportsToId, department: ownerProfile?.adminType ?? null }, sopCount: sopMap.get(responsibility.id) ?? 0, metricCount: metricMap.get(responsibility.id) ?? 0 }));
+      return rows.map(({ responsibility, owner, ownerProfile, seat }) => ({ ...responsibility, owner: { id: owner.id, name: owner.name, email: owner.email, title: owner.title, reportsToId: owner.reportsToId, department: ownerProfile?.adminType ?? null }, seat: seat ? { id: seat.id, title: seat.title } : null, sopCount: sopMap.get(responsibility.id) ?? 0, metricCount: metricMap.get(responsibility.id) ?? 0 }));
     }),
 
   get: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ ctx, input }) => {
@@ -559,6 +571,7 @@ export const rolesResponsibilitiesRouter = router({
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
     await requireRrAccess(db, ctx.user as Viewer);
     await requireAdminOwner(db, input.ownerId);
+    if (input.seatId != null) await requireAccountabilitySeat(db, input.seatId);
     const [last] = await db.select({ sortOrder: rolesResponsibilities.sortOrder }).from(rolesResponsibilities).where(eq(rolesResponsibilities.ownerId, input.ownerId)).orderBy(desc(rolesResponsibilities.sortOrder)).limit(1);
     const result = await db.insert(rolesResponsibilities).values({ ...input, description: input.description ?? null, cadenceDetails: input.cadenceDetails ?? null, sortOrder: (last?.sortOrder ?? -1) + 1, createdById: ctx.user.id });
     const id = Number(result[0].insertId);
@@ -572,6 +585,7 @@ export const rolesResponsibilitiesRouter = router({
     await requireRrAccess(db, ctx.user as Viewer);
     await getResponsibilityOrThrow(db, input.id);
     if (input.ownerId) await requireAdminOwner(db, input.ownerId);
+    if (input.seatId != null) await requireAccountabilitySeat(db, input.seatId);
     const { id, ...data } = input;
     await db.update(rolesResponsibilities).set(data as any).where(eq(rolesResponsibilities.id, id));
     await db.insert(activityLog).values({ userId: ctx.user.id, action: "rr_updated", entityType: "responsibility", entityId: id, details: { fields: Object.keys(data) } });

@@ -119,6 +119,7 @@ import HotLeadsPage from "./pages/HotLeadsPage";
 import PasswordsPage from "./pages/PasswordsPage";
 import RolesResponsibilitiesPage from "./pages/RolesResponsibilitiesPage";
 import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
+import AccountabilityChartPage from "./pages/AccountabilityChartPage";
 import PulseFoundationPage from "./pages/PulseFoundationPage";
 import PulseMyInputsPage from "./pages/PulseMyInputsPage";
 import PulseMyWorkPage from "./pages/PulseMyWorkPage";
@@ -665,6 +666,7 @@ function Router() {
           <Route path="/my-onboarding" component={MyOnboardingPage} />
           <Route path="/org-chart" component={OrgChartPage} />
           <Route path="/agent-directory" component={AgentDirectoryPage} />
+          <Route path="/hr/accountability-chart">{() => <AdminRoute><AccountabilityChartPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
           <Route path="/pulse/meetings/:id/run">{({ id }: any) => <PulseMemberRoute><PulseMeetingRunPage meetingId={id} /></PulseMemberRoute>}</Route>

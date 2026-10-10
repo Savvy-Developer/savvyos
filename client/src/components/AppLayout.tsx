@@ -641,6 +641,7 @@ function buildAdminNav(
         },
         { icon: UserCheck, label: "On/Offboarding", path: "/onboarding" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
+        { icon: Building2, label: "Accountability Chart", path: "/hr/accountability-chart" },
         { icon: Users, label: "Agent Directory", path: "/agent-directory" },
         { icon: Briefcase, label: "Job Board", path: "/job-board" },
         {
