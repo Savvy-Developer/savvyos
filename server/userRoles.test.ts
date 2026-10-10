@@ -6,18 +6,18 @@ import {
 } from "./userRoles";
 
 describe("multi-role management", () => {
-  it("allows only Tyler and Elana to manage additional roles", () => {
+  it("allows only Dyl and Elana to manage additional roles", () => {
     expect(
-      canManageUserRoles({ role: "admin", email: "tyler@savvy.realty" })
+      canManageUserRoles({ role: "admin", email: "dyl@savvy.realty" })
     ).toBe(true);
     expect(
       canManageUserRoles({ role: "admin", email: "elana@savvy.realty" })
     ).toBe(true);
     expect(
-      canManageUserRoles({ role: "admin", email: "dyl@savvy.realty" })
+      canManageUserRoles({ role: "admin", email: "tyler@savvy.realty" })
     ).toBe(false);
     expect(
-      canManageUserRoles({ role: "isa", email: "tyler@savvy.realty" })
+      canManageUserRoles({ role: "isa", email: "dyl@savvy.realty" })
     ).toBe(false);
   });
 

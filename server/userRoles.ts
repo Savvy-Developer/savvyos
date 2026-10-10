@@ -6,7 +6,7 @@ import { USER_ROLES, type UserRole } from "@shared/userRoles";
 export { USER_ROLES, type UserRole };
 
 const ROLE_MANAGER_EMAILS = new Set([
-  "tyler@savvy.realty",
+  "dyl@savvy.realty",
   "elana@savvy.realty",
 ]);
 
